@@ -358,7 +358,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const wrapper = document.getElementById('map-wrapper');
         if (!wrapper) return;
 
-        const MAX_ZOOM = 8;        // ingrandimento massimo rispetto alla vista intera
+        // Ingrandimento massimo rispetto alla vista intera. Alto perche' alcune zone
+        // (es. il dettaglio storico d'Europa) hanno molti territori piccoli e ravvicinati:
+        // serve poter zoomare a fondo per selezionarli comodamente uno per uno.
+        const MAX_ZOOM = 60;
         const DRAG_THRESHOLD = 4;  // px prima di considerarlo un vero trascinamento
 
         // Bounding box dei soli territori: serve a scartare i margini vuoti (oceano)

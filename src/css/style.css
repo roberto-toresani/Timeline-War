@@ -21,28 +21,29 @@ body {
 }
 
 h1 {
-    margin: 5px 0;
+    margin: 8px 0 4px 0;
     color: #e0c097;
     text-transform: uppercase;
     letter-spacing: 2px;
-    font-size: 1.2rem;
+    font-size: 2.2rem;
     z-index: 10;
 }
 
 p {
-    margin: 0 0 10px 0;
-    color: #888;
+    margin: 0 0 14px 0;
+    color: #bbb;
+    font-size: 1.15rem;
     z-index: 10;
 }
 
 .role-banner {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 14px;
+    gap: 12px;
+    padding: 10px 20px;
     border-radius: 20px;
-    margin-bottom: 10px;
-    font-size: 0.85em;
+    margin-bottom: 14px;
+    font-size: 1.1rem;
     z-index: 10;
 }
 
@@ -59,8 +60,8 @@ p {
 }
 
 .role-banner button {
-    padding: 4px 10px;
-    font-size: 0.85em;
+    padding: 8px 16px;
+    font-size: 1rem;
     cursor: pointer;
     background: #2a2a2a;
     color: #e0c097;
@@ -406,10 +407,11 @@ svg path.fog {
     background: rgba(30, 30, 30, 0.95);
     color: #e6b422;
     /* Gold */
-    padding: 8px 12px;
+    padding: 10px 16px;
     border: 1px solid #c0a062;
     border-radius: 4px;
-    font-size: 0.9rem;
+    font-size: 1.35rem;
+    font-weight: bold;
     pointer-events: none;
     /* Let clicks pass through */
     z-index: 1000;
