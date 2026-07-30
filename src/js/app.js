@@ -351,90 +351,148 @@ document.addEventListener('DOMContentLoaded', () => {
         return graph;
     }
 
-    // Zoom (wheel) + pan (click&drag) sulla mappa.
+    // Zoom (rotella) + pan (trascinamento) manipolando il viewBox del root <svg>.
+    // Approccio "mappa di gioco": la mappa riempie sempre la cornice (niente scrollbar),
+    // lo zoom punta verso il cursore e il pan sposta la vista senza uscire dai confini.
     function wireMapZoom(svg) {
         const wrapper = document.getElementById('map-wrapper');
         if (!wrapper) return;
 
-        const BASE_W = 1200;
-        const BASE_H = 800;
-        const MIN_ZOOM = 1;
-        const MAX_ZOOM = 8;
-        const DRAG_THRESHOLD = 4; // px before we consider it a real drag
-        let zoom = 1;
+        const MAX_ZOOM = 8;        // ingrandimento massimo rispetto alla vista intera
+        const DRAG_THRESHOLD = 4;  // px prima di considerarlo un vero trascinamento
+
+        // Bounding box dei soli territori: serve a scartare i margini vuoti (oceano)
+        // che l'SVG di MapChart lascia intorno alle terre emerse.
+        function landBBox() {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            svg.querySelectorAll('path.state').forEach(p => {
+                let b; try { b = p.getBBox(); } catch (e) { return; }
+                if (!b || (!b.width && !b.height)) return;
+                if (b.x < minX) minX = b.x;
+                if (b.y < minY) minY = b.y;
+                if (b.x + b.width > maxX) maxX = b.x + b.width;
+                if (b.y + b.height > maxY) maxY = b.y + b.height;
+            });
+            if (minX === Infinity) return { x: 0, y: 0, w: 1200, h: 575 };
+            return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+        }
+
+        // Vista "tutto il mondo": bbox delle terre + piccolo margine, allargato per
+        // combaciare con l'aspetto della cornice -> la mappa riempie il riquadro senza
+        // bande vuote sopra/sotto. Allarga soltanto (non taglia mai) i territori.
+        function computeBaseViewBox() {
+            const b = landBBox();
+            const pad = 0.02;
+            let x = b.x - b.w * pad, y = b.y - b.h * pad;
+            let w = b.w * (1 + 2 * pad), h = b.h * (1 + 2 * pad);
+            const frameAR = (wrapper.clientWidth || 1) / (wrapper.clientHeight || 1);
+            const vbAR = w / h;
+            if (vbAR < frameAR) {
+                const nw = h * frameAR; x -= (nw - w) / 2; w = nw;
+            } else {
+                const nh = w / frameAR; y -= (nh - h) / 2; h = nh;
+            }
+            return { x, y, w, h };
+        }
+
+        let base = computeBaseViewBox();
+        let vb = { x: base.x, y: base.y, w: base.w, h: base.h };
+
+        function apply() {
+            svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
+        }
+
+        // Non uscire mai dai confini della vista intera.
+        function clampPan() {
+            if (vb.w > base.w) vb.w = base.w;
+            if (vb.h > base.h) vb.h = base.h;
+            if (vb.x < base.x) vb.x = base.x;
+            if (vb.y < base.y) vb.y = base.y;
+            if (vb.x + vb.w > base.x + base.w) vb.x = base.x + base.w - vb.w;
+            if (vb.y + vb.h > base.y + base.h) vb.y = base.y + base.h - vb.h;
+        }
+
+        // Punto (in coordinate SVG) sotto il cursore, robusto rispetto al letterboxing.
+        function cursorUserPoint(e) {
+            const ctm = svg.getScreenCTM();
+            if (!ctm) return null;
+            const pt = svg.createSVGPoint();
+            pt.x = e.clientX; pt.y = e.clientY;
+            return pt.matrixTransform(ctm.inverse());
+        }
+
+        apply();
 
         wrapper.addEventListener('wheel', (e) => {
             e.preventDefault();
-
-            const rect = svg.getBoundingClientRect();
-            const cursorX = e.clientX - rect.left;
-            const cursorY = e.clientY - rect.top;
-            const relX = cursorX / rect.width;
-            const relY = cursorY / rect.height;
-
-            const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-            const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * factor));
-            if (newZoom === zoom) return;
-            zoom = newZoom;
-
-            const newW = BASE_W * zoom;
-            const newH = BASE_H * zoom;
-            svg.style.width = newW + 'px';
-            svg.style.height = newH + 'px';
-            svg.style.minWidth = newW + 'px';
-            svg.style.minHeight = newH + 'px';
-
-            const newCursorX = relX * newW;
-            const newCursorY = relY * newH;
-            wrapper.scrollLeft += (newCursorX - cursorX);
-            wrapper.scrollTop += (newCursorY - cursorY);
+            const p = cursorUserPoint(e);
+            if (!p) return;
+            const minW = base.w / MAX_ZOOM;
+            const factor = e.deltaY < 0 ? 1 / 1.15 : 1.15; // su = zoom in
+            let newW = Math.max(minW, Math.min(base.w, vb.w * factor));
+            if (newW === vb.w) return;
+            const scale = newW / vb.w;
+            // mantieni fermo il punto sotto il cursore mentre si zooma
+            vb.x = p.x - (p.x - vb.x) * scale;
+            vb.y = p.y - (p.y - vb.y) * scale;
+            vb.w = newW;
+            vb.h = vb.h * scale;
+            clampPan();
+            apply();
         }, { passive: false });
 
-        // Pan con click+drag. Attivo solo quando l'utente muove sopra una soglia,
-        // altrimenti il click passa alle province come selezione normale.
-        let dragging = false;
-        let startX = 0, startY = 0;
-        let startScrollLeft = 0, startScrollTop = 0;
-        let moved = false;
+        // Pan con trascinamento. Attivo solo oltre una soglia, altrimenti il click
+        // resta una normale selezione di provincia.
+        let dragging = false, moved = false;
+        let startClientX = 0, startClientY = 0, startVBx = 0, startVBy = 0;
 
         wrapper.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return; // solo tasto sinistro
-            dragging = true;
-            moved = false;
-            startX = e.clientX;
-            startY = e.clientY;
-            startScrollLeft = wrapper.scrollLeft;
-            startScrollTop = wrapper.scrollTop;
+            dragging = true; moved = false;
+            startClientX = e.clientX; startClientY = e.clientY;
+            startVBx = vb.x; startVBy = vb.y;
         });
 
         window.addEventListener('mousemove', (e) => {
             if (!dragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
+            const dx = e.clientX - startClientX;
+            const dy = e.clientY - startClientY;
             if (!moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
                 moved = true;
                 wrapper.style.cursor = 'grabbing';
-                // Impedisci selezione testo durante il pan
                 document.body.style.userSelect = 'none';
             }
             if (moved) {
-                wrapper.scrollLeft = startScrollLeft - dx;
-                wrapper.scrollTop = startScrollTop - dy;
+                const rect = svg.getBoundingClientRect();
+                vb.x = startVBx - dx * (vb.w / rect.width);
+                vb.y = startVBy - dy * (vb.h / rect.height);
+                clampPan();
+                apply();
             }
         });
 
-        window.addEventListener('mouseup', (e) => {
+        window.addEventListener('mouseup', () => {
             if (!dragging) return;
             const wasDragging = moved;
-            dragging = false;
-            moved = false;
+            dragging = false; moved = false;
             wrapper.style.cursor = '';
             document.body.style.userSelect = '';
-            // Se abbiamo trascinato, sopprimi il prossimo click sulla mappa
+            // Dopo un pan, sopprimi il click successivo per non selezionare una provincia.
             if (wasDragging) {
                 const suppress = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
                 wrapper.addEventListener('click', suppress, { capture: true, once: true });
             }
+        });
+
+        // Ricomputa la vista intera quando la finestra cambia dimensione.
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                base = computeBaseViewBox();
+                vb = { x: base.x, y: base.y, w: base.w, h: base.h };
+                apply();
+            }, 150);
         });
     }
 

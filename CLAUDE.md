@@ -37,10 +37,13 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - `app.js` gestisce turni, giocatori, selezione province, colori e la UI.
 
 ## Avvio in locale
+Doppio clic su `avvia.bat` (apre il browser e avvia il server), oppure da terminale:
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve.ps1 -Root src -Port 8843
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve.ps1 -Root src -Port 5500
 ```
-Poi apri http://localhost:8843/ . (Esiste anche `.claude/launch.json` con la config "risiko".)
+Poi apri http://localhost:5500/ . (Esiste anche `.claude/launch.json` con la config "risiko".)
+`scripts/serve.ps1` gestisce ogni richiesta in try/catch: un errore su una richiesta non
+deve mai spegnere il server.
 
 ## Convenzioni / cose da sapere
 - I file in `_archive/` sono materiale vecchio (script Python di generazione mappa, txt di

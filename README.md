@@ -5,13 +5,18 @@ App web statica (HTML/CSS/JavaScript vanilla) con multiplayer via Firebase e hos
 GitHub Pages.
 
 ## Avvio in locale
-Serve la cartella `src/` come sito statico. Il modo più semplice (Windows, nessuna dipendenza):
+**Modo più semplice:** doppio clic su **`avvia.bat`** nella cartella del progetto.
+Apre il browser su http://localhost:5500 e avvia il server. Per fermarlo, chiudi la finestra nera.
+
+In alternativa, da terminale (Windows, nessuna dipendenza):
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve.ps1 -Root src -Port 8843
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve.ps1 -Root src -Port 5500
 ```
 
-Poi apri **http://localhost:8843/**
+Poi apri **http://localhost:5500/**
+
+Comandi sulla mappa: **rotella** per zoom, **trascina** per spostarti.
 
 ## Struttura
 ```
