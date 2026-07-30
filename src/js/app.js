@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initMap();
         makeDraggable(document.getElementById('side-panel'));
     } else {
-        fetch('assets/world_map_optimized.svg')
+        fetch('assets/world_map.svg')
             .then(response => {
                 if (!response.ok) throw new Error("Failed to load map");
                 return response.text();
@@ -198,13 +198,14 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.appendChild(tooltip);
         }
 
-        // Calibrated ViewBox for Optimized Map
-        svg.setAttribute('viewBox', '520 0 220 260');
+        // ViewBox della mappa mondiale (MapChart world map).
+        svg.setAttribute('viewBox', '0 0 1200 575');
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
         wireMapZoom(svg);
 
-        const paths = svg.querySelectorAll('path');
+        // Solo i territori giocabili (class="state"): esclude sfondo, bordi e pattern dell'SVG.
+        const paths = svg.querySelectorAll('path.state');
         const defaultFill = '#d1dbdd';
 
         paths.forEach(path => {
@@ -311,7 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const cells = new Map();  // cellKey -> Set(provinceId)
         const graph = {};
 
-        const paths = svg.querySelectorAll('path[id]');
+        const paths = svg.querySelectorAll('path.state');
         paths.forEach(path => {
             const id = path.id;
             graph[id] = new Set();
