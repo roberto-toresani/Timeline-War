@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Da incollare in Firebase Console -> Firestore Database -> Regole, poi Pubblica.
+// Chiunque puo' leggere lo stato della partita (mappa condivisa in sola lettura),
+// ma solo l'account con lo stesso UID indicato qui sotto puo' scriverlo.
+// Sostituisci ADMIN_UID_QUI con l'UID del tuo utente admin
+// (Firebase Console -> Authentication -> Users -> colonna "User UID"),
+// lo stesso valore va messo anche in ADMIN_UID dentro firebase-config.js.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/main {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == "ADMIN_UID_QUI";
+    }
+  }
+}

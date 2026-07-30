@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "risiko",
+      "runtimeExecutable": "powershell.exe",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/serve.ps1",
+        "-Root", "src",
+        "-Port", "8843"
+      ],
+      "port": 8843
+    }
+  ]
+}

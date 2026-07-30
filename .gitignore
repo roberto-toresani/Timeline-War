@@ -1,0 +1,16 @@
+# Materiale legacy / di supporto, non parte del gioco
+_archive/
+
+# Ambiente e segreti
+.env
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Python (script legacy in _archive)
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
