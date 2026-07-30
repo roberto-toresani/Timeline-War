@@ -233,19 +233,19 @@ svg path.fog {
     /* Drop shadow */
     background-color: #a3c2d4;
     border-radius: 4px;
-    overflow: auto;
-    /* Allow scrolling if SVG is big */
+    overflow: hidden;
+    /* Map is scaled to fit the frame, so no scrollbars; zoom clips inside the frame. */
     display: flex;
     justify-content: center;
     align-items: center;
 }
 
 #map-wrapper svg {
-    min-width: 1200px;
-    /* Force minimum size to prevent shrinking */
-    min-height: 800px;
-    max-width: none;
-    max-height: none;
+    /* Fit the whole world map inside the frame (viewBox + preserveAspectRatio handle
+       the scaling). No forced min-size: the map must fit, not overflow/scroll. */
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 #side-panel {

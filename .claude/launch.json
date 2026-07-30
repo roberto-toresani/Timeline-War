@@ -9,9 +9,9 @@
         "-ExecutionPolicy", "Bypass",
         "-File", "scripts/serve.ps1",
         "-Root", "src",
-        "-Port", "8843"
+        "-Port", "5500"
       ],
-      "port": 8843
+      "port": 5500
     }
   ]
 }
