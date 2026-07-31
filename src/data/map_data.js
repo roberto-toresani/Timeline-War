@@ -1,6 +1,8 @@
 // Dati di gioco delle province. Una entry per territorio dell'SVG mondiale.
 // Generato automaticamente: valori di default (vedi directive world_generation).
 // 'settore' assegnato casualmente; personalizza liberamente popolazione/sviluppo/ricchezza.
+// Campo opzionale "risorsa": "pietra"|"legno"|"grano"|"bestiame"|"argilla" -> mostra
+// l'icona della risorsa in un angolo del territorio (vedi data/resource_icons.js).
 const provinces = [
     { "nome": "Kola", "settore": "Commerciale", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
     { "nome": "Oulu", "settore": "Minerario", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
@@ -474,7 +476,7 @@ const provinces = [
     { "nome": "Macedonia", "settore": "Artigianale", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
     { "nome": "Toledo", "settore": "Minerario", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
     { "nome": "Ankara", "settore": "Agricolo", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
-    { "nome": "Estremadura", "settore": "Artigianale", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
+    { "nome": "Portugal", "settore": "Artigianale", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
     { "nome": "Erzurum", "settore": "Commerciale", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
     { "nome": "Calabria", "settore": "Agricolo", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },
     { "nome": "Valencia", "settore": "Agricolo", "popolazione": 100, "sviluppo": 1, "ricchezza": 0 },

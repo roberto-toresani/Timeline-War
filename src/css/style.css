@@ -21,29 +21,29 @@ body {
 }
 
 h1 {
-    margin: 8px 0 4px 0;
+    margin: 14px 0 6px 0;
     color: #e0c097;
     text-transform: uppercase;
-    letter-spacing: 2px;
-    font-size: 2.2rem;
+    letter-spacing: 4px;
+    font-size: 3.6rem;
     z-index: 10;
 }
 
 p {
-    margin: 0 0 14px 0;
+    margin: 0 0 16px 0;
     color: #bbb;
-    font-size: 1.15rem;
+    font-size: 1.5rem;
     z-index: 10;
 }
 
 .role-banner {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 20px;
-    border-radius: 20px;
+    gap: 16px;
+    padding: 14px 28px;
+    border-radius: 26px;
     margin-bottom: 14px;
-    font-size: 1.1rem;
+    font-size: 1.4rem;
     z-index: 10;
 }
 
@@ -94,8 +94,8 @@ p {
 
 #player-tabs-toggle,
 #player-tabs-clear {
-    padding: 4px 10px;
-    font-size: 0.8em;
+    padding: 8px 16px;
+    font-size: 1.1em;
     background: #1a1a1a;
     color: #e0c097;
     border: 1px solid #555;
@@ -114,15 +114,15 @@ p {
 }
 
 .player-tab {
-    padding: 4px 10px;
-    font-size: 0.75em;
+    padding: 8px 16px;
+    font-size: 1.05em;
     background: #1a1a1a;
     color: #ccc;
     border: 1px solid #444;
-    border-bottom: 3px solid transparent;
-    border-radius: 4px 4px 0 0;
+    border-bottom: 4px solid transparent;
+    border-radius: 6px 6px 0 0;
     cursor: pointer;
-    max-width: 120px;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -143,19 +143,19 @@ p {
     border-radius: 6px;
     margin: 0 auto 8px auto;
     max-width: 98vw;
-    font-size: 0.85em;
+    font-size: 1.15em;
 }
 
 #player-tab-content .tab-header {
-    padding: 4px 8px;
+    padding: 8px 14px;
     background: #1a1a1a;
-    border-radius: 4px;
+    border-radius: 6px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: flex-start;
-    min-width: 110px;
-    gap: 2px;
+    min-width: 150px;
+    gap: 3px;
 }
 
 #player-tab-content .tab-subtle {
@@ -177,24 +177,24 @@ p {
 
 #player-tab-content .tab-section label {
     display: block;
-    font-size: 0.7em;
+    font-size: 0.85em;
     color: #aaa;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
 }
 
 #player-tab-content .tab-value {
-    font-size: 0.95em;
+    font-size: 1.15em;
     color: #e0c097;
 }
 
 #player-tab-content .tab-province-inline {
-    font-size: 0.8em;
+    font-size: 1em;
     color: #ddd;
-    max-height: 40px;
+    max-height: 70px;
     overflow-y: auto;
-    line-height: 1.4;
+    line-height: 1.5;
 }
 
 /* Fog of war: visual dimming for provinces not owned by nor adjacent to the focused player.
@@ -253,12 +253,18 @@ svg path.fog {
     position: absolute;
     right: 40px;
     top: 60px;
-    width: 320px;
+    width: 440px;
     display: flex;
     flex-direction: column;
     gap: 15px;
     z-index: 500;
-    max-height: 80vh;
+    max-height: 92vh;
+    /* Ridimensionabile: trascina l'angolo in basso a destra per ingrandirlo/stretcharlo. */
+    resize: both;
+    overflow: auto;
+    min-width: 300px;
+    min-height: 240px;
+    font-size: 1.15rem;
 }
 
 #svg-container {
@@ -282,6 +288,12 @@ svg path.fog {
 #province-name {
     cursor: move;
     margin-top: 0;
+    font-size: 1.9rem;
+}
+
+#province-details {
+    font-size: 1.15rem;
+    line-height: 1.6;
 }
 
 /* Player Palette - Now part of sidebar */
@@ -301,12 +313,12 @@ svg path.fog {
 }
 
 #player-controls h3 {
-    margin: 0 0 10px 0;
+    margin: 0 0 12px 0;
     color: #e0c097;
     text-align: center;
     border-bottom: 1px solid #555;
-    padding-bottom: 5px;
-    font-size: 1.1em;
+    padding-bottom: 7px;
+    font-size: 1.5em;
     cursor: move;
 }
 
@@ -352,7 +364,7 @@ svg path.fog {
     cursor: pointer;
     transition: all 0.2s;
     overflow: hidden;
-    height: 44px;
+    height: 56px;
 }
 
 .player-card:hover {
@@ -367,9 +379,9 @@ svg path.fog {
 }
 
 .player-logo {
-    width: 36px;
-    height: 36px;
-    margin-left: 4px;
+    width: 46px;
+    height: 46px;
+    margin-left: 5px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -390,16 +402,40 @@ svg path.fog {
 }
 
 .player-name {
-    font-size: 0.75rem;
+    font-size: 1rem;
     color: #ddd;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 
-    max-width: 110px;
+    max-width: 130px;
 }
 
 /* Close player-name */
+
+.player-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-right: 4px;
+}
+.player-action {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #bbb;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 1.15rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.player-action:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.remove-btn:hover { background: rgba(220, 60, 60, 0.4); color: #fff; }
 
 /* Tooltip */
 .map-tooltip {
@@ -435,9 +471,9 @@ svg path.fog {
     align-items: center;
     gap: 5px;
     background: rgba(43, 33, 24, 0.9);
-    border: 2px solid #c0a062;
-    padding: 10px 30px;
-    border-radius: 15px;
+    border: 3px solid #c0a062;
+    padding: 16px 44px;
+    border-radius: 18px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     z-index: 600;
 }
@@ -450,17 +486,17 @@ svg path.fog {
 
 
 #turn-display {
-    font-size: 1.2rem;
+    font-size: 2rem;
     font-weight: bold;
     color: #e0c097;
     text-transform: uppercase;
     letter-spacing: 1px;
-    min-width: 100px;
+    min-width: 150px;
     text-align: center;
 }
 
 #date-display {
-    font-size: 1.6rem;
+    font-size: 2.7rem;
     font-weight: bold;
     color: #fff;
     text-shadow: 0 0 10px rgba(192, 160, 98, 0.5);
@@ -474,10 +510,10 @@ svg path.fog {
     background: #c0a062;
     color: #2b2b2b;
     border: none;
-    width: 32px;
-    height: 32px;
+    width: 46px;
+    height: 46px;
     border-radius: 50%;
-    font-size: 1.2rem;
+    font-size: 1.7rem;
     font-weight: bold;
     cursor: pointer;
     display: flex;
@@ -743,4 +779,69 @@ svg path.fog {
     font-weight: bold;
     min-width: 60px;
     text-align: left;
+}
+/* Marker delle risorse sulla mappa: non intercettano il click sul territorio. */
+.resource-marker { pointer-events: none; }
+
+/* Pulsante "aggiungi giocatore" */
+.add-player-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    color: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.add-player-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.55);
+}
+
+/* Palette risorse (admin) */
+.resource-hint { margin: 0 0 8px 0; font-size: 0.78em; color: #9aa0a6; }
+#resource-palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.resource-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 20px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255, 255, 255, 0.04);
+    transition: border-color 0.15s, background 0.15s;
+}
+.resource-chip:hover { background: rgba(255, 255, 255, 0.1); }
+.resource-chip.selected {
+    border-color: #fff;
+    background: rgba(255, 255, 255, 0.16);
+}
+.resource-chip-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+}
+.resource-chip-label { font-size: 0.82em; }
+.resource-chip-x {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #555;
+    color: #fff;
+    font-size: 1.1em;
+    line-height: 1;
 }

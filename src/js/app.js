@@ -8,13 +8,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const nameDisplay = document.getElementById('province-name');
     const gameNameDisplay = document.getElementById('p-name');
     const ownerDisplay = document.getElementById('p-owner');
+    const resourceDisplay = document.getElementById('p-resource');
+
+    function showResourceInfo(key) {
+        if (!resourceDisplay) return;
+        const r = (typeof RESOURCES !== 'undefined' && RESOURCES[key]) ? RESOURCES[key] : null;
+        resourceDisplay.textContent = r ? r.nome : 'Nessuna';
+        resourceDisplay.style.color = r ? r.colore : '#888';
+    }
 
     let currentTurn = 0;
     let TURN_HISTORY = {};
     let selectedPlayer = null;
+    let selectedResource = null; // null = nessun "pennello risorsa" attivo; altrimenti chiave risorsa o '__erase__'
     let isAdminMode = false;
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
-    let NEIGHBORS = {}; // { provinceId: Set(neighborId) }, computed once from SVG geometry
+    let NEIGHBORS = {};      // grafo completo (terra + brevi salti via mare): per usi futuri (navi)
+    let NEIGHBORS_LAND = {}; // solo confini via terra (province che si toccano): usato dalla nebbia
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const XLINK_NS = 'http://www.w3.org/1999/xlink';
 
     // 10 giocatori con palette perceptualmente distinta (adattata da Sasha Trubetskoy).
     // I nomi sono placeholder "Giocatore N": rinominali con doppio clic quando sei admin.
@@ -57,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // When leaving admin mode, drop any focused player so the map returns to the main view.
         if (!admin) {
+            selectedResource = null;
+            document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
             selectedTabPlayerId = null;
             const content = document.getElementById('player-tab-content');
             if (content) content.style.display = 'none';
@@ -204,6 +218,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         wireMapZoom(svg);
 
+        // Simboli-risorsa disponibili subito (li usano anche i chip della palette).
+        injectResourceDefs(svg);
+
         // Solo i territori giocabili (class="state"): esclude sfondo, bordi e pattern dell'SVG.
         const paths = svg.querySelectorAll('path.state');
         const defaultFill = '#d1dbdd';
@@ -212,6 +229,20 @@ document.addEventListener('DOMContentLoaded', () => {
             path.style.cursor = 'pointer';
             path.style.transition = 'fill 0.2s';
             path.style.fill = defaultFill;
+
+            // Seed iniziale della risorsa: prima i default globali (default_state.js,
+            // per id SVG), poi come fallback il campo "risorsa" di map_data.js.
+            // Uno stato salvato piu' recente potra' sovrascriverlo (applyResourceState).
+            if (!path.hasAttribute('data-resource')) {
+                let seedKey = (typeof DEFAULT_RESOURCES !== 'undefined' && DEFAULT_RESOURCES[path.id]) || null;
+                if (!seedKey) {
+                    const seed = findMatch(path.id, path.getAttribute('name'));
+                    if (seed && seed.risorsa) seedKey = seed.risorsa;
+                }
+                if (seedKey && typeof RESOURCES !== 'undefined' && RESOURCES[seedKey]) {
+                    path.setAttribute('data-resource', seedKey);
+                }
+            }
 
             path.addEventListener('mouseenter', () => {
                 path.style.opacity = '0.7';
@@ -261,6 +292,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 // qualsiasi click su una provincia in nebbia va ignorato (non sa che esiste).
                 if (inTab && isFogged) return;
 
+                // Pennello risorsa attivo: il click assegna/rimuove la risorsa
+                // (ha priorita' sulla pittura del proprietario).
+                if (isAdminMode && selectedResource !== null) {
+                    const current = resourceKeyOf(path);
+                    let next;
+                    if (selectedResource === '__erase__') next = '';
+                    else next = (current === selectedResource) ? '' : selectedResource;
+                    if (next) path.setAttribute('data-resource', next);
+                    else path.removeAttribute('data-resource');
+                    renderMarkerForPath(svg, path);
+                    showResourceInfo(next);
+                    saveAutoSave();
+                    return;
+                }
+
+                showResourceInfo(resourceKeyOf(path));
+
                 if (selectedPlayer && isAdminMode) {
                     // Paint / conquista. In scheda personale il giocatore selezionato e' gia'
                     // stato forzato a quello della scheda (vedi handler tab click).
@@ -289,7 +337,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Compute adjacency graph once (deferred so it doesn't block first paint).
         setTimeout(() => {
-            NEIGHBORS = computeNeighborGraph(svg);
+            const g = computeNeighborGraph(svg);
+            NEIGHBORS = g.full;
+            NEIGHBORS_LAND = g.land;
+            renderResourceMarkers(svg);
             refreshMapDisplay();
         }, 50);
 
@@ -304,51 +355,209 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Sample points around each SVG path perimeter and bucket them in a spatial grid.
-    // Two paths that share ≥ 1 grid cell are considered adjacent (their borders touch).
-    function computeNeighborGraph(svg) {
-        const SAMPLES = 60;       // points sampled along each perimeter
-        const CELL = 0.6;         // spatial-hash cell size in SVG units
-        const cells = new Map();  // cellKey -> Set(provinceId)
-        const graph = {};
+    // Registra un punto in una griglia spaziale (hash) su una cella e le 8 adiacenti,
+    // cosi' due punti a cavallo del bordo di cella si incontrano lo stesso.
+    function hashPoint(cells, id, x, y, cell) {
+        const cx = Math.round(x / cell), cy = Math.round(y / cell);
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const key = (cx + dx) + ':' + (cy + dy);
+                let set = cells.get(key);
+                if (!set) { set = new Set(); cells.set(key, set); }
+                set.add(id);
+            }
+        }
+    }
 
-        const paths = svg.querySelectorAll('path.state');
-        paths.forEach(path => {
+    // Costruisce un grafo di adiacenza da una griglia: due province che condividono
+    // almeno una cella sono vicine.
+    function graphFromCells(cells, ids) {
+        const graph = {};
+        ids.forEach(id => { graph[id] = new Set(); });
+        cells.forEach(set => {
+            if (set.size < 2) return;
+            const arr = Array.from(set);
+            for (let i = 0; i < arr.length; i++)
+                for (let j = i + 1; j < arr.length; j++) {
+                    graph[arr[i]].add(arr[j]);
+                    graph[arr[j]].add(arr[i]);
+                }
+        });
+        return graph;
+    }
+
+    // Campiona il perimetro di ogni provincia una sola volta (densita' alta) e produce
+    // DUE grafi di adiacenza:
+    //   - full: griglia grossa -> include anche i brevi salti via mare (per usi futuri: navi)
+    //   - land: griglia fine   -> solo confini che si toccano davvero via terra.
+    // Idea: un confine condiviso ha punti quasi coincidenti sui due lati (distanza ->0 con
+    // molti campioni), mentre uno stretto di mare mantiene un divario -> nella griglia fine
+    // i due lati non condividono celle e il collegamento sparisce.
+    function computeNeighborGraph(svg) {
+        const CELL_FULL = 0.6;    // griglia grossa (comportamento storico, permissivo)
+        const CELL_LAND = 0.32;   // griglia fine: separa terra (contatto) da mare (divario)
+        const cellsFull = new Map();
+        const cellsLand = new Map();
+        const ids = [];
+
+        svg.querySelectorAll('path.state').forEach(path => {
             const id = path.id;
-            graph[id] = new Set();
+            ids.push(id);
             let len;
             try { len = path.getTotalLength(); } catch (e) { len = 0; }
             if (!len) return;
 
-            const step = len / SAMPLES;
-            for (let i = 0; i < SAMPLES; i++) {
-                const pt = path.getPointAtLength(i * step);
-                const cx = Math.round(pt.x / CELL);
-                const cy = Math.round(pt.y / CELL);
-                // Also register the neighbouring cells so borders on cell edges match.
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dy = -1; dy <= 1; dy++) {
-                        const key = (cx + dx) + ':' + (cy + dy);
-                        let set = cells.get(key);
-                        if (!set) { set = new Set(); cells.set(key, set); }
-                        set.add(id);
-                    }
-                }
+            // ~1 campione ogni 0.45 unita' SVG, tra 70 e 200 per provincia. Densita'
+            // moderata: i due lati di un confine condiviso cadono comunque nelle stesse
+            // celle fini (distanza perpendicolare ~0), quindi non serve di piu'.
+            const samples = Math.max(70, Math.min(Math.round(len / 0.45), 200));
+            const step = len / samples;
+            for (let i = 0; i < samples; i++) {
+                let pt; try { pt = path.getPointAtLength(i * step); } catch (e) { continue; }
+                hashPoint(cellsFull, id, pt.x, pt.y, CELL_FULL);
+                hashPoint(cellsLand, id, pt.x, pt.y, CELL_LAND);
             }
         });
 
-        cells.forEach(set => {
-            if (set.size < 2) return;
-            const ids = Array.from(set);
-            for (let i = 0; i < ids.length; i++) {
-                for (let j = i + 1; j < ids.length; j++) {
-                    graph[ids[i]].add(ids[j]);
-                    graph[ids[j]].add(ids[i]);
-                }
-            }
-        });
+        return { full: graphFromCells(cellsFull, ids), land: graphFromCells(cellsLand, ids) };
+    }
 
-        return graph;
+    // Inietta una sola volta i <symbol> delle risorse nei <defs> del root SVG.
+    // Parsing via DOMParser (image/svg+xml) per preservare viewBox/camelCase.
+    function injectResourceDefs(svg) {
+        if (typeof RESOURCE_SYMBOLS === 'undefined') return;
+        if (svg.querySelector('#res-defs')) return;
+        const doc = new DOMParser().parseFromString(
+            `<svg xmlns="${SVG_NS}"><defs id="res-defs">${RESOURCE_SYMBOLS}</defs></svg>`,
+            'image/svg+xml'
+        );
+        const defs = doc.querySelector('#res-defs');
+        if (defs) svg.insertBefore(document.importNode(defs, true), svg.firstChild);
+    }
+
+    // Risorsa attualmente assegnata a una provincia (attributo runtime data-resource).
+    function resourceKeyOf(path) {
+        const k = path.getAttribute('data-resource');
+        return (k && typeof RESOURCES !== 'undefined' && RESOURCES[k]) ? k : '';
+    }
+
+    function median(arr) {
+        const a = arr.slice().sort((x, y) => x - y);
+        const n = a.length;
+        if (!n) return 0;
+        return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
+    }
+
+    function pointInPath(path, x, y) {
+        if (typeof path.isPointInFill !== 'function') return true; // fallback: non bloccare
+        try { return path.isPointInFill(new DOMPoint(x, y)); } catch (e) { return true; }
+    }
+
+    // Ancora dell'icona-risorsa: individua il CORPO PRINCIPALE della provincia
+    // (ignora isole lontane usando la mediana dei punti del perimetro), poi sceglie
+    // un angolo di quel corpo e garantisce che il centro dell'icona cada dentro il
+    // poligono (isPointInFill). Cosi' l'icona non sfora in mare o in un'altra provincia.
+    function markerAnchor(path) {
+        let b; try { b = path.getBBox(); } catch (e) { return null; }
+        if (!b || (!b.width && !b.height)) return null;
+
+        let len; try { len = path.getTotalLength(); } catch (e) { len = 0; }
+        let mx = b.x, my = b.y, mw = b.width, mh = b.height;
+
+        if (len) {
+            const N = 140;
+            const xs = [], ys = [];
+            for (let i = 0; i < N; i++) {
+                const p = path.getPointAtLength(i * len / N);
+                xs.push(p.x); ys.push(p.y);
+            }
+            const medX = median(xs), medY = median(ys);
+            const dist = xs.map((x, i) => Math.hypot(x - medX, ys[i] - medY));
+            const thr = Math.max(median(dist) * 2.5, 1e-6); // scarta i punti delle isole lontane
+            const ix = [], iy = [];
+            for (let i = 0; i < xs.length; i++) if (dist[i] <= thr) { ix.push(xs[i]); iy.push(ys[i]); }
+            if (ix.length >= 3) {
+                const minx = Math.min(...ix), maxx = Math.max(...ix);
+                const miny = Math.min(...iy), maxy = Math.max(...iy);
+                mx = minx; my = miny; mw = maxx - minx; mh = maxy - miny;
+            }
+        }
+
+        const size = Math.max(3, Math.min(Math.min(mw, mh) * 0.5, 11));
+        const inset = size * 0.6;
+        const ccx = mx + mw / 2, ccy = my + mh / 2; // centro del corpo principale
+        const corners = [
+            [mx + inset, my + inset],               // alto-sinistra (preferito)
+            [mx + mw - inset, my + inset],          // alto-destra
+            [mx + inset, my + mh - inset],          // basso-sinistra
+            [mx + mw - inset, my + mh - inset],     // basso-destra
+            [ccx, ccy]                              // centro (ultima spiaggia)
+        ];
+        let cx = ccx, cy = ccy;
+        for (const [qx, qy] of corners) {
+            let ok = null;
+            // Dall'angolo scivola verso il centro finche' il punto e' dentro il poligono.
+            for (let t = 0; t <= 1.0001; t += 0.2) {
+                const px = qx + (ccx - qx) * t, py = qy + (ccy - qy) * t;
+                if (pointInPath(path, px, py)) { ok = [px, py]; break; }
+            }
+            if (ok) { cx = ok[0]; cy = ok[1]; break; }
+        }
+        return { x: cx - size / 2, y: cy - size / 2, size };
+    }
+
+    // Disegna (o ridisegna) l'icona-risorsa ancorata al corpo principale di UNA
+    // provincia. Piccola e in un angolo, cosi' lascia il centro libero per
+    // soldati/citta'/mercati/strade. Nascosta se la provincia e' in nebbia.
+    function renderMarkerForPath(svg, path) {
+        svg.querySelectorAll(`.resource-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => m.remove());
+        const key = resourceKeyOf(path);
+        if (!key) return;
+        const a = markerAnchor(path);
+        if (!a) return;
+        const use = document.createElementNS(SVG_NS, 'use');
+        use.setAttribute('href', '#res-' + key);
+        use.setAttributeNS(XLINK_NS, 'href', '#res-' + key);
+        use.setAttribute('x', a.x);
+        use.setAttribute('y', a.y);
+        use.setAttribute('width', a.size);
+        use.setAttribute('height', a.size);
+        use.setAttribute('class', 'resource-marker');
+        use.setAttribute('data-prov', path.id);
+        use.setAttribute('pointer-events', 'none');
+        if (path.classList.contains('fog')) use.style.display = 'none';
+        svg.appendChild(use);
+    }
+
+    // Ridisegna tutti i marker dall'attributo data-resource di ogni provincia.
+    function renderResourceMarkers(svg) {
+        if (typeof RESOURCES === 'undefined') return;
+        injectResourceDefs(svg);
+        svg.querySelectorAll('.resource-marker').forEach(m => m.remove());
+        svg.querySelectorAll('path.state').forEach(path => renderMarkerForPath(svg, path));
+    }
+
+    // Snapshot { provinceId: risorsa } delle sole province con risorsa assegnata.
+    function collectResources(svg) {
+        const out = {};
+        svg.querySelectorAll('path.state').forEach(p => {
+            const k = resourceKeyOf(p);
+            if (k) out[p.id] = k;
+        });
+        return out;
+    }
+
+    // Applica uno snapshot risorse (autoritativo): le province non presenti
+    // restano senza risorsa. Usato al caricamento di stato salvato/cloud.
+    function applyResourceState(map) {
+        const svg = document.querySelector('svg');
+        if (!svg || !map || typeof map !== 'object') return;
+        svg.querySelectorAll('path.state').forEach(p => {
+            const k = map[p.id];
+            if (k && typeof RESOURCES !== 'undefined' && RESOURCES[k]) p.setAttribute('data-resource', k);
+            else p.removeAttribute('data-resource');
+        });
+        renderResourceMarkers(svg);
     }
 
     // Zoom (rotella) + pan (trascinamento) manipolando il viewBox del root <svg>.
@@ -555,6 +764,8 @@ document.addEventListener('DOMContentLoaded', () => {
             loadTurnFromHistory();
         }
 
+        if ('resources' in data) applyResourceState(data.resources || {});
+
         refreshMapDisplay();
         renderPlayerTabs();
     }
@@ -609,6 +820,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="player-info" style="border-bottom: 4px solid ${p.color}">
                     <span class="player-name" title="Doppio clic per rinominare">${p.name}</span>
                 </div>
+                <div class="player-actions">
+                    <button type="button" class="player-action rename-btn" title="Rinomina">✎</button>
+                    <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
+                </div>
             `;
 
             const colorInput = btn.querySelector('input');
@@ -641,8 +856,53 @@ document.addEventListener('DOMContentLoaded', () => {
                 renamePlayer(p);
             });
 
+            btn.querySelector('.rename-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                renamePlayer(p);
+            });
+
+            btn.querySelector('.remove-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                removePlayer(p);
+            });
+
             palette.appendChild(btn);
         });
+    }
+
+    // Palette risorse (admin): scegli una risorsa e clicca le province per assegnarla.
+    // Un click sulla stessa provincia con la stessa risorsa la rimuove. "Nessuna" cancella.
+    function initResourcePalette() {
+        const palette = document.getElementById('resource-palette');
+        if (!palette || typeof RESOURCES === 'undefined') return;
+        palette.innerHTML = '';
+
+        const makeChip = (key, label, previewHTML) => {
+            const chip = document.createElement('div');
+            chip.className = 'resource-chip' + (key === '__erase__' ? ' resource-chip-erase' : '');
+            chip.dataset.res = key;
+            chip.title = label;
+            chip.innerHTML = `<span class="resource-chip-icon">${previewHTML}</span><span class="resource-chip-label">${label}</span>`;
+            chip.addEventListener('click', () => {
+                if (!isAdminMode) return;
+                if (selectedResource === key) {
+                    selectedResource = null;
+                    chip.classList.remove('selected');
+                } else {
+                    selectedResource = key;
+                    selectedPlayer = null; // un solo pennello attivo alla volta
+                    document.querySelectorAll('.player-card').forEach(b => b.classList.remove('selected'));
+                    document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
+                    chip.classList.add('selected');
+                }
+            });
+            palette.appendChild(chip);
+        };
+
+        Object.keys(RESOURCES).forEach(key => {
+            makeChip(key, RESOURCES[key].nome, `<svg viewBox="0 0 100 100" width="24" height="24"><use href="#res-${key}"></use></svg>`);
+        });
+        makeChip('__erase__', 'Nessuna', '<span class="resource-chip-x">&times;</span>');
     }
 
     function updateMapColors(playerName, newColor) {
@@ -683,7 +943,69 @@ document.addEventListener('DOMContentLoaded', () => {
         saveAutoSave();
     }
 
+    // Colore per un nuovo giocatore: pesca il primo di una palette distinta non ancora
+    // usato; se sono esauriti, genera una tinta HSL a passo "angolo aureo" (sempre esadecimale).
+    function pickNewPlayerColor() {
+        const used = new Set(PLAYERS.map(p => (p.color || '').toLowerCase()));
+        const candidates = [
+            '#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4',
+            '#f032e6', '#9A6324', '#800000', '#469990', '#000075', '#808000', '#e6beff',
+            '#fabed4', '#bfef45', '#ffd8b1', '#aaffc3', '#a9a9a9', '#f58a91'
+        ];
+        for (const c of candidates) if (!used.has(c.toLowerCase())) return c;
+        const hue = (PLAYERS.length * 137.508) % 360;
+        return hslToHex(hue, 65, 50);
+    }
+
+    function hslToHex(h, s, l) {
+        s /= 100; l /= 100;
+        const k = n => (n + h / 30) % 12;
+        const a = s * Math.min(l, 1 - l);
+        const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+        const toHex = x => Math.round(255 * x).toString(16).padStart(2, '0');
+        return '#' + toHex(f(0)) + toHex(f(8)) + toHex(f(4));
+    }
+
+    function addPlayer() {
+        if (!isAdminMode) return;
+        const nextId = PLAYERS.reduce((m, p) => Math.max(m, p.id), 0) + 1;
+        PLAYERS.push({ id: nextId, name: 'Giocatore ' + nextId, color: pickNewPlayerColor() });
+        initPalette();
+        renderPlayerTabs();
+        saveAutoSave();
+    }
+
+    function removePlayer(player) {
+        if (!isAdminMode) return;
+        if (!confirm(`Rimuovere ${player.name}? Le sue province torneranno senza proprietario.`)) return;
+
+        // Libera le province possedute dal giocatore (nella mappa e nello storico turni).
+        const svg = document.querySelector('svg');
+        if (svg) svg.querySelectorAll(`path[data-owner="${player.name}"]`).forEach(p => p.removeAttribute('data-owner'));
+        for (const turnKey in TURN_HISTORY) {
+            const td = TURN_HISTORY[turnKey];
+            for (const id in td) if (td[id] === player.name) delete td[id];
+        }
+
+        PLAYERS = PLAYERS.filter(p => p.id !== player.id);
+        if (selectedPlayer && selectedPlayer.id === player.id) selectedPlayer = null;
+        if (selectedTabPlayerId === player.id) {
+            selectedTabPlayerId = null;
+            const content = document.getElementById('player-tab-content');
+            if (content) content.style.display = 'none';
+            syncPlayerControlsVisibility();
+        }
+
+        initPalette();
+        renderPlayerTabs();
+        refreshMapDisplay();
+        saveAutoSave();
+    }
+
     initPalette();
+    initResourcePalette();
+    const addPlayerBtn = document.getElementById('add-player-btn');
+    if (addPlayerBtn) addPlayerBtn.addEventListener('click', addPlayer);
     wireAdminLogin();
     MultiplayerSync.onRoleChange(applyRole);
 
@@ -719,7 +1041,8 @@ document.addEventListener('DOMContentLoaded', () => {
             turn: currentTurn,
             players: PLAYERS,
             history: TURN_HISTORY,
-            provinces: saveData
+            provinces: saveData,
+            resources: collectResources(svg)
         }, null, 2);
         const blob = new Blob([jsonStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -759,6 +1082,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     saveCurrentTurnToHistory();
                 }
 
+                if ('resources' in data) applyResourceState(data.resources || {});
                 renderPlayerTabs();
                 saveAutoSave();
                 alert("Mappa caricata.");
@@ -780,7 +1104,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const stateSnapshot = {
             turn: currentTurn,
             players: PLAYERS,
-            history: TURN_HISTORY
+            history: TURN_HISTORY,
+            resources: collectResources(svg)
         };
 
         localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
@@ -810,23 +1135,18 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (data.provinces) {
                 internalApplyMapData(data.provinces);
             }
+            if ('resources' in data) applyResourceState(data.resources || {});
             renderPlayerTabs();
         } catch (e) {
             console.error("Failed to load auto-save", e);
         }
     }
 
+    // Lo stato salvato e' autoritativo sull'elenco giocatori: cosi' aggiunte E rimozioni
+    // (anche dei giocatori di default) vengono rispettate al ricaricamento.
     function mergePlayerData(savedPlayers) {
-        if (!savedPlayers || !Array.isArray(savedPlayers)) return;
-        savedPlayers.forEach(saved => {
-            const existing = PLAYERS.find(p => p.id === saved.id);
-            if (existing) {
-                if (saved.color) existing.color = saved.color;
-                if (saved.name) existing.name = saved.name;
-            } else {
-                PLAYERS.push(saved);
-            }
-        });
+        if (!savedPlayers || !Array.isArray(savedPlayers) || !savedPlayers.length) return;
+        PLAYERS = savedPlayers.map(p => ({ id: p.id, name: p.name, color: p.color }));
     }
 
     // --- MAP DISPLAY ---
@@ -854,6 +1174,10 @@ document.addEventListener('DOMContentLoaded', () => {
             path.setAttribute('fill', color);
             path.style.fill = color;
             path.classList.toggle('fog', !isVisible);
+
+            // L'icona-risorsa segue la visibilita' della sua provincia (sparisce in nebbia).
+            const marker = svg.querySelector(`.resource-marker[data-prov="${CSS.escape(path.id)}"]`);
+            if (marker) marker.style.display = isVisible ? '' : 'none';
         });
     }
 
@@ -863,7 +1187,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!svg) return visible;
         svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
             visible.add(path.id);
-            const neigh = NEIGHBORS[path.id];
+            // Nebbia di default: si vedono solo le province confinanti via TERRA.
+            // I collegamenti via mare verranno sbloccati dalle navi (feature futura).
+            const neigh = NEIGHBORS_LAND[path.id];
             if (neigh) neigh.forEach(id => visible.add(id));
         });
         return visible;

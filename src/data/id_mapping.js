@@ -474,7 +474,7 @@ const ID_MAP = {
     "Macedonia": "Macedonia",
     "Toledo": "Toledo",
     "Ankara": "Ankara",
-    "Estremadura": "Estremadura",
+    "Estremadura": "Portugal",
     "Erzurum": "Erzurum",
     "Calabria": "Calabria",
     "Valencia": "Valencia",
