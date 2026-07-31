@@ -355,6 +355,76 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Estrae i punti del bordo di un path parsando l'attributo "d" (assoluti), con
+    // densificazione dei segmenti lunghi. Evita getPointAtLength, che sui path complessi
+    // costa ~decine di ms A CHIAMATA e faceva saturare/crashare il browser.
+    function parsePathBoundaryPoints(d) {
+        const STEP = 0.5;       // interpola i segmenti piu' lunghi di questo
+        const MAX_INTERP = 60;  // cap di punti interpolati per segmento (sicurezza)
+        const pts = [];
+        if (!d) return pts;
+        const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g);
+        if (!tokens) return pts;
+
+        let i = 0, cx = 0, cy = 0, sx = 0, sy = 0, cmd = '';
+        let lastX = null, lastY = null;
+        const num = () => parseFloat(tokens[i++]);
+        const skip = n => { i += n; };
+        const isCmd = t => t.length === 1 && /[A-Za-z]/.test(t);
+
+        function push(x, y) {
+            if (lastX !== null) {
+                const dx = x - lastX, dy = y - lastY, dist = Math.hypot(dx, dy);
+                if (dist > STEP) {
+                    const n = Math.min(Math.floor(dist / STEP), MAX_INTERP);
+                    for (let k = 1; k < n; k++) pts.push({ x: lastX + dx * k / n, y: lastY + dy * k / n });
+                }
+            }
+            pts.push({ x, y });
+            lastX = x; lastY = y;
+        }
+
+        while (i < tokens.length) {
+            if (isCmd(tokens[i])) { cmd = tokens[i]; i++; }
+            else if (!cmd) { i++; continue; }
+            const rel = cmd === cmd.toLowerCase();
+            const C = cmd.toUpperCase();
+            if (C === 'Z') { cx = sx; cy = sy; push(cx, cy); continue; }
+            let x, y;
+            switch (C) {
+                case 'M':
+                    x = num(); y = num(); if (rel) { x += cx; y += cy; }
+                    cx = x; cy = y; sx = x; sy = y;
+                    lastX = null; lastY = null; // nuovo sotto-tracciato: niente densify dal precedente
+                    push(x, y);
+                    cmd = rel ? 'l' : 'L'; // le ripetizioni di M sono lineto
+                    break;
+                case 'L':
+                    x = num(); y = num(); if (rel) { x += cx; y += cy; }
+                    cx = x; cy = y; push(x, y); break;
+                case 'H':
+                    x = num(); if (rel) x += cx; cx = x; push(cx, cy); break;
+                case 'V':
+                    y = num(); if (rel) y += cy; cy = y; push(cx, cy); break;
+                case 'C': skip(4); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
+                case 'S': skip(2); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
+                case 'Q': skip(2); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
+                case 'T': x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
+                case 'A': skip(5); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
+                default: i++; break; // token inatteso: avanza per non bloccare
+            }
+        }
+        return pts;
+    }
+
+    // Punti del bordo di una provincia (memoizzati sull'elemento).
+    function boundaryPoints(pathEl) {
+        if (pathEl.__bpts) return pathEl.__bpts;
+        const pts = parsePathBoundaryPoints(pathEl.getAttribute('d'));
+        pathEl.__bpts = pts;
+        return pts;
+    }
+
     // Registra un punto in una griglia spaziale (hash) su una cella e le 8 adiacenti,
     // cosi' due punti a cavallo del bordo di cella si incontrano lo stesso.
     function hashPoint(cells, id, x, y, cell) {
@@ -403,19 +473,10 @@ document.addEventListener('DOMContentLoaded', () => {
         svg.querySelectorAll('path.state').forEach(path => {
             const id = path.id;
             ids.push(id);
-            let len;
-            try { len = path.getTotalLength(); } catch (e) { len = 0; }
-            if (!len) return;
-
-            // ~1 campione ogni 0.45 unita' SVG, tra 70 e 200 per provincia. Densita'
-            // moderata: i due lati di un confine condiviso cadono comunque nelle stesse
-            // celle fini (distanza perpendicolare ~0), quindi non serve di piu'.
-            const samples = Math.max(70, Math.min(Math.round(len / 0.45), 200));
-            const step = len / samples;
-            for (let i = 0; i < samples; i++) {
-                let pt; try { pt = path.getPointAtLength(i * step); } catch (e) { continue; }
-                hashPoint(cellsFull, id, pt.x, pt.y, CELL_FULL);
-                hashPoint(cellsLand, id, pt.x, pt.y, CELL_LAND);
+            const pts = boundaryPoints(path);
+            for (let i = 0; i < pts.length; i++) {
+                hashPoint(cellsFull, id, pts[i].x, pts[i].y, CELL_FULL);
+                hashPoint(cellsLand, id, pts[i].x, pts[i].y, CELL_LAND);
             }
         });
 
@@ -461,26 +522,24 @@ document.addEventListener('DOMContentLoaded', () => {
         let b; try { b = path.getBBox(); } catch (e) { return null; }
         if (!b || (!b.width && !b.height)) return null;
 
-        let len; try { len = path.getTotalLength(); } catch (e) { len = 0; }
         let mx = b.x, my = b.y, mw = b.width, mh = b.height;
 
-        if (len) {
-            const N = 140;
-            const xs = [], ys = [];
-            for (let i = 0; i < N; i++) {
-                const p = path.getPointAtLength(i * len / N);
-                xs.push(p.x); ys.push(p.y);
-            }
+        const pts = boundaryPoints(path); // dai punti parsati del bordo (nessun getPointAtLength)
+        if (pts.length >= 8) {
+            const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
             const medX = median(xs), medY = median(ys);
-            const dist = xs.map((x, i) => Math.hypot(x - medX, ys[i] - medY));
+            const dist = new Array(pts.length);
+            for (let i = 0; i < pts.length; i++) dist[i] = Math.hypot(xs[i] - medX, ys[i] - medY);
             const thr = Math.max(median(dist) * 2.5, 1e-6); // scarta i punti delle isole lontane
-            const ix = [], iy = [];
-            for (let i = 0; i < xs.length; i++) if (dist[i] <= thr) { ix.push(xs[i]); iy.push(ys[i]); }
-            if (ix.length >= 3) {
-                const minx = Math.min(...ix), maxx = Math.max(...ix);
-                const miny = Math.min(...iy), maxy = Math.max(...iy);
-                mx = minx; my = miny; mw = maxx - minx; mh = maxy - miny;
+            let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity, cnt = 0;
+            for (let i = 0; i < pts.length; i++) {
+                if (dist[i] > thr) continue;
+                const x = xs[i], y = ys[i];
+                if (x < minx) minx = x; if (x > maxx) maxx = x;
+                if (y < miny) miny = y; if (y > maxy) maxy = y;
+                cnt++;
             }
+            if (cnt >= 3) { mx = minx; my = miny; mw = maxx - minx; mh = maxy - miny; }
         }
 
         const size = Math.max(3, Math.min(Math.min(mw, mh) * 0.5, 11));
