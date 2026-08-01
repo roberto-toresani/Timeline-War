@@ -1065,6 +1065,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initResourcePalette();
     const addPlayerBtn = document.getElementById('add-player-btn');
     if (addPlayerBtn) addPlayerBtn.addEventListener('click', addPlayer);
+    wireSidePanelScaling();
     wireAdminLogin();
     MultiplayerSync.onRoleChange(applyRole);
 
@@ -1367,6 +1368,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>
         `;
+    }
+
+    // Il pannello di destra e' ridimensionabile (CSS resize). Qui leghiamo la GRANDEZZA
+    // di tutto il contenuto (testo, titoli, schede, loghi) alla larghezza del pannello:
+    // stretchandolo cresce tutto in proporzione. Usiamo `zoom` sui due blocchi interni
+    // (info + controlli), che scala uniformemente ogni cosa. Lo scale dipende solo dalla
+    // larghezza (stabile), quindi non innesca loop col ResizeObserver.
+    function wireSidePanelScaling() {
+        const panel = document.getElementById('side-panel');
+        if (!panel || typeof ResizeObserver === 'undefined') return;
+        const targets = [document.getElementById('info-panel'), document.getElementById('player-controls')].filter(Boolean);
+        const BASE_W = 440;   // larghezza di partenza (zoom = 1)
+        let last = null;
+        const apply = () => {
+            const w = panel.clientWidth || BASE_W;
+            const scale = Math.max(0.9, Math.min(w / BASE_W, 3));
+            if (scale === last) return;
+            last = scale;
+            targets.forEach(t => { t.style.zoom = scale; });
+        };
+        const ro = new ResizeObserver(apply);
+        ro.observe(panel);
+        apply();
     }
 
     function makeDraggable(el) {
