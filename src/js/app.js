@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // si escludono a vicenda). Le navi (barca/vascello) solo su province costiere.
     const SETTLEMENT_GROUP = ['capitale', 'citta', 'fortezza'];
     const SHIP_TYPES = ['barca', 'vascello'];
+    let ROADS = [];          // strade tra province: [{a, b, c}] (a,b = id province adiacenti, c = colore)
+    let pendingRoad = null;  // id della prima provincia scelta col pennello strada (attesa della seconda)
     let isAdminMode = false;
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
     let NEIGHBORS = {};      // grafo completo (terra + brevi salti via mare): per usi futuri (navi)
@@ -315,6 +317,33 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
+                // Pennello STRADA: collega due province cliccandole in sequenza.
+                // La strada compare a meta' del confine tra le due (province adiacenti).
+                if (isAdminMode && selectedPiece === 'strada') {
+                    if (pendingRoad === null) {
+                        pendingRoad = path.id;
+                        showPieceNotice('Strada: ora clicca la seconda provincia (adiacente).');
+                    } else if (pendingRoad === path.id) {
+                        pendingRoad = null;
+                        showPieceNotice('Strada annullata.');
+                    } else {
+                        const a = pendingRoad, b = path.id;
+                        pendingRoad = null;
+                        if (!areLandAdjacent(a, b)) {
+                            showPieceNotice('Le due province non sono adiacenti via terra.');
+                        } else {
+                            const A = document.getElementById(a);
+                            const color = selectedPlayer ? selectedPlayer.color
+                                : (ownerColorHex(A) || ownerColorHex(path) || PIECE_NEUTRAL);
+                            const res = toggleRoad(a, b, color);
+                            renderRoads(svg);
+                            saveAutoSave();
+                            showPieceNotice(res === 'added' ? 'Strada creata.' : 'Strada rimossa.');
+                        }
+                    }
+                    return;
+                }
+
                 // Pennello figura attivo: click sinistro = +1 (impila le unita').
                 // La figura prende il colore del giocatore selezionato (memorizzato
                 // sulla provincia), altrimenti quello del proprietario, altrimenti neutro.
@@ -387,6 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
             NEIGHBORS_LAND = g.land;
             renderResourceMarkers(svg);
             renderPieceMarkers(svg);
+            renderRoads(svg);
             refreshMapDisplay();
         }, 50);
 
@@ -762,19 +792,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!arr.length) return;
         const bb = mainBodyBBox(path);
         if (!bb) return;
+        const color = pieceColorOf(path);
+        const fogged = path.classList.contains('fog');
+        const sizeBase = Math.min(bb.w, bb.h) * 0.30;
 
+        // Figure di terra al centro del corpo; navi in mare accanto alla costa.
+        const land = arr.filter(e => SHIP_TYPES.indexOf(e.type) < 0 && e.type !== 'strada');
+        const ships = arr.filter(e => SHIP_TYPES.indexOf(e.type) >= 0);
+
+        if (land.length) drawPieceRow(svg, path, land, bb.x + bb.w / 2, bb.y + bb.h / 2, sizeBase, bb.w * 0.9, color, fogged);
+        if (ships.length) {
+            const a = seaAnchor(path);
+            drawPieceRow(svg, path, ships, a ? a.x : bb.x + bb.w / 2, a ? a.y : bb.y + bb.h / 2, sizeBase, bb.w * 1.6, color, fogged);
+        }
+    }
+
+    // Disegna una fila di figure centrata su (cx,cy), rimpicciolita per stare in maxW.
+    function drawPieceRow(svg, path, arr, cx, cy, sizeBase, maxW, color, fogged) {
         const n = arr.length;
-        const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
-        // Icone piccole; se non ci stanno in larghezza, si rimpiccioliscono ancora.
-        let size = Math.max(2.5, Math.min(Math.min(bb.w, bb.h) * 0.30, 8));
+        let size = Math.max(2.5, Math.min(sizeBase, 8));
         const gapR = 0.12;
         let totalW = n * size + (n - 1) * size * gapR;
-        const maxW = bb.w * 0.9;
         if (totalW > maxW) { size *= maxW / totalW; totalW = maxW; }
         const step = size * (1 + gapR);
         const startX = cx - totalW / 2;
-        const color = pieceColorOf(path);
-        const fogged = path.classList.contains('fog');
 
         const add = (el) => {
             el.setAttribute('class', 'piece-marker');
@@ -860,41 +901,143 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPieceMarkers(svg);
     }
 
+    // ====================== STRADE (collegamenti tra province) ======================
+    // Una strada unisce DUE province adiacenti via terra ed e' disegnata a meta'
+    // del loro confine comune. ROADS = [{a, b, c}] (id province + colore).
+    function roadKey(a, b) { return a < b ? a + '|' + b : b + '|' + a; }
+    function findRoad(a, b) { const k = roadKey(a, b); return ROADS.find(r => roadKey(r.a, r.b) === k); }
+
+    function areLandAdjacent(a, b) {
+        const set = NEIGHBORS_LAND[a];
+        if (!set) return false;
+        return set.has ? set.has(b) : (Array.isArray(set) && set.indexOf(b) >= 0);
+    }
+
+    // Punto a meta' del confine condiviso tra due province (media dei punti-bordo
+    // di A vicini al bordo di B). Fallback: meta' tra i due centri.
+    function sharedBorderMidpoint(A, B) {
+        const pa = boundaryPoints(A), pb = boundaryPoints(B);
+        if (pa.length && pb.length) {
+            const thr2 = 4 * 4;
+            let sx = 0, sy = 0, n = 0;
+            for (const p of pa) {
+                for (const q of pb) {
+                    const dx = p.x - q.x, dy = p.y - q.y;
+                    if (dx * dx + dy * dy < thr2) { sx += (p.x + q.x) / 2; sy += (p.y + q.y) / 2; n++; break; }
+                }
+            }
+            if (n) return { x: sx / n, y: sy / n };
+        }
+        const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
+        if (ba && bb) return { x: (ba.x + ba.w / 2 + bb.x + bb.w / 2) / 2, y: (ba.y + ba.h / 2 + bb.y + bb.h / 2) / 2 };
+        return null;
+    }
+
+    function toggleRoad(aId, bId, color) {
+        const existing = findRoad(aId, bId);
+        if (existing) { ROADS = ROADS.filter(r => r !== existing); return 'removed'; }
+        ROADS.push({ a: aId, b: bId, c: color || PIECE_NEUTRAL });
+        return 'added';
+    }
+
+    function renderRoads(svg) {
+        injectPieceDefs(svg);
+        svg.querySelectorAll('.road-marker').forEach(m => m.remove());
+        ROADS.forEach(r => {
+            const A = document.getElementById(r.a), B = document.getElementById(r.b);
+            if (!A || !B) return;
+            const mid = sharedBorderMidpoint(A, B);
+            if (!mid) return;
+            const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
+            const ref = Math.min(ba ? Math.min(ba.w, ba.h) : 12, bb ? Math.min(bb.w, bb.h) : 12);
+            const size = Math.max(4, Math.min(ref * 0.5, 12));
+            const use = document.createElementNS(SVG_NS, 'use');
+            use.setAttribute('href', '#pc-strada');
+            use.setAttributeNS(XLINK_NS, 'href', '#pc-strada');
+            use.setAttribute('x', mid.x - size / 2);
+            use.setAttribute('y', mid.y - size / 2);
+            use.setAttribute('width', size);
+            use.setAttribute('height', size);
+            use.setAttribute('class', 'road-marker');
+            use.setAttribute('data-road', roadKey(r.a, r.b));
+            use.setAttribute('pointer-events', 'none');
+            use.style.color = r.c || PIECE_NEUTRAL;
+            svg.appendChild(use);
+        });
+    }
+
+    function collectRoads() { return ROADS.map(r => ({ a: r.a, b: r.b, c: r.c })); }
+
+    function applyRoadState(list) {
+        ROADS = [];
+        if (Array.isArray(list)) {
+            list.forEach(r => {
+                if (r && r.a && r.b && document.getElementById(r.a) && document.getElementById(r.b)) {
+                    ROADS.push({ a: r.a, b: r.b, c: r.c || PIECE_NEUTRAL });
+                }
+            });
+        }
+        const svg = document.querySelector('svg');
+        if (svg) renderRoads(svg);
+    }
+
     // --- Regole di piazzamento (stile Risiko) ---
 
-    // Una provincia e' "sul mare" se almeno un tratto del suo confine non tocca
-    // alcun vicino di TERRA (quindi affaccia sull'oceano). Calcolo geometrico:
-    // dai punti del bordo spingo un campione verso l'esterno; se cade fuori dalla
-    // provincia E fuori da ogni vicino di terra -> quel lato e' mare -> costiera.
-    // Risultato messo in cache (data-coast) una volta che il grafo di terra e' pronto.
-    function isCoastalProvince(path) {
-        if (path.dataset.coast === '1') return true;
-        if (path.dataset.coast === '0') return false;
-        if (typeof path.isPointInFill !== 'function') return true; // browser vecchio: non bloccare
+    // Trova un punto del bordo che affaccia sull'acqua: dai punti del perimetro
+    // spingo un campione verso l'esterno; se cade fuori dalla provincia E fuori da
+    // ogni vicino di TERRA, quel lato e' mare. Restituisce il punto piu' "esposto"
+    // (piu' lontano dal centro) con la sua direzione verso il largo, oppure null.
+    function seaFacingSample(path) {
+        if (typeof path.isPointInFill !== 'function') return null;
         const bb = mainBodyBBox(path);
         const pts = boundaryPoints(path);
-        if (!bb || !pts.length) return true;
+        if (!bb || !pts.length) return null;
         const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
         const d = Math.min(Math.max(Math.max(bb.w, bb.h) * 0.05, 1.2), 5);
         const neighPaths = Array.from(NEIGHBORS_LAND[path.id] || [])
             .map(id => document.getElementById(id)).filter(Boolean);
-        const step = Math.max(1, Math.floor(pts.length / 60));
-        let coastal = false;
+        const step = Math.max(1, Math.floor(pts.length / 80));
+        let best = null, bestDist = -1;
         for (let i = 0; i < pts.length; i += step) {
             const p = pts[i];
             let ux = p.x - cx, uy = p.y - cy;
             const len = Math.hypot(ux, uy) || 1; ux /= len; uy /= len;
             const qx = p.x + ux * d, qy = p.y + uy * d;
-            if (pointInPath(path, qx, qy)) continue; // ancora dentro la provincia
+            if (pointInPath(path, qx, qy)) continue;
             let inNeighbor = false;
             for (const np of neighPaths) { if (pointInPath(np, qx, qy)) { inNeighbor = true; break; } }
-            if (!inNeighbor) { coastal = true; break; } // fuori da terra -> mare
+            if (inNeighbor) continue;
+            const dist = Math.hypot(p.x - cx, p.y - cy);
+            if (dist > bestDist) { bestDist = dist; best = { px: p.x, py: p.y, ux, uy }; }
         }
-        // Cache solo se il grafo di terra e' gia' stato calcolato (altrimenti falserebbe).
+        return best;
+    }
+
+    // Costiera = ha un lato sul mare (incluso Mar Nero/Caspio, resi come acqua).
+    function isCoastalProvince(path) {
+        if (path.dataset.coast === '1') return true;
+        if (path.dataset.coast === '0') return false;
+        if (typeof path.isPointInFill !== 'function') return true; // browser vecchio: non bloccare
+        const coastal = !!seaFacingSample(path);
         if (NEIGHBORS_LAND && Object.keys(NEIGHBORS_LAND).length) {
             path.dataset.coast = coastal ? '1' : '0';
         }
         return coastal;
+    }
+
+    // Punto in mare, appena al largo della costa, dove disegnare le navi.
+    function seaAnchor(path) {
+        if (path.dataset.seaX) return { x: parseFloat(path.dataset.seaX), y: parseFloat(path.dataset.seaY) };
+        const s = seaFacingSample(path);
+        if (!s) return null;
+        const bb = mainBodyBBox(path);
+        const push = bb ? Math.min(Math.max(Math.max(bb.w, bb.h) * 0.16, 3.5), 10) : 5;
+        const anchor = { x: s.px + s.ux * push, y: s.py + s.uy * push };
+        if (NEIGHBORS_LAND && Object.keys(NEIGHBORS_LAND).length) {
+            path.dataset.seaX = anchor.x.toFixed(1);
+            path.dataset.seaY = anchor.y.toFixed(1);
+        }
+        return anchor;
     }
 
     // Verifica se una figura puo' essere posata sulla provincia. { ok, msg }.
@@ -1167,6 +1310,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if ('resources' in data) applyResourceState(data.resources || {});
         if ('pieces' in data) applyPieceState(data.pieces || {});
+        if ('roads' in data) applyRoadState(data.roads || []);
 
         refreshMapDisplay();
         renderPlayerTabs();
@@ -1497,7 +1641,8 @@ document.addEventListener('DOMContentLoaded', () => {
             history: TURN_HISTORY,
             provinces: saveData,
             resources: collectResources(svg),
-            pieces: collectPieces(svg)
+            pieces: collectPieces(svg),
+            roads: collectRoads()
         }, null, 2);
         const blob = new Blob([jsonStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -1539,6 +1684,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if ('resources' in data) applyResourceState(data.resources || {});
                 if ('pieces' in data) applyPieceState(data.pieces || {});
+                if ('roads' in data) applyRoadState(data.roads || []);
                 renderPlayerTabs();
                 saveAutoSave();
                 alert("Mappa caricata.");
@@ -1562,7 +1708,8 @@ document.addEventListener('DOMContentLoaded', () => {
             players: PLAYERS,
             history: TURN_HISTORY,
             resources: collectResources(svg),
-            pieces: collectPieces(svg)
+            pieces: collectPieces(svg),
+            roads: collectRoads()
         };
 
         localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
@@ -1594,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if ('resources' in data) applyResourceState(data.resources || {});
             if ('pieces' in data) applyPieceState(data.pieces || {});
+            if ('roads' in data) applyRoadState(data.roads || []);
             renderPlayerTabs();
         } catch (e) {
             console.error("Failed to load auto-save", e);
@@ -1644,6 +1792,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 m.style.color = pcColor;
                 m.style.display = isVisible ? '' : 'none';
             });
+        });
+
+        // Le strade spariscono se anche una sola delle due province e' in nebbia.
+        svg.querySelectorAll('.road-marker').forEach(m => {
+            const key = m.getAttribute('data-road'); if (!key) return;
+            const parts = key.split('|');
+            const vis = !visible || (visible.has(parts[0]) && visible.has(parts[1]));
+            m.style.display = vis ? '' : 'none';
         });
     }
 

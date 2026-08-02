@@ -48,8 +48,26 @@ const PIECE_SYMBOLS = `
 </linearGradient>
 
 <symbol id="pc-soldato" viewBox="0 0 100 100">
-  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M71.5 12 l5 10 h-10 z"/><rect x="70" y="18" width="3" height="64" rx="1.5"/><path d="M34 82 C34 54 40 44 46 44 C52 44 58 54 58 82 Z"/><rect x="35" y="62" width="22" height="4"/><path d="M20 46 H36 V60 Q36 74 28 80 Q20 74 20 60 Z"/><circle cx="28" cy="61" r="4" fill="#fff"/><circle cx="28" cy="49.5" r="1.5" fill="#fff"/><circle cx="22.5" cy="70" r="1.5" fill="#fff"/><circle cx="33.5" cy="70" r="1.5" fill="#fff"/><circle cx="46" cy="34" r="6.5"/><path d="M38 33 a8 8 0 0 1 16 0 z"/><rect x="36" y="31.5" width="20" height="3.5" rx="1.75"/><rect x="44.5" y="34" width="3" height="9"/></g>
-  <g fill="url(#pc-sh)" stroke="none"><path d="M71.5 12 l5 10 h-10 z"/><rect x="70" y="18" width="3" height="64" rx="1.5"/><path d="M34 82 C34 54 40 44 46 44 C52 44 58 54 58 82 Z"/><rect x="35" y="62" width="22" height="4"/><path d="M20 46 H36 V60 Q36 74 28 80 Q20 74 20 60 Z"/><circle cx="46" cy="34" r="6.5"/><path d="M38 33 a8 8 0 0 1 16 0 z"/><rect x="36" y="31.5" width="20" height="3.5" rx="1.75"/><rect x="44.5" y="34" width="3" height="9"/></g>
+  <ellipse cx="48" cy="87" rx="18" ry="3.8" fill="#000" opacity="0.20"/>
+  <ellipse cx="48" cy="80" rx="18" ry="5" fill="currentColor"/>
+  <path d="M30 80 A18 5 0 0 0 66 80 L66 77 A18 5 0 0 1 30 77 Z" fill="#000" opacity="0.22"/>
+  <ellipse cx="48" cy="77" rx="18" ry="5" fill="currentColor"/>
+  <path d="M38 78 L38 50 C38 45 42 42 48 42 C54 42 58 45 58 50 L58 78 Z" fill="currentColor"/>
+  <path d="M45.5 43 L50.5 43 L50 38 L46 38 Z" fill="currentColor"/>
+  <circle cx="48" cy="32" r="9" fill="currentColor"/>
+  <path d="M38 78 L38 50 C38 45 42 42 48 42 L48 78 Z" fill="#fff" opacity="0.12"/>
+  <path d="M48 42 C54 42 58 45 58 50 L58 78 L48 78 Z" fill="#000" opacity="0.14"/>
+  <line x1="42.5" y1="47" x2="42.5" y2="55" stroke="#000" stroke-opacity="0.14" stroke-width="1.4"/>
+  <line x1="53.5" y1="47" x2="53.5" y2="55" stroke="#000" stroke-opacity="0.18" stroke-width="1.4"/>
+  <ellipse cx="44.5" cy="29" rx="3.2" ry="3.8" fill="#fff" opacity="0.40"/>
+  <ellipse cx="51.5" cy="33" rx="3" ry="4.2" fill="#000" opacity="0.13"/>
+  <circle cx="42" cy="61" r="11" fill="currentColor"/>
+  <circle cx="42" cy="61" r="11" fill="none" stroke="#000" stroke-opacity="0.18" stroke-width="1.6"/>
+  <path d="M42 50 A11 11 0 0 0 31 61 Q36 52 42 50 Z" fill="#fff" opacity="0.18"/>
+  <path d="M42 72 A11 11 0 0 0 53 61 Q48 70 42 72 Z" fill="#000" opacity="0.12"/>
+  <circle cx="42" cy="61" r="2.6" fill="currentColor"/>
+  <circle cx="42" cy="61" r="2.6" fill="none" stroke="#000" stroke-opacity="0.2" stroke-width="1"/>
+  <ellipse cx="38.6" cy="57.6" rx="2.3" ry="2.7" fill="#fff" opacity="0.35"/>
 </symbol>
 <symbol id="pc-generale" viewBox="0 0 100 100">
   <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M22 82 C22 58 28 50 33 50 C39 50 45 58 45 82 Z"/><circle cx="33" cy="40" r="6"/><path d="M27 40 a6 6 0 0 1 12 0 z"/><path d="M33 34 C31 27 36 25 38 25 C35 29 35 32 35 34 Z"/><path d="M43 16 C60 14 68 24 84 20 L84 42 C68 46 60 36 43 42 Z"/><path d="M60 24 h4 v5 h5 v4 h-5 v6 h-4 v-6 h-5 v-4 h5 z" fill="#fff"/><rect x="40" y="12" width="3" height="70" rx="1.5"/><path d="M41.5 8 l3.5 8 h-7 z"/></g>
