@@ -139,9 +139,17 @@ giocatori, turno, storico). Salvato in localStorage/Firestore e in Save/Load.
   id, name, color,
   monete: int,                 // tesoro
   prestigio: int,
-  tassazione: 'leggera'|'normale'|'pesante',
-  popolarita: 1..5,            // calcolata (§8), non modificabile a mano
-  scorte: { pietra, legno, grano, bestiame, argilla }   // risorse accumulate
+  tassazione: 'leggera'|'normale'|'dura',
+  capitaleProvincia: id|null,  // provincia con la Capitale (chiave per la Popolarità, §8)
+  popolarita: 1..5,            // calcolata (§8): totale + i 3 componenti Difesa/Benessere/Tassa
+  scorte: { pietra, legno, grano, bestiame, argilla },  // risorse accumulate
+  salute:   { acquedotti, bestiariMedici, erboristerie, pozziNeri, capanniMedici },  // bool (§6.1)
+  felicita: { terme, fiereBestiame, festaRaccolto, fornitureTaverne, palchiGiostre }, // bool (§6.1)
+  obiettivi: {                 // obiettivi del ciclo di 10 turni corrente (§10)
+    primario:   { descrizione, completato },   // 6 punti
+    secondario: { descrizione, completato },   // 2 punti
+    terziario:  { descrizione, completato }     // 2 punti
+  }
 }
 ```
 
@@ -242,44 +250,77 @@ dove indicato.
 - Capitale/Città/Fortezza si costruiscono su una **provincia controllata**; Strada/Nave
   collegano **due** province controllate.
 
+### 6.1 Migliorie civiche — Salute e Svago **[REGOLA]**
+
+Migliorie **una tantum per regno** (non ripetibili) che alzano il **Benessere** (§8). Ogni
+categoria ha **5 migliorie, una per tipo di risorsa**; ognuna completata dà **+1 punto** al suo
+indice (max 5). Costo: **3 unità** della risorsa indicata (nient'altro). Richiedono una Capitale.
+
+**Salute e sanità** → indice **Sanità**
+| Miglioria | Costo |
+|---|---|
+| Acquedotti | 3 Pietra |
+| Bestiari medici | 3 Bestiame |
+| Erboristerie | 3 Grano |
+| Pozzi neri | 3 Argilla |
+| Capanni medici | 3 Legno |
+
+**Felicità e svago** → indice **Felicità**
+| Miglioria | Costo |
+|---|---|
+| Terme | 3 Pietra |
+| Fiere del bestiame | 3 Bestiame |
+| Festa del raccolto | 3 Grano |
+| Forniture per taverne | 3 Argilla |
+| Palchi e giostre teatrali | 3 Legno |
+
 ---
 
 ## 7. Economia delle monete
 
 - **[REGOLA] Solo le Città pagano le tasse.** Nient'altro genera monete di rendita (scelta
   voluta per tenere basso il denaro e alto il peso relativo dei costi).
-- **Entrate/turno:** `Σ(#Città) × tassa(livello)`.
-- **[REGOLA] tassa per Città:** Leggera **50** · Normale **100** · Pesante **150**.
-- Un regno con solo la Capitale (nessuna Città) ha **0 entrate**: le monete arrivano
-  costruendo Città.
+- **Entrate/turno:** `Σ(#Città) × tassa(livello)`, dove la **Capitale conta come Città** (§6).
+- **[REGOLA] tassa per Città:** Leggera **50** · Normale **100** · Dura **150**.
+- Quindi con la sola Capitale si incassa già 1× la tassa; altre Città moltiplicano le entrate.
 - **Uscite:** costi di costruzione/reclutamento (§6).
 - **Mercato [REGOLA]:** converte risorse con la banca al rapporto **2:1** (2 di un tipo → 1 a scelta).
 
 ---
 
-## 8. Popolarità (1–5)  ⏸️ IN SOSPESO
+## 8. Popolarità (1–5)
 
-> Da rivedere insieme all'utente (formula, soglie, significato di "±N risorse/turno", fonti
-> di prestigio). Quanto segue è una **bozza [PROPOSTA]** di lavoro, non ancora confermata.
+Attiva quando il regno ha una **Capitale**. La **Capitale è l'elemento chiave** (ma non l'unico)
+su cui si misura la popolarità: il sistema tiene **sempre traccia della provincia-capitale** di
+ogni giocatore (§3).
 
-Attiva solo con la Capitale. Tre macro-fattori danno un punteggio; il totale mappa il livello.
+**Formula [REGOLA]:** `Popolarità = arrotonda( (Difesa + Benessere + Tassa) / 3 )` (clamp 1–5),
+dove ciascun componente ha il proprio calcolo.
 
-### Punteggi **[PROPOSTA]**
+**Arrotondamento [REGOLA]:** per **difetto**, salvo quando la parte decimale è **> 0,8**, allora
+per eccesso. `arrotonda(x) = (x − floor(x) > 0.8) ? ceil(x) : floor(x)`.
+Es.: 2,83 → 3 · 2,5 → 2 · 4,8 → 4 · 3,9 → 4.
 
-**Difesa e sicurezza** (Dif, −2…+2):
-- Province **nemiche** confinanti con la Capitale `e`: e=0 → +2 · e=1 → +1 · e=2 → 0 · e=3 → −1 · e≥4 → −2.
-- Guardia cittadina: soldati oltre 5 nella Capitale → +1 ogni 2 extra, max +2.
-- Generale nella Capitale → +1.
-- `Dif = clamp(somma, −2, +2)`
+### Livello Difesa — `(P_conf + P_guardia) / 2 + generale` **[REGOLA]**
+- **P_conf** (province nemiche confinanti con la Capitale, punti su 5): `5 − e`, con `e` = numero
+  di province nemiche a contatto (max 5). → 0 nemiche = 5 · 1 = 4 · 2 = 3 · 3 = 2 · 4 = 1 · ≥5 = 0
+- **P_guardia** (guardia cittadina, punti su 5): `min(5, max(0, soldatiCapitale − 5))` — ogni
+  soldato oltre i 5 nella Capitale vale 1, fino a 5. → 7 soldati = 2 · 10+ = 5
+- **Generale nella Capitale**: `+1` (ce l'hai o non ce l'hai)
+- `Difesa = (P_conf + P_guardia) / 2 + (generale ? 1 : 0)` → intervallo **0–6**
 
-**Benessere e risorse** (Ben, −2…+2):
-- Diversità risorse collegate `d` (tipi distinti 1–5) → `d − 3` (d=5 → +2, d=1 → −2).
-- Cibo (province di Grano/Bestiame collegate `a`): a=0 → −1 · a=1 → 0 · a=2–3 → +1 · a≥4 → +2.
-- `Ben = clamp(somma, −2, +2)`
+### Livello Benessere — `(Risorse + Cibo + Sanità + Felicità) / 4` **[REGOLA]**
+- **Risorse** (diversità, su 5): numero di **tipi distinti** di risorsa collegati.
+  *Es.: 5 province di solo Bestiame collegate → Risorse = 1 (un solo tipo), ma Cibo = 5.*
+- **Cibo** (su 5): province di **Grano/Bestiame** collegate, `min(5, conteggio)`.
+- **Sanità** (su 5): numero di **migliorie di salute** completate (una per tipo di risorsa, §6.1).
+- **Felicità** (su 5): numero di **migliorie di svago** completate (una per tipo di risorsa, §6.1).
+- `Benessere = (Risorse + Cibo + Sanità + Felicità) / 4` → intervallo **0–5**
 
-**Tassazione** (Tax, −1…+1): Leggera +1 · Normale 0 · Pesante −1.
-
-**Livello finale:** `T = Dif + Ben + Tax` (−5…+5) → `Popolarità = clamp(3 + round(T/2), 1, 5)`.
+### Livello Tassa **[REGOLA]**
+- Leggera → **5** · Normale → **3** · Dura → **1**.
+- Trade-off: la tassa **dura** dà più monete (§7, 150) ma popolarità minima; la **leggera** dà
+  meno monete (50) ma popolarità massima.
 
 ### Effetti per livello **[REGOLA]**
 | Liv | Soldati/turno | Risorse/turno | Prestigio/turno |
@@ -291,7 +332,19 @@ Attiva solo con la Capitale. Tre macro-fattori danno un punteggio; il totale map
 | 5 | +2 | +2 | +1 |
 
 **[PROPOSTA]** "Risorse/turno ±N" = N unità totali aggiunte/tolte alla raccolta del turno
-(distribuite/prelevate sui tipi raccolti). Da confermare l'interpretazione.
+(sui tipi raccolti). Da confermare.
+
+**Nota Prestigio:** la colonna "Prestigio/turno" qui sopra è **superata** dal sistema a cicli
+del §10 (Popolarità ≥ 4 → +1 Prestigio/turno; Popolarità 1 → −1/turno, **malus mantenuto**).
+
+### Pannello Popolarità (UI) **[REGOLA]**
+Nella **scheda personale** del giocatore, a partire dalla **costruzione della Capitale**, compare
+un **pannello dedicato** che si **aggiorna automaticamente** ed evolve, mostrando:
+- **Popolarità** totale (1–5) e l'effetto corrente (soldati/risorse/prestigio).
+- I tre componenti **Difesa / Benessere / Tassa** con il loro livello e il **dettaglio dei
+  sotto-fattori** (province nemiche confinanti con la Capitale, guardia cittadina, generale,
+  diversità risorse, cibo collegato, livello di tassazione).
+- Il **selettore di Tassazione** (leggera/normale/dura).
 
 ---
 
@@ -333,17 +386,51 @@ ridotto (attrito). Tabella completa nella chat di design.
 
 ---
 
-## 10. Prestigio, vittoria e sconfitta **[REGOLA]**
+## 10. Prestigio — vittoria, cicli e obiettivi **[REGOLA]**
+
+Il **Prestigio** è uno degli obiettivi principali (con la conquista territoriale e l'eliminazione
+degli avversari): misura il successo politico, economico e strategico del regno.
 
 - **Nessuna scadenza a turni.** La partita continua finché qualcuno vince.
-- **Sconfitta:** un giocatore è eliminato quando **perde tutte le province** (fuori dalla mappa).
+- **Sconfitta:** un giocatore è eliminato quando **perde tutte le province**.
 - **Vittoria** (una delle due):
-  1. **Prestigio:** raggiungere una **soglia** di punti prestigio. **[PROPOSTA] soglia = 30**
-     (tarabile).
+  1. **Prestigio:** raggiungere la **soglia** di punti. *[da definire — proposta 30; con max 10
+     per ciclo ≈ 3 cicli / 30 turni]*
   2. **Eliminazione:** restare l'**unico regno** in gioco.
 
-**Prestigio:** +1/turno a Popolarità 5, −1/turno a Popolarità 1 (§8). (Fonti aggiuntive di
-prestigio — es. conquiste, monumenti — da decidere insieme alla Popolarità, in sospeso.)
+### Cicli di 10 turni
+Il Prestigio si assegna a **cicli di 10 turni**. All'inizio di ogni ciclo, ogni giocatore riceve
+una serie di **obiettivi** da completare entro i 10 turni successivi, **bilanciati** in base allo
+stato della partita e **ispirati al contesto storico** del regno rappresentato.
+
+### Punti per ciclo (fino a 10)
+- **Popolarità:** **+1** Prestigio per ogni turno con Popolarità **alta (≥ 4)**; **−1** per ogni
+  turno a Popolarità **1** (malus mantenuto **[REGOLA]**). Pop. 2–3 → 0.
+- **Obiettivo Primario:** **6** punti — il più complesso/strategico (espansione, costruzione,
+  controllo di aree specifiche).
+- **Obiettivo Secondario:** **2** punti — difficoltà intermedia, integra il primario.
+- **Obiettivo Terziario:** **2** punti — più semplice/situazionale, flessibilità tattica.
+
+**Massimo per ciclo: 10 punti** (da Popolarità + obiettivi). Il bonus di conquista qui sotto è
+**aggiuntivo** e non rientra in questo tetto.
+
+### Prestigio da conquista **[REGOLA]**
+- **Conquistare una Capitale nemica: +2 Prestigio**, sempre, **a prescindere dagli obiettivi** e
+  **oltre** il tetto di 10/ciclo (il gioco è di espansione e competitivo → la conquista va premiata).
+- **Perdere la propria Capitale: nessun malus di prestigio** — il danno meccanico (perdita di
+  raccolta, monete, popolarità, difesa) è già sufficiente. Si premia l'attaccante, non si punisce
+  due volte il difensore.
+- *(Le Città non danno prestigio di conquista, salvo diversa decisione futura.)*
+
+> ⚠️ **Da chiarire (discussione aperta):** le fonti elencate sommano più di 10 (Popolarità fino
+> a 10 + obiettivi 6+2+2 = 10), ma il tetto è 10. Va definito **come si combinano** dentro il
+> tetto — es. la Popolarità riempie solo i punti-obiettivo non ottenuti, oppure è un canale a sé
+> con un cap più basso. Inoltre questo sistema **sostituisce** la colonna "Prestigio/turno" del
+> §8; da confermare se il malus a Popolarità bassa resta.
+
+### Prossimo passo
+Progettare **esempi concreti di obiettivi** (per civiltà/situazione di gioco): è lì che si gioca
+il vero bilanciamento. → *in discussione.*
 
 ---
 
@@ -389,12 +476,16 @@ prestigio — es. conquiste, monumenti — da decidere insieme alla Popolarità,
   Città +3, Fortezza +5.
 - Vittoria: **soglia di prestigio** (proposta 30) **oppure** eliminazione degli altri; si
   **perde** restando senza province. Nessuna scadenza a turni.
-- Tassazione: **solo le Città**, 50/100/150 (leggera/normale/pesante).
+- Tassazione: **solo le Città**, 50/100/150 (leggera/normale/dura).
 - Valori iniziali: **1000 monete**, **5 soldati/provincia**, **0 scorte**.
 - Città: **+1 Pietra una tantum** alla costruzione, poi +1 soldato + monete-tasse/turno.
 - Risorse: **1/turno per provincia collegata** (niente sviluppo).
+- **Popolarità** (§8): formula `(Difesa+Benessere+Tassa)/3`, i tre indici coi loro calcoli,
+  migliorie civiche (§6.1), arrotondamento (>0,8), pannello dedicato.
+- **Prestigio** (§10): cicli di 10 turni; Popolarità (≥4 → +1/turno, 1 → −1/turno); obiettivi
+  6/2/2; **conquista Capitale nemica +2** (fuori dal tetto di 10); nessun malus per la Capitale persa.
 
 **Ancora aperte:**
-- **Ordine dei turni**: sequenziale (a rotazione) vs simultaneo a impulsi — vedi §2.1.
-- **Popolarità** (§8) → ⏸️ in sospeso, da rivedere insieme.
-- **Soglia di prestigio** per la vittoria (30?) e eventuali **fonti extra di prestigio**.
+- **Prestigio**: come si combinano Popolarità e obiettivi dentro il tetto di 10/ciclo (A: la
+  Popolarità riempie i punti-obiettivo mancanti · B: canali separati); **soglia di vittoria** (30?).
+- **Obiettivi di ciclo**: progettare esempi concreti (per civiltà/situazione) — *prossima discussione*.
