@@ -21,6 +21,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let TURN_HISTORY = {};
     let selectedPlayer = null;
     let selectedResource = null; // null = nessun "pennello risorsa" attivo; altrimenti chiave risorsa o '__erase__'
+    let selectedPiece = null;    // null = nessun "pennello figura" attivo; altrimenti chiave figura o '__erase__'
+    const PIECE_NEUTRAL = '#555555'; // colore delle figure su province senza proprietario
+    // Insediamenti maggiori: al massimo UNO per provincia (Capitale, Città o Fortezza
+    // si escludono a vicenda). Le navi (barca/vascello) solo su province costiere.
+    const SETTLEMENT_GROUP = ['capitale', 'citta', 'fortezza'];
+    const SHIP_TYPES = ['barca', 'vascello'];
     let isAdminMode = false;
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
     let NEIGHBORS = {};      // grafo completo (terra + brevi salti via mare): per usi futuri (navi)
@@ -70,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // When leaving admin mode, drop any focused player so the map returns to the main view.
         if (!admin) {
             selectedResource = null;
+            selectedPiece = null;
             document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
             selectedTabPlayerId = null;
             const content = document.getElementById('player-tab-content');
@@ -218,8 +225,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         wireMapZoom(svg);
 
-        // Simboli-risorsa disponibili subito (li usano anche i chip della palette).
+        // Simboli-risorsa e simboli-figura disponibili subito (li usano anche i chip della palette).
         injectResourceDefs(svg);
+        injectPieceDefs(svg);
 
         // Solo i territori giocabili (class="state"): esclude sfondo, bordi e pattern dell'SVG.
         const paths = svg.querySelectorAll('path.state');
@@ -307,6 +315,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
+                // Pennello figura attivo: click sinistro = +1 (impila le unita').
+                // La figura prende il colore del giocatore selezionato (memorizzato
+                // sulla provincia), altrimenti quello del proprietario, altrimenti neutro.
+                if (isAdminMode && selectedPiece !== null) {
+                    if (selectedPiece === '__erase__') {
+                        changePiece(path, '__erase__');
+                    } else {
+                        const chk = canPlacePiece(path, selectedPiece);
+                        if (!chk.ok) { showPieceNotice(chk.msg); return; }
+                        changePiece(path, selectedPiece, +1);
+                        if (path.getAttribute('data-pieces')) {
+                            if (selectedPlayer) path.setAttribute('data-pc-color', selectedPlayer.color);
+                            else if (!path.getAttribute('data-pc-color')) {
+                                const oc = ownerColorHex(path);
+                                if (oc) path.setAttribute('data-pc-color', oc);
+                            }
+                        }
+                    }
+                    renderPiecesForPath(svg, path);
+                    saveAutoSave();
+                    return;
+                }
+
                 showResourceInfo(resourceKeyOf(path));
 
                 if (selectedPlayer && isAdminMode) {
@@ -333,6 +364,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     ownerDisplay.style.color = pObj ? pObj.color : '#888';
                 }
             });
+
+            // Click destro con un pennello-figura attivo: -1 di quella figura
+            // (in scheda personale una provincia in nebbia resta intoccabile).
+            path.addEventListener('contextmenu', (e) => {
+                if (!isAdminMode || selectedPiece === null) return; // altrimenti menu normale
+                if (selectedTabPlayerId !== null && path.classList.contains('fog')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (selectedPiece === '__erase__') changePiece(path, '__erase__');
+                else changePiece(path, selectedPiece, -1);
+                if (!path.getAttribute('data-pieces')) path.removeAttribute('data-pc-color');
+                renderPiecesForPath(svg, path);
+                saveAutoSave();
+            });
         });
 
         // Compute adjacency graph once (deferred so it doesn't block first paint).
@@ -341,6 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
             NEIGHBORS = g.full;
             NEIGHBORS_LAND = g.land;
             renderResourceMarkers(svg);
+            renderPieceMarkers(svg);
             refreshMapDisplay();
         }, 50);
 
@@ -518,7 +564,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // (ignora isole lontane usando la mediana dei punti del perimetro), poi sceglie
     // un angolo di quel corpo e garantisce che il centro dell'icona cada dentro il
     // poligono (isPointInFill). Cosi' l'icona non sfora in mare o in un'altra provincia.
-    function markerAnchor(path) {
+    // BBox del CORPO PRINCIPALE della provincia: usa la mediana dei punti del
+    // perimetro per scartare le isole lontane, cosi' ancore e figure non finiscono
+    // in mare o su un'altra provincia. Condiviso da markerAnchor e dalle figure.
+    function mainBodyBBox(path) {
         let b; try { b = path.getBBox(); } catch (e) { return null; }
         if (!b || (!b.width && !b.height)) return null;
 
@@ -541,6 +590,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (cnt >= 3) { mx = minx; my = miny; mw = maxx - minx; mh = maxy - miny; }
         }
+        return { x: mx, y: my, w: mw, h: mh };
+    }
+
+    function markerAnchor(path) {
+        const bb = mainBodyBBox(path);
+        if (!bb) return null;
+        const mx = bb.x, my = bb.y, mw = bb.w, mh = bb.h;
 
         const size = Math.max(3, Math.min(Math.min(mw, mh) * 0.5, 11));
         const inset = size * 0.6;
@@ -617,6 +673,292 @@ document.addEventListener('DOMContentLoaded', () => {
             else p.removeAttribute('data-resource');
         });
         renderResourceMarkers(svg);
+    }
+
+    // ====================== FIGURE (pedine di gioco) ======================
+    // Modello "Risiko da tavolo":
+    //   - data-pieces  = lista "tipo:quantita" separata da virgole, es.
+    //                    "soldato:3,citta:1". Le unita' mobili si impilano (mostrano
+    //                    il numero); generale ed edifici restano a 1 (vedi PIECES.max).
+    //   - data-pc-color = colore dell'"esercito" su quella provincia (memorizzato al
+    //                    piazzamento dal giocatore selezionato). Cosi' le figure hanno
+    //                    un colore proprio anche su province senza proprietario.
+    // PIECE_NEUTRAL (dichiarato in cima) e' il fallback se non c'e' ne' colore
+    // memorizzato ne' proprietario.
+
+    function injectPieceDefs(svg) {
+        if (typeof PIECE_SYMBOLS === 'undefined') return;
+        if (svg.querySelector('#pc-defs')) return;
+        const doc = new DOMParser().parseFromString(
+            `<svg xmlns="${SVG_NS}"><defs id="pc-defs">${PIECE_SYMBOLS}</defs></svg>`,
+            'image/svg+xml'
+        );
+        const defs = doc.querySelector('#pc-defs');
+        if (defs) svg.insertBefore(document.importNode(defs, true), svg.firstChild);
+    }
+
+    function pieceMax(type) {
+        return (typeof PIECES !== 'undefined' && PIECES[type] && PIECES[type].max) || 1;
+    }
+
+    // Elenco (validato, con quantita') delle figure di una provincia: [{type,count}].
+    function piecesOf(path) {
+        const raw = path.getAttribute('data-pieces');
+        if (!raw) return [];
+        const out = [];
+        raw.split(',').forEach(tok => {
+            const parts = tok.split(':');
+            const type = (parts[0] || '').trim();
+            if (!type || typeof PIECES === 'undefined' || !PIECES[type]) return;
+            let n = parseInt(parts[1], 10);
+            if (!(n > 0)) n = 1;
+            const ex = out.find(e => e.type === type);
+            if (ex) ex.count = Math.min(ex.count + n, pieceMax(type));
+            else out.push({ type, count: Math.min(n, pieceMax(type)) });
+        });
+        return out;
+    }
+
+    function serializePieces(arr) {
+        return arr.filter(e => e.count > 0).map(e => e.type + ':' + e.count).join(',');
+    }
+
+    // Applica una lista [{type,count}] alla provincia (svuota gli attributi se vuota).
+    function setPieces(path, arr) {
+        const s = serializePieces(arr);
+        if (s) path.setAttribute('data-pieces', s);
+        else { path.removeAttribute('data-pieces'); path.removeAttribute('data-pc-color'); }
+    }
+
+    // +1 / -1 di un tipo (rispetta il max; '__erase__' svuota tutto).
+    function changePiece(path, type, delta) {
+        if (type === '__erase__') { path.removeAttribute('data-pieces'); path.removeAttribute('data-pc-color'); return; }
+        if (typeof PIECES === 'undefined' || !PIECES[type]) return;
+        const max = pieceMax(type);
+        const arr = piecesOf(path);
+        const e = arr.find(x => x.type === type);
+        if (!e) { if (delta > 0) arr.push({ type, count: Math.min(delta, max) }); }
+        else { e.count = Math.max(0, Math.min(e.count + delta, max)); }
+        setPieces(path, arr);
+    }
+
+    function ownerColorHex(path) {
+        const owner = path.getAttribute('data-owner');
+        const pObj = owner ? PLAYERS.find(p => p.name === owner) : null;
+        return pObj ? pObj.color : null;
+    }
+
+    // Colore delle figure: colore memorizzato > colore proprietario > neutro.
+    function pieceColorOf(path) {
+        return path.getAttribute('data-pc-color') || ownerColorHex(path) || PIECE_NEUTRAL;
+    }
+
+    // Disegna (o ridisegna) le figure di UNA provincia: una fila compatta, piccola,
+    // centrata sul corpo principale e ridotta per stare dentro i confini. I tipi
+    // impilabili mostrano un pallino col numero. Nascoste in nebbia.
+    function renderPiecesForPath(svg, path) {
+        svg.querySelectorAll(`.piece-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => m.remove());
+        const arr = piecesOf(path);
+        if (!arr.length) return;
+        const bb = mainBodyBBox(path);
+        if (!bb) return;
+
+        const n = arr.length;
+        const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
+        // Icone piccole; se non ci stanno in larghezza, si rimpiccioliscono ancora.
+        let size = Math.max(2.5, Math.min(Math.min(bb.w, bb.h) * 0.30, 8));
+        const gapR = 0.12;
+        let totalW = n * size + (n - 1) * size * gapR;
+        const maxW = bb.w * 0.9;
+        if (totalW > maxW) { size *= maxW / totalW; totalW = maxW; }
+        const step = size * (1 + gapR);
+        const startX = cx - totalW / 2;
+        const color = pieceColorOf(path);
+        const fogged = path.classList.contains('fog');
+
+        const add = (el) => {
+            el.setAttribute('class', 'piece-marker');
+            el.setAttribute('data-prov', path.id);
+            el.setAttribute('pointer-events', 'none');
+            el.style.color = color;
+            if (fogged) el.style.display = 'none';
+            svg.appendChild(el);
+        };
+
+        arr.forEach((e, i) => {
+            const x = startX + i * step, y = cy - size / 2;
+            const use = document.createElementNS(SVG_NS, 'use');
+            use.setAttribute('href', '#pc-' + e.type);
+            use.setAttributeNS(XLINK_NS, 'href', '#pc-' + e.type);
+            use.setAttribute('x', x);
+            use.setAttribute('y', y);
+            use.setAttribute('width', size);
+            use.setAttribute('height', size);
+            add(use);
+
+            if (e.count > 1) {
+                const bx = x + size * 0.9, by = y + size * 0.1, br = size * 0.42;
+                const c = document.createElementNS(SVG_NS, 'circle');
+                c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
+                c.setAttribute('fill', '#fff');
+                c.setAttribute('stroke', 'currentColor');
+                c.setAttribute('stroke-width', size * 0.09);
+                add(c);
+                const t = document.createElementNS(SVG_NS, 'text');
+                t.setAttribute('x', bx); t.setAttribute('y', by);
+                t.setAttribute('text-anchor', 'middle');
+                t.setAttribute('dominant-baseline', 'central');
+                t.setAttribute('font-size', br * 1.5);
+                t.setAttribute('font-weight', 'bold');
+                t.setAttribute('font-family', 'sans-serif');
+                t.setAttribute('fill', 'currentColor');
+                t.textContent = e.count;
+                add(t);
+            }
+        });
+    }
+
+    // Ridisegna tutte le figure dall'attributo data-pieces di ogni provincia.
+    function renderPieceMarkers(svg) {
+        if (typeof PIECES === 'undefined') return;
+        injectPieceDefs(svg);
+        svg.querySelectorAll('.piece-marker').forEach(m => m.remove());
+        svg.querySelectorAll('path.state').forEach(path => renderPiecesForPath(svg, path));
+    }
+
+    // Snapshot { provinceId: { t:"soldato:3,citta:1", c:"#e6194B" } } delle province con figure.
+    function collectPieces(svg) {
+        const out = {};
+        svg.querySelectorAll('path.state').forEach(p => {
+            const t = p.getAttribute('data-pieces');
+            if (!t) return;
+            const entry = { t };
+            const c = p.getAttribute('data-pc-color');
+            if (c) entry.c = c;
+            out[p.id] = entry;
+        });
+        return out;
+    }
+
+    // Applica uno snapshot figure (autoritativo). Accetta il formato nuovo
+    // {t,c} oppure il vecchio (stringa "a,b" senza quantita').
+    function applyPieceState(map) {
+        const svg = document.querySelector('svg');
+        if (!svg || !map || typeof map !== 'object') return;
+        svg.querySelectorAll('path.state').forEach(p => {
+            const v = map[p.id];
+            let str = '', color = '';
+            if (v && typeof v === 'object' && !Array.isArray(v)) { str = v.t || ''; color = v.c || ''; }
+            else if (typeof v === 'string') str = v;
+            else if (Array.isArray(v)) str = v.join(',');
+            const arr = piecesFromString(str);
+            if (arr.length) {
+                p.setAttribute('data-pieces', serializePieces(arr));
+                if (color) p.setAttribute('data-pc-color', color); else p.removeAttribute('data-pc-color');
+            } else { p.removeAttribute('data-pieces'); p.removeAttribute('data-pc-color'); }
+        });
+        renderPieceMarkers(svg);
+    }
+
+    // --- Regole di piazzamento (stile Risiko) ---
+
+    // Una provincia e' "sul mare" se almeno un tratto del suo confine non tocca
+    // alcun vicino di TERRA (quindi affaccia sull'oceano). Calcolo geometrico:
+    // dai punti del bordo spingo un campione verso l'esterno; se cade fuori dalla
+    // provincia E fuori da ogni vicino di terra -> quel lato e' mare -> costiera.
+    // Risultato messo in cache (data-coast) una volta che il grafo di terra e' pronto.
+    function isCoastalProvince(path) {
+        if (path.dataset.coast === '1') return true;
+        if (path.dataset.coast === '0') return false;
+        if (typeof path.isPointInFill !== 'function') return true; // browser vecchio: non bloccare
+        const bb = mainBodyBBox(path);
+        const pts = boundaryPoints(path);
+        if (!bb || !pts.length) return true;
+        const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
+        const d = Math.min(Math.max(Math.max(bb.w, bb.h) * 0.05, 1.2), 5);
+        const neighPaths = Array.from(NEIGHBORS_LAND[path.id] || [])
+            .map(id => document.getElementById(id)).filter(Boolean);
+        const step = Math.max(1, Math.floor(pts.length / 60));
+        let coastal = false;
+        for (let i = 0; i < pts.length; i += step) {
+            const p = pts[i];
+            let ux = p.x - cx, uy = p.y - cy;
+            const len = Math.hypot(ux, uy) || 1; ux /= len; uy /= len;
+            const qx = p.x + ux * d, qy = p.y + uy * d;
+            if (pointInPath(path, qx, qy)) continue; // ancora dentro la provincia
+            let inNeighbor = false;
+            for (const np of neighPaths) { if (pointInPath(np, qx, qy)) { inNeighbor = true; break; } }
+            if (!inNeighbor) { coastal = true; break; } // fuori da terra -> mare
+        }
+        // Cache solo se il grafo di terra e' gia' stato calcolato (altrimenti falserebbe).
+        if (NEIGHBORS_LAND && Object.keys(NEIGHBORS_LAND).length) {
+            path.dataset.coast = coastal ? '1' : '0';
+        }
+        return coastal;
+    }
+
+    // Verifica se una figura puo' essere posata sulla provincia. { ok, msg }.
+    function canPlacePiece(path, type) {
+        if (SHIP_TYPES.indexOf(type) >= 0 && !isCoastalProvince(path)) {
+            return { ok: false, msg: 'Le navi si posano solo su province sul mare.' };
+        }
+        if (SETTLEMENT_GROUP.indexOf(type) >= 0) {
+            const other = piecesOf(path).find(e => SETTLEMENT_GROUP.indexOf(e.type) >= 0 && e.type !== type);
+            if (other) {
+                const nome = (PIECES[other.type] && PIECES[other.type].nome) || other.type;
+                return { ok: false, msg: `Qui c'è già ${nome}: Capitale, Città e Fortezza si escludono a vicenda.` };
+            }
+        }
+        // Capitale: 1 sola per regno (il "regno" e' identificato dal colore-esercito).
+        if (type === 'capitale') {
+            const color = selectedPlayer ? selectedPlayer.color
+                : (path.getAttribute('data-pc-color') || ownerColorHex(path));
+            if (color && PLAYERS.some(p => p.color === color)) {
+                const svg = document.querySelector('svg');
+                let taken = false;
+                if (svg) {
+                    svg.querySelectorAll('path.state').forEach(pp => {
+                        if (pp === path || taken) return;
+                        if (pp.getAttribute('data-pc-color') === color &&
+                            piecesOf(pp).some(e => e.type === 'capitale')) taken = true;
+                    });
+                }
+                if (taken) return { ok: false, msg: 'Questo regno ha già una Capitale (1 per regno).' };
+            }
+        }
+        return { ok: true };
+    }
+
+    // Avviso non bloccante (toast) per un piazzamento rifiutato.
+    function showPieceNotice(msg) {
+        let el = document.getElementById('piece-notice');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'piece-notice';
+            el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#b23b3b;color:#fff;padding:8px 14px;border-radius:6px;font-size:14px;z-index:10000;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:none;opacity:0;transition:opacity .2s;';
+            document.body.appendChild(el);
+        }
+        el.textContent = msg;
+        el.style.opacity = '1';
+        clearTimeout(el._t);
+        el._t = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+    }
+
+    // Parsa una stringa "tipo:count,tipo" (count opzionale) in [{type,count}].
+    function piecesFromString(str) {
+        if (!str) return [];
+        const out = [];
+        String(str).split(',').forEach(tok => {
+            const parts = tok.split(':');
+            const type = (parts[0] || '').trim();
+            if (!type || typeof PIECES === 'undefined' || !PIECES[type]) return;
+            let n = parseInt(parts[1], 10);
+            if (!(n > 0)) n = 1;
+            const ex = out.find(e => e.type === type);
+            if (ex) ex.count = Math.min(ex.count + n, pieceMax(type));
+            else out.push({ type, count: Math.min(n, pieceMax(type)) });
+        });
+        return out;
     }
 
     // Zoom (rotella) + pan (trascinamento) manipolando il viewBox del root <svg>.
@@ -824,6 +1166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if ('resources' in data) applyResourceState(data.resources || {});
+        if ('pieces' in data) applyPieceState(data.pieces || {});
 
         refreshMapDisplay();
         renderPlayerTabs();
@@ -890,10 +1233,11 @@ document.addEventListener('DOMContentLoaded', () => {
             colorInput.addEventListener('input', (e) => {
                 if (!isAdminMode) return;
                 const newColor = e.target.value;
+                const oldColor = p.color;
                 p.color = newColor;
                 btn.querySelector('.player-logo').style.background = newColor;
                 btn.querySelector('.player-info').style.borderBottomColor = newColor;
-                updateMapColors(p.name, newColor);
+                updateMapColors(p.name, newColor, oldColor);
                 renderPlayerTabs();
                 saveAutoSave();
             });
@@ -905,7 +1249,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.querySelectorAll('.player-card').forEach(b => b.classList.remove('selected'));
                 } else {
                     selectedPlayer = p;
+                    selectedResource = null; // il giocatore convive con l'eventuale pennello-figura
                     document.querySelectorAll('.player-card').forEach(b => b.classList.remove('selected'));
+                    document.querySelectorAll('.resource-chip:not(.piece-chip)').forEach(c => c.classList.remove('selected'));
                     btn.classList.add('selected');
                 }
             });
@@ -950,6 +1296,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     selectedResource = key;
                     selectedPlayer = null; // un solo pennello attivo alla volta
+                    selectedPiece = null;
                     document.querySelectorAll('.player-card').forEach(b => b.classList.remove('selected'));
                     document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
                     chip.classList.add('selected');
@@ -964,12 +1311,58 @@ document.addEventListener('DOMContentLoaded', () => {
         makeChip('__erase__', 'Nessuna', '<span class="resource-chip-x">&times;</span>');
     }
 
-    function updateMapColors(playerName, newColor) {
+    // Palette figure (admin): scegli una figura e clicca le province per posarla.
+    // I chip condividono lo stile ".resource-chip"; ".piece-chip" e' l'aggancio
+    // specifico per la selezione. Un solo pennello attivo alla volta.
+    function initPiecePalette() {
+        const palette = document.getElementById('piece-palette');
+        if (!palette || typeof PIECES === 'undefined') return;
+        palette.innerHTML = '';
+
+        const makeChip = (key, label, previewHTML) => {
+            const chip = document.createElement('div');
+            chip.className = 'resource-chip piece-chip' + (key === '__erase__' ? ' resource-chip-erase' : '');
+            chip.dataset.piece = key;
+            chip.title = label;
+            chip.innerHTML = `<span class="resource-chip-icon">${previewHTML}</span><span class="resource-chip-label">${label}</span>`;
+            chip.addEventListener('click', () => {
+                if (!isAdminMode) return;
+                if (selectedPiece === key) {
+                    selectedPiece = null;
+                    chip.classList.remove('selected');
+                } else {
+                    selectedPiece = key;
+                    selectedResource = null; // la figura convive col giocatore (per il colore)
+                    document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
+                    chip.classList.add('selected');
+                }
+            });
+            palette.appendChild(chip);
+        };
+
+        Object.keys(PIECES).forEach(key => {
+            makeChip(key, PIECES[key].nome, `<svg viewBox="0 0 100 100" width="26" height="26" style="color:${PIECE_NEUTRAL}"><use href="#pc-${key}"></use></svg>`);
+        });
+        makeChip('__erase__', 'Rimuovi tutte', '<span class="resource-chip-x">&times;</span>');
+    }
+
+    function updateMapColors(playerName, newColor, oldColor) {
         const svg = document.querySelector('svg');
         if (!svg) return;
         svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
             path.style.fill = newColor;
         });
+        // Le figure il cui "colore-esercito" era quello vecchio seguono il nuovo colore.
+        if (oldColor && oldColor !== newColor) {
+            svg.querySelectorAll('path.state').forEach(path => {
+                if (path.getAttribute('data-pc-color') === oldColor) {
+                    path.setAttribute('data-pc-color', newColor);
+                    svg.querySelectorAll(`.piece-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => {
+                        m.style.color = newColor;
+                    });
+                }
+            });
+        }
         if (ownerDisplay.textContent === playerName) {
             ownerDisplay.style.color = newColor;
         }
@@ -1063,6 +1456,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initPalette();
     initResourcePalette();
+    initPiecePalette();
     const addPlayerBtn = document.getElementById('add-player-btn');
     if (addPlayerBtn) addPlayerBtn.addEventListener('click', addPlayer);
     wireSidePanelScaling();
@@ -1102,7 +1496,8 @@ document.addEventListener('DOMContentLoaded', () => {
             players: PLAYERS,
             history: TURN_HISTORY,
             provinces: saveData,
-            resources: collectResources(svg)
+            resources: collectResources(svg),
+            pieces: collectPieces(svg)
         }, null, 2);
         const blob = new Blob([jsonStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -1143,6 +1538,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if ('resources' in data) applyResourceState(data.resources || {});
+                if ('pieces' in data) applyPieceState(data.pieces || {});
                 renderPlayerTabs();
                 saveAutoSave();
                 alert("Mappa caricata.");
@@ -1165,7 +1561,8 @@ document.addEventListener('DOMContentLoaded', () => {
             turn: currentTurn,
             players: PLAYERS,
             history: TURN_HISTORY,
-            resources: collectResources(svg)
+            resources: collectResources(svg),
+            pieces: collectPieces(svg)
         };
 
         localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
@@ -1196,6 +1593,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 internalApplyMapData(data.provinces);
             }
             if ('resources' in data) applyResourceState(data.resources || {});
+            if ('pieces' in data) applyPieceState(data.pieces || {});
             renderPlayerTabs();
         } catch (e) {
             console.error("Failed to load auto-save", e);
@@ -1238,6 +1636,14 @@ document.addEventListener('DOMContentLoaded', () => {
             // L'icona-risorsa segue la visibilita' della sua provincia (sparisce in nebbia).
             const marker = svg.querySelector(`.resource-marker[data-prov="${CSS.escape(path.id)}"]`);
             if (marker) marker.style.display = isVisible ? '' : 'none';
+
+            // Le figure usano il colore-esercito memorizzato (fallback proprietario/
+            // neutro) e seguono la nebbia per la visibilita'.
+            const pcColor = pieceColorOf(path);
+            svg.querySelectorAll(`.piece-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => {
+                m.style.color = pcColor;
+                m.style.display = isVisible ? '' : 'none';
+            });
         });
     }
 

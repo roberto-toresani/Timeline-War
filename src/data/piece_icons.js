@@ -1,0 +1,102 @@
+// Pedine di gioco (figurine piazzate dai giocatori), in stile medievale
+// dettagliato: soldato, generale, barca, vascello, citta', fortezza, mercato,
+// strada. A differenza delle risorse (colore fisso, auto-piazzate), queste sono
+// SAGOME tinte con il COLORE DEL GIOCATORE.
+//
+// COME SI TINGONO:
+//   ogni <symbol> ha due strati: lo strato-colore usa fill="currentColor"
+//   (imposta `color: <colore giocatore>` sull'elemento <use> o su un antenato)
+//   e sopra uno strato d'ombra fisso (gradiente #pc-sh: luce in alto-sinistra,
+//   ombra in basso-destra) che dà l'effetto "plastica scolpita" su qualsiasi
+//   colore. Il bordo bianco e i dettagli-buco (finestre, mezzeria strada,
+//   portale) restano fissi a #fff per il contrasto sulla mappa.
+//
+// COME SI USANO (stessa meccanica dei simboli-risorsa):
+//   1) iniettare PIECE_SYMBOLS dentro <defs> dell'SVG mappa (una volta sola);
+//   2) per piazzare una pedina: <use href="#pc-soldato"
+//        style="color:#e6194B" width=".." height=".." x=".." y=".."/>.
+//   Valori validi per il tipo: le chiavi di PIECES qui sotto.
+//
+// NOTE SULLE FIGURE:
+//   - citta'  = borgo CIVILE (cattedrale, case, torre civica) — niente merli.
+//   - fortezza = castello MILITARE (mura, bastioni, mastio merlato, portale).
+
+// max = quante se ne possono impilare nella STESSA provincia.
+//   unita' mobili (soldato, barca, vascello) -> si impilano (mostrano il numero);
+//   generale ed edifici (citta, fortezza, mercato, strada) -> una sola.
+// Per rendere impilabile un altro tipo basta alzare il suo "max".
+const PIECES = {
+    soldato:  { nome: 'Soldato',  max: 30 },
+    generale: { nome: 'Generale', max: 1  },
+    barca:    { nome: 'Barca',    max: 15 },
+    vascello: { nome: 'Vascello', max: 15 },
+    capitale: { nome: 'Capitale', max: 1  },
+    citta:    { nome: 'Città',    max: 1  },
+    fortezza: { nome: 'Fortezza', max: 1  },
+    mercato:  { nome: 'Mercato',  max: 1  },
+    strada:   { nome: 'Strada',   max: 1  },
+};
+
+// Ogni pedina e' un <symbol> viewBox 0 0 100 100 con due gruppi sovrapposti:
+// lo strato-colore (currentColor + bordo bianco) e lo strato-ombra (#pc-sh).
+const PIECE_SYMBOLS = `
+<linearGradient id="pc-sh" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#fff" stop-opacity="0.6"/>
+  <stop offset="0.4" stop-color="#fff" stop-opacity="0"/>
+  <stop offset="0.6" stop-color="#000" stop-opacity="0"/>
+  <stop offset="1" stop-color="#000" stop-opacity="0.5"/>
+</linearGradient>
+
+<symbol id="pc-soldato" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M71.5 12 l5 10 h-10 z"/><rect x="70" y="18" width="3" height="64" rx="1.5"/><path d="M34 82 C34 54 40 44 46 44 C52 44 58 54 58 82 Z"/><rect x="35" y="62" width="22" height="4"/><path d="M20 46 H36 V60 Q36 74 28 80 Q20 74 20 60 Z"/><circle cx="28" cy="61" r="4" fill="#fff"/><circle cx="28" cy="49.5" r="1.5" fill="#fff"/><circle cx="22.5" cy="70" r="1.5" fill="#fff"/><circle cx="33.5" cy="70" r="1.5" fill="#fff"/><circle cx="46" cy="34" r="6.5"/><path d="M38 33 a8 8 0 0 1 16 0 z"/><rect x="36" y="31.5" width="20" height="3.5" rx="1.75"/><rect x="44.5" y="34" width="3" height="9"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M71.5 12 l5 10 h-10 z"/><rect x="70" y="18" width="3" height="64" rx="1.5"/><path d="M34 82 C34 54 40 44 46 44 C52 44 58 54 58 82 Z"/><rect x="35" y="62" width="22" height="4"/><path d="M20 46 H36 V60 Q36 74 28 80 Q20 74 20 60 Z"/><circle cx="46" cy="34" r="6.5"/><path d="M38 33 a8 8 0 0 1 16 0 z"/><rect x="36" y="31.5" width="20" height="3.5" rx="1.75"/><rect x="44.5" y="34" width="3" height="9"/></g>
+</symbol>
+<symbol id="pc-generale" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M22 82 C22 58 28 50 33 50 C39 50 45 58 45 82 Z"/><circle cx="33" cy="40" r="6"/><path d="M27 40 a6 6 0 0 1 12 0 z"/><path d="M33 34 C31 27 36 25 38 25 C35 29 35 32 35 34 Z"/><path d="M43 16 C60 14 68 24 84 20 L84 42 C68 46 60 36 43 42 Z"/><path d="M60 24 h4 v5 h5 v4 h-5 v6 h-4 v-6 h-5 v-4 h5 z" fill="#fff"/><rect x="40" y="12" width="3" height="70" rx="1.5"/><path d="M41.5 8 l3.5 8 h-7 z"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M22 82 C22 58 28 50 33 50 C39 50 45 58 45 82 Z"/><circle cx="33" cy="40" r="6"/><path d="M27 40 a6 6 0 0 1 12 0 z"/><path d="M33 34 C31 27 36 25 38 25 C35 29 35 32 35 34 Z"/><path d="M43 16 C60 14 68 24 84 20 L84 42 C68 46 60 36 43 42 Z"/><rect x="40" y="12" width="3" height="70" rx="1.5"/><path d="M41.5 8 l3.5 8 h-7 z"/></g>
+</symbol>
+<symbol id="pc-barca" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M18 60 Q50 78 82 60 L75 71 Q50 80 25 71 Z"/><rect x="48.5" y="24" width="3" height="36" rx="1.5"/><path d="M35 36 Q50 40 65 36 L65 54 Q50 58 35 54 Z"/><rect x="34" y="33" width="32" height="2.6" rx="1.3"/><path d="M50 24 l9 3 l-9 3 z"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M18 60 Q50 78 82 60 L75 71 Q50 80 25 71 Z"/><rect x="48.5" y="24" width="3" height="36" rx="1.5"/><path d="M35 36 Q50 40 65 36 L65 54 Q50 58 35 54 Z"/><rect x="34" y="33" width="32" height="2.6" rx="1.3"/><path d="M50 24 l9 3 l-9 3 z"/></g>
+</symbol>
+<symbol id="pc-vascello" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M10 56 Q50 76 90 56 L83 70 Q50 82 17 70 Z"/><rect x="74" y="44" width="12" height="14" rx="1"/><rect x="14" y="48" width="11" height="10" rx="1"/><rect x="28" y="24" width="2.6" height="34" rx="1.3"/><rect x="49" y="16" width="2.8" height="42" rx="1.4"/><rect x="68" y="26" width="2.6" height="32" rx="1.3"/><path d="M21 29 Q28.5 32 36 29 L36 42 Q28.5 45 21 42 Z"/><rect x="20" y="28" width="17" height="2" rx="1"/><path d="M61 31 Q68 34 75 31 L75 43 Q68 46 61 43 Z"/><rect x="60" y="30" width="17" height="2" rx="1"/><path d="M37 30 Q50 34 63 30 L63 48 Q50 52 37 48 Z"/><rect x="36" y="28" width="28" height="2.4" rx="1.2"/><path d="M42 21 Q49.5 24 57 21 L57 30 Q49.5 33 42 30 Z"/><rect x="41" y="20" width="16" height="2" rx="1"/><path d="M49.5 16 l10 3 l-10 3 z"/><path d="M28 24 l8 2.5 l-8 2.5 z"/><path d="M68 26 l8 2.5 l-8 2.5 z"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M10 56 Q50 76 90 56 L83 70 Q50 82 17 70 Z"/><rect x="74" y="44" width="12" height="14" rx="1"/><rect x="14" y="48" width="11" height="10" rx="1"/><path d="M21 29 Q28.5 32 36 29 L36 42 Q28.5 45 21 42 Z"/><path d="M61 31 Q68 34 75 31 L75 43 Q68 46 61 43 Z"/><path d="M37 30 Q50 34 63 30 L63 48 Q50 52 37 48 Z"/><path d="M42 21 Q49.5 24 57 21 L57 30 Q49.5 33 42 30 Z"/></g>
+</symbol>
+<symbol id="pc-citta" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><rect x="16" y="56" width="16" height="26"/><path d="M14 56 L24 45 L34 56 Z"/><rect x="20" y="70" width="4" height="12" fill="#fff"/><rect x="26" y="61" width="3.5" height="3.5" fill="#fff"/><rect x="33" y="50" width="9" height="32"/><path d="M31.5 50 L37.5 41 L43 50 Z"/><rect x="35.5" y="56" width="3" height="3" fill="#fff"/><rect x="35.5" y="63" width="3" height="3" fill="#fff"/><rect x="42" y="40" width="18" height="42"/><path d="M40 40 L51 26 L62 40 Z"/><path d="M47 26 L51 6 L55 26 Z"/><rect x="50.2" y="0.5" width="1.6" height="6"/><rect x="48" y="2" width="6" height="1.6"/><circle cx="51" cy="49" r="3.4" fill="#fff"/><path d="M48 82 V70 a3.5 3.5 0 0 1 7 0 V82 Z" fill="#fff"/><rect x="64" y="50" width="12" height="32"/><path d="M62 50 L70 36 L78 50 Z"/><circle cx="70" cy="36" r="1.8"/><rect x="68" y="56" width="4" height="4" fill="#fff"/><rect x="76" y="60" width="12" height="22"/><path d="M74 60 L82 51 L90 60 Z"/><rect x="80" y="70" width="4" height="12" fill="#fff"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><rect x="16" y="56" width="16" height="26"/><path d="M14 56 L24 45 L34 56 Z"/><rect x="33" y="50" width="9" height="32"/><path d="M31.5 50 L37.5 41 L43 50 Z"/><rect x="42" y="40" width="18" height="42"/><path d="M40 40 L51 26 L62 40 Z"/><path d="M47 26 L51 6 L55 26 Z"/><rect x="64" y="50" width="12" height="32"/><path d="M62 50 L70 36 L78 50 Z"/><rect x="76" y="60" width="12" height="22"/><path d="M74 60 L82 51 L90 60 Z"/></g>
+</symbol>
+<symbol id="pc-capitale" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="22" y="50" width="20" height="32"/>
+    <rect x="58" y="50" width="20" height="32"/>
+    <rect x="40" y="30" width="20" height="52"/>
+    <rect x="20" y="47.5" width="60" height="4"/>
+    <rect x="39" y="26" width="22" height="5.5" rx="1"/>
+    <path d="M39 26 L43 15 L47 22 L50 13 L53 22 L57 15 L61 26 Z"/>
+    <circle cx="43" cy="15" r="1.6" fill="#fff"/>
+    <circle cx="50" cy="13" r="1.8" fill="#fff"/>
+    <circle cx="57" cy="15" r="1.6" fill="#fff"/>
+    <path d="M45 82 V68 a5 5 0 0 1 10 0 V82 Z" fill="#fff"/>
+    <rect x="26" y="58" width="4" height="7" fill="#fff"/>
+    <rect x="33" y="58" width="4" height="7" fill="#fff"/>
+    <rect x="63" y="58" width="4" height="7" fill="#fff"/>
+    <rect x="70" y="58" width="4" height="7" fill="#fff"/>
+    <rect x="43" y="40" width="4" height="7" fill="#fff"/>
+    <rect x="53" y="40" width="4" height="7" fill="#fff"/>
+  </g>
+  <g fill="url(#pc-sh)" stroke="none"><rect x="22" y="50" width="20" height="32"/><rect x="58" y="50" width="20" height="32"/><rect x="40" y="30" width="20" height="52"/><rect x="20" y="47.5" width="60" height="4"/><rect x="39" y="26" width="22" height="5.5" rx="1"/><path d="M39 26 L43 15 L47 22 L50 13 L53 22 L57 15 L61 26 Z"/></g>
+</symbol>
+<symbol id="pc-fortezza" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M14 46 L23.5 27 L33 46 Z"/><rect x="17" y="44" width="13" height="38"/><rect x="22.7" y="19" width="1.6" height="9"/><path d="M24.3 19 l7 2.4 l-7 2.4 z"/><path d="M60 48 L68.5 30 L77 48 Z"/><rect x="62" y="46" width="13" height="36"/><rect x="67.7" y="23" width="1.6" height="8"/><path d="M69.3 23 l6.5 2.3 l-6.5 2.3 z"/><rect x="40" y="34" width="20" height="48"/><rect x="40" y="29.5" width="4" height="5"/><rect x="48" y="29.5" width="4" height="5"/><rect x="56" y="29.5" width="4" height="5"/><rect x="49.2" y="14" width="1.8" height="16"/><path d="M51 14 l8 2.8 l-8 2.8 z"/><rect x="8" y="56" width="11" height="26" rx="1"/><rect x="8.2" y="52" width="3.2" height="4.5"/><rect x="12.4" y="52" width="3.2" height="4.5"/><rect x="16" y="52" width="3" height="4.5"/><rect x="81" y="56" width="11" height="26" rx="1"/><rect x="81.4" y="52" width="3.2" height="4.5"/><rect x="85.6" y="52" width="3.2" height="4.5"/><rect x="89.2" y="52" width="2.8" height="4.5"/><rect x="17" y="64" width="66" height="18"/><rect x="18" y="59.5" width="5" height="4.8"/><rect x="26" y="59.5" width="5" height="4.8"/><rect x="34" y="59.5" width="5" height="4.8"/><rect x="42" y="59.5" width="5" height="4.8"/><rect x="50" y="59.5" width="5" height="4.8"/><rect x="58" y="59.5" width="5" height="4.8"/><rect x="66" y="59.5" width="5" height="4.8"/><rect x="74" y="59.5" width="5" height="4.8"/><path d="M43.5 82 V72 a6.5 6.5 0 0 1 13 0 V82 Z" fill="#fff"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M14 46 L23.5 27 L33 46 Z"/><rect x="17" y="44" width="13" height="38"/><path d="M60 48 L68.5 30 L77 48 Z"/><rect x="62" y="46" width="13" height="36"/><rect x="40" y="34" width="20" height="48"/><rect x="8" y="56" width="11" height="26" rx="1"/><rect x="81" y="56" width="11" height="26" rx="1"/><rect x="17" y="64" width="66" height="18"/></g>
+</symbol>
+<symbol id="pc-mercato" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><rect x="20" y="44" width="3" height="34" rx="1"/><rect x="77" y="44" width="3" height="34" rx="1"/><path d="M18 44 L30 32 H70 L82 44 Z"/><path d="M18 44 q4 5.5 8 0 q4 5.5 8 0 q4 5.5 8 0 q4 5.5 8 0 q4 5.5 8 0 q4 5.5 8 0 q4 5.5 8 0 q4 5.5 8 0 v-3 h-64 z"/><path d="M34 44 L40 32 L43 32 L37 44 Z" fill="#fff"/><path d="M50 44 L52 32 L55 32 L53 44 Z" fill="#fff"/><path d="M66 44 L60 32 L63 32 L69 44 Z" fill="#fff"/><ellipse cx="36" cy="53" rx="5" ry="6"/><ellipse cx="46" cy="53" rx="5" ry="6"/><circle cx="58" cy="54" r="5"/><circle cx="66" cy="54" r="4"/><rect x="26" y="58" width="48" height="6" rx="1"/><rect x="30" y="64" width="40" height="14"/><path d="M8 66 q6 -3 12 0 v12 q-6 3 -12 0 z"/><rect x="8" y="70.5" width="12" height="1.8" fill="#fff"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M18 44 L30 32 H70 L82 44 Z"/><ellipse cx="36" cy="53" rx="5" ry="6"/><ellipse cx="46" cy="53" rx="5" ry="6"/><circle cx="58" cy="54" r="5"/><circle cx="66" cy="54" r="4"/><rect x="26" y="58" width="48" height="6" rx="1"/><rect x="30" y="64" width="40" height="14"/><path d="M8 66 q6 -3 12 0 v12 q-6 3 -12 0 z"/></g>
+</symbol>
+<symbol id="pc-strada" viewBox="0 0 100 100">
+  <g fill="currentColor" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M38 26 H58 L74 82 H22 Z"/><rect x="46.8" y="30" width="2.4" height="6" rx="1.2" fill="#fff"/><rect x="46.6" y="42" width="2.8" height="7" rx="1.4" fill="#fff"/><rect x="46.3" y="55" width="3.4" height="8" rx="1.6" fill="#fff"/><rect x="45.9" y="69" width="4.2" height="9" rx="2" fill="#fff"/><rect x="76" y="60" width="8" height="20" rx="1"/><path d="M75.5 60 q4.25 -6 8.5 0 z"/><rect x="78.5" y="66" width="3" height="6" fill="#fff"/></g>
+  <g fill="url(#pc-sh)" stroke="none"><path d="M38 26 H58 L74 82 H22 Z"/><rect x="76" y="60" width="8" height="20" rx="1"/><path d="M75.5 60 q4.25 -6 8.5 0 z"/></g>
+</symbol>`;
