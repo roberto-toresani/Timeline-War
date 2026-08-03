@@ -5,11 +5,15 @@
 // opzionale) restituisce vincitore e perdite. La UI/aggancio ai click verra'
 // costruita a parte; qui c'e' solo la matematica.
 //
-// Modello (vedi anche il regolamento):
-//   Probabilita' di vittoria dell'attaccante   P_A = A^2 / (A^2 + D^2)
+// Modello (vedi anche il regolamento §9):
+//   Difesa effettiva  Deff = D + bonus struttura   (Citta'/Capitale +1, Fortezza +3;
+//   sono esclusive, quindi al piu' uno). Le mura difendono anche a guarnigione vuota (D=0).
+//   Probabilita' di vittoria dell'attaccante   P_A = A^2 / (A^2 + Deff^2)
 //   Il quadrato amplifica il vantaggio numerico (chi e' piu' grande non e'
 //   solo proporzionalmente favorito, ha un vantaggio extra).
 //   Esito:  u ~ U(0,1);  attaccante vince se  u < P_A,  altrimenti difensore.
+//   L'attrito (perdite) si calcola sulle TRUPPE REALI (A, D), non su Deff: le mura
+//   spostano la probabilita', non fanno vittime extra.
 //   Incertezza  I = 4 P_A (1 - P_A)   (1 = 50/50, ~0 = esito quasi certo).
 //
 //   Perdite MEDIE del vincitore (W = truppe del vincitore, L = del perdente):
@@ -38,14 +42,19 @@
     // Math.random); iniettabile per test deterministici. Restituisce null se
     // non c'e' battaglia possibile (nessuna truppa da entrambe le parti).
     // Tutti i valori casuali e intermedi vengono restituiti per trasparenza/log.
-    function resolveBattle(A, D, rng) {
+    function resolveBattle(A, D, fort, rng) {
+        // Retro-compat: se il 3o argomento e' una funzione, e' il rng (nessun bonus).
+        if (typeof fort === 'function') { rng = fort; fort = 0; }
         rng = rng || Math.random;
         A = Math.max(0, Math.floor(A));
         D = Math.max(0, Math.floor(D));
-        if (A + D === 0) return null; // P_A = 0/0: scontro indefinito
+        fort = Math.max(0, Math.floor(fort || 0)); // bonus difensivo: Citta'/Capitale +1, Fortezza +3
+        if (A === 0) return null;                   // niente attacco senza truppe impegnate
 
-        const a2 = A * A, d2 = D * D;
-        const P_A = a2 / (a2 + d2);   // A+D>0 => denominatore > 0
+        // Difensori "virtuali": le mura difendono anche a guarnigione vuota (D=0).
+        const Deff = D + fort;
+        const a2 = A * A, d2 = Deff * Deff;
+        const P_A = a2 / (a2 + d2);   // A>0 => denominatore > 0 (D=0 e fort=0 => P_A=1)
         const P_D = 1 - P_A;
         const I = 4 * P_A * P_D;
 
@@ -73,6 +82,7 @@
             defenderSurvivors: attackerWins ? 0 : survivors,
             losses: C,                 // truppe perse dal vincitore
             // Valori diagnostici (utili per log/animazioni/bilanciamento):
+            fort: fort, Deff: Deff,
             P_A: P_A, P_D: P_D, I: I,
             u: u, z: z,
             muBase: muBase, muAttrito: muAttrito, mu: mu, muF: muF

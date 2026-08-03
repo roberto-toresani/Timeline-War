@@ -236,9 +236,9 @@ dove indicato.
 |---|---|---|
 | **Strada** | 1 Pietra + 1 soldato | Collega due province controllate adiacenti. |
 | **Nave** | 1 Legno + 3 soldati | Collega/espande verso province lontane o isole. |
-| **Capitale** | 5 soldati + 500 monete | **Conta come una Città a tutti gli effetti** (difesa **+3**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. |
-| **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 1000 monete | Capitale secondaria (collegamento locale). Difesa **+3**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
-| **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 2000 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+5**. Ogni turno: +5 soldati **oppure** +1 Generale. |
+| **Capitale** | 5 soldati + 500 monete | **Conta come una Città a tutti gli effetti** (difesa **+1**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. |
+| **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 1000 monete | Capitale secondaria (collegamento locale). Difesa **+1**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
+| **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 2000 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+3**. Ogni turno: +5 soldati **oppure** +1 Generale. |
 | **Vascello** | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 4000 monete | Movimento globale senza limiti (§5.2). |
 | **Mercato** | 4 soldati + 1000 monete | Scambio risorse con la banca **2:1**. |
 | **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 500 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
@@ -351,39 +351,33 @@ un **pannello dedicato** che si **aggiorna automaticamente** ed evolve, mostrand
 
 ## 9. Combattimento e conquista **[REGOLA]**
 
-Modello **ibrido "deterministico + sorte ravvicinata" con attrito**: a grande divario vince
-il più numeroso (certezza); a piccola differenza (entro **4** soldati) entra la sorte, con il
-più forte favorito ma il più debole mai spacciato.
+Modello **probabilistico**: il più numeroso è favorito in modo **super-lineare** (il quadrato),
+ma il più debole ha **sempre** una probabilità non nulla. Implementato in `src/js/battle.js`
+(funzione pura `resolveBattle(A, D, fort, rng)`, testata).
 
-**Bersagli validi:** provincia nemica/neutra **adiacente via terra** a una tua provincia, o
-raggiungibile via **Nave** (marittima/isola) o **Vascello** (ovunque).
+**Bersagli validi:** provincia nemica/neutra **adiacente via terra**, o raggiungibile via **Nave**
+(marittima/isola) o **Vascello** (ovunque).
 
-**Valori effettivi:**
-- `A` = truppe attaccanti **impegnate**: l'attaccante **sceglie quante** portarne dalla provincia
-  d'attacco (un Generale conta 2).
-- `D` = **tutte** le truppe presenti nella provincia bersaglio (il difensore difende sempre con
-  tutto il disponibile).
-- `De = D + bonus struttura` — difesa effettiva. Bonus: **Capitale/Città +3**, **Fortezza +5**.
-  Non si sommano: ogni provincia ha **una sola** di queste strutture. Neutra senza truppe: `De = 0`.
-- `d = A − De`.
+**Valori:**
+- `A` = truppe attaccanti **impegnate** (l'attaccante **sceglie quante**; un Generale conta 2).
+- `D` = **tutte** le truppe del difensore (difende sempre con tutto il disponibile).
+- `Deff = D + bonus struttura` — bonus: **Città/Capitale +1**, **Fortezza +3** (esclusive → al più
+  uno). Le **mura difendono anche a guarnigione vuota** (D=0). Neutra senza truppe né strutture:
+  `Deff = 0` → l'attaccante vince.
 
-**Chi vince:**
-- `d > 4` → **attaccante vince** (deterministico).
-- `d < −4` → **attacco respinto** (deterministico).
-- `|d| ≤ 4` → **la sorte decide**: `P(attaccante) = clamp(0.5 + 0.1·d, 0.05, 0.95)`
-  (d=0 → 50% · +2 → 70% · +4 → 90%; il più debole conserva sempre ≥ ~10%).
+**Probabilità di vittoria dell'attaccante:** `P_A = A² / (A² + Deff²)`.
+Esempi (D=5): aperto A5 → 50% · A8 → 72% · A10 → 80%; **Città (+1)** pareggio a **A6**;
+**Fortezza (+3)** pareggio a **A8** (A10 → 61%).
 
-**Attrito (perdite):**
-- **Attaccante vince** → perde `round(0.6·De)` truppe; le superstiti entrano e conquistano;
-  le strutture nemiche in B sono **rase** (tranne le strade). B diventa tua.
-- **Difensore regge** → l'attaccante perde **tutte** le truppe impegnate; il difensore perde
-  `round(0.6·A)`.
-
-**Parametri tarabili:** banda = 4 · pendenza = 0.1/soldato · attrito = 0.6.
-
-**Esiti testati (Monte Carlo):** alla pari 50/50; +1→60% · +2→70% · +4→90%; oltre la banda
-100%. Contro una Fortezza (+5) un attacco 8 vs 5 vince solo 30%. Il vincitore esce sempre
-ridotto (attrito). Tabella completa nella chat di design.
+**Attrito (perdite), calcolato sulle TRUPPE REALI (le mura spostano la probabilità, non fanno
+vittime extra):**
+- `muBase = 0.8 · L/(W+L)` (W, L = truppe di vincitore/perdente) → più le forze sono simili, più
+  il vincitore perde.
+- `muAttrito = +0.03 · ln(1 + A/10)` se vince l'attaccante (freno anti-valanga); 0 se vince il difensore.
+- Variabilità legata all'incertezza `I = 4·P_A·P_D`. Perdite del vincitore
+  `C = min(W−1, round(W·muF))` → al vincitore resta sempre **≥ 1**.
+- **Attaccante vince** → difensore azzerato, entrano `A−C`; strutture nemiche **rase** (tranne
+  le strade). **Difensore regge** → l'attaccante perde **tutte** le impegnate, il difensore tiene `D−C`.
 
 ---
 
@@ -468,8 +462,8 @@ il vero bilanciamento. → *in discussione.*
 ## 14. Stato delle decisioni
 
 **Confermate [REGOLA]:**
-- Combattimento **ibrido deterministico + sorte ravvicinata + attrito** (§9), bonus difensivi
-  Città +3, Fortezza +5.
+- Combattimento **probabilistico** `P_A = A²/(A²+Deff²)` con attrito anti-valanga (§9,
+  `battle.js`), bonus difensivi **Città/Capitale +1, Fortezza +3** (in `Deff = D + bonus`).
 - Vittoria: **soglia di prestigio** (proposta 30) **oppure** eliminazione degli altri; si
   **perde** restando senza province. Nessuna scadenza a turni.
 - Tassazione: **solo le Città**, 50/100/150 (leggera/normale/dura).
