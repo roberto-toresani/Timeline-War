@@ -8,6 +8,10 @@
    ============================================================ */
 
 body.board {
+    /* Radice più grande della pagina: scala insieme tutti i rem del file.
+       Non è un dettaglio estetico — su schermi larghi i pannelli devono
+       dominare la scena quanto la mappa, non sparire come una barra laterale. */
+    font-size: 18px;
     font-family: 'Cinzel', 'Georgia', serif;
     background: var(--bg-page);
     color: var(--text);
@@ -28,18 +32,18 @@ body.board {
 #board-topbar {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 8px 16px;
+    gap: 18px;
+    padding: 14px 24px;
     background: var(--bg-panel-solid);
-    border-bottom: 2px solid var(--gold-edge);
+    border-bottom: 3px solid var(--gold-edge);
     flex: 0 0 auto;
 }
 
 #board-crest {
-    width: 34px;
-    height: 34px;
+    width: 46px;
+    height: 46px;
     border-radius: 50%;
-    border: 2px solid var(--gold);
+    border: 3px solid var(--gold);
     flex: 0 0 auto;
 }
 
@@ -47,7 +51,7 @@ body.board {
 
 #board-kingdom {
     color: var(--gold);
-    font-size: 1.15rem;
+    font-size: 1.5rem;
     letter-spacing: .04em;
     white-space: nowrap;
     overflow: hidden;
@@ -56,12 +60,12 @@ body.board {
 
 #board-subtitle {
     color: var(--parchment-muted);
-    font-size: .8rem;
+    font-size: .95rem;
 }
 
 #board-turn {
     text-align: center;
-    padding: 0 18px;
+    padding: 0 24px;
     border-left: 1px solid var(--rule);
     border-right: 1px solid var(--rule);
     flex: 0 0 auto;
@@ -73,7 +77,7 @@ body.board {
 #board-turn .board-turn-main,
 #board-turn #turn-display {
     color: var(--gold);
-    font-size: 1.35rem;
+    font-size: 1.7rem;
     line-height: 1.2;
     letter-spacing: normal;
     text-shadow: none;
@@ -84,7 +88,7 @@ body.board {
 #board-turn .board-turn-sub,
 #board-turn #date-display {
     color: var(--parchment-muted);
-    font-size: .8rem;
+    font-size: .95rem;
     line-height: 1.3;
     letter-spacing: normal;
     text-shadow: none;
@@ -94,9 +98,9 @@ body.board {
 /* stato del turno nella barra: dice subito se puoi agire */
 #board-turn-state {
     flex: 0 0 auto;
-    font-size: .85rem;
-    padding: 6px 12px;
-    border-radius: 6px;
+    font-size: 1rem;
+    padding: 9px 16px;
+    border-radius: 7px;
     white-space: nowrap;
 }
 
@@ -108,9 +112,9 @@ body.board {
     border: 1px solid var(--gold-edge);
     color: var(--bg-panel-solid);
     font-family: inherit;
-    font-size: .9rem;
-    padding: 8px 14px;
-    border-radius: 6px;
+    font-size: 1.05rem;
+    padding: 10px 18px;
+    border-radius: 7px;
     cursor: pointer;
     flex: 0 0 auto;
 }
@@ -127,9 +131,9 @@ body.board {
     border: 1px solid var(--rule-strong);
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: .85rem;
-    padding: 7px 12px;
-    border-radius: 6px;
+    font-size: 1rem;
+    padding: 9px 16px;
+    border-radius: 7px;
     cursor: pointer;
 }
 
@@ -141,9 +145,9 @@ body.board {
     border: 1px solid var(--rule-strong);
     color: var(--parchment-muted);
     font-family: inherit;
-    font-size: .85rem;
-    padding: 7px 12px;
-    border-radius: 6px;
+    font-size: 1rem;
+    padding: 9px 16px;
+    border-radius: 7px;
     text-decoration: none;
     white-space: nowrap;
     flex: 0 0 auto;
@@ -178,38 +182,76 @@ body.board {
 
 .board-panel {
     position: absolute;
-    top: 12px;
-    bottom: 12px;
+    top: 14px;
+    bottom: 14px;
     width: var(--board-panel-left);
+    min-width: var(--board-panel-min);
+    max-width: var(--board-panel-max);
+    /* border-box: la larghezza che leggiamo/scriviamo da JS (resize) deve
+       coincidere con quella visiva, altrimenti ogni trascinamento deriva di
+       padding+bordo (visto succedere: +40px a ogni resize con content-box). */
+    box-sizing: border-box;
     background: var(--bg-panel);
     border: 2px solid var(--gold-edge);
     border-radius: var(--board-radius);
     box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 12px 14px 16px;
+    padding: 16px 18px 20px;
     z-index: 600;
     transition: transform .18s ease;
 }
 
-#board-left  { left: 12px; }
-#board-right { right: 12px; width: var(--board-panel-right); }
+#board-left  { left: 14px; }
+#board-right { right: 14px; width: var(--board-panel-right); }
 
-#board-left.collapsed  { transform: translateX(calc(-100% - 14px)); }
-#board-right.collapsed { transform: translateX(calc(100% + 14px)); }
+#board-left.collapsed  { transform: translateX(calc(-100% - 16px)); }
+#board-right.collapsed { transform: translateX(calc(100% + 16px)); }
+
+/* Maniglia di ridimensionamento: una striscia sul bordo del pannello rivolto
+   verso la mappa. Non uso il CSS "resize" nativo perché per il pannello destro
+   (ancorato a destra) la maniglia nativa nascerebbe incollata al bordo dello
+   schermo — qui la logica del trascinamento vive in player-board.js. */
+.board-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    cursor: ew-resize;
+    z-index: 620;
+}
+
+.board-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 52px;
+    transform: translate(-50%, -50%);
+    border-radius: 3px;
+    background: var(--rule-strong);
+    transition: background .15s ease;
+}
+
+.board-resize-handle:hover::after,
+.board-resize-handle.dragging::after { background: var(--gold-edge); }
+
+#board-left .board-resize-handle  { right: -5px; }
+#board-right .board-resize-handle { left: -5px; }
 
 /* linguette di apertura/chiusura: restano visibili anche a pannello chiuso */
 .board-tab {
     position: absolute;
-    bottom: 14px;
+    bottom: 16px;
     z-index: 610;
     background: var(--bg-panel-solid);
     border: 1px solid var(--gold-edge);
     color: var(--gold);
     font-family: inherit;
-    font-size: .85rem;
-    padding: 6px 11px;
-    border-radius: 6px;
+    font-size: 1rem;
+    padding: 8px 14px;
+    border-radius: 7px;
     cursor: pointer;
 }
 
@@ -221,12 +263,12 @@ body.board {
 
 .bp-title {
     color: var(--gold);
-    font-size: .82rem;
+    font-size: .95rem;
     letter-spacing: .1em;
     text-transform: uppercase;
     border-bottom: 1px solid var(--rule);
-    padding-bottom: 4px;
-    margin: 13px 0 7px;
+    padding-bottom: 6px;
+    margin: 18px 0 10px;
 }
 
 .bp-title:first-child { margin-top: 0; }
@@ -237,8 +279,8 @@ body.board {
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    padding: 3px 0;
-    font-size: .95rem;
+    padding: 4px 0;
+    font-size: 1.1rem;
 }
 
 .bp-row .k { color: var(--parchment-dim); }
@@ -248,11 +290,11 @@ body.board {
 .bp-hero {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 10px;
 }
 
 .bp-hero-num {
-    font-size: 2rem;
+    font-size: 2.6rem;
     line-height: 1;
     color: var(--gold-bright);
     font-variant-numeric: tabular-nums;
@@ -260,28 +302,28 @@ body.board {
 
 .bp-hero-num.coin { color: var(--gold-coin); }
 
-.bp-hero-unit { color: var(--parchment-muted); font-size: .8rem; }
+.bp-hero-unit { color: var(--parchment-muted); font-size: .95rem; }
 
-.bp-note { color: var(--parchment-muted); font-size: .8rem; margin-top: 2px; }
+.bp-note { color: var(--parchment-muted); font-size: .92rem; margin-top: 3px; }
 .bp-note.good { color: var(--ok-soft); }
 
 /* valore non ancora tracciato: si dice, non si finge */
 .bp-soon {
     color: var(--parchment-muted);
-    font-size: .72rem;
+    font-size: .82rem;
     border: 1px dashed var(--rule-strong);
     border-radius: 4px;
-    padding: 1px 6px;
+    padding: 2px 7px;
     white-space: nowrap;
 }
 
 /* barra del ciclo di prestigio: 10 tacche */
-.bp-ticks { display: flex; gap: 3px; margin: 8px 0 4px; }
+.bp-ticks { display: flex; gap: 4px; margin: 10px 0 5px; }
 
 .bp-tick {
     flex: 1;
-    height: 10px;
-    border-radius: 2px;
+    height: 13px;
+    border-radius: 3px;
     background: var(--rule);
 }
 
@@ -290,9 +332,9 @@ body.board {
 /* card obiettivo */
 .bp-goal {
     background: var(--bg-inset);
-    border-left: 3px solid var(--gold-edge);
-    padding: 7px 9px;
-    margin-bottom: 6px;
+    border-left: 4px solid var(--gold-edge);
+    padding: 9px 11px;
+    margin-bottom: 8px;
 }
 
 .bp-goal.done { background: var(--ok-bg); border-left-color: var(--ok); }
@@ -304,27 +346,27 @@ body.board {
     gap: 8px;
 }
 
-.bp-goal-kind { color: var(--gold); font-size: .8rem; letter-spacing: .05em; }
-.bp-goal-pts  { color: var(--gold-bright); font-size: .8rem; }
+.bp-goal-kind { color: var(--gold); font-size: .92rem; letter-spacing: .05em; }
+.bp-goal-pts  { color: var(--gold-bright); font-size: .92rem; }
 .bp-goal.done .bp-goal-kind,
 .bp-goal.done .bp-goal-pts { color: var(--ok-soft); }
 
 .bp-goal-text {
     color: var(--parchment-dim);
-    font-size: .85rem;
-    line-height: 1.4;
-    margin-top: 2px;
+    font-size: .95rem;
+    line-height: 1.45;
+    margin-top: 3px;
 }
 
 /* effetto corrente della popolarita' */
 .bp-effect {
     background: var(--ok-bg);
-    border-radius: 5px;
-    padding: 6px 9px;
+    border-radius: 6px;
+    padding: 8px 11px;
     color: var(--ok-soft);
-    font-size: .85rem;
+    font-size: .95rem;
     line-height: 1.5;
-    margin: 6px 0 4px;
+    margin: 8px 0 5px;
 }
 
 .bp-effect.bad { background: #3a2828; color: #e6a3a3; }
@@ -334,55 +376,55 @@ body.board {
 .bp-res-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    gap: 8px;
 }
 
 .bp-res {
     background: var(--bg-inset);
-    border-radius: 5px;
-    border-left: 3px solid var(--rule-strong);
-    padding: 5px 8px;
+    border-radius: 6px;
+    border-left: 4px solid var(--rule-strong);
+    padding: 7px 10px;
 }
 
 .bp-res-name {
     color: var(--parchment-muted);
-    font-size: .75rem;
+    font-size: .88rem;
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
 }
 
-.bp-res-name svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.bp-res-name svg { width: 19px; height: 19px; flex: 0 0 auto; }
 
 .bp-res-val {
     color: var(--gold);
-    font-size: 1.05rem;
+    font-size: 1.25rem;
     font-variant-numeric: tabular-nums;
 }
 
-.bp-res-gain { color: var(--ok-soft); font-size: .75rem; }
+.bp-res-gain { color: var(--ok-soft); font-size: .85rem; }
 .bp-res-gain.zero { color: var(--parchment-muted); }
 
 /* riquadro rinforzi col dettaglio del calcolo */
 .bp-box {
     background: var(--bg-inset);
     border: 1px solid var(--rule-strong);
-    border-radius: 6px;
-    padding: 8px 9px;
-    margin-top: 4px;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-top: 5px;
 }
 
 .bp-box-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 5px;
+    margin-bottom: 6px;
 }
 
-.bp-box-head .k { color: var(--gold); font-size: .88rem; }
+.bp-box-head .k { color: var(--gold); font-size: 1.02rem; }
 .bp-box-head .v {
     color: var(--gold-bright);
-    font-size: 1.3rem;
+    font-size: 1.55rem;
     line-height: 1;
     font-variant-numeric: tabular-nums;
 }
@@ -390,8 +432,8 @@ body.board {
 .bp-line {
     display: flex;
     justify-content: space-between;
-    font-size: .78rem;
-    padding: 1px 0;
+    font-size: .9rem;
+    padding: 2px 0;
 }
 
 .bp-line .k { color: var(--parchment-muted); }
@@ -407,11 +449,11 @@ body.board {
     border: 1px solid var(--rule-strong);
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: .68rem;
+    font-size: .78rem;
     text-transform: none;
     letter-spacing: normal;
-    padding: 1px 7px;
-    border-radius: 4px;
+    padding: 2px 9px;
+    border-radius: 5px;
     cursor: pointer;
 }
 
@@ -420,16 +462,16 @@ body.board {
 .bp-selected {
     background: var(--bg-inset);
     border: 1px solid var(--rule-strong);
-    border-radius: 6px;
-    padding: 8px 10px;
-    margin-top: 6px;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-top: 7px;
 }
 
 /* elenco delle province del regno: cliccabile, con truppe ed edifici */
 .bp-prov {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
     text-align: left;
     background: transparent;
@@ -437,8 +479,8 @@ body.board {
     border-bottom: 1px solid var(--rule-soft);
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: .88rem;
-    padding: 5px 4px;
+    font-size: 1rem;
+    padding: 8px 6px;
     cursor: pointer;
 }
 
@@ -446,12 +488,12 @@ body.board {
 .bp-prov.active { background: rgba(224, 192, 151, .16); color: var(--gold); }
 .bp-prov-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bp-prov-troops { color: var(--gold); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
-.bp-prov-tags { color: var(--parchment-muted); font-size: .75rem; flex: 0 0 auto; }
+.bp-prov-tags { color: var(--parchment-muted); font-size: .85rem; flex: 0 0 auto; }
 
 /* pallino di collegamento alla Capitale (§4) */
 .bp-link-dot {
-    width: 7px;
-    height: 7px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
     flex: 0 0 auto;
     background: var(--rule-strong);
@@ -460,29 +502,29 @@ body.board {
 .bp-link-dot.on { background: var(--ok); }
 
 /* gruppo di azioni: intestazione + righe */
-.bp-act-group { margin-top: 8px; }
+.bp-act-group { margin-top: 10px; }
 
 .bp-act-head {
     color: var(--gold);
-    font-size: .8rem;
+    font-size: .92rem;
     letter-spacing: .04em;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
 }
 
 .bp-act {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
     text-align: left;
     background: var(--bg-panel-solid);
     border: 1px solid var(--rule-strong);
-    border-radius: 5px;
+    border-radius: 6px;
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: .82rem;
-    padding: 5px 8px;
-    margin-bottom: 4px;
+    font-size: .95rem;
+    padding: 8px 10px;
+    margin-bottom: 5px;
     cursor: pointer;
 }
 
@@ -495,54 +537,54 @@ body.board {
 }
 
 .bp-act-name { flex: 1 1 auto; }
-.bp-act-cost { color: var(--parchment-muted); font-size: .72rem; flex: 0 0 auto; }
-.bp-act-why { color: #e6a3a3; font-size: .72rem; flex: 0 0 auto; }
+.bp-act-cost { color: var(--parchment-muted); font-size: .82rem; flex: 0 0 auto; }
+.bp-act-why { color: #e6a3a3; font-size: .82rem; flex: 0 0 auto; }
 
 /* riga con campo numerico (schiera N, attacca con N) */
 .bp-act-row {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
 }
 
 .bp-act-row input[type="number"] {
-    width: 62px;
+    width: 76px;
     background: var(--bg-panel-solid);
     border: 1px solid var(--rule-strong);
-    border-radius: 5px;
+    border-radius: 6px;
     color: var(--gold);
     font-family: inherit;
-    font-size: .85rem;
-    padding: 5px 6px;
+    font-size: .98rem;
+    padding: 7px 8px;
 }
 
 .bp-act-row .bp-act { margin-bottom: 0; }
 
 .bp-empty-hint {
     color: var(--parchment-muted);
-    font-size: .78rem;
-    line-height: 1.5;
-    padding: 4px 0;
+    font-size: .9rem;
+    line-height: 1.55;
+    padding: 5px 0;
 }
 
 /* esito della battaglia */
 .bp-battle {
-    border-radius: 6px;
-    padding: 8px 10px;
-    margin-top: 8px;
-    font-size: .82rem;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-top: 10px;
+    font-size: .95rem;
     line-height: 1.5;
 }
 
 .bp-battle.win  { background: var(--ok-bg); color: var(--ok-soft); border: 1px solid var(--ok); }
 .bp-battle.lose { background: #3a2828; color: #e6a3a3; border: 1px solid #7a3b3b; }
-.bp-battle-detail { color: var(--parchment-muted); font-size: .72rem; margin-top: 4px; }
+.bp-battle-detail { color: var(--parchment-muted); font-size: .82rem; margin-top: 5px; }
 
 /* legenda costi generata da GameRules.COSTS */
 .bp-legend-item {
     border-bottom: 1px solid var(--rule-soft);
-    padding: 6px 0;
+    padding: 8px 0;
 }
 
 .bp-legend-head {
@@ -552,18 +594,18 @@ body.board {
     gap: 8px;
 }
 
-.bp-legend-name { color: var(--gold); font-size: .86rem; }
-.bp-legend-cost { color: var(--parchment-dim); font-size: .76rem; text-align: right; }
-.bp-legend-eff { color: var(--parchment-muted); font-size: .74rem; line-height: 1.45; margin-top: 2px; }
-.bp-legend-state { font-size: .72rem; margin-top: 2px; }
+.bp-legend-name { color: var(--gold); font-size: .98rem; }
+.bp-legend-cost { color: var(--parchment-dim); font-size: .86rem; text-align: right; }
+.bp-legend-eff { color: var(--parchment-muted); font-size: .85rem; line-height: 1.5; margin-top: 3px; }
+.bp-legend-state { font-size: .84rem; margin-top: 3px; }
 .bp-legend-state.ok { color: var(--ok-soft); }
 .bp-legend-state.no { color: #e6a3a3; }
 
 /* provincia selezionata */
 #bp-province-name {
     color: var(--gold-bright);
-    font-size: 1.05rem;
-    margin: 0 0 2px;
+    font-size: 1.25rem;
+    margin: 0 0 3px;
 }
 
 #bp-province-details { line-height: 1.7; }
@@ -571,7 +613,7 @@ body.board {
 #board-right #bp-province-details p {
     margin: 0;
     color: var(--parchment-muted);
-    font-size: .85rem;
+    font-size: .98rem;
 }
 
 /* schermata di scelta del regno (link senza codice) */
@@ -587,8 +629,8 @@ body.board {
     gap: 14px;
 }
 
-#board-picker h2 { color: var(--gold); margin: 0; font-size: 1.4rem; }
-#board-picker p  { color: var(--parchment-muted); margin: 0; font-size: .9rem; }
+#board-picker h2 { color: var(--gold); margin: 0; font-size: 1.6rem; }
+#board-picker p  { color: var(--parchment-muted); margin: 0; font-size: 1rem; }
 
 #board-picker-list {
     display: flex;

@@ -53,6 +53,47 @@ document.addEventListener('DOMContentLoaded', () => {
     wirePanelToggle(leftPanel, $('board-left-tab'), '◀ Corona', 'Corona ▶');
     wirePanelToggle(rightPanel, $('board-right-tab'), 'Regno ▶', '◀ Regno');
 
+    // Maniglia di ridimensionamento: i pannelli nascono grandi di default, ma
+    // l'utente può stringerli o allargarli trascinando il bordo verso la mappa.
+    // Niente CSS "resize" nativo: sul pannello destro (ancorato a destra) la
+    // maniglia nativa nascerebbe incollata al bordo dello schermo, inutilizzabile.
+    function makeResizable(panel, growsWhenDraggingRight) {
+        const handle = document.createElement('div');
+        handle.className = 'board-resize-handle';
+        panel.appendChild(handle);
+
+        let dragging = false, startX = 0, startW = 0, raf = null;
+        const MIN = 320, MAX = 800;
+
+        handle.addEventListener('mousedown', (e) => {
+            dragging = true;
+            startX = e.clientX;
+            startW = panel.getBoundingClientRect().width;
+            handle.classList.add('dragging');
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const dx = e.clientX - startX;
+            const delta = growsWhenDraggingRight ? dx : -dx;
+            panel.style.width = Math.max(MIN, Math.min(MAX, startW + delta)) + 'px';
+            if (!raf) raf = requestAnimationFrame(() => { raf = null; syncViewInsets(); });
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!dragging) return;
+            dragging = false;
+            handle.classList.remove('dragging');
+            document.body.style.userSelect = '';
+            syncViewInsets();
+        });
+    }
+
+    makeResizable(leftPanel, true);    // ancorato a sinistra: si allarga trascinando a destra
+    makeResizable(rightPanel, false);  // ancorato a destra: si allarga trascinando a sinistra
+
     let resizeTimer = null;
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimer);
