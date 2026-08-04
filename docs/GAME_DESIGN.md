@@ -376,8 +376,13 @@ vittime extra):**
 - `muAttrito = +0.03 · ln(1 + A/10)` se vince l'attaccante (freno anti-valanga); 0 se vince il difensore.
 - Variabilità legata all'incertezza `I = 4·P_A·P_D`. Perdite del vincitore
   `C = min(W−1, round(W·muF))` → al vincitore resta sempre **≥ 1**.
-- **Attaccante vince** → difensore azzerato, entrano `A−C`; strutture nemiche **rase** (tranne
-  le strade). **Difensore regge** → l'attaccante perde **tutte** le impegnate, il difensore tiene `D−C`.
+- **Attaccante vince** → difensore azzerato, entrano `A−C`. **[REGOLA] Le costruzioni NON
+  vengono rase**: Capitale/Città/Fortezza/Mercato/Generale/navi restano sulla provincia e
+  cambiano semplicemente proprietario (e colore). **Difensore regge** → l'attaccante perde
+  **tutte** le impegnate, il difensore tiene `D−C`.
+- **Strade**: una strada appartiene al colore di chi l'ha costruita. La conquista di UNA delle
+  due province che collega **non la distrugge**: sparisce solo quando **entrambe** le province
+  sono passate a un colore diverso da quello della strada.
 
 ---
 

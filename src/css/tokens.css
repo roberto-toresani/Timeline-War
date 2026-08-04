@@ -1,0 +1,50 @@
+/* Palette unica del gioco.
+   Prima questi colori erano ripetuti a mano decine di volte in style.css: qui stanno
+   in un posto solo, cosi' ritoccare il tema non vuol dire rileggere mille righe.
+   Usato sia dall'editor (style.css) sia dalla plancia giocatore (board.css). */
+
+:root {
+    /* superfici */
+    --bg-page: #1a1a1a;
+    --bg-panel: rgba(43, 33, 24, .95);
+    --bg-panel-solid: #2b2118;
+    --bg-inset: #332618;
+    --bg-dark-1: #2a2a2a;
+    --bg-dark-2: #222;
+    --bg-dark-3: #333;
+
+    /* oro / pergamena */
+    --gold: #e0c097;
+    --gold-edge: #c0a062;
+    --gold-bright: #ffe9a8;
+    --gold-coin: #ffd76a;
+    --parchment-dim: #cbb89c;
+    --parchment-muted: #9c8a72;
+
+    /* testo */
+    --text: #dcdcdc;
+    --text-muted: #888;
+
+    /* linee */
+    --rule: #4a3c2c;
+    --rule-soft: #3d3226;
+    --rule-strong: #6b5b45;
+
+    /* mappa */
+    --wood: #5D4037;
+    --sea: #a3c2d4;
+    --province-neutral: #d1dbdd;
+    --fog: #3a3a3a;
+
+    /* stati */
+    --ok: #4CAF50;
+    --ok-soft: #a8cf83;
+    --ok-bg: #2f3a28;
+    --danger: #b23b3b;
+    --danger-text: #ff6b6b;
+
+    /* misure della plancia giocatore */
+    --board-panel-left: clamp(280px, 22vw, 380px);
+    --board-panel-right: clamp(300px, 24vw, 400px);
+    --board-radius: 10px;
+}

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Risiko Online — Plancia del regno</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
+    <link rel="stylesheet" href="css/tokens.css?v=44">
+    <link rel="stylesheet" href="css/style.css?v=44">
+    <link rel="stylesheet" href="css/board.css?v=44">
+</head>
+
+<!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
+     regno in focus al cambio ruolo, niente pennelli da editor. -->
+
+<body class="board" data-mode="player">
+    <script>
+        window.onerror = function (msg, url, line, col, error) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:red;color:white;padding:20px;z-index:9999;font-size:20px;';
+            div.textContent = 'JS Error: ' + msg + ' (Line ' + line + ')';
+            document.body.appendChild(div);
+            return false;
+        };
+    </script>
+
+    <div id="board-shell">
+
+        <div id="board-topbar">
+            <div id="board-crest"></div>
+            <div id="board-identity">
+                <div id="board-kingdom">Regno</div>
+                <div id="board-subtitle">In attesa del regno…</div>
+            </div>
+            <div id="board-turn">
+                <div id="turn-display" class="board-turn-main">Turno 0</div>
+                <div class="board-turn-sub">
+                    <span id="date-display">1000 AD</span> · <span id="board-cycle">ciclo 1 · turno 1/10</span>
+                </div>
+            </div>
+            <div id="board-turn-state" class="turn-wait">Partita non avviata</div>
+            <button id="board-end-turn" type="button" disabled>Fine turno</button>
+            <button id="board-switch" type="button" title="Scegli un altro regno">Cambia regno</button>
+            <a id="board-editor-link" href="index.html" title="Torna all'editor mappa (admin)">🛠 Editor</a>
+        </div>
+
+        <div id="board-main">
+
+            <div id="map-wrapper">
+                <div id="svg-container">Caricamento mappa…</div>
+            </div>
+
+            <!-- ============ PANNELLO SINISTRO: corona ============ -->
+            <div id="board-left" class="board-panel">
+
+                <div class="bp-title">Prestigio</div>
+                <div class="bp-hero">
+                    <span class="bp-hero-num" id="bp-gold-points">—</span>
+                    <span class="bp-hero-unit">punti d'oro</span>
+                    <span class="bp-soon">in arrivo</span>
+                </div>
+                <div class="bp-ticks" id="bp-cycle-ticks"></div>
+                <div class="bp-note" id="bp-cycle-note">Ciclo di 10 turni: arrivare a 10 punti vale 1 punto d'oro.</div>
+
+                <div class="bp-title">Obiettivi del ciclo</div>
+                <div id="bp-goals"></div>
+
+                <div class="bp-title">Popolarità</div>
+                <div id="popularity-panel">
+                    <div class="pop-header">Popolarità</div>
+                    <div id="pop-body"><!-- iniettato da app.js --></div>
+                </div>
+                <div class="bp-effect flat" id="bp-pop-effect">Costruisci una Capitale per attivare la Popolarità.</div>
+
+            </div>
+            <button id="board-left-tab" class="board-tab" type="button">◀ Corona</button>
+
+            <!-- ============ PANNELLO DESTRO: regno ============ -->
+            <div id="board-right" class="board-panel">
+
+                <div class="bp-title">Tesoro</div>
+                <div class="bp-hero">
+                    <span class="bp-hero-num coin" id="bp-coins">—</span>
+                    <span class="bp-hero-unit">monete</span>
+                    <span class="bp-soon">in arrivo</span>
+                </div>
+                <div class="bp-note good" id="bp-income">—</div>
+
+                <div class="bp-title">Scorte</div>
+                <div class="bp-res-grid" id="bp-resources"></div>
+
+                <!-- ===== AZIONI: il cuore del turno del giocatore ===== -->
+                <div class="bp-title">Il tuo turno</div>
+                <div class="bp-box" id="bp-recruit-pool">
+                    <div class="bp-box-head"><span class="k">Reclute da schierare</span><span class="v" id="bp-pool">0</span></div>
+                    <div class="bp-note">Scegli una provincia qui sotto e usa «Schiera».</div>
+                </div>
+
+                <div id="bp-selected" class="bp-selected">
+                    <div id="bp-province-name">Nessuna provincia selezionata</div>
+                    <div id="bp-province-details">
+                        <p>Regione: <span id="p-name">—</span></p>
+                        <p>Proprietario: <span id="p-owner">Nessuno</span></p>
+                        <p>Risorsa: <span id="p-resource">—</span></p>
+                        <p>Truppe: <span id="bp-province-troops">—</span></p>
+                    </div>
+                    <div id="bp-actions"><!-- iniettato da player-board.js --></div>
+                </div>
+
+                <div id="bp-battle" class="bp-battle" style="display:none;"></div>
+
+                <div class="bp-title">Le mie province</div>
+                <div id="bp-province-list"></div>
+
+                <div class="bp-title">Territorio</div>
+                <div class="bp-row"><span class="k">Province controllate</span><span class="v" id="bp-prov-owned">0</span></div>
+                <div class="bp-row"><span class="k">Collegate alla Capitale</span><span class="v" id="bp-prov-connected">0</span></div>
+                <div class="bp-row"><span class="k">Capitale</span><span class="v" id="bp-capital">—</span></div>
+
+                <div class="bp-title">Esercito</div>
+                <div class="bp-row"><span class="k">Soldati schierati</span><span class="v" id="bp-soldiers">0</span></div>
+                <div class="bp-row"><span class="k">Nella Capitale</span><span class="v" id="bp-soldiers-cap">0</span></div>
+                <div class="bp-row"><span class="k">Generali · navi · vascelli</span><span class="v" id="bp-units">0 · 0 · 0</span></div>
+                <div class="bp-row"><span class="k">Città · fortezze · mercati</span><span class="v" id="bp-buildings">0 · 0 · 0</span></div>
+
+                <div class="bp-box">
+                    <div class="bp-box-head"><span class="k">Rinforzi del prossimo turno</span><span class="v" id="bp-reinf">0</span></div>
+                    <div id="bp-reinf-detail"></div>
+                </div>
+
+                <div class="bp-title">
+                    Legenda costi
+                    <button id="bp-legend-toggle" type="button" class="bp-title-btn">mostra</button>
+                </div>
+                <div id="bp-legend" style="display:none;"></div>
+
+                <h2 id="province-name" style="display:none;"></h2>
+
+            </div>
+            <button id="board-right-tab" class="board-tab" type="button">Regno ▶</button>
+
+            <!-- scelta manuale del regno: link senza codice, o codice sconosciuto -->
+            <div id="board-picker" style="display:none;">
+                <h2>Quale regno stai giocando?</h2>
+                <p>Il link d'invito porta direttamente al tuo regno. Per ora scegline uno.</p>
+                <div id="board-picker-list"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Firebase (multiplayer sync) -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
+    <script src="js/sync.js"></script>
+
+    <script src="data/map_data.js?v=44"></script>
+    <script src="data/id_mapping.js?v=44"></script>
+    <script src="data/embedded_map.js?v=44"></script>
+    <script src="data/resource_icons.js?v=44"></script>
+    <script src="data/piece_icons.js?v=44"></script>
+    <script src="data/default_state.js?v=44"></script>
+    <script src="js/battle.js?v=44"></script>
+    <script src="js/kingdom-stats.js?v=44"></script>
+    <script src="js/game-rules.js?v=44"></script>
+    <script src="js/app.js?v=44"></script>
+    <script src="js/game-actions.js?v=44"></script>
+    <script src="js/player-board.js?v=44"></script>
+</body>
+
+</html>

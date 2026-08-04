@@ -4,6 +4,11 @@
 const DEV_ADMIN_BYPASS = true;
 
 document.addEventListener('DOMContentLoaded', () => {
+    // play.html carica lo stesso app.js dell'editor ma si comporta da plancia:
+    // il regno in focus non va azzerato al cambio ruolo e i pennelli da editor
+    // non esistono. Vedi src/js/player-board.js.
+    const BOARD_MODE = document.body.dataset.mode === 'player';
+
     const container = document.getElementById('svg-container');
     const nameDisplay = document.getElementById('province-name');
     const gameNameDisplay = document.getElementById('p-name');
@@ -31,6 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingRoad = null;  // id della prima provincia scelta col pennello strada (attesa della seconda)
     let isAdminMode = false;
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
+    // Comandi della vista mappa (fit/insets), riempiti da wireMapZoom: li usa la plancia.
+    // Dichiarato qui in cima perche' initMap gira molto prima del corpo di wireMapZoom.
+    let mapView = null;
     let NEIGHBORS = {};      // grafo completo (terra + brevi salti via mare): per usi futuri (navi)
     let NEIGHBORS_LAND = {}; // solo confini via terra (province che si toccano): usato dalla nebbia
     const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -54,6 +62,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // Mappa vuota di partenza: nessun impero pre-assegnato.
     const INITIAL_MAP_DATA = {};
 
+    // --- STATO ECONOMICO E DI TURNO (docs/GAME_DESIGN.md §3) ---
+    // I campi economici vivono sul record del giocatore; le truppe restano dove
+    // erano, in data-pieces sui path SVG (nessuna migrazione).
+    let turnoDi = null;        // id del giocatore che sta giocando il suo turno
+    let ordine = [];           // ordine dei giocatori (id) nel giro
+    let primoDelGiro = 0;      // indice in `ordine` di chi apre il round (ruota, §2.1)
+
+    const TESORO_INIZIALE = 1000;   // §11
+    const SOLDATI_INIZIALI = 5;     // §11, per provincia posseduta
+
+    // Riempie i campi mancanti senza toccare quelli già presenti: uno stato
+    // salvato prima di questa versione resta valido.
+    function normalizePlayer(p) {
+        if (p.monete === undefined) p.monete = TESORO_INIZIALE;
+        if (!p.scorte) p.scorte = GameRules.emptyScorte();
+        GameRules.RES.forEach(k => { if (typeof p.scorte[k] !== 'number') p.scorte[k] = 0; });
+        if (!p.tassazione) p.tassazione = 'normale';
+        if (typeof p.recluteDaSchierare !== 'number') p.recluteDaSchierare = 0;
+        if (typeof p.prestigioCiclo !== 'number') p.prestigioCiclo = 0;
+        if (typeof p.puntiOro !== 'number') p.puntiOro = 0;
+        if (typeof p.stradeGratis !== 'number') p.stradeGratis = 0;
+        if (!p.temporanei) p.temporanei = {};
+        return p;
+    }
+
+    function normalizePlayers() { PLAYERS.forEach(normalizePlayer); }
+    normalizePlayers();
+
     // --- ROLE / ADMIN LOGIN ---
     function applyRole(admin) {
         isAdminMode = admin;
@@ -70,23 +106,29 @@ document.addEventListener('DOMContentLoaded', () => {
         if (bannerText) bannerText.textContent = admin ? '🔓 Modalità admin (modifiche attive)' : '🔒 Modalità sola lettura';
         if (loginBtn) loginBtn.style.display = admin ? 'none' : 'inline-block';
         if (logoutBtn) logoutBtn.style.display = admin ? 'inline-block' : 'none';
-        if (tabsBar) tabsBar.style.display = admin ? 'flex' : 'none';
+        // Le schede giocatore sono disponibili in ENTRAMBE le modalità: in sola lettura
+        // ogni giocatore accede alla propria scheda personale (province + limitrofe +
+        // pannello Popolarità) senza poter modificare nulla (l'editing resta admin-only,
+        // vedi syncPlayerControlsVisibility e le guardie isAdminMode nei click handler).
+        if (tabsBar) tabsBar.style.display = 'flex';
         if (turnPrevBtn) turnPrevBtn.style.display = admin ? 'inline-block' : 'none';
         if (turnNextBtn) turnNextBtn.style.display = admin ? 'inline-block' : 'none';
         syncPlayerControlsVisibility();
 
-        // When leaving admin mode, drop any focused player so the map returns to the main view.
-        if (!admin) {
-            selectedResource = null;
-            selectedPiece = null;
-            document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
+        // Al cambio ruolo si torna alla vista principale (nessun focus): sarà il
+        // giocatore a selezionare il proprio regno dalle schede.
+        selectedResource = null;
+        selectedPiece = null;
+        document.querySelectorAll('.resource-chip').forEach(c => c.classList.remove('selected'));
+        // Nella plancia il regno in focus e' deciso dal link d'invito, non dalle
+        // schede: azzerarlo qui spegnerebbe nebbia e pannelli a ogni cambio ruolo.
+        if (!BOARD_MODE) {
             selectedTabPlayerId = null;
             const content = document.getElementById('player-tab-content');
             if (content) content.style.display = 'none';
-            refreshMapDisplay();
-        } else {
-            renderPlayerTabs();
         }
+        refreshMapDisplay();
+        renderPlayerTabs();
     }
 
     function wireAdminLogin() {
@@ -300,7 +342,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // In scheda personale il giocatore vede solo le proprie province e i vicini:
                 // qualsiasi click su una provincia in nebbia va ignorato (non sa che esiste).
-                if (inTab && isFogged) return;
+                // I campi vanno comunque svuotati, altrimenti restano quelli della
+                // provincia precedente e sembrano riferirsi a questa.
+                if (inTab && isFogged) {
+                    ownerDisplay.textContent = 'Sconosciuto';
+                    ownerDisplay.style.color = '#888';
+                    showResourceInfo('');
+                    return;
+                }
 
                 // Pennello risorsa attivo: il click assegna/rimuove la risorsa
                 // (ha priorita' sulla pittura del proprietario).
@@ -363,6 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                     renderPiecesForPath(svg, path);
+                    renderPopularityPanel();
                     saveAutoSave();
                     return;
                 }
@@ -405,6 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 else changePiece(path, selectedPiece, -1);
                 if (!path.getAttribute('data-pieces')) path.removeAttribute('data-pc-color');
                 renderPiecesForPath(svg, path);
+                renderPopularityPanel();
                 saveAutoSave();
             });
         });
@@ -1111,6 +1162,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const wrapper = document.getElementById('map-wrapper');
         if (!wrapper) return;
 
+        // Frazioni di larghezza coperte dai pannelli laterali della plancia: la mappa
+        // continua a occupare tutta la cornice, ma il contenuto vive nella fascia
+        // centrale libera, cosi' non finisce mai sotto un pannello.
+        const insets = { left: 0, right: 0 };
+        let lastFit = null;   // ultimo insieme di province inquadrato (per il resize)
+
         // Ingrandimento massimo rispetto alla vista intera. Alto perche' alcune zone
         // (es. il dettaglio storico d'Europa) hanno molti territori piccoli e ravvicinati:
         // serve poter zoomare a fondo per selezionarli comodamente uno per uno.
@@ -1141,6 +1198,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const pad = 0.02;
             let x = b.x - b.w * pad, y = b.y - b.h * pad;
             let w = b.w * (1 + 2 * pad), h = b.h * (1 + 2 * pad);
+            // Allarga la vista di quanto coprono i pannelli, in modo che le terre
+            // restino tutte nella fascia centrale visibile (e che il pan possa
+            // comunque portare una provincia di bordo al centro).
+            const usable = Math.max(0.2, 1 - insets.left - insets.right);
+            if (insets.left || insets.right) {
+                const nw = w / usable;
+                x -= nw * insets.left;
+                w = nw;
+            }
             const frameAR = (wrapper.clientWidth || 1) / (wrapper.clientHeight || 1);
             const vbAR = w / h;
             if (vbAR < frameAR) {
@@ -1166,6 +1232,48 @@ document.addEventListener('DOMContentLoaded', () => {
             if (vb.y < base.y) vb.y = base.y;
             if (vb.x + vb.w > base.x + base.w) vb.x = base.x + base.w - vb.w;
             if (vb.y + vb.h > base.y + base.h) vb.y = base.y + base.h - vb.h;
+        }
+
+        // Inquadra un gruppo di province nella fascia centrale libera dai pannelli.
+        // Usato dalla plancia per aprire il gioco gia' sul regno del giocatore.
+        function fitToProvinces(ids) {
+            if (!ids || !ids.length) return false;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            ids.forEach(id => {
+                const p = document.getElementById(id);
+                if (!p) return;
+                let b; try { b = p.getBBox(); } catch (e) { return; }
+                if (!b || (!b.width && !b.height)) return;
+                if (b.x < minX) minX = b.x;
+                if (b.y < minY) minY = b.y;
+                if (b.x + b.width > maxX) maxX = b.x + b.width;
+                if (b.y + b.height > maxY) maxY = b.y + b.height;
+            });
+            if (minX === Infinity) return false;
+
+            lastFit = ids.slice();
+            const pad = 0.25;                      // respiro attorno al regno
+            const rawW = maxX - minX, rawH = maxY - minY;
+            const bx = minX - rawW * pad, by = minY - rawH * pad;
+            const bw = rawW * (1 + 2 * pad), bh = rawH * (1 + 2 * pad);
+
+            const usable = Math.max(0.2, 1 - insets.left - insets.right);
+            const frameAR = (wrapper.clientWidth || 1) / (wrapper.clientHeight || 1);
+            let w = bw / usable;
+            let h = w / frameAR;
+            if (h < bh) { h = bh; w = h * frameAR; }        // regno alto e stretto
+
+            // Centra il regno dentro la sola fascia visibile.
+            const bandLeft = w * insets.left;
+            vb = {
+                x: bx - bandLeft - (w * usable - bw) / 2,
+                y: by + bh / 2 - h / 2,
+                w: w,
+                h: h
+            };
+            clampPan();
+            apply();
+            return true;
         }
 
         // Punto (in coordinate SVG) sotto il cursore, robusto rispetto al letterboxing.
@@ -1248,8 +1356,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 base = computeBaseViewBox();
                 vb = { x: base.x, y: base.y, w: base.w, h: base.h };
                 apply();
+                // Nella plancia il resize non deve far perdere il regno di vista.
+                if (lastFit) fitToProvinces(lastFit);
             }, 150);
         });
+
+        mapView = {
+            fitToProvinces,
+            // Larghezze dei pannelli in frazione della cornice: ricalcola la vista base.
+            setInsets(left, right) {
+                insets.left = Math.max(0, Math.min(0.45, left || 0));
+                insets.right = Math.max(0, Math.min(0.45, right || 0));
+                base = computeBaseViewBox();
+                if (lastFit) fitToProvinces(lastFit);
+                else { vb = { x: base.x, y: base.y, w: base.w, h: base.h }; apply(); }
+            },
+            resetView() {
+                lastFit = null;
+                base = computeBaseViewBox();
+                vb = { x: base.x, y: base.y, w: base.w, h: base.h };
+                apply();
+            }
+        };
     }
 
     function wireTopTabsBar() {
@@ -1311,6 +1439,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if ('resources' in data) applyResourceState(data.resources || {});
         if ('pieces' in data) applyPieceState(data.pieces || {});
         if ('roads' in data) applyRoadState(data.roads || []);
+        applyTurnState(data);
 
         refreshMapDisplay();
         renderPlayerTabs();
@@ -1347,6 +1476,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- INVITI ---
+    // Ogni giocatore ha un codice che compare nel link della sua plancia
+    // (play.html?p=CODICE). Il codice non e' un segreto forte: serve a portare il
+    // giocatore direttamente sul suo regno, mentre la scrittura resta admin-only
+    // (firebase/firestore.rules). L'invio dell'invito per email verra' dopo.
+    function inviteCodeFor(player) {
+        if (!player.invite) {
+            player.invite = 'r' + player.id + '-' + Math.random().toString(36).slice(2, 8);
+        }
+        return player.invite;
+    }
+
+    function inviteUrlFor(player) {
+        const dir = location.href.split('?')[0].replace(/[^/]*$/, '');
+        return dir + 'play.html?p=' + encodeURIComponent(inviteCodeFor(player));
+    }
+
     function initPalette() {
         const palette = document.getElementById('palette');
         if (!palette) return;
@@ -1367,6 +1513,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="player-name" title="Doppio clic per rinominare">${p.name}</span>
                 </div>
                 <div class="player-actions">
+                    <button type="button" class="player-action invite-btn" title="Copia il link d'invito">🔗</button>
                     <button type="button" class="player-action rename-btn" title="Rinomina">✎</button>
                     <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
                 </div>
@@ -1403,6 +1550,19 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.querySelector('.player-name').addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 renamePlayer(p);
+            });
+
+            btn.querySelector('.invite-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                const hadCode = !!p.invite;
+                const url = inviteUrlFor(p);
+                if (!hadCode) saveAutoSave();   // il codice appena creato va salvato
+                const done = () => showPieceNotice('Link di ' + p.name + ' copiato.');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(done, () => window.prompt('Link d\'invito:', url));
+                } else {
+                    window.prompt('Link d\'invito:', url);
+                }
             });
 
             btn.querySelector('.rename-btn').addEventListener('click', (e) => {
@@ -1565,7 +1725,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function addPlayer() {
         if (!isAdminMode) return;
         const nextId = PLAYERS.reduce((m, p) => Math.max(m, p.id), 0) + 1;
-        PLAYERS.push({ id: nextId, name: 'Giocatore ' + nextId, color: pickNewPlayerColor() });
+        PLAYERS.push(normalizePlayer({ id: nextId, name: 'Giocatore ' + nextId, color: pickNewPlayerColor() }));
         initPalette();
         renderPlayerTabs();
         saveAutoSave();
@@ -1623,6 +1783,49 @@ document.addEventListener('DOMContentLoaded', () => {
         loadBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', loadMap);
     }
+
+    // --- COMANDI PARTITA (admin) ---
+    // "Avvia partita" azzera l'economia ai valori del §11 e fissa l'ordine dei turni;
+    // "Fine turno" chiude il turno del giocatore corrente ed esegue la Fase 1 del successivo.
+    const startGameBtn = document.getElementById('start-game-btn');
+    const endTurnBtn = document.getElementById('end-turn-btn');
+
+    // Dichiarata come funzione (non const) perche' refreshMapDisplay la chiama
+    // molto prima che questa parte del file venga eseguita.
+    function renderGameControls() {
+        const info = document.getElementById('game-turn-info');
+        if (!info) return;
+        if (turnoDi === null || turnoDi === undefined) {
+            info.textContent = 'Partita non avviata';
+            info.className = '';
+            return;
+        }
+        const p = PLAYERS.find(x => x.id === turnoDi);
+        info.textContent = p ? ('Turno di ' + p.name) : 'Turno di un regno rimosso';
+        info.className = 'active';
+        if (p) info.style.borderLeftColor = p.color;
+    }
+
+    if (startGameBtn) {
+        startGameBtn.addEventListener('click', () => {
+            if (!isAdminMode) return;
+            if (!confirm('Avviare la partita? Ogni provincia posseduta torna a 5 soldati e ogni regno a 1000 monete con scorte azzerate.')) return;
+            const r = GameActions.startGame();
+            showPieceNotice(r.msg);
+            renderGameControls();
+        });
+    }
+
+    if (endTurnBtn) {
+        endTurnBtn.addEventListener('click', () => {
+            if (!isAdminMode) return;
+            const r = GameActions.endTurn();
+            showPieceNotice(r.msg);
+            renderGameControls();
+        });
+    }
+
+    renderGameControls();
 
     function saveMap() {
         if (!isAdminMode) return;
@@ -1709,7 +1912,10 @@ document.addEventListener('DOMContentLoaded', () => {
             history: TURN_HISTORY,
             resources: collectResources(svg),
             pieces: collectPieces(svg),
-            roads: collectRoads()
+            roads: collectRoads(),
+            turnoDi: turnoDi,
+            ordine: ordine,
+            primoDelGiro: primoDelGiro
         };
 
         localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
@@ -1742,6 +1948,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if ('resources' in data) applyResourceState(data.resources || {});
             if ('pieces' in data) applyPieceState(data.pieces || {});
             if ('roads' in data) applyRoadState(data.roads || []);
+            applyTurnState(data);
             renderPlayerTabs();
         } catch (e) {
             console.error("Failed to load auto-save", e);
@@ -1752,7 +1959,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // (anche dei giocatori di default) vengono rispettate al ricaricamento.
     function mergePlayerData(savedPlayers) {
         if (!savedPlayers || !Array.isArray(savedPlayers) || !savedPlayers.length) return;
-        PLAYERS = savedPlayers.map(p => ({ id: p.id, name: p.name, color: p.color }));
+        // Copia integrale del record: tesoro, scorte, prestigio, serbatoio reclute e
+        // codice d'invito devono sopravvivere al ricaricamento. Prima si teneva solo
+        // id/nome/colore e a ogni reload il regno tornava povero.
+        PLAYERS = savedPlayers.map(p => normalizePlayer(Object.assign({}, p)));
+    }
+
+    // Stato di turno dal documento salvato (vale sia per localStorage sia per Firestore).
+    function applyTurnState(data) {
+        turnoDi = (data && data.turnoDi !== undefined) ? data.turnoDi : null;
+        ordine = (data && Array.isArray(data.ordine)) ? data.ordine.slice() : [];
+        primoDelGiro = (data && typeof data.primoDelGiro === 'number') ? data.primoDelGiro : 0;
     }
 
     // --- MAP DISPLAY ---
@@ -1801,6 +2018,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const vis = !visible || (visible.has(parts[0]) && visible.has(parts[1]));
             m.style.display = vis ? '' : 'none';
         });
+
+        renderPopularityPanel();
+        renderGameControls();
+        notifyBoard();
+    }
+
+    // Aggancio della plancia giocatore: si ridisegna quando cambia qualcosa del regno.
+    function notifyBoard() {
+        if (window.Risiko && typeof window.Risiko.onRefresh === 'function') {
+            window.Risiko.onRefresh();
+        }
     }
 
     function computeVisibleProvinces(playerName) {
@@ -1853,18 +2081,29 @@ document.addEventListener('DOMContentLoaded', () => {
         return str.toLowerCase().replace(/[^a-z0-9]/g, "");
     }
 
+    // Nome leggibile di una provincia: dati di gioco > mappatura id > attributo name.
+    function provinceLabel(path) {
+        if (!path) return '';
+        const id = path.id;
+        const nameAttr = path.getAttribute('name');
+        const data = findMatch(id, nameAttr);
+        if (data) return data.nome;
+        if (typeof ID_MAP !== 'undefined' && ID_MAP[id]) return ID_MAP[id];
+        return nameAttr || id;
+    }
+
+    // Elementi <path> delle province di un giocatore (il nome puo' contenere
+    // virgolette, quindi niente selettore costruito a mano).
+    function ownedPaths(playerName) {
+        const svg = document.querySelector('svg');
+        if (!svg || !playerName) return [];
+        return Array.from(svg.querySelectorAll('path.state'))
+            .filter(p => p.getAttribute('data-owner') === playerName);
+    }
+
     // --- PLAYER TABS (admin-only per-player detail panel) ---
     function getProvincesOwnedBy(playerName) {
-        const svg = document.querySelector('svg');
-        if (!svg) return [];
-        const owned = [];
-        svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
-            const id = path.id;
-            const nameAttr = path.getAttribute('name');
-            const data = findMatch(id, nameAttr);
-            owned.push(data ? data.nome : (typeof ID_MAP !== 'undefined' && ID_MAP[id]) ? ID_MAP[id] : (nameAttr || id));
-        });
-        return owned.sort();
+        return ownedPaths(playerName).map(provinceLabel).sort();
     }
 
     function renderPlayerTabs() {
@@ -1932,6 +2171,186 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     }
 
+    // ============================================================
+    // Pannello Popolarità — scheda personale del giocatore focalizzato.
+    // Attivo dalla costruzione della Capitale; senza Capitale mostra un invito.
+    // Formula (docs/GAME_DESIGN.md §8): Popolarità = round((Sicurezza+Benessere+Tassa)/3).
+    // ============================================================
+
+    const TAX_LEVELS = {
+        leggera: { label: 'Leggera', score: 5 },
+        normale: { label: 'Normale', score: 3 },
+        dura:    { label: 'Dura',    score: 1 }
+    };
+
+    function clamp05(n) { return Math.max(0, Math.min(5, n)); }
+
+    // Arrotondamento del regolamento (§8): per difetto, salvo parte decimale > 0,8.
+    // Es. 2,83 → 3 · 2,5 → 2 · 4,8 → 4. Diverso da Math.round, che darebbe 3 · 3 · 5.
+    function roundRule(x) {
+        if (typeof KingdomStats !== 'undefined') return KingdomStats.roundRule(x);
+        const f = Math.floor(x);
+        return (x - f > 0.8) ? f + 1 : f;
+    }
+
+    // Provincia-Capitale del giocatore (match sul colore-esercito della pedina).
+    function getCapitalPathFor(player) {
+        const svg = document.querySelector('svg');
+        if (!svg || !player) return null;
+        let found = null;
+        svg.querySelectorAll('path.state').forEach(pp => {
+            if (found) return;
+            if (pieceColorOf(pp) === player.color &&
+                piecesOf(pp).some(e => e.type === 'capitale')) found = pp;
+        });
+        return found;
+    }
+
+    // Quante pedine di un tipo ci sono su una provincia.
+    function countPiece(path, type) {
+        const e = piecesOf(path).find(x => x.type === type);
+        return e ? e.count : 0;
+    }
+
+    // Calcola i tre componenti + il totale della Popolarità per un giocatore.
+    function computePopularity(player, capitalPath) {
+        // --- Sicurezza (Difesa) ---
+        // Province nemiche confinanti con la Capitale: e = quante → P_conf = 5 − e.
+        const neigh = Array.from(NEIGHBORS_LAND[capitalPath.id] || []);
+        let enemyBorders = 0;
+        neigh.forEach(id => {
+            const np = document.getElementById(id);
+            const owner = np && np.getAttribute('data-owner');
+            if (owner && owner !== player.name) enemyBorders++;
+        });
+        const pConf = clamp05(5 - enemyBorders);
+        const soldiers = countPiece(capitalPath, 'soldato');   // guardia cittadina: soldati oltre i 5
+        const pGuardia = clamp05(Math.max(0, soldiers - 5));
+        const hasGeneral = countPiece(capitalPath, 'generale') > 0;
+        const sicurezza = clamp05(roundRule((pConf + pGuardia) / 2) + (hasGeneral ? 1 : 0));
+
+        // --- Benessere --- (Risorse+Cibo+Sanità+Felicità)/4: economia non ancora
+        // tracciata → baseline neutra 3, sotto-fattori "in arrivo".
+        const benessere = 3;
+
+        // --- Tassa --- dal livello di tassazione scelto dal regno.
+        const tax = player.tassazione || 'normale';
+        const tassa = (TAX_LEVELS[tax] || TAX_LEVELS.normale).score;
+
+        // Il totale e' clampato 1–5 (§8): il livello 0 non esiste nella tabella effetti.
+        const totale = Math.max(1, clamp05(roundRule((sicurezza + benessere + tassa) / 3)));
+        return {
+            totale, sicurezza, benessere, tassa,
+            detail: { enemyBorders, pConf, soldiers, pGuardia, hasGeneral, tax }
+        };
+    }
+
+    function circlesHtml(value, mini) {
+        let h = `<div class="pop-circles${mini ? ' mini-row' : ''}">`;
+        for (let i = 1; i <= 5; i++) {
+            h += `<div class="pop-circle${mini ? ' mini' : ''}${i <= value ? ' filled' : ''}"></div>`;
+        }
+        return h + '</div>';
+    }
+
+    // Ricorda quali sotto-sezioni sono aperte tra un render e l'altro.
+    const popOpenState = { sicurezza: false, benessere: false, tassazione: false };
+
+    function renderPopularityPanel() {
+        const panel = document.getElementById('popularity-panel');
+        if (!panel) return;
+        const body = document.getElementById('pop-body');
+        const player = PLAYERS.find(p => p.id === selectedTabPlayerId);
+
+        // Nessun giocatore focalizzato → pannello nascosto.
+        if (!player || !body) { panel.style.display = 'none'; return; }
+        panel.style.display = 'flex';
+
+        const capital = getCapitalPathFor(player);
+        if (!capital) {
+            body.innerHTML = '<div class="pop-empty"><span>Ogni grande impero è nato attorno ad una gloriosa capitale.</span></div>';
+            return;
+        }
+
+        const pop = computePopularity(player, capital);
+        const d = pop.detail;
+        const taxSel = ['leggera', 'normale', 'dura'].map(k =>
+            `<div class="pop-tax-opt${(d.tax === k) ? ' active' : ''}" data-tax="${k}">${TAX_LEVELS[k].label}</div>`
+        ).join('');
+
+        body.innerHTML = `
+            <div class="pop-total">
+                <div class="pop-total-label">Livello ${pop.totale} / 5</div>
+                ${circlesHtml(pop.totale, false)}
+            </div>
+            <div class="pop-sub${popOpenState.sicurezza ? ' open' : ''}" data-sub="sicurezza">
+                <div class="pop-sub-head">
+                    <span class="pop-sub-caret">▶</span>
+                    <span class="pop-sub-icon">🛡️</span>
+                    <span class="pop-sub-name">Sicurezza</span>
+                    <span class="pop-sub-score">${pop.sicurezza}/5</span>
+                </div>
+                <div class="pop-sub-body">
+                    ${circlesHtml(pop.sicurezza, true)}
+                    <div class="pop-factor"><span class="pop-factor-label">Province nemiche al confine</span><span class="pop-factor-val">${d.enemyBorders} → ${d.pConf}/5</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Guardia cittadina (soldati &gt; 5)</span><span class="pop-factor-val">${d.soldiers} → ${d.pGuardia}/5</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Generale in Capitale</span><span class="pop-factor-val">${d.hasGeneral ? '+1' : '—'}</span></div>
+                </div>
+            </div>
+            <div class="pop-sub${popOpenState.benessere ? ' open' : ''}" data-sub="benessere">
+                <div class="pop-sub-head">
+                    <span class="pop-sub-caret">▶</span>
+                    <span class="pop-sub-icon">🌾</span>
+                    <span class="pop-sub-name">Benessere</span>
+                    <span class="pop-sub-score">${pop.benessere}/5</span>
+                </div>
+                <div class="pop-sub-body">
+                    ${circlesHtml(pop.benessere, true)}
+                    <div class="pop-factor"><span class="pop-factor-label">Diversità risorse</span><span class="pop-factor-val muted">in arrivo</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Cibo collegato</span><span class="pop-factor-val muted">in arrivo</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Sanità</span><span class="pop-factor-val muted">in arrivo</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Felicità</span><span class="pop-factor-val muted">in arrivo</span></div>
+                </div>
+            </div>
+            <div class="pop-sub${popOpenState.tassazione ? ' open' : ''}" data-sub="tassazione">
+                <div class="pop-sub-head">
+                    <span class="pop-sub-caret">▶</span>
+                    <span class="pop-sub-icon">💰</span>
+                    <span class="pop-sub-name">Tassazione</span>
+                    <span class="pop-sub-score">${pop.tassa}/5</span>
+                </div>
+                <div class="pop-sub-body">
+                    ${circlesHtml(pop.tassa, true)}
+                    <div class="pop-factor"><span class="pop-factor-label">Più tasse = più monete, meno popolarità</span></div>
+                    <div class="pop-tax-select">${taxSel}</div>
+                </div>
+            </div>
+        `;
+
+        // Espandi/comprimi le sotto-sezioni.
+        body.querySelectorAll('.pop-sub-head').forEach(head => {
+            head.addEventListener('click', () => {
+                const sub = head.parentElement;
+                const key = sub.getAttribute('data-sub');
+                popOpenState[key] = !popOpenState[key];
+                sub.classList.toggle('open', popOpenState[key]);
+            });
+        });
+
+        // Selettore di tassazione (solo admin): cambia lo stato del regno e ricalcola.
+        body.querySelectorAll('.pop-tax-opt').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Nella plancia e' il giocatore stesso a decidere la propria tassazione.
+                if (!isAdminMode && !BOARD_MODE) return;
+                player.tassazione = opt.getAttribute('data-tax');
+                renderPopularityPanel();
+                notifyBoard();   // entrate e rinforzi dipendono dalla tassa
+                if (typeof saveAutoSave === 'function') saveAutoSave();
+            });
+        });
+    }
+
     // Il pannello di destra e' ridimensionabile (CSS resize). Qui leghiamo la GRANDEZZA
     // di tutto il contenuto (testo, titoli, schede, loghi) alla larghezza del pannello:
     // stretchandolo cresce tutto in proporzione. Usiamo `zoom` sui due blocchi interni
@@ -1992,4 +2411,105 @@ document.addEventListener('DOMContentLoaded', () => {
             document.onmousemove = null;
         }
     }
+
+    // ============================================================
+    // Superficie pubblica per la plancia giocatore (src/js/player-board.js).
+    // app.js resta una singola closure: invece di spezzarlo in moduli, esponiamo
+    // qui le poche funzioni che servono da fuori.
+    // ============================================================
+    window.Risiko = {
+        // Chiamata a ogni ridisegno della mappa: la plancia ci aggancia il render.
+        onRefresh: null,
+
+        isBoardMode: () => BOARD_MODE,
+        isAdmin: () => isAdminMode,
+        players: () => PLAYERS,
+        turn: () => currentTurn,
+        focusId: () => selectedTabPlayerId,
+        inviteUrlFor,
+
+        playerByInvite(code) {
+            if (!code) return null;
+            return PLAYERS.find(p => p.invite === code) || null;
+        },
+
+        // Entra nel regno del giocatore: nebbia sulle province non sue, pannello
+        // Popolarita' attivo, nessun pennello da editor.
+        focusPlayer(id) {
+            selectedTabPlayerId = id;
+            selectedPlayer = null;
+            selectedResource = null;
+            selectedPiece = null;
+            syncPlayerControlsVisibility();
+            refreshMapDisplay();
+        },
+
+        ownedPaths,
+        provinceLabel,
+        piecesOf,
+        countPiece,
+        resourceKeyOf,
+        getCapitalPathFor,
+        computePopularity,
+        save: saveAutoSave,
+
+        // --- stato di turno (docs/GAME_DESIGN.md §2) ---
+        turnoDi: () => turnoDi,
+        ordine: () => ordine.slice(),
+        primoDelGiro: () => primoDelGiro,
+        setTurnState(t, o, primo) {
+            turnoDi = t;
+            if (o) ordine = o.slice();
+            if (typeof primo === 'number') primoDelGiro = primo;
+        },
+        advanceGlobalTurn() {
+            saveCurrentTurnToHistory();
+            currentTurn++;
+            loadTurnFromHistory();
+            updateTurnUI();
+        },
+
+        // --- primitive di manipolazione della mappa, usate da game-actions.js ---
+        // Superficie volutamente stretta: game-actions non conosce il DOM dell'SVG.
+        engine: {
+            path: (id) => document.getElementById(id),
+            ownedPaths,
+            landNeighbors: (id) => Array.from(NEIGHBORS_LAND[id] || []),
+            areLandAdjacent,
+            pieces: piecesOf,
+            countPiece,
+            canPlacePiece,
+            addPiece(path, type, delta) { changePiece(path, type, delta); },
+            erasePieces(path) { changePiece(path, '__erase__'); },
+            armyColor: pieceColorOf,
+            setArmyColor(path, color) {
+                if (color) path.setAttribute('data-pc-color', color);
+                else path.removeAttribute('data-pc-color');
+            },
+            owner: (path) => path.getAttribute('data-owner'),
+            setOwner(path, name) {
+                if (name) path.setAttribute('data-owner', name);
+                else path.removeAttribute('data-owner');
+            },
+            roads: () => ROADS.slice(),
+            hasRoad: (a, b) => !!findRoad(a, b),
+            addRoad(a, b, color) { if (!findRoad(a, b)) toggleRoad(a, b, color); },
+            removeRoad(a, b) {
+                const existing = findRoad(a, b);
+                if (existing) ROADS = ROADS.filter(r => r !== existing);
+                return !!existing;
+            },
+            redrawProvince(path) { renderPiecesForPath(document.querySelector('svg'), path); },
+            redrawRoads() { renderRoads(document.querySelector('svg')); },
+            refresh: refreshMapDisplay,
+            notice: showPieceNotice,
+            save: saveAutoSave
+        },
+
+        // Vista mappa (disponibile solo dopo initMap).
+        fitToProvinces(ids) { return mapView ? mapView.fitToProvinces(ids) : false; },
+        setViewInsets(left, right) { if (mapView) mapView.setInsets(left, right); },
+        resetView() { if (mapView) mapView.resetView(); },
+        mapReady: () => !!mapView
+    };
 });

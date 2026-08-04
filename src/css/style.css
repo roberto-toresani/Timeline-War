@@ -1,7 +1,7 @@
 body {
     font-family: 'Cinzel', 'Georgia', serif;
-    background-color: #1a1a1a;
-    color: #dcdcdc;
+    background-color: var(--bg-page);
+    color: var(--text);
     margin: 0;
     padding: 0;
     display: flex;
@@ -22,7 +22,7 @@ body {
 
 h1 {
     margin: 14px 0 6px 0;
-    color: #e0c097;
+    color: var(--gold);
     text-transform: uppercase;
     letter-spacing: 4px;
     font-size: 3.6rem;
@@ -64,13 +64,13 @@ p {
     font-size: 1rem;
     cursor: pointer;
     background: #2a2a2a;
-    color: #e0c097;
+    color: var(--gold);
     border: 1px solid #555;
     border-radius: 4px;
 }
 
 .role-banner button:hover {
-    background: #3a3a3a;
+    background: var(--fog);
 }
 
 /* Player-focus tabs bar: horizontal row above the map, collapsed by default. */
@@ -96,8 +96,8 @@ p {
 #player-tabs-clear {
     padding: 8px 16px;
     font-size: 1.1em;
-    background: #1a1a1a;
-    color: #e0c097;
+    background: var(--bg-page);
+    color: var(--gold);
     border: 1px solid #555;
     border-radius: 4px;
     cursor: pointer;
@@ -116,7 +116,7 @@ p {
 .player-tab {
     padding: 8px 16px;
     font-size: 1.05em;
-    background: #1a1a1a;
+    background: var(--bg-page);
     color: #ccc;
     border: 1px solid #444;
     border-bottom: 4px solid transparent;
@@ -130,7 +130,7 @@ p {
 }
 
 .player-tab:hover { background: #333; }
-.player-tab.active { background: #3a3a3a; color: #fff; font-weight: bold; }
+.player-tab.active { background: var(--fog); color: #fff; font-weight: bold; }
 
 #player-tab-content {
     display: none; /* becomes flex when a tab is active */
@@ -148,7 +148,7 @@ p {
 
 #player-tab-content .tab-header {
     padding: 8px 14px;
-    background: #1a1a1a;
+    background: var(--bg-page);
     border-radius: 6px;
     display: flex;
     flex-direction: column;
@@ -159,7 +159,7 @@ p {
 }
 
 #player-tab-content .tab-subtle {
-    color: #888;
+    color: var(--text-muted);
     font-size: 0.85em;
 }
 
@@ -186,7 +186,7 @@ p {
 
 #player-tab-content .tab-value {
     font-size: 1.15em;
-    color: #e0c097;
+    color: var(--gold);
 }
 
 #player-tab-content .tab-province-inline {
@@ -200,7 +200,7 @@ p {
 /* Fog of war: visual dimming for provinces not owned by nor adjacent to the focused player.
    Flat fill (no opacity blend) so every fogged province looks identical regardless of overlap. */
 svg path.fog {
-    fill: #3a3a3a !important;
+    fill: var(--fog) !important;
     opacity: 1 !important;
     filter: none;
 }
@@ -225,14 +225,14 @@ svg path.fog {
     margin-bottom: 0;
 
     /* Board Game Wood Border */
-    border: 15px solid #5D4037;
+    border: 15px solid var(--wood);
     /* Dark Wood */
     box-shadow:
         inset 0 0 20px rgba(0, 0, 0, 0.7),
         /* Inner depth */
         0 10px 30px rgba(0, 0, 0, 0.5);
     /* Drop shadow */
-    background-color: #a3c2d4;
+    background-color: var(--sea);
     border-radius: 4px;
     overflow: hidden;
     /* Map is scaled to fit the frame, so no scrollbars; zoom clips inside the frame. */
@@ -277,8 +277,8 @@ svg path.fog {
     position: static;
     /* No longer absolute */
     width: auto;
-    background: rgba(43, 33, 24, 0.95);
-    border: 2px solid #c0a062;
+    background: var(--bg-panel);
+    border: 2px solid var(--gold-edge);
     padding: 20px;
     border-radius: 4px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
@@ -301,8 +301,8 @@ svg path.fog {
     position: static;
     /* No longer absolute */
     width: auto;
-    background: rgba(43, 33, 24, 0.95);
-    border: 2px solid #c0a062;
+    background: var(--bg-panel);
+    border: 2px solid var(--gold-edge);
     padding: 10px;
     /* Fill remaining height of sidebar */
     flex: 1;
@@ -314,7 +314,7 @@ svg path.fog {
 
 #player-controls h3 {
     margin: 0 0 12px 0;
-    color: #e0c097;
+    color: var(--gold);
     text-align: center;
     border-bottom: 1px solid #555;
     padding-bottom: 7px;
@@ -328,7 +328,7 @@ svg path.fog {
     width: 100%;
     margin-bottom: 5px;
     padding: 8px;
-    background: #c0a062;
+    background: var(--gold-edge);
     color: #2b2b2b;
     border: none;
     border-radius: 4px;
@@ -342,12 +342,31 @@ svg path.fog {
 #random-assign-btn:hover,
 #save-btn:hover,
 #load-btn:hover {
-    background: #e0c097;
+    background: var(--gold);
 }
 
 #random-assign-btn {
     margin-bottom: 10px;
 }
+
+/* Comandi partita dell'admin: avvio e passaggio di turno. */
+#game-controls {
+    margin-bottom: 12px;
+    padding: 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .25);
+}
+
+#game-turn-info {
+    font-size: 0.95rem;
+    color: var(--parchment-muted);
+    border-left: 4px solid var(--rule-strong);
+    padding-left: 8px;
+    margin-bottom: 8px;
+}
+
+#game-turn-info.active { color: var(--gold); }
 
 #palette {
     display: grid;
@@ -359,7 +378,7 @@ svg path.fog {
 .player-card {
     display: flex;
     align-items: center;
-    background: #3a3a3a;
+    background: var(--fog);
     border: 1px solid #555;
     border-radius: 4px;
     cursor: pointer;
@@ -445,7 +464,7 @@ svg path.fog {
     color: #e6b422;
     /* Gold */
     padding: 14px 22px;
-    border: 1px solid #c0a062;
+    border: 1px solid var(--gold-edge);
     border-radius: 4px;
     font-size: 2.7rem;
     font-weight: bold;
@@ -472,9 +491,9 @@ svg path.fog {
     align-items: center;
     gap: 5px;
     background: rgba(43, 33, 24, 0.9);
-    border: 3px solid #c0a062;
-    padding: 16px 44px;
-    border-radius: 18px;
+    border: 3px solid var(--gold-edge);
+    padding: 22px 64px;
+    border-radius: 22px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     z-index: 600;
 }
@@ -482,22 +501,23 @@ svg path.fog {
 .turn-controls {
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 18px;
 }
 
 
 #turn-display {
-    font-size: 2rem;
+    font-size: 2.6rem;
     font-weight: bold;
-    color: #e0c097;
+    color: var(--gold);
     text-transform: uppercase;
     letter-spacing: 1px;
-    min-width: 150px;
+    min-width: 190px;
     text-align: center;
 }
 
 #date-display {
-    font-size: 2.7rem;
+    font-size: 4rem;
+    line-height: 1.05;
     font-weight: bold;
     color: #fff;
     text-shadow: 0 0 10px rgba(192, 160, 98, 0.5);
@@ -508,7 +528,7 @@ svg path.fog {
 
 #turn-prev,
 #turn-next {
-    background: #c0a062;
+    background: var(--gold-edge);
     color: #2b2b2b;
     border: none;
     width: 46px;
@@ -525,7 +545,7 @@ svg path.fog {
 
 #turn-prev:hover,
 #turn-next:hover {
-    background: #e0c097;
+    background: var(--gold);
     transform: scale(1.1);
 }
 
@@ -666,9 +686,9 @@ svg path.fog {
 }
 
 .rating-circle.filled {
-    background-color: #e0c097;
+    background-color: var(--gold);
     /* Gold/Beige */
-    border-color: #e0c097;
+    border-color: var(--gold);
     box-shadow: 0 0 5px rgba(224, 192, 151, 0.5);
 }
 
@@ -846,4 +866,179 @@ svg path.fog {
     color: #fff;
     font-size: 1.1em;
     line-height: 1;
+}
+
+/* ============================================================
+   Pannello Popolarità — scheda personale, sviluppo verticale
+   sulla sinistra della mappa.
+   ============================================================ */
+#popularity-panel {
+    position: absolute;
+    left: 18px;
+    top: 18px;
+    bottom: 18px;
+    width: 270px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: rgba(43, 33, 24, 0.94);
+    border: 3px solid var(--gold-edge);
+    border-radius: 14px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    color: var(--gold);
+    z-index: 600;
+    overflow-y: auto;
+    font-size: 1rem;
+}
+#popularity-panel .pop-header {
+    font-family: 'Cinzel', serif;
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #fff;
+    text-align: center;
+    letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(192, 160, 98, 0.5);
+    border-bottom: 2px solid rgba(192, 160, 98, 0.4);
+    padding-bottom: 8px;
+}
+
+/* Messaggio "nessuna capitale" */
+#popularity-panel .pop-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex: 1;
+    font-style: italic;
+    font-family: 'Cinzel', serif;
+    line-height: 1.5;
+    color: #d8c39a;
+    opacity: 0.9;
+    padding: 10px;
+}
+#popularity-panel .pop-empty::before {
+    content: "🏰";
+    display: block;
+    font-size: 2.4rem;
+    margin-bottom: 10px;
+}
+#popularity-panel .pop-empty span { display: block; }
+
+/* Meter totale: 5 cerchi che si riempiono */
+#popularity-panel .pop-total {
+    text-align: center;
+}
+#popularity-panel .pop-total-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.75;
+    margin-bottom: 6px;
+}
+.pop-circles {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+.pop-circle {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--gold-edge);
+    background: rgba(0, 0, 0, 0.35);
+    box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.6);
+    transition: background .25s, box-shadow .25s;
+}
+.pop-circle.filled {
+    background: radial-gradient(circle at 35% 30%, var(--gold-bright), #e0b64d 65%, #b8862f);
+    box-shadow: 0 0 8px rgba(224, 182, 77, 0.7);
+    border-color: var(--gold-bright);
+}
+.pop-circle.mini { width: 15px; height: 15px; border-width: 1px; }
+.pop-circles.mini-row { gap: 5px; margin-bottom: 8px; }
+
+/* Sotto-sezioni: Sicurezza / Benessere / Tassazione (espandibili) */
+.pop-sub {
+    border: 1px solid rgba(192, 160, 98, 0.35);
+    border-radius: 9px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.18);
+}
+.pop-sub-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 11px;
+    cursor: pointer;
+    user-select: none;
+}
+.pop-sub-head:hover { background: rgba(192, 160, 98, 0.12); }
+.pop-sub-caret {
+    font-size: 0.7rem;
+    transition: transform .2s;
+    opacity: 0.75;
+}
+.pop-sub.open .pop-sub-caret { transform: rotate(90deg); }
+.pop-sub-icon { font-size: 1.1rem; }
+.pop-sub-name {
+    flex: 1;
+    font-weight: bold;
+    font-size: 0.98rem;
+}
+.pop-sub-score {
+    font-weight: bold;
+    color: var(--gold-bright);
+    font-variant-numeric: tabular-nums;
+}
+.pop-sub-body {
+    display: none;
+    padding: 8px 11px 11px;
+    border-top: 1px solid rgba(192, 160, 98, 0.2);
+}
+.pop-sub.open .pop-sub-body { display: block; }
+.pop-factor {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 0.86rem;
+    border-bottom: 1px dashed rgba(192, 160, 98, 0.15);
+}
+.pop-factor:last-child { border-bottom: none; }
+.pop-factor-label { opacity: 0.85; }
+.pop-factor-val {
+    font-weight: bold;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.pop-factor-val.muted { color: #a99; font-weight: normal; font-style: italic; }
+
+/* Selettore di tassazione */
+.pop-tax-select {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.pop-tax-opt {
+    flex: 1;
+    padding: 6px 4px;
+    text-align: center;
+    font-size: 0.8rem;
+    border: 1px solid rgba(192, 160, 98, 0.4);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--gold);
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.pop-tax-opt:hover { background: rgba(192, 160, 98, 0.18); }
+.pop-tax-opt.active {
+    background: var(--gold-edge);
+    color: #2b2b2b;
+    font-weight: bold;
+    border-color: var(--gold-bright);
 }

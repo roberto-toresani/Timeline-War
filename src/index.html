@@ -4,8 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Risiko Online</title>
-    <link rel="stylesheet" href="css/style.css?v=41">
+    <title>Risiko Online — Editor mappa (admin)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
+    <link rel="stylesheet" href="css/tokens.css?v=44">
+    <link rel="stylesheet" href="css/style.css?v=44">
 </head>
 
 <body>
@@ -63,7 +67,13 @@
                         <button id="turn-next">+</button>
                     </div>
                 </div>
-                <!-- The SVG will be injected here by app.js -->
+                <!-- Pannello Popolarità (scheda personale del giocatore focalizzato).
+                     Si sviluppa in verticale sulla sinistra della mappa. Popolato da app.js. -->
+                <div id="popularity-panel" style="display:none;">
+                    <div class="pop-header">Popolarità</div>
+                    <div id="pop-body"><!-- iniettato da JS --></div>
+                </div>
+
                 <!-- The SVG will be injected here by app.js -->
                 <div id="svg-container">Loading Map...</div>
             </div>
@@ -85,6 +95,15 @@
                         <button id="save-btn" style="flex:1;">💾 Save</button>
                         <button id="load-btn" style="flex:1;">📂 Load</button>
                         <input type="file" id="file-input" style="display:none;" accept=".json" />
+                    </div>
+
+                    <!-- Comandi partita (admin): avviano il gioco vero e passano i turni. -->
+                    <div id="game-controls">
+                        <div id="game-turn-info">Partita non avviata</div>
+                        <div style="display:flex; gap:5px;">
+                            <button id="start-game-btn" style="flex:1;">🏁 Avvia partita</button>
+                            <button id="end-turn-btn" style="flex:1;">⏭️ Fine turno</button>
+                        </div>
                     </div>
 
                     <div id="palette">
@@ -118,14 +137,17 @@
     <script src="js/sync.js"></script>
 
     <!-- Scripts -->
-    <script src="data/map_data.js?v=41"></script>
-    <script src="data/id_mapping.js?v=41"></script>
-    <script src="data/embedded_map.js?v=41"></script>
-    <script src="data/resource_icons.js?v=41"></script>
-    <script src="data/piece_icons.js?v=1"></script>
-    <script src="data/default_state.js?v=41"></script>
-    <script src="js/battle.js?v=1"></script>
-    <script src="js/app.js?v=41"></script>
+    <script src="data/map_data.js?v=44"></script>
+    <script src="data/id_mapping.js?v=44"></script>
+    <script src="data/embedded_map.js?v=44"></script>
+    <script src="data/resource_icons.js?v=44"></script>
+    <script src="data/piece_icons.js?v=44"></script>
+    <script src="data/default_state.js?v=44"></script>
+    <script src="js/battle.js?v=44"></script>
+    <script src="js/kingdom-stats.js?v=44"></script>
+    <script src="js/game-rules.js?v=44"></script>
+    <script src="js/app.js?v=44"></script>
+    <script src="js/game-actions.js?v=44"></script>
 </body>
 
 </html>
