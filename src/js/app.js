@@ -1513,6 +1513,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="player-name" title="Doppio clic per rinominare">${p.name}</span>
                 </div>
                 <div class="player-actions">
+                    <button type="button" class="player-action view-btn" title="Apri la sua plancia (come admin, in una nuova scheda)">👁</button>
                     <button type="button" class="player-action invite-btn" title="Copia il link d'invito">🔗</button>
                     <button type="button" class="player-action rename-btn" title="Rinomina">✎</button>
                     <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
@@ -1550,6 +1551,14 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.querySelector('.player-name').addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 renamePlayer(p);
+            });
+
+            btn.querySelector('.view-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                const hadCode = !!p.invite;
+                const url = inviteUrlFor(p);
+                if (!hadCode) saveAutoSave();   // il codice appena creato va salvato
+                window.open(url, '_blank');     // scheda separata: l'editor resta aperto
             });
 
             btn.querySelector('.invite-btn').addEventListener('click', (e) => {
