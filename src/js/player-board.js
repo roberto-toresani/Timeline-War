@@ -23,76 +23,47 @@ document.addEventListener('DOMContentLoaded', () => {
     let legendOpen = false;
     let lastBattle = null;
 
-    // ---------- pannelli: apertura/chiusura e spazio riservato sulla mappa ----------
+    // ---------- pannelli: tre colonne, o tendine su schermi stretti ----------
+    // Da 1200px in su i pannelli sono due colonne vere della griglia: la mappa
+    // ha la sua terza colonna tutta per sé e gli inset restano a zero. Sotto,
+    // tornano tendine sovrapposte e servono le linguette (vedi board.css).
 
     const leftPanel = $('board-left');
     const rightPanel = $('board-right');
+    const wideQuery = window.matchMedia('(min-width: 1200px)');
+    const isWide = () => wideQuery.matches;
 
-    function syncViewInsets() {
-        const main = $('board-main');
-        if (!main) return;
-        const w = main.clientWidth || 1;
-        const frac = (panel) => (panel && !panel.classList.contains('collapsed'))
-            ? (panel.offsetWidth + 24) / w
-            : 0;
-        R.setViewInsets(frac(leftPanel), frac(rightPanel));
-    }
+    // La mappa ha una colonna sua: niente da compensare nel viewBox. La chiamata
+    // serve comunque a rifare il fit quando la colonna centrale cambia misura.
+    function syncViewInsets() { R.setViewInsets(0, 0); }
 
     function wirePanelToggle(panel, tab, openLabel, closedLabel) {
         if (!panel || !tab) return;
         const sync = () => {
             const open = !panel.classList.contains('collapsed');
             tab.textContent = open ? openLabel : closedLabel;
-            syncViewInsets();
         };
         tab.addEventListener('click', () => { panel.classList.toggle('collapsed'); sync(); });
-        if (window.innerWidth <= 1100) panel.classList.add('collapsed');
+        if (!isWide()) panel.classList.add('collapsed');
         sync();
     }
 
     wirePanelToggle(leftPanel, $('board-left-tab'), '◀ Corona', 'Corona ▶');
     wirePanelToggle(rightPanel, $('board-right-tab'), 'Regno ▶', '◀ Regno');
 
-    // Maniglia di ridimensionamento: i pannelli nascono grandi di default, ma
-    // l'utente può stringerli o allargarli trascinando il bordo verso la mappa.
-    // Niente CSS "resize" nativo: sul pannello destro (ancorato a destra) la
-    // maniglia nativa nascerebbe incollata al bordo dello schermo, inutilizzabile.
-    function makeResizable(panel, growsWhenDraggingRight) {
-        const handle = document.createElement('div');
-        handle.className = 'board-resize-handle';
-        panel.appendChild(handle);
-
-        let dragging = false, startX = 0, startW = 0, raf = null;
-        const MIN = 320, MAX = 800;
-
-        handle.addEventListener('mousedown', (e) => {
-            dragging = true;
-            startX = e.clientX;
-            startW = panel.getBoundingClientRect().width;
-            handle.classList.add('dragging');
-            document.body.style.userSelect = 'none';
-            e.preventDefault();
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!dragging) return;
-            const dx = e.clientX - startX;
-            const delta = growsWhenDraggingRight ? dx : -dx;
-            panel.style.width = Math.max(MIN, Math.min(MAX, startW + delta)) + 'px';
-            if (!raf) raf = requestAnimationFrame(() => { raf = null; syncViewInsets(); });
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (!dragging) return;
-            dragging = false;
-            handle.classList.remove('dragging');
-            document.body.style.userSelect = '';
-            syncViewInsets();
-        });
-    }
-
-    makeResizable(leftPanel, true);    // ancorato a sinistra: si allarga trascinando a destra
-    makeResizable(rightPanel, false);  // ancorato a destra: si allarga trascinando a sinistra
+    // Al cambio di modalità i pannelli si rimettono nello stato giusto: aperti
+    // in griglia (dove non coprono nulla), chiusi come tendine (dove aperti
+    // nasconderebbero tutta la mappa). Senza questo la classe "collapsed" resta
+    // appiccicata e le linguette raccontano il contrario di quel che si vede.
+    const onWideChange = () => {
+        const wide = isWide();
+        leftPanel.classList.toggle('collapsed', !wide);
+        rightPanel.classList.toggle('collapsed', !wide);
+        $('board-left-tab').textContent = wide ? '◀ Corona' : 'Corona ▶';
+        $('board-right-tab').textContent = wide ? 'Regno ▶' : '◀ Regno';
+    };
+    if (wideQuery.addEventListener) wideQuery.addEventListener('change', onWideChange);
+    else wideQuery.addListener(onWideChange);
 
     let resizeTimer = null;
     window.addEventListener('resize', () => {

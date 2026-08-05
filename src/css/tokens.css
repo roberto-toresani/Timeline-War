@@ -43,13 +43,7 @@
     --danger: #b23b3b;
     --danger-text: #ff6b6b;
 
-    /* misure della plancia giocatore. Di proposito grandi di default (non solo
-       "leggibili": devono dominare la scena quanto la mappa) — l'utente li
-       ridimensiona poi trascinando il bordo (vedi .board-resize-handle in
-       board.css), quindi qui il valore di partenza conta più del range. */
-    --board-panel-left: clamp(380px, 27vw, 620px);
-    --board-panel-right: clamp(400px, 29vw, 660px);
-    --board-panel-min: 320px;
-    --board-panel-max: 800px;
+    /* misure della plancia giocatore: la larghezza dei pannelli non vive più
+       qui, la decide la griglia a tre colonne di board.css (un terzo ciascuno). */
     --board-radius: 10px;
 }

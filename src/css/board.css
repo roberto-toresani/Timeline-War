@@ -1,17 +1,18 @@
 /* ============================================================
    Plancia giocatore (play.html)
-   Tre fasce: barra regno in alto, mappa a tutto schermo, e due pannelloni
-   ancorati ai bordi e sovrapposti alla mappa (non trascinabili, non
-   ridimensionabili: il contrario del #side-panel dell'editor).
-   La mappa non viene stretta dai pannelli — il viewBox tiene conto del
-   loro ingombro, vedi Risiko.setViewInsets in app.js.
+   Barra regno in alto, poi la scena divisa in TRE COLONNE VERE (griglia,
+   non sovrapposizioni): corona a sinistra, mappa al centro, regno a destra.
+   I pannelli non stanno più sopra la mappa, quindi il viewBox non deve
+   compensare nulla: gli inset restano a zero (vedi player-board.js).
+   Sotto i 1200px non c'è spazio per tre colonne e i pannelli tornano
+   tendine sovrapposte, aperte dalle linguette.
    ============================================================ */
 
 body.board {
     /* Radice più grande della pagina: scala insieme tutti i rem del file.
-       Non è un dettaglio estetico — su schermi larghi i pannelli devono
-       dominare la scena quanto la mappa, non sparire come una barra laterale. */
-    font-size: 18px;
+       Non è un dettaglio estetico — i pannelli sono un terzo di schermo
+       ciascuno e vanno letti da seduti lontano, non con la lente. */
+    font-size: 20px;
     font-family: 'Cinzel', 'Georgia', serif;
     background: var(--bg-page);
     color: var(--text);
@@ -155,19 +156,33 @@ body.board {
 
 #board-editor-link:hover { border-color: var(--gold-edge); color: var(--gold); }
 
-/* ---------- area mappa + pannelli ---------- */
+/* ---------- la scena: tre colonne ---------- */
 
 #board-main {
     flex: 1 1 auto;
-    position: relative;
     min-height: 0;
+    position: relative;
+    display: grid;
+    /* I tre terzi chiesti dall'utente. minmax(0,1fr) e non 1fr: senza il min
+       a zero una colonna con contenuto largo (nomi lunghi, tabelle) sfonda la
+       sua traccia e ruba spazio alla mappa. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+    box-sizing: border-box;
 }
 
+/* Colonna E riga esplicite per tutti e tre: nel DOM la mappa viene prima dei
+   pannelli, e senza grid-row l'auto-placement spedirebbe il pannello sinistro
+   (colonna 1, già "superata" dal cursore) su una seconda riga. */
 #board-main #map-wrapper {
-    position: absolute;
-    inset: 0;
+    grid-column: 2;
+    grid-row: 1;
+    position: relative;
+    min-width: 0;
     background: var(--sea);
-    border: 10px solid var(--wood);
+    border: 8px solid var(--wood);
+    border-radius: var(--board-radius);
     box-sizing: border-box;
     overflow: hidden;
     box-shadow: inset 0 0 60px rgba(0, 0, 0, .35);
@@ -181,94 +196,36 @@ body.board {
 }
 
 .board-panel {
-    position: absolute;
-    top: 14px;
-    bottom: 14px;
-    width: var(--board-panel-left);
-    min-width: var(--board-panel-min);
-    max-width: var(--board-panel-max);
-    /* border-box: la larghezza che leggiamo/scriviamo da JS (resize) deve
-       coincidere con quella visiva, altrimenti ogni trascinamento deriva di
-       padding+bordo (visto succedere: +40px a ogni resize con content-box). */
+    position: relative;
+    min-width: 0;
+    height: 100%;
     box-sizing: border-box;
-    background: var(--bg-panel);
+    background: var(--bg-panel-solid);
     border: 2px solid var(--gold-edge);
     border-radius: var(--board-radius);
     box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 16px 18px 20px;
-    z-index: 600;
-    transition: transform .18s ease;
+    padding: 18px 22px 24px;
 }
 
-#board-left  { left: 14px; }
-#board-right { right: 14px; width: var(--board-panel-right); }
+#board-left  { grid-column: 1; grid-row: 1; }
+#board-right { grid-column: 3; grid-row: 1; }
 
-#board-left.collapsed  { transform: translateX(calc(-100% - 16px)); }
-#board-right.collapsed { transform: translateX(calc(100% + 16px)); }
-
-/* Maniglia di ridimensionamento: una striscia sul bordo del pannello rivolto
-   verso la mappa. Non uso il CSS "resize" nativo perché per il pannello destro
-   (ancorato a destra) la maniglia nativa nascerebbe incollata al bordo dello
-   schermo — qui la logica del trascinamento vive in player-board.js. */
-.board-resize-handle {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 10px;
-    cursor: ew-resize;
-    z-index: 620;
-}
-
-.board-resize-handle::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 4px;
-    height: 52px;
-    transform: translate(-50%, -50%);
-    border-radius: 3px;
-    background: var(--rule-strong);
-    transition: background .15s ease;
-}
-
-.board-resize-handle:hover::after,
-.board-resize-handle.dragging::after { background: var(--gold-edge); }
-
-#board-left .board-resize-handle  { right: -5px; }
-#board-right .board-resize-handle { left: -5px; }
-
-/* linguette di apertura/chiusura: restano visibili anche a pannello chiuso */
-.board-tab {
-    position: absolute;
-    bottom: 16px;
-    z-index: 610;
-    background: var(--bg-panel-solid);
-    border: 1px solid var(--gold-edge);
-    color: var(--gold);
-    font-family: inherit;
-    font-size: 1rem;
-    padding: 8px 14px;
-    border-radius: 7px;
-    cursor: pointer;
-}
-
-.board-tab:hover { background: var(--gold-edge); color: var(--bg-panel-solid); }
-#board-left-tab  { left: 14px; }
-#board-right-tab { right: 14px; }
+/* Le linguette servono solo quando i pannelli sono tendine (schermi stretti):
+   in griglia i pannelli sono sempre aperti e non c'è niente da aprire. */
+.board-tab { display: none; }
 
 /* ---------- componenti dei pannelli ---------- */
 
 .bp-title {
     color: var(--gold);
-    font-size: .95rem;
-    letter-spacing: .1em;
+    font-size: 1.1rem;
+    letter-spacing: .09em;
     text-transform: uppercase;
     border-bottom: 1px solid var(--rule);
-    padding-bottom: 6px;
-    margin: 18px 0 10px;
+    padding-bottom: 7px;
+    margin: 22px 0 12px;
 }
 
 .bp-title:first-child { margin-top: 0; }
@@ -279,8 +236,8 @@ body.board {
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    padding: 4px 0;
-    font-size: 1.1rem;
+    padding: 6px 0;
+    font-size: 1.2rem;
 }
 
 .bp-row .k { color: var(--parchment-dim); }
@@ -294,7 +251,7 @@ body.board {
 }
 
 .bp-hero-num {
-    font-size: 2.6rem;
+    font-size: 3.2rem;
     line-height: 1;
     color: var(--gold-bright);
     font-variant-numeric: tabular-nums;
@@ -302,15 +259,15 @@ body.board {
 
 .bp-hero-num.coin { color: var(--gold-coin); }
 
-.bp-hero-unit { color: var(--parchment-muted); font-size: .95rem; }
+.bp-hero-unit { color: var(--parchment-muted); font-size: 1.05rem; }
 
-.bp-note { color: var(--parchment-muted); font-size: .92rem; margin-top: 3px; }
+.bp-note { color: var(--parchment-muted); font-size: 1rem; line-height: 1.45; margin-top: 5px; }
 .bp-note.good { color: var(--ok-soft); }
 
 /* valore non ancora tracciato: si dice, non si finge */
 .bp-soon {
     color: var(--parchment-muted);
-    font-size: .82rem;
+    font-size: .9rem;
     border: 1px dashed var(--rule-strong);
     border-radius: 4px;
     padding: 2px 7px;
@@ -346,14 +303,14 @@ body.board {
     gap: 8px;
 }
 
-.bp-goal-kind { color: var(--gold); font-size: .92rem; letter-spacing: .05em; }
-.bp-goal-pts  { color: var(--gold-bright); font-size: .92rem; }
+.bp-goal-kind { color: var(--gold); font-size: 1.05rem; letter-spacing: .05em; }
+.bp-goal-pts  { color: var(--gold-bright); font-size: 1.05rem; }
 .bp-goal.done .bp-goal-kind,
 .bp-goal.done .bp-goal-pts { color: var(--ok-soft); }
 
 .bp-goal-text {
     color: var(--parchment-dim);
-    font-size: .95rem;
+    font-size: 1.05rem;
     line-height: 1.45;
     margin-top: 3px;
 }
@@ -362,11 +319,11 @@ body.board {
 .bp-effect {
     background: var(--ok-bg);
     border-radius: 6px;
-    padding: 8px 11px;
+    padding: 11px 14px;
     color: var(--ok-soft);
-    font-size: .95rem;
+    font-size: 1.05rem;
     line-height: 1.5;
-    margin: 8px 0 5px;
+    margin: 10px 0 6px;
 }
 
 .bp-effect.bad { background: #3a2828; color: #e6a3a3; }
@@ -382,27 +339,27 @@ body.board {
 .bp-res {
     background: var(--bg-inset);
     border-radius: 6px;
-    border-left: 4px solid var(--rule-strong);
-    padding: 7px 10px;
+    border-left: 5px solid var(--rule-strong);
+    padding: 10px 12px;
 }
 
 .bp-res-name {
     color: var(--parchment-muted);
-    font-size: .88rem;
+    font-size: 1rem;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
 }
 
-.bp-res-name svg { width: 19px; height: 19px; flex: 0 0 auto; }
+.bp-res-name svg { width: 22px; height: 22px; flex: 0 0 auto; }
 
 .bp-res-val {
     color: var(--gold);
-    font-size: 1.25rem;
+    font-size: 1.5rem;
     font-variant-numeric: tabular-nums;
 }
 
-.bp-res-gain { color: var(--ok-soft); font-size: .85rem; }
+.bp-res-gain { color: var(--ok-soft); font-size: .95rem; }
 .bp-res-gain.zero { color: var(--parchment-muted); }
 
 /* riquadro rinforzi col dettaglio del calcolo */
@@ -421,10 +378,10 @@ body.board {
     margin-bottom: 6px;
 }
 
-.bp-box-head .k { color: var(--gold); font-size: 1.02rem; }
+.bp-box-head .k { color: var(--gold); font-size: 1.15rem; }
 .bp-box-head .v {
     color: var(--gold-bright);
-    font-size: 1.55rem;
+    font-size: 1.9rem;
     line-height: 1;
     font-variant-numeric: tabular-nums;
 }
@@ -432,8 +389,8 @@ body.board {
 .bp-line {
     display: flex;
     justify-content: space-between;
-    font-size: .9rem;
-    padding: 2px 0;
+    font-size: 1rem;
+    padding: 4px 0;
 }
 
 .bp-line .k { color: var(--parchment-muted); }
@@ -449,10 +406,10 @@ body.board {
     border: 1px solid var(--rule-strong);
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: .78rem;
+    font-size: .88rem;
     text-transform: none;
     letter-spacing: normal;
-    padding: 2px 9px;
+    padding: 3px 10px;
     border-radius: 5px;
     cursor: pointer;
 }
@@ -463,8 +420,8 @@ body.board {
     background: var(--bg-inset);
     border: 1px solid var(--rule-strong);
     border-radius: 7px;
-    padding: 10px 12px;
-    margin-top: 7px;
+    padding: 13px 15px;
+    margin-top: 8px;
 }
 
 /* elenco delle province del regno: cliccabile, con truppe ed edifici */
@@ -479,8 +436,8 @@ body.board {
     border-bottom: 1px solid var(--rule-soft);
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: 1rem;
-    padding: 8px 6px;
+    font-size: 1.1rem;
+    padding: 11px 8px;
     cursor: pointer;
 }
 
@@ -488,7 +445,7 @@ body.board {
 .bp-prov.active { background: rgba(224, 192, 151, .16); color: var(--gold); }
 .bp-prov-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bp-prov-troops { color: var(--gold); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
-.bp-prov-tags { color: var(--parchment-muted); font-size: .85rem; flex: 0 0 auto; }
+.bp-prov-tags { color: var(--parchment-muted); font-size: .95rem; flex: 0 0 auto; }
 
 /* pallino di collegamento alla Capitale (§4) */
 .bp-link-dot {
@@ -506,9 +463,9 @@ body.board {
 
 .bp-act-head {
     color: var(--gold);
-    font-size: .92rem;
+    font-size: 1.05rem;
     letter-spacing: .04em;
-    margin-bottom: 5px;
+    margin-bottom: 7px;
 }
 
 .bp-act {
@@ -522,9 +479,9 @@ body.board {
     border-radius: 6px;
     color: var(--parchment-dim);
     font-family: inherit;
-    font-size: .95rem;
-    padding: 8px 10px;
-    margin-bottom: 5px;
+    font-size: 1.08rem;
+    padding: 11px 13px;
+    margin-bottom: 7px;
     cursor: pointer;
 }
 
@@ -537,8 +494,8 @@ body.board {
 }
 
 .bp-act-name { flex: 1 1 auto; }
-.bp-act-cost { color: var(--parchment-muted); font-size: .82rem; flex: 0 0 auto; }
-.bp-act-why { color: #e6a3a3; font-size: .82rem; flex: 0 0 auto; }
+.bp-act-cost { color: var(--parchment-muted); font-size: .92rem; flex: 0 0 auto; }
+.bp-act-why { color: #e6a3a3; font-size: .92rem; flex: 0 0 auto; }
 
 /* riga con campo numerico (schiera N, attacca con N) */
 .bp-act-row {
@@ -549,37 +506,37 @@ body.board {
 }
 
 .bp-act-row input[type="number"] {
-    width: 76px;
+    width: 92px;
     background: var(--bg-panel-solid);
     border: 1px solid var(--rule-strong);
     border-radius: 6px;
     color: var(--gold);
     font-family: inherit;
-    font-size: .98rem;
-    padding: 7px 8px;
+    font-size: 1.1rem;
+    padding: 9px 10px;
 }
 
 .bp-act-row .bp-act { margin-bottom: 0; }
 
 .bp-empty-hint {
     color: var(--parchment-muted);
-    font-size: .9rem;
+    font-size: 1rem;
     line-height: 1.55;
-    padding: 5px 0;
+    padding: 6px 0;
 }
 
 /* esito della battaglia */
 .bp-battle {
     border-radius: 7px;
-    padding: 10px 12px;
-    margin-top: 10px;
-    font-size: .95rem;
+    padding: 12px 14px;
+    margin-top: 12px;
+    font-size: 1.05rem;
     line-height: 1.5;
 }
 
 .bp-battle.win  { background: var(--ok-bg); color: var(--ok-soft); border: 1px solid var(--ok); }
 .bp-battle.lose { background: #3a2828; color: #e6a3a3; border: 1px solid #7a3b3b; }
-.bp-battle-detail { color: var(--parchment-muted); font-size: .82rem; margin-top: 5px; }
+.bp-battle-detail { color: var(--parchment-muted); font-size: .92rem; margin-top: 6px; }
 
 /* legenda costi generata da GameRules.COSTS */
 .bp-legend-item {
@@ -594,18 +551,18 @@ body.board {
     gap: 8px;
 }
 
-.bp-legend-name { color: var(--gold); font-size: .98rem; }
-.bp-legend-cost { color: var(--parchment-dim); font-size: .86rem; text-align: right; }
-.bp-legend-eff { color: var(--parchment-muted); font-size: .85rem; line-height: 1.5; margin-top: 3px; }
-.bp-legend-state { font-size: .84rem; margin-top: 3px; }
+.bp-legend-name { color: var(--gold); font-size: 1.1rem; }
+.bp-legend-cost { color: var(--parchment-dim); font-size: .95rem; text-align: right; }
+.bp-legend-eff { color: var(--parchment-muted); font-size: .95rem; line-height: 1.5; margin-top: 4px; }
+.bp-legend-state { font-size: .95rem; margin-top: 4px; }
 .bp-legend-state.ok { color: var(--ok-soft); }
 .bp-legend-state.no { color: #e6a3a3; }
 
 /* provincia selezionata */
 #bp-province-name {
     color: var(--gold-bright);
-    font-size: 1.25rem;
-    margin: 0 0 3px;
+    font-size: 1.55rem;
+    margin: 0 0 5px;
 }
 
 #bp-province-details { line-height: 1.7; }
@@ -613,7 +570,7 @@ body.board {
 #board-right #bp-province-details p {
     margin: 0;
     color: var(--parchment-muted);
-    font-size: .98rem;
+    font-size: 1.08rem;
 }
 
 /* schermata di scelta del regno (link senza codice) */
@@ -670,12 +627,72 @@ body.board {
 
 #board-left .pop-header { display: none; }
 
-/* ---------- schermi stretti: i pannelli diventano tendine ---------- */
+/* I .pop-* nascono per il pannellino stretto dell'editor: qui c'è un terzo di
+   schermo, quindi tutto sale di misura insieme al resto della plancia. */
+#board-left .pop-total-label { font-size: 1rem; }
+#board-left .pop-sub-name    { font-size: 1.1rem; }
+#board-left .pop-sub-score   { font-size: 1.15rem; }
+#board-left .pop-sub-icon    { font-size: 1.35rem; }
+#board-left .pop-sub-head    { padding: 12px 14px; }
+#board-left .pop-factor      { font-size: 1rem; padding: 7px 0; }
+#board-left .pop-tax-opt     { font-size: 1rem; padding: 9px 6px; }
+#board-left .pop-circle      { width: 30px; height: 30px; }
+#board-left .pop-circle.mini { width: 18px; height: 18px; }
+#board-left .pop-empty       { font-size: 1.05rem; }
 
-@media (max-width: 1100px) {
-    .board-panel { width: min(86vw, 380px); }
-    #board-left  { left: 8px; top: 8px; bottom: 8px; }
-    #board-right { right: 8px; top: 8px; bottom: 8px; width: min(86vw, 380px); }
+/* ---------- schermi stretti: i pannelli tornano tendine ----------
+   Sotto i 1200px tre colonne lascerebbero alla mappa una fessura: i pannelli
+   escono dalla griglia, si sovrappongono alla mappa e si aprono dalle
+   linguette (che qui tornano visibili). */
+
+@media (max-width: 1199px) {
+    #board-main {
+        display: block;
+        padding: 0;
+    }
+
+    #board-main #map-wrapper {
+        position: absolute;
+        inset: 0;
+        border-radius: 0;
+        border-width: 10px;
+    }
+
+    .board-panel {
+        position: absolute;
+        top: 10px;
+        bottom: 10px;
+        height: auto;
+        width: min(88vw, 460px);
+        z-index: 600;
+        transition: transform .18s ease;
+    }
+
+    #board-left  { left: 10px; }
+    #board-right { right: 10px; }
+
+    #board-left.collapsed  { transform: translateX(calc(-100% - 16px)); }
+    #board-right.collapsed { transform: translateX(calc(100% + 16px)); }
+
     #board-left:not(.collapsed),
     #board-right:not(.collapsed) { box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .45); }
+
+    .board-tab {
+        display: block;
+        position: absolute;
+        bottom: 16px;
+        z-index: 610;
+        background: var(--bg-panel-solid);
+        border: 1px solid var(--gold-edge);
+        color: var(--gold);
+        font-family: inherit;
+        font-size: 1rem;
+        padding: 10px 16px;
+        border-radius: 7px;
+        cursor: pointer;
+    }
+
+    .board-tab:hover { background: var(--gold-edge); color: var(--bg-panel-solid); }
+    #board-left-tab  { left: 10px; }
+    #board-right-tab { right: 10px; }
 }

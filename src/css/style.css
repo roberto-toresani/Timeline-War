@@ -160,7 +160,7 @@ p {
 
 #player-tab-content .tab-subtle {
     color: var(--text-muted);
-    font-size: 0.85em;
+    font-size: 0.95em;
 }
 
 #player-tab-content .tab-section {
@@ -177,7 +177,7 @@ p {
 
 #player-tab-content .tab-section label {
     display: block;
-    font-size: 0.85em;
+    font-size: 0.95em;
     color: #aaa;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -253,7 +253,7 @@ svg path.fog {
     position: absolute;
     right: 40px;
     top: 60px;
-    width: 440px;
+    width: 520px;
     display: flex;
     flex-direction: column;
     gap: 15px;
@@ -262,9 +262,11 @@ svg path.fog {
     /* Ridimensionabile: trascina l'angolo in basso a destra per ingrandirlo/stretcharlo. */
     resize: both;
     overflow: auto;
-    min-width: 300px;
+    min-width: 340px;
     min-height: 240px;
-    font-size: 1.15rem;
+    /* Misura base di tutto il pannello: quasi ogni figlio è in em, quindi è
+       questa la manopola che rende leggibile l'editor senza toccare 30 regole. */
+    font-size: 1.35rem;
 }
 
 #svg-container {
@@ -292,7 +294,7 @@ svg path.fog {
 }
 
 #province-details {
-    font-size: 1em;
+    font-size: 1.05em;
     line-height: 1.6;
 }
 
@@ -335,7 +337,7 @@ svg path.fog {
     cursor: pointer;
     font-weight: bold;
     font-family: 'Cinzel', serif;
-    font-size: 0.95em;
+    font-size: 1.05em;
     transition: background 0.2s;
 }
 
@@ -359,7 +361,7 @@ svg path.fog {
 }
 
 #game-turn-info {
-    font-size: 0.95rem;
+    font-size: 1.05em;
     color: var(--parchment-muted);
     border-left: 4px solid var(--rule-strong);
     padding-left: 8px;
@@ -384,7 +386,7 @@ svg path.fog {
     cursor: pointer;
     transition: all 0.2s;
     overflow: hidden;
-    height: 56px;
+    height: 66px;
 }
 
 .player-card:hover {
@@ -415,6 +417,7 @@ svg path.fog {
 
 .player-info {
     flex: 1;
+    min-width: 0;   /* senza questo il nome lungo gonfia la card invece di troncarsi */
     padding-left: 8px;
     display: flex;
     align-items: center;
@@ -422,13 +425,11 @@ svg path.fog {
 }
 
 .player-name {
-    font-size: 0.9em;
+    font-size: 1em;
     color: #ddd;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-
-    max-width: 130px;
 }
 
 /* Close player-name */
@@ -440,15 +441,15 @@ svg path.fog {
     padding-right: 4px;
 }
 .player-action {
-    width: 26px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     border: none;
     background: transparent;
     color: #bbb;
     cursor: pointer;
     border-radius: 4px;
-    font-size: 1em;
+    font-size: 1.1em;
     line-height: 1;
     display: flex;
     align-items: center;
@@ -554,31 +555,10 @@ svg path.fog {
     transform: scale(0.9);
 }
 
-#add-player-btn {
-    background: #4caf50;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s, transform 0.1s;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-}
-
-#add-player-btn:hover {
-    background: #66bb6a;
-    transform: scale(1.1);
-}
-
-#add-player-btn:active {
-    transform: scale(0.95);
-}
+/* Il vecchio #add-player-btn (pallino verde di 24px con dentro un "+") vinceva
+   per specificità su .add-player-btn e schiacciava "+ Aggiungi giocatore" in un
+   cerchietto: la scritta era illeggibile. Il bottone è largo quanto il pannello,
+   lo stile sta tutto in .add-player-btn. */
 
 /* Modal Styles */
 .modal {
@@ -728,7 +708,7 @@ svg path.fog {
 }
 
 .small-row label {
-    font-size: 0.9em;
+    font-size: 1em;
     color: #ccc;
     font-weight: normal;
 }
@@ -796,7 +776,7 @@ svg path.fog {
 
 .pop-count-text {
     color: #e0e0e0;
-    font-size: 0.9em;
+    font-size: 1em;
     font-weight: bold;
     min-width: 60px;
     text-align: left;
@@ -813,7 +793,7 @@ svg path.fog {
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.05);
     color: inherit;
-    font-size: 0.9em;
+    font-size: 1em;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
 }
@@ -823,7 +803,8 @@ svg path.fog {
 }
 
 /* Palette risorse (admin) */
-.resource-hint { margin: 0 0 8px 0; font-size: 0.78em; color: #9aa0a6; }
+/* p globale = 1.5rem: dentro il pannello serve la misura del pannello. */
+#side-panel .resource-hint { margin: 0 0 8px 0; font-size: 0.85em; line-height: 1.45; color: #9aa0a6; }
 #resource-palette {
     display: flex;
     flex-wrap: wrap;
@@ -854,7 +835,7 @@ svg path.fog {
     height: 1.6em;
 }
 .resource-chip-icon svg { width: 100%; height: 100%; }
-.resource-chip-label { font-size: 0.9em; }
+.resource-chip-label { font-size: 0.95em; }
 .resource-chip-x {
     display: flex;
     align-items: center;
@@ -877,7 +858,7 @@ svg path.fog {
     left: 18px;
     top: 18px;
     bottom: 18px;
-    width: 270px;
+    width: 320px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -889,7 +870,7 @@ svg path.fog {
     color: var(--gold);
     z-index: 600;
     overflow-y: auto;
-    font-size: 1rem;
+    font-size: 1.1rem;
 }
 #popularity-panel .pop-header {
     font-family: 'Cinzel', serif;
@@ -931,7 +912,7 @@ svg path.fog {
     text-align: center;
 }
 #popularity-panel .pop-total-label {
-    font-size: 0.8rem;
+    font-size: 0.95rem;
     text-transform: uppercase;
     letter-spacing: 1px;
     opacity: 0.75;
@@ -976,7 +957,7 @@ svg path.fog {
 }
 .pop-sub-head:hover { background: rgba(192, 160, 98, 0.12); }
 .pop-sub-caret {
-    font-size: 0.7rem;
+    font-size: 0.85rem;
     transition: transform .2s;
     opacity: 0.75;
 }
@@ -985,7 +966,7 @@ svg path.fog {
 .pop-sub-name {
     flex: 1;
     font-weight: bold;
-    font-size: 0.98rem;
+    font-size: 1.08rem;
 }
 .pop-sub-score {
     font-weight: bold;
@@ -1003,8 +984,8 @@ svg path.fog {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 5px 0;
-    font-size: 0.86rem;
+    padding: 6px 0;
+    font-size: 1rem;
     border-bottom: 1px dashed rgba(192, 160, 98, 0.15);
 }
 .pop-factor:last-child { border-bottom: none; }
@@ -1025,9 +1006,9 @@ svg path.fog {
 }
 .pop-tax-opt {
     flex: 1;
-    padding: 6px 4px;
+    padding: 8px 5px;
     text-align: center;
-    font-size: 0.8rem;
+    font-size: 0.95rem;
     border: 1px solid rgba(192, 160, 98, 0.4);
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.25);
