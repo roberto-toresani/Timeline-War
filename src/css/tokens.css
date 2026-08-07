@@ -32,8 +32,10 @@
 
     /* mappa */
     --wood: #5D4037;
-    --sea: #a3c2d4;
-    --province-neutral: #d1dbdd;
+    /* mare fuori dalla carta: stessa tinta del bordo del gradiente in map-decor.js */
+    --sea: #8fb4ca;
+    /* terre non assegnate: avorio da pergamena, non il grigio-azzurro moderno */
+    --province-neutral: #e8dcc0;
     --fog: #3a3a3a;
 
     /* stati */
@@ -46,4 +48,10 @@
     /* misure della plancia giocatore: la larghezza dei pannelli non vive più
        qui, la decide la griglia a tre colonne di board.css (un terzo ciascuno). */
     --board-radius: 10px;
+
+    /* editor: colonna fissa di sinistra. Il body si scosta di altrettanto, quindi
+       questa è l'unica manopola per allargare/stringere il pannello. Proporzionale
+       alla finestra: su schermi con scaling alto una misura fissa si mangiava
+       mezzo schermo, su monitor grandi restava striminzita. */
+    --editor-col: clamp(340px, 27vw, 520px);
 }

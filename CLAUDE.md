@@ -25,6 +25,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ game-rules.js      costi (§6), connettività (§4), produzione di turno (§2) — puro
 │  ├─ game-actions.js    UNICO punto che muta lo stato: schiera/costruisci/attacca/turni
 │  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
+│  ├─ map-decor.js       vestizione "carta antica": mare, grana, alone costiero
 │  ├─ battle.js          risoluzione probabilistica delle battaglie (funzione pura)
 │  ├─ sync.js            sincronizzazione multiplayer (Firestore)
 │  └─ firebase-config.js chiavi Firebase + UID admin (placeholder finché non configurato)
@@ -59,6 +60,34 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   proprio bottone Fine turno nella plancia. `turnoDi`/`ordine`/`primoDelGiro` vivono in
   `app.js` ed entrano nel documento di stato — un giocatore può agire solo quando
   `turnoDi` è il suo id (§2.1, rotazione del primo giocatore a ogni giro).
+- **Schieramento (§5.1)**: le reclute di inizio turno sono di due tipi. Le **libere**
+  (province ÷ 3, più il modificatore di Popolarità) vanno dove vuole il giocatore e si
+  possono ritirare/rimettere finché il turno è aperto; le **obbligatorie** (Capitale +1,
+  Città +1, Fortezza +5) possono andare **solo** nella provincia dell'edificio che le ha
+  prodotte, e a fine turno vengono schierate d'ufficio se il giocatore non l'ha fatto.
+  Serbatoi sul record giocatore: `recluteDaSchierare`, `recluteVincolate` (per provincia),
+  `schierateTurno` (cosa si è posato adesso: è l'unica cosa ritirabile).
+- **Mai `window.confirm`/`alert`**: nel pannello d'anteprima (e in iframe sandboxati) il
+  browser chiude d'ufficio il dialogo nativo e `confirm()` torna sempre `false` — l'azione
+  non parte e sembra un bug del gioco. Usa `Risiko.confirm({title, text, ok, tone}, onYes)`
+  (`askConfirm` in `app.js`), che è DOM nostro.
+- **Scena della battaglia**: `Risiko.playBattleFx(info)` in `app.js` disegna l'attacco
+  sulla mappa (carica, impatto, scossa, numeri dei caduti) usando l'oggetto che
+  `GameActions.attack` restituisce; il CSS sta in `style.css` ed è disattivato da
+  `prefers-reduced-motion`. Il rapporto di battaglia nel pannello destro è
+  `renderBattle()` in `player-board.js`.
+- **Aspetto della mappa**: `js/map-decor.js` veste l'SVG appena caricato (chiamato da
+  `initMap` in `app.js`). Agisce **solo su elementi statici** — il `rect#svg-background`
+  (mare) e una copia congelata di `#map-group` che fa da alone costiero — perché
+  `app.js` riscrive `fill` su ogni provincia a ogni refresh: qualsiasi effetto messo lì
+  verrebbe cancellato. La silhouette dell'alone è clonata e non un `<use>` apposta: un
+  `<use>` segue il gruppo vivo e costringe a ripassare il filtro a ogni ricolorazione
+  (+80ms per refresh, misurati). Il colore delle terre neutre è `--province-neutral`.
+  Gli **ornamenti** (rosa dei venti, cartiglio, velieri, serpente marino, onde, nomi
+  latini degli oceani) stanno nel gruppo `#decor-ornaments`, sopra il mare e sotto le
+  terre, con `pointer-events: none`. Le loro coordinate sono state scelte su acqua
+  libera misurando l'occupazione reale delle province: se la mappa cambia vanno
+  rimisurate, non indovinate. Per spegnerli: `#decor-ornaments { display: none; }`.
 - **Regola di conquista (confermata dall'utente, non nel design doc originale)**: le
   costruzioni **non vengono rase** quando una provincia cambia proprietario — restano,
   cambiano solo colore. Una strada sparisce solo quando **entrambe** le province che
@@ -71,6 +100,11 @@ Doppio clic su `avvia.bat` (apre il browser e avvia il server), oppure da termin
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve.ps1 -Root src -Port 5500
 ```
 Poi apri http://localhost:5500/ . (Esiste anche `.claude/launch.json` con la config "risiko".)
+`scripts/shot.ps1` cattura uno screenshot con Chrome headless (profilo usa e getta, nessuna
+dipendenza dal pannello di anteprima): è il modo per guardare una pagina a una dimensione
+qualsiasi. `-Url ... -Width 1600 -Height 1000` → stampa il path del PNG.
+**Il gioco è pensato per desktop**: non serve lavoro responsive, sotto ~800px il layout
+sfonda ed è accettato.
 `scripts/serve.ps1` gestisce ogni richiesta in try/catch: un errore su una richiesta non
 deve mai spegnere il server.
 

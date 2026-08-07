@@ -4,7 +4,7 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-08-04
+- **Ultimo aggiornamento:** 2026-08-07
 - **Branch corrente:** `feat/pedine-gioco`
 - **Ultimo commit:** vedi `git log` — Plancia giocatore giocabile (turni, economia, costruzioni, attacco)
 
@@ -36,6 +36,30 @@ e in particolare al momento del commit.
   **Conquista**: le costruzioni sopravvivono al cambio di proprietario (non vengono rase);
   una strada sparisce solo quando ENTRAMBE le province che collega passano a un colore
   diverso dal suo (regola confermata dall'utente, `docs/GAME_DESIGN.md` §9).
+- **Fase di schieramento (§5.1)** — le reclute di inizio turno nascono in due mucchi:
+  **libere** (1 ogni 3 province + modificatore di Popolarità) che il giocatore distribuisce
+  dove vuole, e **obbligatorie** (Capitale +1, Città +1, Fortezza +5) che possono andare
+  solo nella provincia dell'edificio che le ha prodotte. Finché il turno è aperto le
+  reclute schierate **adesso** si possono ritirare e rimettere altrove (− e + su ogni riga
+  dell'elenco province); i soldati già presenti prima del turno non si toccano. Le
+  obbligatorie non ancora posate vengono schierate d'ufficio alla chiusura del turno.
+  Il totale in attesa è visibile nel badge della barra della plancia, nel riquadro
+  "Reclute da schierare" e — regno per regno — nel pannello dell'admin.
+  Motore: `recluteDaSchierare` / `recluteVincolate` / `schierateTurno` sul giocatore,
+  azioni `deploy`, `deployBound`, `deployAllBound`, `undeploy` in `js/game-actions.js`,
+  calcolo puro in `KingdomStats.reinforcementPlan`.
+- **Conferme in pagina** — `Risiko.confirm` (`askConfirm` in `js/app.js`) al posto di
+  `window.confirm`: il dialogo nativo veniva chiuso d'ufficio dal browser del pannello
+  d'anteprima e tornava sempre `false`, quindi attacco, fine turno e avvio partita non
+  partivano mai. Ora il dialogo è DOM nostro (Invio conferma, Esc annulla).
+- **Scena della battaglia** — l'attacco si vede sulla mappa: la mappa si abbassa e restano
+  accese le due province, una lama corre dall'attaccante al difensore, l'impatto dà onde
+  d'urto, lampo sulla provincia, scossa breve della mappa e i numeri dei caduti che salgono
+  dai due campi (`playBattleFx` in `js/app.js` + CSS in `css/style.css`, spento da
+  `prefers-reduced-motion`). Nel pannello destro resta il **rapporto di battaglia**:
+  impegnati, caduti e superstiti dei due schieramenti, probabilità che si aveva di vincere
+  e bottone ↺ per rivedere lo scontro. Prima di attaccare, ogni bersaglio mostra il
+  pronostico in % che si aggiorna col numero di truppe scelto.
 
 ## In lavorazione (WIP)
 
@@ -45,7 +69,8 @@ e in particolare al momento del commit.
   segnaposto ("assegnato a inizio ciclo") — manca la logica di assegnazione/verifica.
 - Migliorie civiche §6.1 (Sanità/Felicità): il Benessere della Popolarità resta a 3 fisso.
 - Movimento truppe fra province proprie (§5.2): oggi si sposta solo schierando reclute o
-  conquistando; niente riallocazione manuale di soldati già piazzati.
+  conquistando. Le reclute del turno in corso si possono spostare (ritirandole e
+  rimettendole), ma i soldati già presenti da prima restano dove sono.
 - Mercato (scambio 2:1 con la banca): costruibile ma senza ancora un'interfaccia di scambio.
 - Invio dell'invito per email: oggi il link va copiato a mano dall'editor (bottone 🔗
   sulla scheda di ogni giocatore).

@@ -143,7 +143,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // refresh(), che riporta qui via onRefresh: basta mostrare il messaggio.
     function run(result) {
         if (!result) return;
-        if (result.battle) lastBattle = result;
+        if (result.battle) {
+            lastBattle = result;
+            // La battaglia va guardata: si inquadrano le due province e parte la
+            // scena sulla mappa (vedi playBattleFx in app.js).
+            R.fitToProvinces([result.fromId, result.toId]);
+            R.playBattleFx(result);
+        }
         showNotice(result.msg, result.ok);
         render();
     }
@@ -195,10 +201,88 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Conferme in pagina (R.confirm), non window.confirm: il dialogo nativo viene
+    // chiuso d'ufficio in certi contesti e l'azione non partiva mai.
     $('board-end-turn').addEventListener('click', () => {
-        if (!confirm('Chiudere il tuo turno? Le unità temporanee scadono e si passa al regno successivo.')) return;
-        run(GA().endTurn());
+        R.confirm({
+            title: 'Chiudere il tuo turno?',
+            text: 'Le unità temporanee scadono, i rinforzi obbligatori rimasti vengono schierati d\'ufficio e si passa al regno successivo.',
+            ok: 'Chiudi il turno'
+        }, () => run(GA().endTurn()));
     });
+
+    // Il giocatore può agire solo nel proprio turno, e solo a partita avviata.
+    function isPlaying(player) {
+        const t = R.turnoDi();
+        return t !== null && t !== undefined && t === player.id;
+    }
+
+    // ---------- reclute in attesa (§5.1) ----------
+    // Due mucchi: LIBERE (dove vuole) e OBBLIGATORIE (nella provincia dell'edificio
+    // che le ha prodotte). Il totale finisce anche nel badge della barra in alto,
+    // perché è il primo numero che il giocatore deve vedere quando tocca a lui.
+
+    function renderDeployPanel(player) {
+        const free = player.recluteDaSchierare || 0;
+        const bound = GA().boundPool(player);
+        const boundTot = GA().boundTotal(player);
+        const tot = free + boundTot;
+        const myTurn = isPlaying(player);
+
+        setText('bp-pool', tot);
+        setText('bp-pool-free', free);
+        setText('bp-pool-bound', boundTot);
+        setText('board-reinf-num', tot);
+
+        const badge = $('board-reinforce');
+        badge.className = 'reinf-badge' + (!tot ? ' empty' : myTurn ? ' hot' : ' pending');
+        badge.title = tot
+            ? tot + ' reclute da schierare: ' + free + ' libere, ' + boundTot + ' obbligatorie'
+            : 'Nessuna recluta in attesa';
+
+        const list = $('bp-bound-list');
+        list.innerHTML = '';
+        const ids = Object.keys(bound).filter(id => bound[id] > 0);
+        if (ids.length) {
+            const head = document.createElement('div');
+            head.className = 'bp-bound-head';
+            head.textContent = 'Nascono da Capitale, Città e Fortezza: si schierano solo lì.';
+            list.appendChild(head);
+
+            ids.forEach(id => {
+                const path = R.engine.path(id);
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'bp-bound-row';
+                b.disabled = !myTurn;
+                b.innerHTML = '<span class="bp-bound-n">+' + bound[id] + '</span>' +
+                    '<span class="bp-bound-name"></span>' +
+                    '<span class="bp-bound-go">schiera qui</span>';
+                b.querySelector('.bp-bound-name').textContent = path ? R.provinceLabel(path) : id;
+                b.addEventListener('click', () => {
+                    selectedProvId = id;
+                    run(GA().deployBound(player, id));
+                });
+                list.appendChild(b);
+            });
+
+            if (ids.length > 1) {
+                const all = document.createElement('button');
+                all.type = 'button';
+                all.className = 'bp-act';
+                all.disabled = !myTurn;
+                all.innerHTML = '<span class="bp-act-name">Schiera tutte le obbligatorie</span>' +
+                    '<span class="bp-act-cost">' + boundTot + '</span>';
+                all.addEventListener('click', () => run(GA().deployAllBound(player)));
+                list.appendChild(all);
+            }
+        }
+
+        const note = $('bp-deploy-note');
+        if (!tot) note.textContent = 'Nessuna recluta in attesa: arrivano a inizio turno.';
+        else if (!myTurn) note.textContent = 'Le schiererai quando tocca a te.';
+        else note.textContent = 'Usa + e − nell\'elenco delle tue province: finché non chiudi il turno puoi spostarle a piacere.';
+    }
 
     // ---------- pannello sinistro ----------
 
@@ -290,19 +374,30 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('bp-reinf', signed(r.total));
         $('bp-reinf-detail').innerHTML = r.breakdown.map(b => `
             <div class="bp-line">
-                <span class="k">${b.label}</span>
+                <span class="k">${b.label}${b.vincolata ? ' <em class="bp-bound-tag">⚑</em>' : ''}</span>
                 <span class="v${b.value > 0 ? ' good' : b.value < 0 ? ' bad' : ''}">${signed(b.value)}</span>
-            </div>`).join('');
+            </div>`).join('') +
+            `<div class="bp-line bp-line-sum">
+                <span class="k">${r.libere} libere · ${r.vincolate} obbligatorie <em class="bp-bound-tag">⚑</em></span>
+                <span class="v">${r.total}</span>
+            </div>`;
     }
 
     // ---------- elenco delle mie province ----------
 
+    // L'elenco è anche il tavolo dello schieramento: ogni riga ha − e + per
+    // togliere e mettere reclute libere senza dover prima selezionare la provincia.
+    // È qui che si esercita la libertà di spostarle finché il turno è aperto.
     function renderProvinceList(player, paths, connectedSet) {
         const box = $('bp-province-list');
         if (!paths.length) {
             box.innerHTML = '<div class="bp-empty-hint">Nessuna provincia: l\'admin te le assegna dalla mappa principale.</div>';
             return;
         }
+        const myTurn = isPlaying(player);
+        const bound = GA().boundPool(player);
+        const placed = GA().placedPool(player);
+
         box.innerHTML = '';
         paths.slice()
             .sort((a, b) => R.provinceLabel(a).localeCompare(R.provinceLabel(b)))
@@ -312,18 +407,51 @@ document.addEventListener('DOMContentLoaded', () => {
                     .filter(t => R.countPiece(path, t) > 0)
                     .map(t => pieceName(t)[0])
                     .join('');
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'bp-prov' + (path.id === selectedProvId ? ' active' : '');
-                btn.innerHTML = `
+                const rec = placed[path.id] || { libere: 0, vincolate: 0 };
+                const messe = rec.libere + rec.vincolate;
+                const attesa = bound[path.id] || 0;
+
+                const row = document.createElement('div');
+                row.className = 'bp-prov' + (path.id === selectedProvId ? ' active' : '');
+                row.innerHTML = `
                     <span class="bp-link-dot${connectedSet.has(path.id) ? ' on' : ''}"
                           title="${connectedSet.has(path.id) ? 'Collegata alla Capitale' : 'Non collegata: non produce'}"></span>
                     <span class="bp-prov-name">${R.provinceLabel(path)}</span>
                     <span class="bp-prov-tags">${tags}</span>
-                    <span class="bp-prov-troops">${troops}</span>`;
-                btn.addEventListener('click', () => selectProvince(path.id, true));
-                box.appendChild(btn);
+                    ${attesa ? `<span class="bp-prov-bound" title="Rinforzi obbligatori in attesa: possono andare solo qui">⚑${attesa}</span>` : ''}
+                    <span class="bp-prov-troops">${troops}${messe ? `<em>+${messe}</em>` : ''}</span>`;
+                row.addEventListener('click', () => selectProvince(path.id, true));
+
+                if (myTurn) row.appendChild(provinceDeployControls(player, path, messe, attesa));
+                box.appendChild(row);
             });
+    }
+
+    // −/+ (e ⚑ per le obbligatorie) su una riga dell'elenco.
+    function provinceDeployControls(player, path, messe, attesa) {
+        const ctl = document.createElement('span');
+        ctl.className = 'bp-prov-ctl';
+
+        const mk = (txt, title, off, action) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'bp-mini';
+            b.textContent = txt;
+            b.title = title;
+            b.disabled = off;
+            b.addEventListener('click', (e) => { e.stopPropagation(); action(); });
+            return b;
+        };
+
+        if (attesa) {
+            ctl.appendChild(mk('⚑', 'Schiera qui i ' + attesa + ' rinforzi obbligatori', false,
+                () => run(GA().deployBound(player, path.id))));
+        }
+        ctl.appendChild(mk('−', messe ? 'Ritira 1 recluta schierata in questo turno' : 'Qui non hai schierato nulla in questo turno',
+            !messe, () => run(GA().undeploy(player, path.id, 1))));
+        ctl.appendChild(mk('+', (player.recluteDaSchierare || 0) ? 'Schiera 1 recluta libera qui' : 'Nessuna recluta libera',
+            !(player.recluteDaSchierare > 0), () => run(GA().deploy(player, path.id, 1))));
+        return ctl;
     }
 
     function selectProvince(id, center) {
@@ -395,25 +523,46 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function deployGroup(player, path) {
-        const g = group('Schiera reclute');
+        const g = group('Reclute');
         const pool = player.recluteDaSchierare || 0;
-        if (!pool) {
+        const attesa = GA().boundPool(player)[path.id] || 0;
+
+        // Le obbligatorie per prime: sono le uniche che non hanno alternative.
+        if (attesa) {
+            g.appendChild(actionButton('⚑ Schiera i ' + attesa + ' rinforzi obbligatori',
+                'nascono qui', null, () => run(GA().deployBound(player, path.id))));
+        }
+
+        if (pool) {
+            g.appendChild(numberRow('Schiera qui', pool, 'di ' + pool + ' libere',
+                n => run(GA().deploy(player, path.id, n))));
+        } else if (!attesa) {
             g.insertAdjacentHTML('beforeend',
                 '<div class="bp-empty-hint">Serbatoio vuoto: le reclute arrivano a inizio turno.</div>');
-            return g;
         }
+
+        // Ripensarci è parte della fase: si ritira solo ciò che si è messo adesso.
+        const rec = GA().placedPool(player)[path.id] || { libere: 0, vincolate: 0 };
+        const messe = rec.libere + rec.vincolate;
+        if (messe) {
+            g.appendChild(numberRow('Ritira', messe, 'schierate ora: ' + messe,
+                n => run(GA().undeploy(player, path.id, n))));
+        }
+        return g;
+    }
+
+    // Riga "campo numerico + bottone", precompilata col massimo.
+    function numberRow(label, max, hint, onGo) {
         const row = document.createElement('div');
         row.className = 'bp-act-row';
         const input = document.createElement('input');
         input.type = 'number';
         input.min = '1';
-        input.max = String(pool);
-        input.value = String(pool);
+        input.max = String(max);
+        input.value = String(max);
         row.appendChild(input);
-        row.appendChild(actionButton('Schiera qui (max ' + pool + ')', '', null,
-            () => run(GA().deploy(player, path.id, parseInt(input.value, 10)))));
-        g.appendChild(row);
-        return g;
+        row.appendChild(actionButton(label, hint, null, () => onGo(parseInt(input.value, 10))));
+        return row;
     }
 
     function buildGroup(player, path, connectedSet) {
@@ -510,17 +659,48 @@ document.addEventListener('DOMContentLoaded', () => {
             '<span class="bp-act-cost">di ' + available + ' disponibili</span>');
         g.appendChild(row);
 
+        // Pronostico prima di lanciare la carica: è la stessa formula della
+        // battaglia (§9, P_A = A² / (A² + Deff²)), così il giocatore sa cosa
+        // rischia invece di tirare a caso.
+        const odds = [];
         targets.forEach(t => {
             const bonus = t.fort ? ' +' + t.fort : '';
-            g.appendChild(actionButton('⚔ ' + t.label,
-                t.owner + ' · ' + t.troops + bonus, null,
+            const btn = actionButton('⚔ ' + t.label, t.owner + ' · ' + t.troops + bonus, null,
                 () => {
                     const n = parseInt(input.value, 10);
-                    if (!confirm('Attaccare ' + t.label + ' con ' + n + ' truppe?')) return;
-                    run(GA().attack(player, path.id, t.id, n));
-                }));
+                    const p = winChance(n, t);
+                    R.confirm({
+                        title: 'Attaccare ' + t.label + '?',
+                        text: n + (n === 1 ? ' truppa impegnata' : ' truppe impegnate') + ' contro ' +
+                            t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
+                            ' · probabilità di vittoria ' + p + '%. Chi parte non torna indietro: ' +
+                            'le truppe impegnate lasciano ' + R.provinceLabel(path) + ' comunque vada.',
+                        ok: '⚔ Carica', tone: 'war'
+                    }, () => run(GA().attack(player, path.id, t.id, n)));
+                });
+            const chip = document.createElement('span');
+            chip.className = 'bp-odds';
+            btn.appendChild(chip);
+            odds.push(() => {
+                const p = winChance(parseInt(input.value, 10), t);
+                chip.textContent = p + '%';
+                chip.className = 'bp-odds ' + (p >= 60 ? 'good' : p >= 40 ? 'even' : 'bad');
+            });
+            g.appendChild(btn);
         });
+
+        const refreshOdds = () => odds.forEach(f => f());
+        input.addEventListener('input', refreshOdds);
+        refreshOdds();
         return g;
+    }
+
+    // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
+    function winChance(n, target) {
+        const a = Math.max(0, Math.floor(n || 0));
+        if (!a) return 0;
+        const deff = target.troops + target.fort;
+        return Math.round(100 * (a * a) / (a * a + deff * deff));
     }
 
     function shorten(msg) {
@@ -530,18 +710,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- esito battaglia ----------
 
+    function caduti(n) { return n ? '−' + n + ' caduti' : 'nessun caduto'; }
+
+    // Rapporto di battaglia: i due schieramenti a confronto, con quanti sono
+    // partiti, quanti sono caduti e quanti sono rimasti in piedi. È il posto dove
+    // il giocatore torna a leggere con calma quello che sulla mappa è durato 3".
     function renderBattle() {
         const box = $('bp-battle');
         if (!lastBattle || !lastBattle.battle) { box.style.display = 'none'; return; }
-        const b = lastBattle.battle;
+
+        const L = lastBattle;
+        const b = L.battle;
+        const vinta = b.attackerWins;
+        const odds = Math.round(b.P_A * 100);
+
         box.style.display = 'block';
-        box.className = 'bp-battle ' + (b.attackerWins ? 'win' : 'lose');
-        box.innerHTML = lastBattle.msg +
-            '<div class="bp-battle-detail">' +
-            lastBattle.engaged + ' attaccanti contro ' + lastBattle.defTroops +
-            (lastBattle.fort ? ' (+' + lastBattle.fort + ' da struttura)' : '') +
-            ' · probabilità di vittoria ' + Math.round(b.P_A * 100) + '%' +
-            '</div>';
+        box.className = 'bp-battle ' + (vinta ? 'win' : 'lose');
+        box.innerHTML = `
+            <div class="bb-head">
+                <span class="bb-verdict">${vinta ? '⚔ Provincia conquistata' : '🛡 Attacco respinto'}</span>
+                <button type="button" class="bb-replay" title="Rivedi lo scontro sulla mappa">↺</button>
+            </div>
+            <div class="bb-route"></div>
+            <div class="bb-sides">
+                <div class="bb-side att">
+                    <div class="bb-who"></div>
+                    <div class="bb-n">${L.engaged} <span>impegnati</span></div>
+                    <div class="bb-loss${L.perditeAttaccante ? '' : ' none'}">${caduti(L.perditeAttaccante)}</div>
+                    <div class="bb-left">${vinta ? L.superstiti + ' in marcia' : 'nessun superstite'}</div>
+                </div>
+                <div class="bb-mid">vs</div>
+                <div class="bb-side def">
+                    <div class="bb-who"></div>
+                    <div class="bb-n">${L.defTroops} <span>a difesa</span>${L.fort ? '<em> +' + L.fort + '</em>' : ''}</div>
+                    <div class="bb-loss${L.perditeDifensore ? '' : ' none'}">${caduti(L.perditeDifensore)}</div>
+                    <div class="bb-left">${!L.defTroops ? 'provincia sguarnita' : vinta ? 'annientati' : L.superstiti + ' ancora in piedi'}</div>
+                </div>
+            </div>
+            <div class="bb-odds">
+                <div class="bb-bar"><span style="width:${odds}%"></span></div>
+                <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}</div>
+            </div>`;
+
+        box.querySelector('.bb-route').textContent = L.fromLabel + ' → ' + L.toLabel;
+        box.querySelector('.bb-side.att .bb-who').textContent = L.attaccante;
+        box.querySelector('.bb-side.def .bb-who').textContent = L.difensore;
+        if (L.coloreAttaccante) box.querySelector('.bb-side.att').style.borderLeftColor = L.coloreAttaccante;
+        if (L.coloreDifensore) box.querySelector('.bb-side.def').style.borderLeftColor = L.coloreDifensore;
+        box.querySelector('.bb-replay').addEventListener('click', () => {
+            R.fitToProvinces([L.fromId, L.toId]);
+            R.playBattleFx(L);
+        });
     }
 
     // ---------- legenda costi ----------
@@ -610,7 +829,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTopbar(player, paths);
         renderPrestige(player);
         renderPopEffect(pop);
-        setText('bp-pool', player.recluteDaSchierare || 0);
+        renderDeployPanel(player);
         renderSelected(player, connectedSet);
         renderBattle();
         renderProvinceList(player, paths, connectedSet);

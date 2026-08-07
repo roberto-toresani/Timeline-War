@@ -9,6 +9,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // non esistono. Vedi src/js/player-board.js.
     const BOARD_MODE = document.body.dataset.mode === 'player';
 
+    // Colori della mappa presi dai token CSS, cosi' la tinta "pergamena" delle
+    // province neutre e il grigio della nebbia si cambiano da tokens.css e non
+    // vanno rincorsi qui dentro.
+    const cssVar = (name, fallback) =>
+        getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    const NEUTRAL_FILL = cssVar('--province-neutral', '#d1dbdd');
+    const FOG_FILL = cssVar('--fog', '#3a3a3a');
+
     const container = document.getElementById('svg-container');
     const nameDisplay = document.getElementById('province-name');
     const gameNameDisplay = document.getElementById('p-name');
@@ -79,7 +87,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p.scorte) p.scorte = GameRules.emptyScorte();
         GameRules.RES.forEach(k => { if (typeof p.scorte[k] !== 'number') p.scorte[k] = 0; });
         if (!p.tassazione) p.tassazione = 'normale';
+        // Reclute in attesa: le LIBERE in un contatore, le OBBLIGATORIE per
+        // provincia (nascono da Capitale/Città/Fortezza e restano lì, §5.1).
         if (typeof p.recluteDaSchierare !== 'number') p.recluteDaSchierare = 0;
+        if (!p.recluteVincolate) p.recluteVincolate = {};
+        if (!p.schierateTurno) p.schierateTurno = {};
         if (typeof p.prestigioCiclo !== 'number') p.prestigioCiclo = 0;
         if (typeof p.puntiOro !== 'number') p.puntiOro = 0;
         if (typeof p.stradeGratis !== 'number') p.stradeGratis = 0;
@@ -229,7 +241,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof RAW_SVG_CONTENT !== 'undefined') {
         container.innerHTML = RAW_SVG_CONTENT;
         initMap();
-        makeDraggable(document.getElementById('side-panel'));
     } else {
         fetch('assets/world_map.svg')
             .then(response => {
@@ -239,7 +250,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(svgContent => {
                 container.innerHTML = svgContent;
                 initMap();
-                makeDraggable(document.getElementById('side-panel'));
             })
             .catch(err => {
                 container.innerHTML = `<p style="color:red">Error loading map: ${err.message}</p>`;
@@ -253,6 +263,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         svg.style.width = '100%';
         svg.style.height = '100%';
+
+        // Vestizione "carta antica": mare, grana, alone costiero (js/map-decor.js).
+        if (window.MapDecor) MapDecor.decorate(svg);
 
         // Tooltip
         let tooltip = document.getElementById('map-tooltip');
@@ -275,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Solo i territori giocabili (class="state"): esclude sfondo, bordi e pattern dell'SVG.
         const paths = svg.querySelectorAll('path.state');
-        const defaultFill = '#d1dbdd';
+        const defaultFill = NEUTRAL_FILL;
 
         paths.forEach(path => {
             path.style.cursor = 'pointer';
@@ -1558,7 +1571,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const hadCode = !!p.invite;
                 const url = inviteUrlFor(p);
                 if (!hadCode) saveAutoSave();   // il codice appena creato va salvato
-                window.open(url, '_blank');     // scheda separata: l'editor resta aperto
+                // Scheda separata, così l'editor resta aperto. Ma nei pannelli di
+                // anteprima (e ovunque ci sia un blocco popup) window.open torna
+                // null senza dire niente e il bottone sembra rotto: in quel caso
+                // si va sulla plancia in questa stessa scheda, da cui si torna
+                // indietro col link "🛠 Editor".
+                const w = window.open(url, '_blank');
+                if (!w) window.location.href = url;
             });
 
             btn.querySelector('.invite-btn').addEventListener('click', (e) => {
@@ -1742,8 +1761,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function removePlayer(player) {
         if (!isAdminMode) return;
-        if (!confirm(`Rimuovere ${player.name}? Le sue province torneranno senza proprietario.`)) return;
+        askConfirm({
+            title: 'Rimuovere ' + player.name + '?',
+            text: 'Le sue province torneranno senza proprietario.',
+            ok: 'Rimuovi', tone: 'war'
+        }, () => doRemovePlayer(player));
+    }
 
+    function doRemovePlayer(player) {
         // Libera le province possedute dal giocatore (nella mappa e nello storico turni).
         const svg = document.querySelector('svg');
         if (svg) svg.querySelectorAll(`path[data-owner="${player.name}"]`).forEach(p => p.removeAttribute('data-owner'));
@@ -1772,7 +1797,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initPiecePalette();
     const addPlayerBtn = document.getElementById('add-player-btn');
     if (addPlayerBtn) addPlayerBtn.addEventListener('click', addPlayer);
-    wireSidePanelScaling();
     wireAdminLogin();
     MultiplayerSync.onRoleChange(applyRole);
 
@@ -1804,6 +1828,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderGameControls() {
         const info = document.getElementById('game-turn-info');
         if (!info) return;
+        renderReinforceBoard();
         if (turnoDi === null || turnoDi === undefined) {
             info.textContent = 'Partita non avviata';
             info.className = '';
@@ -1815,13 +1840,42 @@ document.addEventListener('DOMContentLoaded', () => {
         if (p) info.style.borderLeftColor = p.color;
     }
 
+    // Quadro delle reclute in attesa: un rigo per regno in gioco, con le libere e
+    // (fra parentesi) quelle obbligate in una provincia. A partita ferma sparisce.
+    function renderReinforceBoard() {
+        const box = document.getElementById('game-reinforce-board');
+        if (!box) return;
+        const inGioco = PLAYERS.filter(p => ordine.indexOf(p.id) >= 0);
+        if (!inGioco.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
+
+        box.style.display = 'block';
+        box.innerHTML = '<div class="reinforce-head">Reclute da schierare</div>' + inGioco.map(p => {
+            const vincolate = Object.keys(p.recluteVincolate || {})
+                .reduce((s, k) => s + (p.recluteVincolate[k] || 0), 0);
+            const libere = p.recluteDaSchierare || 0;
+            const tot = libere + vincolate;
+            return '<div class="reinforce-row' + (p.id === turnoDi ? ' now' : '') + '">' +
+                '<span class="reinforce-dot" style="background:' + p.color + '"></span>' +
+                '<span class="reinforce-name">' + p.name + '</span>' +
+                '<span class="reinforce-num' + (tot ? ' on' : '') + '">' + libere +
+                (vincolate ? ' <em>+' + vincolate + '</em>' : '') + '</span>' +
+                '</div>';
+        }).join('') +
+            '<div class="reinforce-note">libere <em>+ obbligatorie</em> (Capitale/Città/Fortezza)</div>';
+    }
+
     if (startGameBtn) {
         startGameBtn.addEventListener('click', () => {
             if (!isAdminMode) return;
-            if (!confirm('Avviare la partita? Ogni provincia posseduta torna a 5 soldati e ogni regno a 1000 monete con scorte azzerate.')) return;
-            const r = GameActions.startGame();
-            showPieceNotice(r.msg);
-            renderGameControls();
+            askConfirm({
+                title: 'Avviare la partita?',
+                text: 'Ogni provincia posseduta torna a 5 soldati e ogni regno a 1000 monete con scorte azzerate.',
+                ok: '🏁 Avvia'
+            }, () => {
+                const r = GameActions.startGame();
+                showPieceNotice(r.msg);
+                renderGameControls();
+            });
         });
     }
 
@@ -1999,8 +2053,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const isVisible = !visible || visible.has(path.id);
 
             const color = isVisible
-                ? (pObj ? pObj.color : '#d1dbdd')
-                : '#3a3a3a'; // fog grey
+                ? (pObj ? pObj.color : NEUTRAL_FILL)
+                : FOG_FILL;
             // Path SVG "fill=" attribute takes precedence over CSS in some browsers,
             // so we drive both the attribute and the inline style to stay consistent.
             path.setAttribute('fill', color);
@@ -2360,65 +2414,197 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Il pannello di destra e' ridimensionabile (CSS resize). Qui leghiamo la GRANDEZZA
-    // di tutto il contenuto (testo, titoli, schede, loghi) alla larghezza del pannello:
-    // stretchandolo cresce tutto in proporzione. Usiamo `zoom` sui due blocchi interni
-    // (info + controlli), che scala uniformemente ogni cosa. Lo scale dipende solo dalla
-    // larghezza (stabile), quindi non innesca loop col ResizeObserver.
-    function wireSidePanelScaling() {
-        const panel = document.getElementById('side-panel');
-        if (!panel || typeof ResizeObserver === 'undefined') return;
-        const targets = [document.getElementById('info-panel'), document.getElementById('player-controls')].filter(Boolean);
-        const BASE_W = 440;   // larghezza di partenza (zoom = 1)
-        let last = null;
-        const apply = () => {
-            const w = panel.clientWidth || BASE_W;
-            const scale = Math.max(0.9, Math.min(w / BASE_W, 3));
-            if (scale === last) return;
-            last = scale;
-            targets.forEach(t => { t.style.zoom = scale; });
-        };
-        const ro = new ResizeObserver(apply);
-        ro.observe(panel);
-        apply();
+    // Il pannello dell'editor è una colonna fissa a sinistra (vedi --editor-col in
+    // tokens.css): non si trascina e non si ridimensiona, quindi non serve più né il
+    // drag né lo zoom legato alla larghezza. La leggibilità la decide il font-size
+    // di #side-panel, da cui dipendono in em quasi tutti i figli.
+
+    // ============================================================
+    // CONFERMA IN PAGINA — rimpiazza window.confirm.
+    // Il dialogo nativo non è affidabile: in un pannello di anteprima (o in un
+    // iframe sandboxato, o con i popup bloccati) il browser lo chiude d'ufficio e
+    // confirm() torna sempre false. Chi cliccava "Attacca" non vedeva succedere
+    // nulla e sembrava un bug del gioco. Qui il dialogo è DOM nostro: funziona
+    // ovunque e si veste come il resto della plancia.
+    // ============================================================
+
+    function askConfirm(opts, onYes) {
+        const o = (typeof opts === 'string') ? { text: opts } : (opts || {});
+        const old = document.getElementById('ui-confirm');
+        if (old) old.remove();
+
+        const wrap = document.createElement('div');
+        wrap.id = 'ui-confirm';
+        wrap.innerHTML =
+            '<div class="uc-card">' +
+            '<div class="uc-title"></div>' +
+            '<div class="uc-text"></div>' +
+            '<div class="uc-actions">' +
+            '<button type="button" class="uc-no"></button>' +
+            '<button type="button" class="uc-yes"></button>' +
+            '</div></div>';
+        wrap.querySelector('.uc-title').textContent = o.title || 'Confermi?';
+        wrap.querySelector('.uc-text').textContent = o.text || '';
+        wrap.querySelector('.uc-yes').textContent = o.ok || 'Conferma';
+        wrap.querySelector('.uc-no').textContent = o.cancel || 'Annulla';
+        if (o.tone) wrap.querySelector('.uc-card').classList.add(o.tone);
+
+        const close = () => { document.removeEventListener('keydown', onKey); wrap.remove(); };
+        const accept = () => { close(); if (typeof onYes === 'function') onYes(); };
+        function onKey(e) {
+            if (e.key === 'Escape') { e.preventDefault(); close(); }
+            else if (e.key === 'Enter') { e.preventDefault(); accept(); }
+        }
+
+        wrap.querySelector('.uc-no').addEventListener('click', close);
+        wrap.querySelector('.uc-yes').addEventListener('click', accept);
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(wrap);
+        wrap.querySelector('.uc-yes').focus();
     }
 
-    function makeDraggable(el) {
-        if (!el) return;
-        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-        const handles = el.querySelectorAll('h2, h3');
-        if (handles.length > 0) {
-            handles.forEach(h => h.onmousedown = dragMouseDown);
-        } else {
-            el.onmousedown = dragMouseDown;
-        }
+    // ============================================================
+    // SCENA DELLA BATTAGLIA (§9) — un attacco deve VEDERSI sulla mappa, non solo
+    // comparire come riga di testo in un pannello.
+    // Tre battute, nell'ordine in cui il giocatore le capisce:
+    //   1) FUOCO SPENTO: la mappa si abbassa, restano accese le due province;
+    //   2) CARICA: una lama corre dall'attaccante al difensore;
+    //   3) IMPATTO: lampo, scossa breve della mappa, e i caduti che si staccano
+    //      dai due campi come numeri rossi.
+    // Le regole di "game feel" a cui si ispira: hit-stop (un attimo di stasi sul
+    // colpo, perché il giocatore registri cosa è successo), screen shake corto e
+    // proporzionato all'evento, numeri di danno flottanti che dicono il costo.
+    // Tutto in SVG + CSS: nessuna libreria, e con prefers-reduced-motion il CSS
+    // spegne i movimenti lasciando i numeri leggibili.
+    // ============================================================
 
-        function dragMouseDown(e) {
-            e = e || window.event;
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.player-card') || e.target.closest('.player-tab')) return;
-            e.preventDefault();
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            document.onmouseup = closeDragElement;
-            document.onmousemove = elementDrag;
-        }
+    let battleTimers = [];
 
-        function elementDrag(e) {
-            e = e || window.event;
-            e.preventDefault();
-            pos1 = pos3 - e.clientX;
-            pos2 = pos4 - e.clientY;
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            el.style.top = (el.offsetTop - pos2) + "px";
-            el.style.left = (el.offsetLeft - pos1) + "px";
-            el.style.right = 'auto';
+    function clearBattleFx() {
+        battleTimers.forEach(clearTimeout);
+        battleTimers = [];
+        const svg = document.querySelector('svg');
+        if (svg) {
+            svg.querySelectorAll('.battle-fx').forEach(el => el.remove());
+            svg.classList.remove('battle-focus');
+            svg.querySelectorAll('.battle-attacker, .battle-defender').forEach(p => {
+                p.classList.remove('battle-attacker', 'battle-defender');
+            });
         }
+        const wrap = document.getElementById('map-wrapper');
+        if (wrap) wrap.classList.remove('battle-shake');
+    }
 
-        function closeDragElement() {
-            document.onmouseup = null;
-            document.onmousemove = null;
-        }
+    function battleLater(fn, ms) { battleTimers.push(setTimeout(fn, ms)); }
+
+    function provinceCenter(path) {
+        const b = mainBodyBBox(path);
+        if (!b) return null;
+        return { x: b.x + b.w / 2, y: b.y + b.h / 2, r: Math.max(1, Math.min(b.w, b.h) / 2) };
+    }
+
+    function fxEl(svg, tag, attrs, cls) {
+        const el = document.createElementNS(SVG_NS, tag);
+        Object.keys(attrs || {}).forEach(k => el.setAttribute(k, attrs[k]));
+        el.setAttribute('class', 'battle-fx ' + (cls || ''));
+        el.setAttribute('pointer-events', 'none');
+        svg.appendChild(el);
+        return el;
+    }
+
+    // Numero di caduti che sale e svanisce sopra una provincia.
+    function fxCasualty(svg, center, n, size, color, delay) {
+        if (!n) return;
+        const t = fxEl(svg, 'text', {
+            x: center.x, y: center.y,
+            'text-anchor': 'middle',
+            'font-size': size,
+            fill: color,
+            style: 'animation-delay:' + delay + 'ms'
+        }, 'fx-casualty');
+        t.textContent = '−' + n;
+    }
+
+    // info: l'oggetto restituito da GameActions.attack.
+    function playBattleFx(info) {
+        const svg = document.querySelector('svg');
+        if (!svg || !info || !info.fromId || !info.toId) return;
+        const from = document.getElementById(info.fromId);
+        const to = document.getElementById(info.toId);
+        if (!from || !to) return;
+        const A = provinceCenter(from), B = provinceCenter(to);
+        if (!A || !B) return;
+
+        clearBattleFx();
+
+        const dist = Math.max(1, Math.hypot(B.x - A.x, B.y - A.y));
+        const unit = Math.max(3, Math.min(dist * 0.09, Math.min(A.r, B.r) * 0.9));
+        const vinta = !!info.conquistata;
+
+        svg.classList.add('battle-focus');
+        from.classList.add('battle-attacker');
+        to.classList.add('battle-defender');
+
+        // 1) la traiettoria della carica: si "scrive" da attaccante a difensore
+        const line = fxEl(svg, 'line', {
+            x1: A.x, y1: A.y, x2: B.x, y2: B.y,
+            stroke: info.coloreAttaccante || '#e0c097',
+            'stroke-width': Math.max(1, unit * 0.28),
+            'stroke-linecap': 'round',
+            pathLength: 100
+        }, 'fx-charge');
+        line.style.stroke = info.coloreAttaccante || '#e0c097';
+
+        // la lama che corre lungo la traiettoria (CSS: translate da 0 a dx/dy)
+        const blade = fxEl(svg, 'text', {
+            x: A.x, y: A.y,
+            'text-anchor': 'middle',
+            'dominant-baseline': 'central',
+            'font-size': unit * 2
+        }, 'fx-blade');
+        blade.textContent = '⚔';
+        blade.style.setProperty('--dx', (B.x - A.x) + 'px');
+        blade.style.setProperty('--dy', (B.y - A.y) + 'px');
+
+        // 2) impatto sul difensore: due onde d'urto + lampo della provincia
+        battleLater(() => {
+            [0, 160].forEach((d, i) => {
+                const c = fxEl(svg, 'circle', {
+                    cx: B.x, cy: B.y, r: unit * 1.2,
+                    fill: 'none',
+                    stroke: vinta ? '#ffd479' : '#ff8a8a',
+                    'stroke-width': Math.max(1, unit * 0.22),
+                    style: 'animation-delay:' + d + 'ms'
+                }, 'fx-blast');
+                if (i) c.setAttribute('opacity', '.7');
+            });
+            to.classList.add(vinta ? 'battle-hit' : 'battle-held');
+            const wrap = document.getElementById('map-wrapper');
+            if (wrap) {
+                wrap.classList.add('battle-shake');
+                battleLater(() => wrap.classList.remove('battle-shake'), 520);
+            }
+        }, 620);
+
+        // 3) il conto dei caduti, uno per campo: è la parte che resta impressa
+        battleLater(() => {
+            fxCasualty(svg, A, info.perditeAttaccante, unit * 2.4, '#ff9b9b', 0);
+            fxCasualty(svg, B, info.perditeDifensore, unit * 2.4, '#ff9b9b', 220);
+
+            const esito = fxEl(svg, 'text', {
+                x: B.x, y: B.y + unit * 3.4,
+                'text-anchor': 'middle',
+                'font-size': unit * 1.9,
+                fill: vinta ? '#ffd479' : '#cfe8cf'
+            }, 'fx-verdict');
+            esito.textContent = vinta ? 'CONQUISTATA' : 'RESPINTO';
+        }, 780);
+
+        battleLater(() => {
+            to.classList.remove('battle-hit', 'battle-held');
+            clearBattleFx();
+        }, 3600);
     }
 
     // ============================================================
@@ -2457,6 +2643,9 @@ document.addEventListener('DOMContentLoaded', () => {
         provinceLabel,
         piecesOf,
         countPiece,
+        playBattleFx,
+        clearBattleFx,
+        confirm: askConfirm,
         resourceKeyOf,
         getCapitalPathFor,
         computePopularity,

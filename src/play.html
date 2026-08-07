@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=47">
-    <link rel="stylesheet" href="css/style.css?v=47">
-    <link rel="stylesheet" href="css/board.css?v=47">
+    <link rel="stylesheet" href="css/tokens.css?v=48">
+    <link rel="stylesheet" href="css/style.css?v=48">
+    <link rel="stylesheet" href="css/board.css?v=48">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -40,6 +40,12 @@
                 <div class="board-turn-sub">
                     <span id="date-display">1000 AD</span> · <span id="board-cycle">ciclo 1 · turno 1/10</span>
                 </div>
+            </div>
+            <!-- Reclute in attesa: sta nella barra in alto apposta, è la cosa che il
+                 giocatore deve vedere per prima quando tocca a lui. -->
+            <div id="board-reinforce" class="reinf-badge empty">
+                <span class="reinf-num" id="board-reinf-num">0</span>
+                <span class="reinf-label">da schierare</span>
             </div>
             <div id="board-turn-state" class="turn-wait">Partita non avviata</div>
             <button id="board-end-turn" type="button" disabled>Fine turno</button>
@@ -94,9 +100,20 @@
 
                 <!-- ===== AZIONI: il cuore del turno del giocatore ===== -->
                 <div class="bp-title">Il tuo turno</div>
-                <div class="bp-box" id="bp-recruit-pool">
+                <div class="bp-box bp-deploy" id="bp-recruit-pool">
                     <div class="bp-box-head"><span class="k">Reclute da schierare</span><span class="v" id="bp-pool">0</span></div>
-                    <div class="bp-note">Scegli una provincia qui sotto e usa «Schiera».</div>
+                    <div class="bp-deploy-split">
+                        <div class="bp-deploy-cell free">
+                            <span class="n" id="bp-pool-free">0</span>
+                            <span class="l">libere · dove vuoi</span>
+                        </div>
+                        <div class="bp-deploy-cell bound">
+                            <span class="n" id="bp-pool-bound">0</span>
+                            <span class="l">obbligatorie · dove nascono</span>
+                        </div>
+                    </div>
+                    <div id="bp-bound-list"></div>
+                    <div class="bp-note" id="bp-deploy-note">Usa i tasti + e − nell'elenco delle tue province: finché non chiudi il turno puoi spostarle a piacere.</div>
                 </div>
 
                 <div id="bp-selected" class="bp-selected">
@@ -159,18 +176,19 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/sync.js"></script>
 
-    <script src="data/map_data.js?v=47"></script>
-    <script src="data/id_mapping.js?v=47"></script>
-    <script src="data/embedded_map.js?v=47"></script>
-    <script src="data/resource_icons.js?v=47"></script>
-    <script src="data/piece_icons.js?v=47"></script>
-    <script src="data/default_state.js?v=47"></script>
-    <script src="js/battle.js?v=47"></script>
-    <script src="js/kingdom-stats.js?v=47"></script>
-    <script src="js/game-rules.js?v=47"></script>
-    <script src="js/app.js?v=47"></script>
-    <script src="js/game-actions.js?v=47"></script>
-    <script src="js/player-board.js?v=47"></script>
+    <script src="data/map_data.js?v=48"></script>
+    <script src="data/id_mapping.js?v=48"></script>
+    <script src="data/embedded_map.js?v=48"></script>
+    <script src="data/resource_icons.js?v=48"></script>
+    <script src="data/piece_icons.js?v=48"></script>
+    <script src="data/default_state.js?v=48"></script>
+    <script src="js/map-decor.js?v=48"></script>
+    <script src="js/battle.js?v=48"></script>
+    <script src="js/kingdom-stats.js?v=48"></script>
+    <script src="js/game-rules.js?v=48"></script>
+    <script src="js/app.js?v=48"></script>
+    <script src="js/game-actions.js?v=48"></script>
+    <script src="js/player-board.js?v=48"></script>
 </body>
 
 </html>

@@ -458,6 +458,125 @@ body.board {
 
 .bp-link-dot.on { background: var(--ok); }
 
+/* ---------- reclute da schierare ---------- */
+
+/* badge nella barra in alto: è il numero che il giocatore deve vedere per primo */
+.reinf-badge {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 7px 15px;
+    border-radius: 7px;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-inset);
+    white-space: nowrap;
+}
+
+.reinf-badge .reinf-num {
+    font-size: 1.7rem;
+    line-height: 1;
+    color: var(--gold-bright);
+    font-variant-numeric: tabular-nums;
+}
+
+.reinf-badge .reinf-label { font-size: .9rem; color: var(--parchment-muted); }
+.reinf-badge.empty { opacity: .5; }
+.reinf-badge.empty .reinf-num { color: var(--parchment-muted); }
+
+/* tocca a te e hai truppe in mano: il badge pulsa finché non le schieri */
+.reinf-badge.hot {
+    border-color: var(--gold);
+    background: rgba(224, 192, 151, .12);
+    animation: reinf-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes reinf-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(224, 192, 151, .35); }
+    50%      { box-shadow: 0 0 0 7px rgba(224, 192, 151, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reinf-badge.hot { animation: none; }
+}
+
+/* riquadro schieramento nel pannello destro */
+.bp-deploy-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 4px 0 8px;
+}
+
+.bp-deploy-cell {
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    padding: 7px 9px;
+    text-align: center;
+}
+
+.bp-deploy-cell .n {
+    display: block;
+    font-size: 1.5rem;
+    line-height: 1.1;
+    color: var(--gold-bright);
+    font-variant-numeric: tabular-nums;
+}
+
+.bp-deploy-cell .l { display: block; font-size: .8rem; color: var(--parchment-muted); }
+.bp-deploy-cell.bound { border-color: var(--ok); }
+.bp-deploy-cell.bound .n { color: var(--ok-soft); }
+
+.bp-bound-head { color: var(--parchment-muted); font-size: .92rem; margin-bottom: 5px; }
+
+.bp-bound-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--ok);
+    border-radius: 6px;
+    color: var(--parchment-dim);
+    font-family: inherit;
+    font-size: 1.02rem;
+    text-align: left;
+    padding: 8px 11px;
+    margin-bottom: 6px;
+    cursor: pointer;
+}
+
+.bp-bound-row:hover:not(:disabled) { color: var(--gold); border-color: var(--gold-edge); }
+.bp-bound-row:disabled { cursor: not-allowed; opacity: .55; border-style: dashed; }
+.bp-bound-n { color: var(--ok-soft); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.bp-bound-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-bound-go { color: var(--parchment-muted); font-size: .88rem; flex: 0 0 auto; }
+.bp-bound-tag { color: var(--ok-soft); font-style: normal; }
+.bp-line-sum { border-top: 1px solid var(--rule-soft); margin-top: 4px; }
+
+/* comandi −/+ sulle righe dell'elenco province */
+.bp-prov-ctl { display: flex; gap: 5px; flex: 0 0 auto; margin-left: 4px; }
+
+.bp-mini {
+    width: 30px;
+    height: 30px;
+    line-height: 1;
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    color: var(--gold);
+    font-family: inherit;
+    font-size: 1.05rem;
+    cursor: pointer;
+    padding: 0;
+}
+
+.bp-mini:hover:not(:disabled) { border-color: var(--gold-edge); background: rgba(224, 192, 151, .14); }
+.bp-mini:disabled { opacity: .35; cursor: not-allowed; }
+.bp-prov-bound { color: var(--ok-soft); font-size: .92rem; flex: 0 0 auto; }
+.bp-prov-troops em { color: var(--ok-soft); font-style: normal; font-size: .9rem; margin-left: 3px; }
+
 /* gruppo di azioni: intestazione + righe */
 .bp-act-group { margin-top: 10px; }
 
@@ -525,18 +644,114 @@ body.board {
     padding: 6px 0;
 }
 
-/* esito della battaglia */
+/* pronostico sul bottone d'attacco */
+.bp-odds {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    font-size: .95rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    border: 1px solid var(--rule-strong);
+}
+
+.bp-odds.good { color: var(--ok-soft); border-color: var(--ok); }
+.bp-odds.even { color: var(--gold); border-color: var(--gold-edge); }
+.bp-odds.bad  { color: #e6a3a3; border-color: #7a3b3b; }
+
+/* ---------- rapporto di battaglia ---------- */
+
 .bp-battle {
     border-radius: 7px;
     padding: 12px 14px;
     margin-top: 12px;
     font-size: 1.05rem;
     line-height: 1.5;
+    animation: bb-in .35s ease-out;
+}
+
+@keyframes bb-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: none; }
 }
 
 .bp-battle.win  { background: var(--ok-bg); color: var(--ok-soft); border: 1px solid var(--ok); }
 .bp-battle.lose { background: #3a2828; color: #e6a3a3; border: 1px solid #7a3b3b; }
 .bp-battle-detail { color: var(--parchment-muted); font-size: .92rem; margin-top: 6px; }
+
+.bb-head { display: flex; align-items: center; gap: 8px; }
+.bb-verdict { flex: 1 1 auto; font-size: 1.2rem; letter-spacing: .04em; }
+
+.bb-replay {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 5px;
+    color: inherit;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 4px 9px;
+    cursor: pointer;
+    opacity: .8;
+}
+
+.bb-replay:hover { opacity: 1; }
+.bb-route { color: var(--parchment-muted); font-size: .95rem; margin-bottom: 8px; }
+
+.bb-sides {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 8px;
+    align-items: center;
+}
+
+.bb-side {
+    background: rgba(0, 0, 0, .28);
+    border-left: 4px solid var(--rule-strong);
+    border-radius: 5px;
+    padding: 8px 10px;
+    min-width: 0;
+}
+
+.bb-who {
+    color: var(--parchment-dim);
+    font-size: .98rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bb-n { color: var(--gold); font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.bb-n span { color: var(--parchment-muted); font-size: .82rem; }
+.bb-n em { color: var(--ok-soft); font-style: normal; font-size: .9rem; }
+.bb-loss { color: #ff9b9b; font-size: 1.02rem; }
+.bb-loss.none { color: var(--parchment-muted); }
+.bb-left { color: var(--parchment-muted); font-size: .88rem; }
+.bb-mid { color: var(--parchment-muted); font-size: .9rem; }
+
+.bb-odds { margin-top: 9px; }
+
+.bb-bar {
+    height: 7px;
+    background: rgba(0, 0, 0, .45);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.bb-bar span {
+    display: block;
+    height: 100%;
+    background: var(--gold-edge);
+    animation: bb-bar-grow .6s ease-out;
+}
+
+@keyframes bb-bar-grow { from { width: 0 !important; } }
+
+.bb-odds-txt { color: var(--parchment-muted); font-size: .85rem; margin-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .bp-battle, .bb-bar span { animation: none; }
+}
 
 /* legenda costi generata da GameRules.COSTS */
 .bp-legend-item {

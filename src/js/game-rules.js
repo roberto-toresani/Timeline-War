@@ -143,8 +143,8 @@
     function turnProduction(provinces, connectedSet, units, tax, popularity) {
         const hasCapital = units.capitale > 0;
         const zero = {
-            monete: 0, risorse: emptyScorte(), reclute: 0, prestigio: 0,
-            collegate: 0, hasCapital: false
+            monete: 0, risorse: emptyScorte(), reclute: 0, vincolate: {}, recluteTotali: 0,
+            prestigio: 0, collegate: 0, hasCapital: false
         };
         // Senza Capitale non si raccoglie nulla (§2, §4): niente monete, niente
         // risorse, niente reclute. Il regno resta fermo finché non la costruisce.
@@ -171,10 +171,16 @@
 
         // Reclute (§5.1): il calcolo col dettaglio vive in kingdom-stats.js, che è
         // anche quello che la UI mostra — una formula sola, così non divergono.
-        const reclute = KingdomStats.reinforcements((provinces || []).length, units, popularity).total;
+        // `reclute` sono le LIBERE (il giocatore le mette dove vuole), `vincolate`
+        // dice quante ne nascono in ciascuna provincia con Capitale/Città/Fortezza:
+        // quelle lì devono restare.
+        const plan = KingdomStats.reinforcementPlan(provinces || [], popularity);
 
         return {
-            monete, risorse, reclute,
+            monete, risorse,
+            reclute: plan.libere,
+            vincolate: plan.perProvincia,
+            recluteTotali: plan.total,
             prestigio: popMod.prestigio,
             collegate, hasCapital: true
         };

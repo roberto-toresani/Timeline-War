@@ -46,9 +46,59 @@
     function pay(player, cost, path) {
         Object.keys(cost).forEach(k => {
             if (k === 'monete') player.monete -= cost[k];
-            else if (k === 'soldati') E().addPiece(path, 'soldato', -cost[k]);
+            else if (k === 'soldati') {
+                E().addPiece(path, 'soldato', -cost[k]);
+                consumePlaced(player, path.id, cost[k]);   // spesi: non si ritirano più
+            }
             else player.scorte[k] -= cost[k];
         });
+    }
+
+    // ---------- serbatoi delle reclute (§5.1) ----------
+    // Due mucchi distinti, vedi KingdomStats.reinforcements:
+    //   player.recluteDaSchierare  → LIBERE, vanno dove vuole il giocatore
+    //   player.recluteVincolate    → { idProvincia: n }, obbligate in quella provincia
+    //   player.schierateTurno      → { idProvincia: {libere, vincolate} } quel che ha
+    //                                 già posato IN QUESTO TURNO: è l'unica cosa che
+    //                                 può ritirare (i soldati vecchi non si smontano).
+
+    function boundPool(player) {
+        if (!player.recluteVincolate) player.recluteVincolate = {};
+        return player.recluteVincolate;
+    }
+
+    function placedPool(player) {
+        if (!player.schierateTurno) player.schierateTurno = {};
+        return player.schierateTurno;
+    }
+
+    function placedAt(player, provId) {
+        const pool = placedPool(player);
+        if (!pool[provId]) pool[provId] = { libere: 0, vincolate: 0 };
+        return pool[provId];
+    }
+
+    // Soldati appena schierati che lasciano la provincia (spesi in una costruzione,
+    // partiti all'attacco): non sono più ritirabili, altrimenti il serbatoio si
+    // riempirebbe di reclute che sulla mappa non ci sono più.
+    function consumePlaced(player, provId, n) {
+        const rec = placedPool(player)[provId];
+        if (!rec) return;
+        const libere = Math.min(rec.libere, n);
+        rec.libere -= libere;
+        rec.vincolate = Math.max(0, rec.vincolate - (n - libere));
+    }
+
+    function boundTotal(player) {
+        const pool = boundPool(player);
+        return Object.keys(pool).reduce((s, k) => s + (pool[k] || 0), 0);
+    }
+
+    // Tetto di impilamento della provincia (PIECES.soldato.max): senza questo
+    // controllo changePiece scarterebbe in silenzio le reclute in eccesso.
+    function roomFor(path) {
+        const max = (typeof PIECES !== 'undefined' && PIECES.soldato && PIECES.soldato.max) || 30;
+        return Math.max(0, max - E().countPiece(path, 'soldato'));
     }
 
     function isMyTurn(player) {
@@ -72,6 +122,8 @@
             pl.monete = 1000;
             pl.scorte = GR().emptyScorte();
             pl.recluteDaSchierare = 0;
+            pl.recluteVincolate = {};
+            pl.schierateTurno = {};
             pl.prestigioCiclo = 0;
             pl.puntiOro = 0;
             pl.temporanei = {};
@@ -110,8 +162,17 @@
 
         player.monete += prod.monete;
         GR().RES.forEach(k => { player.scorte[k] += prod.risorse[k]; });
-        player.recluteDaSchierare += prod.reclute;
         player.prestigioCiclo = Math.max(0, Math.min(10, player.prestigioCiclo + prod.prestigio));
+
+        // Le libere si sommano a quelle avanzate dal turno prima; le vincolate
+        // entrano nel serbatoio della loro provincia. Lo storico di cosa è stato
+        // posato riparte da zero: si ritira solo dentro il proprio turno.
+        player.recluteDaSchierare += prod.reclute;
+        const bound = boundPool(player);
+        Object.keys(prod.vincolate || {}).forEach(id => {
+            bound[id] = (bound[id] || 0) + prod.vincolate[id];
+        });
+        player.schierateTurno = {};
 
         return done('Turno di ' + player.name, { produzione: prod });
     }
@@ -123,6 +184,10 @@
         if (!ordine.length) return fail('La partita non è stata avviata.');
 
         const player = R().players().find(p => p.id === R().turnoDi());
+        // I rinforzi degli edifici sono obbligatori: se il giocatore chiude il turno
+        // senza averli posati li si schiera d'ufficio, invece di bloccarlo o di
+        // lasciarli evaporare.
+        const forzate = player ? forcePendingBound(player) : 0;
         if (player) expireTemporaries(player);
 
         const idx = ordine.indexOf(R().turnoDi());
@@ -142,7 +207,8 @@
         const res = beginTurn();
         E().refresh();
         E().save();
-        return done(giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.',
+        const nota = forzate ? ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)' : '';
+        return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota,
             { produzione: res.produzione });
     }
 
@@ -161,26 +227,138 @@
 
     // ---------- azioni del giocatore ----------
 
-    // Schiera N reclute dal serbatoio su una provincia propria (§5.1).
-    function deploy(player, provId, n) {
-        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+    // Provincia valida per schierare: mia, esistente, ed è il mio turno.
+    function deployablePath(player, provId) {
+        const turnErr = requireTurn(player); if (turnErr) return { err: turnErr };
         const path = E().path(provId);
-        if (!path) return fail('Provincia sconosciuta.');
-        if (E().owner(path) !== player.name) return fail('Puoi schierare solo nelle tue province.');
+        if (!path) return { err: fail('Provincia sconosciuta.') };
+        if (E().owner(path) !== player.name) return { err: fail('Puoi schierare solo nelle tue province.') };
+        return { path };
+    }
+
+    // Posa fisica delle reclute + colore d'esercito. Non tocca i serbatoi.
+    function putSoldiers(player, path, n) {
+        E().addPiece(path, 'soldato', n);
+        E().setArmyColor(path, player.color);
+        E().redrawProvince(path);
+    }
+
+    // Schiera N reclute LIBERE su una provincia propria (§5.1). Finché dura il
+    // turno il giocatore può ripensarci: vedi `undeploy`.
+    function deploy(player, provId, n) {
+        const { path, err } = deployablePath(player, provId); if (err) return err;
 
         n = Math.floor(n);
         if (!(n > 0)) return fail('Indica quante truppe schierare.');
-        if (n > player.recluteDaSchierare) {
-            return fail('Hai solo ' + player.recluteDaSchierare + ' reclute da schierare.');
+        const pool = player.recluteDaSchierare || 0;
+        if (!pool) return fail('Non hai reclute libere da schierare.');
+        if (n > pool) return fail('Hai solo ' + pool + ' reclute libere da schierare.');
+        const room = roomFor(path);
+        if (n > room) {
+            return fail(R().provinceLabel(path) + ' non regge altri ' + n + ' soldati: c\'è posto per ' + room + '.');
         }
 
-        E().addPiece(path, 'soldato', n);
-        E().setArmyColor(path, player.color);
-        player.recluteDaSchierare -= n;
-        E().redrawProvince(path);
+        putSoldiers(player, path, n);
+        player.recluteDaSchierare = pool - n;
+        placedAt(player, provId).libere += n;
+
         E().refresh();
         E().save();
-        return done(n + (n === 1 ? ' soldato schierato' : ' soldati schierati') + ' in ' + R().provinceLabel(path) + '.');
+        return done(n + (n === 1 ? ' recluta schierata' : ' reclute schierate') + ' in ' +
+            R().provinceLabel(path) + '. Restano ' + player.recluteDaSchierare + ' libere.');
+    }
+
+    // Schiera i rinforzi OBBLIGATORI di una provincia (quelli di Capitale, Città e
+    // Fortezza): possono andare solo lì, quindi non serve dire quanti — di default
+    // si posano tutti.
+    function deployBound(player, provId, n) {
+        const { path, err } = deployablePath(player, provId); if (err) return err;
+
+        const bound = boundPool(player);
+        const avail = bound[provId] || 0;
+        if (!avail) return fail('In ' + R().provinceLabel(path) + ' non ci sono rinforzi obbligatori da schierare.');
+
+        n = (n === undefined || n === null) ? avail : Math.floor(n);
+        if (!(n > 0)) return fail('Indica quanti rinforzi schierare.');
+        n = Math.min(n, avail, roomFor(path));
+        if (!n) return fail(R().provinceLabel(path) + ' è piena: non regge altri soldati.');
+
+        putSoldiers(player, path, n);
+        bound[provId] = avail - n;
+        if (!bound[provId]) delete bound[provId];
+        placedAt(player, provId).vincolate += n;
+
+        E().refresh();
+        E().save();
+        return done(n + (n === 1 ? ' rinforzo obbligatorio schierato' : ' rinforzi obbligatori schierati') +
+            ' in ' + R().provinceLabel(path) + '.');
+    }
+
+    // Posa in un colpo solo tutti i rinforzi obbligatori rimasti.
+    function deployAllBound(player) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        if (!boundTotal(player)) return fail('Non hai rinforzi obbligatori in attesa.');
+        const n = forcePendingBound(player);
+        E().refresh();
+        E().save();
+        return done(n + (n === 1 ? ' rinforzo obbligatorio schierato' : ' rinforzi obbligatori schierati') + '.');
+    }
+
+    // Svuota il serbatoio vincolato senza chiedere: usato dal bottone "schiera tutti"
+    // e a fine turno. Le reclute di una provincia persa nel frattempo si perdono
+    // con lei — non possono andare altrove per definizione.
+    function forcePendingBound(player) {
+        const bound = boundPool(player);
+        let posate = 0;
+        Object.keys(bound).forEach(provId => {
+            const n = bound[provId] || 0;
+            delete bound[provId];
+            if (!n) return;
+            const path = E().path(provId);
+            if (!path || E().owner(path) !== player.name) return;
+            const k = Math.min(n, roomFor(path));
+            if (!k) return;
+            putSoldiers(player, path, k);
+            placedAt(player, provId).vincolate += k;
+            posate += k;
+        });
+        return posate;
+    }
+
+    // Ritira reclute schierate IN QUESTO TURNO e le rimette nel serbatoio di
+    // provenienza: le libere tornano disponibili per un'altra provincia, le
+    // obbligatorie tornano in coda per questa (possono andare solo qui).
+    // I soldati che c'erano prima del turno non si toccano: quelli si muovono
+    // solo attaccando.
+    function undeploy(player, provId, n) {
+        const { path, err } = deployablePath(player, provId); if (err) return err;
+
+        const rec = placedAt(player, provId);
+        const max = rec.libere + rec.vincolate;
+        if (!max) {
+            return fail('In ' + R().provinceLabel(path) + ' non hai schierato reclute in questo turno: ' +
+                'si ritirano solo quelle appena messe.');
+        }
+
+        n = (n === undefined || n === null) ? max : Math.floor(n);
+        if (!(n > 0)) return fail('Indica quante reclute ritirare.');
+        n = Math.min(n, max, E().countPiece(path, 'soldato'));
+        if (!n) return fail('In ' + R().provinceLabel(path) + ' non ci sono soldati da ritirare.');
+
+        // Prima le libere: sono quelle che il giocatore può davvero riposizionare.
+        const libere = Math.min(n, rec.libere);
+        const vincolate = n - libere;
+
+        putSoldiers(player, path, -n);
+        rec.libere -= libere;
+        rec.vincolate -= vincolate;
+        player.recluteDaSchierare = (player.recluteDaSchierare || 0) + libere;
+        if (vincolate) boundPool(player)[provId] = (boundPool(player)[provId] || 0) + vincolate;
+
+        E().refresh();
+        E().save();
+        return done(n + (n === 1 ? ' recluta ritirata' : ' reclute ritirate') + ' da ' + R().provinceLabel(path) +
+            (vincolate ? ' (' + vincolate + ' obbligatorie: possono tornare solo qui).' : '.'));
     }
 
     // Costruisce su UNA provincia propria (§6).
@@ -317,11 +495,14 @@
 
         const defTroops = E().countPiece(to, 'soldato');
         const fort = GR().defenceBonus(unitsOf([to]));
+        const difensore = E().owner(to) || 'Neutrale';
+        const fromLabel = R().provinceLabel(from), toLabel = R().provinceLabel(to);
         const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng);
         if (!res) return fail('Nessuna battaglia possibile.');
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
         E().addPiece(from, 'soldato', -engaged);
+        consumePlaced(player, fromId, engaged);
 
         let msg;
         if (res.attackerWins) {
@@ -348,7 +529,23 @@
         E().redrawRoads();
         E().refresh();
         E().save();
-        return done(msg, { battle: res, engaged, defTroops, fort });
+
+        // Il conto dei caduti in chiaro: la UI non deve ricavarlo da sé.
+        // Vince l'attaccante → il difensore perde tutto; vince il difensore →
+        // l'attaccante perde tutte le truppe impegnate (§9).
+        const perditeAttaccante = res.attackerWins ? res.losses : engaged;
+        const perditeDifensore = res.attackerWins ? defTroops : (defTroops - res.defenderSurvivors);
+
+        return done(msg, {
+            battle: res, engaged, defTroops, fort,
+            fromId, toId, fromLabel, toLabel,
+            attaccante: player.name, difensore,
+            coloreAttaccante: player.color,
+            coloreDifensore: (R().players().find(p => p.name === difensore) || {}).color || null,
+            perditeAttaccante, perditeDifensore,
+            superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
+            conquistata: res.attackerWins
+        });
     }
 
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista
@@ -367,8 +564,10 @@
 
     root.GameActions = {
         startGame, beginTurn, endTurn,
-        deploy, build, buildRoad, recruit, attack, attackTargets,
-        connectedOf, unitsOf, snapshotOf, isMyTurn
+        deploy, deployBound, deployAllBound, undeploy,
+        build, buildRoad, recruit, attack, attackTargets,
+        connectedOf, unitsOf, snapshotOf, isMyTurn,
+        boundPool, boundTotal, placedPool
     };
 
 })(typeof window !== 'undefined' ? window : globalThis);

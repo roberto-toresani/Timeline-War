@@ -12,12 +12,39 @@ body {
     overflow-x: hidden;
 }
 
+/* Editor: il pannello comandi è una colonna fissa a sinistra, quindi tutto il
+   resto della pagina si scosta di altrettanto. La plancia giocatore
+   (body[data-mode="player"]) condivide questo foglio ma ha il suo layout. */
+body:not([data-mode="player"]) {
+    box-sizing: border-box;
+    padding-left: var(--editor-col);
+}
+
 #app-container {
     display: flex;
     flex-direction: column;
     align-items: center;
     width: 100%;
     min-height: 100vh;
+}
+
+/* Editor: intestazione ridotta all'osso. Prima titolo e sottotitolo si prendevano
+   ~400px di altezza e la mappa partiva a due terzi dello schermo. */
+body:not([data-mode="player"]) #app-container>h1 {
+    font-size: 1.5rem;
+    letter-spacing: 2px;
+    margin: 8px 0 0 0;
+}
+
+body:not([data-mode="player"]) #app-container>p {
+    display: none;
+}
+
+body:not([data-mode="player"]) .role-banner {
+    padding: 5px 14px;
+    font-size: 1rem;
+    gap: 10px;
+    margin: 6px 0;
 }
 
 h1 {
@@ -205,16 +232,235 @@ svg path.fog {
     filter: none;
 }
 
+/* ============================================================
+   CONFERMA IN PAGINA (askConfirm in js/app.js)
+   Sostituisce window.confirm, che in un pannello di anteprima o in un iframe
+   sandboxato viene chiuso d'ufficio: l'azione non partiva e sembrava un bug.
+   ============================================================ */
+
+#ui-confirm {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, .62);
+    animation: uc-fade .15s ease-out;
+}
+
+@keyframes uc-fade { from { opacity: 0; } }
+
+#ui-confirm .uc-card {
+    background: var(--bg-panel-solid);
+    border: 2px solid var(--gold-edge);
+    border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .65);
+    padding: 20px 22px;
+    max-width: 460px;
+    font-family: 'Cinzel', Georgia, serif;
+    animation: uc-pop .18s ease-out;
+}
+
+@keyframes uc-pop { from { transform: scale(.94); opacity: 0; } }
+
+#ui-confirm .uc-card.war { border-color: #b5643c; }
+#ui-confirm .uc-title { color: var(--gold); font-size: 1.3rem; margin-bottom: 8px; }
+
+#ui-confirm .uc-text {
+    color: var(--parchment-dim);
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+#ui-confirm .uc-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+#ui-confirm .uc-actions button {
+    font-family: inherit;
+    font-size: 1.02rem;
+    padding: 9px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+#ui-confirm .uc-no {
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    color: var(--parchment-muted);
+}
+
+#ui-confirm .uc-no:hover { border-color: var(--gold-edge); color: var(--gold); }
+
+#ui-confirm .uc-yes {
+    background: var(--gold-edge);
+    border: 1px solid var(--gold-bright);
+    color: #2b2b2b;
+    font-weight: bold;
+}
+
+#ui-confirm .uc-card.war .uc-yes {
+    background: #b5643c;
+    border-color: #d98b5f;
+    color: #fff3e2;
+}
+
+#ui-confirm .uc-yes:hover { filter: brightness(1.1); }
+
+@media (prefers-reduced-motion: reduce) {
+    #ui-confirm, #ui-confirm .uc-card { animation: none; }
+}
+
+/* ============================================================
+   SCENA DELLA BATTAGLIA (vedi playBattleFx in js/app.js)
+   Il colpo si legge in tre battute: la mappa si abbassa e restano accese le
+   due province, una lama corre da attaccante a difensore, l'impatto scuote la
+   mappa e stacca i numeri dei caduti. Durate corte apposta: la scossa dura
+   meno di mezzo secondo, il tempo di registrare il colpo senza infastidire.
+   ============================================================ */
+
+svg.battle-focus path.state {
+    opacity: .3;
+    transition: opacity .35s ease;
+}
+
+svg.battle-focus path.battle-attacker,
+svg.battle-focus path.battle-defender {
+    opacity: 1;
+    stroke: var(--gold-bright);
+    stroke-width: 1.6;
+}
+
+svg.battle-focus .piece-marker,
+svg.battle-focus .road-marker { opacity: .25; }
+
+/* la provincia colpita: lampo caldo se cade, verde se regge */
+svg path.battle-hit  { animation: battle-hit-flash .5s ease-out 2; }
+svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
+
+@keyframes battle-hit-flash  { 50% { fill: #ffd479 !important; } }
+@keyframes battle-held-flash { 50% { fill: #9fd39f !important; } }
+
+/* traiettoria della carica: si "scrive" dall'attaccante al difensore */
+.battle-fx.fx-charge {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    animation: fx-charge-draw .6s ease-in forwards, fx-fade .5s ease-out 1.9s forwards;
+    filter: drop-shadow(0 0 3px rgba(0, 0, 0, .8));
+}
+
+@keyframes fx-charge-draw { to { stroke-dashoffset: 0; } }
+@keyframes fx-fade { to { opacity: 0; } }
+
+/* la lama che corre lungo la traiettoria */
+.battle-fx.fx-blade {
+    fill: #ffe9c0;
+    animation: fx-blade-run .6s ease-in forwards, fx-fade .3s ease-out .62s forwards;
+    filter: drop-shadow(0 0 4px rgba(0, 0, 0, .9));
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+@keyframes fx-blade-run {
+    from { transform: translate(0, 0) scale(.7); }
+    to   { transform: translate(var(--dx), var(--dy)) scale(1.25); }
+}
+
+/* onde d'urto sull'impatto */
+.battle-fx.fx-blast {
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: fx-blast-out .75s ease-out forwards;
+}
+
+@keyframes fx-blast-out {
+    0%   { opacity: .95; transform: scale(.35); }
+    100% { opacity: 0;   transform: scale(3.2); }
+}
+
+/* I caduti: numero rosso che sale e svanisce. Misure in em, non in px: il
+   testo è dentro l'SVG e la sua dimensione dipende da quanto è grande la
+   provincia, quindi anche salita e contorno devono scalare con essa. */
+.battle-fx.fx-casualty {
+    font-family: 'Cinzel', Georgia, serif;
+    font-weight: bold;
+    opacity: 0;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, .85);
+    stroke-width: .09em;
+    /* Senza fill-box lo scale prenderebbe come centro quello dell'intera mappa
+       e il numero schizzerebbe via invece di gonfiarsi sul posto. */
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: fx-rise 1.7s ease-out forwards;
+}
+
+@keyframes fx-rise {
+    0%   { opacity: 0; transform: translateY(0) scale(.6); }
+    18%  { opacity: 1; transform: translateY(-.3em) scale(1.15); }
+    70%  { opacity: 1; transform: translateY(-.7em) scale(1); }
+    100% { opacity: 0; transform: translateY(-1.2em) scale(1); }
+}
+
+/* verdetto sotto la provincia contesa */
+.battle-fx.fx-verdict {
+    font-family: 'Cinzel', Georgia, serif;
+    letter-spacing: .12em;
+    opacity: 0;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, .85);
+    stroke-width: .09em;
+    /* Senza fill-box lo scale prenderebbe come centro quello dell'intera mappa
+       e il numero schizzerebbe via invece di gonfiarsi sul posto. */
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: fx-verdict-in .35s ease-out forwards, fx-fade .6s ease-in 2.1s forwards;
+}
+
+@keyframes fx-verdict-in {
+    from { opacity: 0; transform: scale(.7); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* scossa della mappa all'impatto: corta e piccola, non deve dare fastidio */
+#map-wrapper.battle-shake { animation: battle-shake .45s cubic-bezier(.36, .07, .19, .97); }
+
+@keyframes battle-shake {
+    10%, 90% { transform: translate(-2px, 1px); }
+    20%, 80% { transform: translate(4px, -2px); }
+    30%, 50%, 70% { transform: translate(-6px, 2px); }
+    40%, 60% { transform: translate(6px, -1px); }
+}
+
+/* Chi ha chiesto meno movimento vede lo stesso i numeri, senza scosse né corse. */
+@media (prefers-reduced-motion: reduce) {
+    #map-wrapper.battle-shake,
+    .battle-fx.fx-blade,
+    .battle-fx.fx-blast,
+    svg path.battle-hit,
+    svg path.battle-held { animation: none; }
+    .battle-fx.fx-blade { opacity: 0; }
+    .battle-fx.fx-charge { stroke-dashoffset: 0; animation: none; }
+    .battle-fx.fx-casualty,
+    .battle-fx.fx-verdict { opacity: 1; animation: none; }
+}
+
 #game-board {
     display: flex;
     flex-direction: row;
     justify-content: center;
     align-items: flex-start;
     gap: 20px;
-    width: 98vw;
-    /* Maximize width */
-    height: 95vh;
-    /* Maximize height to allow map to grow */
+    width: 100%;
+    /* la larghezza è quella che resta a destra della colonna fissa; l'altezza è
+       tutto lo spazio che avanza sotto l'intestazione, senza sfondare la pagina */
+    flex: 1 1 auto;
+    min-height: 0;
     position: relative;
 }
 
@@ -222,6 +468,8 @@ svg path.fog {
     position: relative;
     flex: 2;
     height: 100%;
+    /* il bordo legno sta dentro l'altezza, altrimenti sfora di 30px e la pagina scrolla */
+    box-sizing: border-box;
     margin-bottom: 0;
 
     /* Board Game Wood Border */
@@ -241,6 +489,44 @@ svg path.fog {
     align-items: center;
 }
 
+/* ============================================================
+   ORNAMENTI DELLA CARTA (disegnati da js/map-decor.js)
+   Tutto a inchiostro blu slavato, con opacità bassa: devono leggersi come
+   decorazione del mare, mai competere con le province. Per spegnerli in blocco
+   basta `#decor-ornaments { display: none; }`.
+   ============================================================ */
+#decor-ornaments {
+    fill: #2f5f80;
+    stroke: #2f5f80;
+    opacity: .5;
+    font-family: 'Cinzel', Georgia, serif;
+}
+
+#decor-ornaments text {
+    stroke: none;
+    fill: #24506e;
+}
+
+/* il cartiglio è pergamena, non acqua: tinta calda e testo a inchiostro bruno */
+#decor-ornaments .decor-cartouche { opacity: .9; }
+#decor-ornaments .decor-scroll { fill: #e8dcc0; stroke: #8a7452; stroke-width: 1; }
+#decor-ornaments .decor-scroll-end { fill: #d6c7a4; stroke: #8a7452; stroke-width: 1; }
+#decor-ornaments .decor-cartouche text { fill: #6b4f2a; }
+
+#decor-ornaments .decor-eye { fill: #16384f; stroke: none; }
+
+/* Vignettatura: i bordi della carta si scuriscono verso la cornice di legno,
+   così la mappa sembra appoggiata sul tavolo invece che incollata sopra. Sta in
+   un ::after perché un box-shadow inset finirebbe sotto l'SVG. */
+#map-wrapper::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 400;
+    box-shadow: inset 0 0 90px 18px rgba(60, 40, 20, .45);
+}
+
 #map-wrapper svg {
     /* Fit the whole world map inside the frame (viewBox + preserveAspectRatio handle
        the scaling). No forced min-size: the map must fit, not overflow/scroll. */
@@ -249,24 +535,28 @@ svg path.fog {
     display: block;
 }
 
+/* Colonna fissa di sinistra: non si trascina e non si ridimensiona, resta dov'è
+   mentre la mappa scorre. Per cambiarne la larghezza si tocca --editor-col. */
 #side-panel {
-    position: absolute;
-    right: 40px;
-    top: 60px;
-    width: 520px;
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: var(--editor-col);
+    height: 100vh;
+    box-sizing: border-box;
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 15px;
     z-index: 500;
-    max-height: 92vh;
-    /* Ridimensionabile: trascina l'angolo in basso a destra per ingrandirlo/stretcharlo. */
-    resize: both;
-    overflow: auto;
-    min-width: 340px;
-    min-height: 240px;
+    overflow-y: auto;
+    background: var(--bg-panel-solid);
+    border-right: 3px solid var(--gold-edge);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, .6);
     /* Misura base di tutto il pannello: quasi ogni figlio è in em, quindi è
-       questa la manopola che rende leggibile l'editor senza toccare 30 regole. */
-    font-size: 1.35rem;
+       questa la manopola che rende leggibile l'editor senza toccare 30 regole.
+       Cresce con la finestra, ma non scende sotto il leggibile. */
+    font-size: clamp(1.15rem, 1.15vw, 1.5rem);
 }
 
 #svg-container {
@@ -279,23 +569,25 @@ svg path.fog {
     position: static;
     /* No longer absolute */
     width: auto;
+    /* non deve rubare altezza ai comandi: si prende solo quel che gli serve */
+    flex: 0 0 auto;
     background: var(--bg-panel);
     border: 2px solid var(--gold-edge);
-    padding: 20px;
+    padding: 14px;
     border-radius: 4px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     pointer-events: auto;
 }
 
 #province-name {
-    cursor: move;
     margin-top: 0;
-    font-size: 1.55em;
+    margin-bottom: 8px;
+    font-size: 1.15em;
 }
 
 #province-details {
-    font-size: 1.05em;
-    line-height: 1.6;
+    font-size: 1em;
+    line-height: 1.45;
 }
 
 /* Player Palette - Now part of sidebar */
@@ -370,10 +662,51 @@ svg path.fog {
 
 #game-turn-info.active { color: var(--gold); }
 
+/* Quadro reclute (admin): chi deve ancora schierare, a colpo d'occhio. */
+#game-reinforce-board {
+    margin-top: 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: var(--bg-inset);
+}
+
+.reinforce-head {
+    color: var(--gold);
+    font-size: .95em;
+    letter-spacing: .04em;
+    margin-bottom: 4px;
+}
+
+.reinforce-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 0;
+    font-size: .95em;
+    color: var(--parchment-muted);
+}
+
+.reinforce-row.now { color: var(--gold); }
+.reinforce-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.reinforce-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.reinforce-num {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--parchment-dim);
+}
+
+.reinforce-num.on { color: var(--gold-bright); font-weight: bold; }
+.reinforce-num em { color: var(--ok-soft); font-style: normal; }
+.reinforce-note { color: var(--parchment-muted); font-size: .8em; margin-top: 4px; }
+.reinforce-note em { color: var(--ok-soft); font-style: normal; }
+
 #palette {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    /* 2 columns of detailed cards */
+    /* una scheda per riga: nella colonna di sinistra due colonne di schede
+       tagliavano il nome del giocatore a "G..." */
+    grid-template-columns: 1fr;
     gap: 8px;
 }
 
@@ -480,48 +813,48 @@ svg path.fog {
     /* Hidden by default */
 }
 
-/* Turn Container */
+/* Targhetta anno/turno: piccola, su una riga sola, appoggiata in alto alla mappa.
+   Deve informare senza rubare spazio alla mappa, quindi niente blocco gigante. */
 #turn-container {
     position: absolute;
-    top: 20px;
+    top: 10px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    flex-direction: column;
-    /* Changed to column to stack turn and date */
+    flex-direction: row;
     align-items: center;
-    gap: 5px;
-    background: rgba(43, 33, 24, 0.9);
-    border: 3px solid var(--gold-edge);
-    padding: 22px 64px;
-    border-radius: 22px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    gap: 14px;
+    background: rgba(43, 33, 24, 0.92);
+    border: 2px solid var(--gold-edge);
+    padding: 6px 16px;
+    border-radius: 999px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
     z-index: 600;
 }
 
 .turn-controls {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: 8px;
 }
 
 
 #turn-display {
-    font-size: 2.6rem;
+    font-size: 1.1rem;
     font-weight: bold;
     color: var(--gold);
     text-transform: uppercase;
     letter-spacing: 1px;
-    min-width: 190px;
+    min-width: 90px;
     text-align: center;
 }
 
 #date-display {
-    font-size: 4rem;
+    font-size: 1.5rem;
     line-height: 1.05;
     font-weight: bold;
     color: #fff;
-    text-shadow: 0 0 10px rgba(192, 160, 98, 0.5);
+    text-shadow: 0 0 8px rgba(192, 160, 98, 0.45);
     font-family: 'Cinzel', serif;
     /* Or similar historical font if available, fallback to serif */
 }
@@ -532,10 +865,10 @@ svg path.fog {
     background: var(--gold-edge);
     color: #2b2b2b;
     border: none;
-    width: 46px;
-    height: 46px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
-    font-size: 1.7rem;
+    font-size: 1rem;
     font-weight: bold;
     cursor: pointer;
     display: flex;

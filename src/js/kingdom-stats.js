@@ -68,6 +68,16 @@
     // La CAPITALE conta come Città anche qui: §6 dice che "conta come una Città a
     // tutti gli effetti ... +1 soldato/turno". Il §5.1 nomina solo le Città, ma è
     // un'abbreviazione — confermato dall'utente.
+    //
+    // Le reclute nascono in DUE mucchi diversi, e la differenza è una regola, non
+    // una comodità di UI (confermata dall'utente):
+    //  - LIBERE: quelle del territorio (1 ogni 3 province) e il modificatore di
+    //    Popolarità. Il giocatore le distribuisce come vuole fra le sue province,
+    //    e finché è il suo turno può anche ritirarle e rimetterle altrove.
+    //  - VINCOLATE: quelle prodotte da un edificio (Capitale +1, Città +1,
+    //    Fortezza +5). Nascono nella provincia dell'edificio e lì devono restare.
+    // Il modificatore di Popolarità morde solo il mucchio libero (che non scende
+    // sotto zero): non può cancellare la guarnigione di una Fortezza.
     function reinforcements(provinceCount, units, popularity) {
         const cities = units.citta + units.capitale;
         const fromProvinces = Math.floor(provinceCount / 3);
@@ -75,13 +85,31 @@
         const fromForts = units.fortezza * 5;
         const fromPop = popularity ? popEffect(popularity).soldati : 0;
         const breakdown = [
-            { label: provinceCount + ' province ÷ 3', value: fromProvinces },
-            { label: cities + (cities === 1 ? ' città (Capitale inclusa)' : ' città (Capitale inclusa)'), value: fromCities },
-            { label: units.fortezza + (units.fortezza === 1 ? ' fortezza' : ' fortezze'), value: fromForts }
+            { label: provinceCount + ' province ÷ 3', value: fromProvinces, vincolata: false }
         ];
-        if (popularity) breakdown.push({ label: 'Popolarità ' + popularity, value: fromPop });
-        const total = Math.max(0, fromProvinces + fromCities + fromForts + fromPop);
-        return { total, breakdown };
+        if (popularity) breakdown.push({ label: 'Popolarità ' + popularity, value: fromPop, vincolata: false });
+        breakdown.push(
+            { label: cities + ' città (Capitale inclusa)', value: fromCities, vincolata: true },
+            { label: units.fortezza + (units.fortezza === 1 ? ' fortezza' : ' fortezze'), value: fromForts, vincolata: true }
+        );
+        const libere = Math.max(0, fromProvinces + fromPop);
+        const vincolate = fromCities + fromForts;
+        return { total: libere + vincolate, libere, vincolate, breakdown };
+    }
+
+    // Come `reinforcements`, ma dice anche DOVE vanno le vincolate: serve al motore
+    // per riempire il serbatoio di inizio turno e alla plancia per mostrarlo.
+    // Ritorna in più `perProvincia = { idProvincia: n }`.
+    function reinforcementPlan(provinces, popularity) {
+        const list = provinces || [];
+        const plan = reinforcements(list.length, countUnits(list), popularity);
+        const perProvincia = {};
+        list.forEach(p => {
+            const u = countUnits([p]);
+            const n = u.capitale + u.citta + u.fortezza * 5;
+            if (n > 0) perProvincia[p.id] = n;
+        });
+        return Object.assign({}, plan, { perProvincia });
     }
 
     // Resa risorse per turno: 1 unità per provincia (§4). La connettività alla Capitale
@@ -106,7 +134,7 @@
 
     const api = {
         TAX_INCOME, POP_EFFECT,
-        roundRule, popEffect, countUnits, income, reinforcements,
+        roundRule, popEffect, countUnits, income, reinforcements, reinforcementPlan,
         resourceYield, resourceVariety
     };
 
