@@ -56,6 +56,18 @@
     // Monete incassate da ogni Città per turno (§7). La Capitale conta come Città.
     const TAX_INCOME = { leggera: 50, normale: 100, dura: 150 };
 
+    // PRESIDIO MINIMO (§5): una provincia non resta MAI sguarnita. Qualunque cosa
+    // porti via soldati da una provincia — un attacco, uno spostamento, il costo in
+    // soldati di una costruzione, il ritiro di una recluta — lavora su quanti se ne
+    // possono muovere, non su quanti ce ne sono. È l'unica fonte di questa regola:
+    // sia la validazione (game-actions.js) sia i massimi mostrati in UI
+    // (player-board.js) passano di qui, così non possono divergere.
+    const MIN_GARRISON = 1;
+
+    function spendableTroops(troopsInProvince) {
+        return Math.max(0, (troopsInProvince || 0) - MIN_GARRISON);
+    }
+
     function emptyScorte() {
         const s = {};
         RES.forEach(k => { s[k] = 0; });
@@ -80,8 +92,9 @@
         }).join(' + ');
     }
 
-    // Il regno può permettersi il costo? `soldiersHere` = soldati disponibili
-    // sulla provincia interessata (i costi in soldati si pagano lì, non dal totale).
+    // Il regno può permettersi il costo? `soldiersHere` = soldati SPENDIBILI sulla
+    // provincia interessata (i costi in soldati si pagano lì, non dal totale, e chi
+    // chiama deve già aver tolto il presidio minimo con spendableTroops).
     // Ritorna anche cosa manca, così la UI può dirlo invece di limitarsi a un "no".
     function canAfford(player, cost, soldiersHere) {
         const missing = [];
@@ -98,9 +111,16 @@
     }
 
     // Frase pronta per l'utente: "ti mancano 2 Pietra e 500 monete".
+    // Soldati e monete si accordano al numero: col presidio minimo (§5) il caso
+    // "ti manca 1 soldato" capita a ogni costruzione, e "1 Soldati" si legge male.
     function missingText(missing) {
         if (!missing || !missing.length) return '';
-        const parts = missing.map(m => (m.serve - m.hai) + ' ' + m.label);
+        const parts = missing.map(m => {
+            const n = m.serve - m.hai;
+            if (m.tipo === 'soldati') return n + (n === 1 ? ' soldato' : ' soldati');
+            if (m.tipo === 'monete') return n + (n === 1 ? ' moneta' : ' monete');
+            return n + ' ' + m.label;
+        });
         if (parts.length === 1) return 'ti manca ' + parts[0];
         return 'ti mancano ' + parts.slice(0, -1).join(', ') + ' e ' + parts[parts.length - 1];
     }
@@ -223,8 +243,8 @@
 
     const api = {
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
-        BUILDABLE_ON_PROVINCE, TEMPORARY,
-        emptyScorte, formatCost, canAfford, missingText,
+        BUILDABLE_ON_PROVINCE, TEMPORARY, MIN_GARRISON,
+        emptyScorte, formatCost, canAfford, missingText, spendableTroops,
         connected, turnProduction, popEffectOf, defenceBonus
     };
 

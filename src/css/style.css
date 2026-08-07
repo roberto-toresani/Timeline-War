@@ -316,6 +316,136 @@ svg path.fog {
 }
 
 /* ============================================================
+   PERGAMENA DI FONDAZIONE (vedi showFoundation in js/app.js)
+   Costruire una Città è l'unico gesto che entra nella cronaca: qui il tema si
+   ribalta rispetto al resto della UI — carta chiara e inchiostro scuro, non
+   pannello scuro e oro — perché il foglio deve sembrare tirato fuori da un
+   archivio, non un'altra finestra del gioco. Si srotola dai due bastoni.
+   ============================================================ */
+
+#ui-foundation {
+    position: fixed;
+    inset: 0;
+    z-index: 12500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(12, 8, 4, .66);
+    animation: uf-fade .2s ease-out;
+}
+
+@keyframes uf-fade { from { opacity: 0; } }
+
+#ui-foundation .uf-scroll {
+    --kingdom: var(--gold-edge);
+    width: min(560px, 88vw);
+    filter: drop-shadow(0 22px 46px rgba(0, 0, 0, .7));
+    animation: uf-open .42s cubic-bezier(.2, .9, .25, 1);
+}
+
+/* I due bastoni della pergamena: sono il motivo per cui il foglio "si srotola"
+   invece di comparire. Restano fermi mentre il foglio cresce. */
+#ui-foundation .uf-rod {
+    height: 14px;
+    border-radius: 7px;
+    background: linear-gradient(180deg, #9c7642 0%, #5d4037 55%, #3a2820 100%);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .55);
+}
+
+#ui-foundation .uf-sheet {
+    /* carta invecchiata: due aloni caldi sugli angoli e una base avorio */
+    background:
+        radial-gradient(120% 90% at 12% 0%, rgba(190, 150, 90, .30), transparent 60%),
+        radial-gradient(120% 90% at 88% 100%, rgba(160, 120, 60, .26), transparent 60%),
+        linear-gradient(180deg, #f3e6c8, #e4d2ab);
+    border-left: 1px solid rgba(120, 92, 52, .35);
+    border-right: 1px solid rgba(120, 92, 52, .35);
+    padding: 26px 30px 22px;
+    font-family: 'Cinzel', Georgia, serif;
+    color: #3a2a16;
+    text-align: center;
+    animation: uf-ink .5s ease-out .12s backwards;
+}
+
+@keyframes uf-open { from { transform: scaleY(.04); opacity: .2; } }
+@keyframes uf-ink  { from { opacity: 0; } }
+
+#ui-foundation .uf-eyebrow {
+    font-size: .82rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: #7a6242;
+    border-bottom: 1px solid rgba(90, 68, 38, .35);
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+}
+
+#ui-foundation .uf-year {
+    font-size: 1.6rem;
+    color: #7a2e1e;
+    letter-spacing: .06em;
+}
+
+#ui-foundation .uf-title {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.2;
+    margin: 6px 0 14px;
+}
+
+/* Il filetto sotto il titolo prende il colore del regno che fonda: è l'unico
+   punto in cui la pergamena dice DI CHI è la città. */
+#ui-foundation .uf-title::after {
+    content: '';
+    display: block;
+    width: 96px;
+    height: 3px;
+    margin: 12px auto 0;
+    border-radius: 2px;
+    background: var(--kingdom);
+    box-shadow: 0 0 0 1px rgba(58, 42, 22, .35);
+}
+
+/* Eco storica: il filetto non è il colore del regno ma l'inchiostro rosso del
+   cronista — quella battaglia non l'ha vinta nessuno dei giocatori. */
+#ui-foundation .uf-scroll.uf-battaglia { --kingdom: #7a2e1e; }
+
+#ui-foundation .uf-text {
+    font-size: 1.05rem;
+    line-height: 1.55;
+}
+
+#ui-foundation .uf-note {
+    font-size: .95rem;
+    line-height: 1.6;
+    font-style: italic;
+    color: #6b5433;
+    margin-top: 12px;
+}
+
+#ui-foundation .uf-actions { margin-top: 20px; }
+
+#ui-foundation .uf-ok {
+    font-family: inherit;
+    font-size: 1rem;
+    letter-spacing: .04em;
+    padding: 9px 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #3a2a16;
+    border: 1px solid #7a6242;
+    color: #f3e6c8;
+}
+
+#ui-foundation .uf-ok:hover { background: #57402a; border-color: #a08557; }
+
+@media (prefers-reduced-motion: reduce) {
+    #ui-foundation,
+    #ui-foundation .uf-scroll,
+    #ui-foundation .uf-sheet { animation: none; }
+}
+
+/* ============================================================
    SCENA DELLA BATTAGLIA (vedi playBattleFx in js/app.js)
    Il colpo si legge in tre battute: la mappa si abbassa e restano accese le
    due province, una lama corre da attaccante a difensore, l'impatto scuote la

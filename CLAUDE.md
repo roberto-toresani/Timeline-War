@@ -25,6 +25,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ game-rules.js      costi (§6), connettività (§4), produzione di turno (§2) — puro
 │  ├─ game-actions.js    UNICO punto che muta lo stato: schiera/costruisci/attacca/turni
 │  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
+│  ├─ chronicle.js       calendario (1 turno = 1 decennio) e fondazione delle città — puro
 │  ├─ map-decor.js       vestizione "carta antica": mare, grana, alone costiero
 │  ├─ battle.js          risoluzione probabilistica delle battaglie (funzione pura)
 │  ├─ sync.js            sincronizzazione multiplayer (Firestore)
@@ -32,6 +33,8 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 ├─ data/
 │  ├─ embedded_map.js    la mappa SVG completa, inline in RAW_SVG_CONTENT
 │  ├─ map_data.js        dati delle province
+│  ├─ city_names.js      provincia → città storica che vi sorge (solo colore)
+│  ├─ historic_battles.js battaglie vere: anno + provincia (solo se verificate)
 │  └─ id_mapping.js      mappatura id SVG ↔ nomi province
 └─ assets/               mappe SVG (world_map*.svg)
 firebase/firestore.rules regole di sicurezza Firestore (da pubblicare nella console Firebase)
@@ -60,6 +63,36 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   proprio bottone Fine turno nella plancia. `turnoDi`/`ordine`/`primoDelGiro` vivono in
   `app.js` ed entrano nel documento di stato — un giocatore può agire solo quando
   `turnoDi` è il suo id (§2.1, rotazione del primo giocatore a ogni giro).
+- **Presidio minimo (§5)**: una provincia **non resta mai sguarnita**. `GameRules.MIN_GARRISON`
+  (=1) e `GameRules.spendableTroops(n)` sono l'unica fonte della regola: qualunque cosa porti
+  soldati fuori da una provincia lavora sugli **spendibili**, non sui presenti — attacco,
+  spostamento finale, costi in soldati delle costruzioni (Capitale 5, Mercato 4, Nave 3,
+  Strada 1) e persino il ritiro di una recluta appena schierata. Anche la conquista la
+  rispetta dall'altra parte: almeno 1 superstite resta nella provincia presa. Se aggiungi
+  un'azione che sottrae soldati, passa da `spare(path)` in `game-actions.js` e da `spareOf(path)`
+  in `player-board.js`, così il massimo mostrato e quello accettato non divergono.
+- **Il turno è a fasi, in quest'ordine**: `schiera → costruisci → attacca → sposta`
+  (`GameActions.PHASES`, campo `player.fase`). Si avanza con `GameActions.nextPhase()`
+  e non si torna indietro. Il vincolo vive in `game-actions.js` (ogni azione chiama
+  `requirePhase`), non solo nella UI: il pannello destro mostra solo la fase corrente
+  ma è il motore a rifiutare un click fuori tempo. In `play.html` la "pista delle
+  fasi" (`#bp-phases`) è l'indice di lettura del pannello.
+  - `schiera`: reclute libere e obbligatorie (§5.1). Oltre all'elenco province c'è il
+    **cursore sulla mappa** (`#map-deploy-hud`), un −N+ ancorato alla provincia
+    selezionata; è HTML e non SVG apposta (dentro l'SVG i bottoni scalerebbero con lo
+    zoom), e insegue la provincia con `requestAnimationFrame` perché pan e zoom della
+    mappa non emettono eventi. Coordinate da `Risiko.provinceScreenPos(id)`.
+  - `costruisci`: edifici, navi, strade, unità temporanee.
+  - `attacca`: quanti attacchi si vuole. `Risiko.showAttackArrows(fromId, ids)` disegna
+    frecce animate verso i confinanti attaccabili, nel gruppo `#attack-arrows` appeso in
+    coda all'SVG (non fra le pedine: `renderPiecesForPath` le cancellerebbe).
+  - **conquista**: vinta una battaglia con più di 1 superstite, `player.conquista` resta
+    aperta e blocca ogni altra azione finché `resolveConquest(player, occupanti)` non
+    decide quanti restano nella provincia presa e quanti rientrano in quella di partenza
+    (almeno 1 deve occupare). A fine turno si chiude d'ufficio lasciandoli tutti lì.
+  - `sposta`: **un solo** spostamento per turno (`player.spostamentoFatto`), fra due
+    province proprie unite da una catena ininterrotta di province proprie
+    (`moveTargets`), lasciando almeno 1 soldato alla partenza.
 - **Schieramento (§5.1)**: le reclute di inizio turno sono di due tipi. Le **libere**
   (province ÷ 3, più il modificatore di Popolarità) vanno dove vuole il giocatore e si
   possono ritirare/rimettere finché il turno è aperto; le **obbligatorie** (Capitale +1,
@@ -76,6 +109,32 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   `GameActions.attack` restituisce; il CSS sta in `style.css` ed è disattivato da
   `prefers-reduced-motion`. Il rapporto di battaglia nel pannello destro è
   `renderBattle()` in `player-board.js`.
+- **Calendario e fondazione delle città**: un turno è un **decennio** (turno 0 = 1000-1009).
+  Il calendario sta tutto in `js/chronicle.js` (`YEAR_ZERO`, `yearOfTurn`): `app.js` legge
+  da lì per la targhetta dell'anno, non ricalcola `1000 + turno*10`. Quando si costruisce
+  una **Città** (o una **Capitale**, `Chronicle.foundCapital`),
+  `GameActions.build` allega al risultato un oggetto `fondazione`
+  (`Chronicle.foundCity`) e la plancia srotola la pergamena `Risiko.showFoundation(info)`
+  (in `app.js`, CSS `#ui-foundation` in `style.css`): "Anno Domini 1142 — nella provincia
+  di Home Counties nasce la città di Londra". Il nome vero della città viene da
+  `data/city_names.js` (provincia → città); se la provincia non è in tabella vale il suo
+  stesso nome (mezzo mondo si chiama già come la sua città). L'anno **non è casuale**: è un
+  hash di provincia+turno dentro il decennio, così non serve salvarlo nello stato e la
+  stessa fondazione dà sempre lo stesso anno. È **solo colore**: nessuna regola dipende da
+  qui, e se `chronicle.js` non c'è la Città si costruisce lo stesso.
+- **Eco storica delle battaglie**: se nella provincia attaccata (o in quella di partenza),
+  **dentro il decennio di quel turno**, si è combattuta davvero una battaglia, `attack`
+  allega `cronaca` (`Chronicle.battleEcho`) e la plancia srotola la stessa pergamena in
+  variante rossa (`.uf-battaglia`), dopo la scena della battaglia (~3,9s) per non coprirla.
+  Il corpus è `data/historic_battles.js`, chiuso a chiave: **entra solo ciò che è
+  verificato**, cioè anno e campo di battaglia accertati *e* sito che cade senza ambiguità
+  dentro quella provincia. L'abbinamento sito → provincia è stato controllato due volte
+  (nome della regione storica + riproiezione delle coordinate reali dentro l'SVG con
+  `isPointInFill`); le battaglie a cavallo di due province di questa mappa o in regioni che
+  la mappa non distingue sono state **scartate** e sono elencate nell'intestazione del file.
+  Chi aggiunge una riga usa lo stesso metro: nel dubbio non si aggiunge. Attenzione: la
+  chiave è il **nome** della provincia, non l'id SVG (`Northern_Serbia` → "Serbia",
+  `Estremadura` → "Portugal").
 - **Aspetto della mappa**: `js/map-decor.js` veste l'SVG appena caricato (chiamato da
   `initMap` in `app.js`). Agisce **solo su elementi statici** — il `rect#svg-background`
   (mare) e una copia congelata di `#map-group` che fa da alone costiero — perché

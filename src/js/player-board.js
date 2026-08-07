@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hasFitted = false;
         selectedProvId = null;
         lastBattle = null;
+        R.clearAttackArrows();
         try { sessionStorage.setItem('risiko_board_player', String(player.id)); } catch (e) { /* privato */ }
         $('board-picker').style.display = 'none';
         R.focusPlayer(player.id);
@@ -138,6 +139,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return (GR().ITEM_LABEL && GR().ITEM_LABEL[type])
             || ((typeof PIECES !== 'undefined' && PIECES[type]) ? PIECES[type].nome : type);
     }
+    // Soldati che possono lasciare la provincia (§5: uno resta sempre a presidiare).
+    // Tutti i massimi mostrati qui devono essere questi, non il totale presente:
+    // un massimo che il motore poi rifiuta è peggio di un bottone spento.
+    function spareOf(path) { return GR().spendableTroops(R.countPiece(path, 'soldato')); }
 
     // Esegue un'azione e ridisegna. Le azioni chiamano gia' Risiko.save() e
     // refresh(), che riporta qui via onRefresh: basta mostrare il messaggio.
@@ -152,6 +157,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         showNotice(result.msg, result.ok);
         render();
+        // La nascita di una città (o di una capitale) è un fatto di cronaca: si
+        // inquadra la provincia e si srotola la pergamena (showFoundation in
+        // app.js). Dopo il render, altrimenti il ridisegno della plancia ruba il
+        // focus al bottone.
+        if (result.fondazione && R.showFoundation) {
+            if (result.fondazione.id) R.fitToProvinces([result.fondazione.id]);
+            R.showFoundation(result.fondazione);
+        }
+        // Eco storica di una battaglia: si aspetta che la scena sulla mappa sia
+        // finita (playBattleFx dura ~3,6s), altrimenti la pergamena coprirebbe
+        // proprio il colpo che il giocatore stava guardando.
+        if (result.cronaca && R.showFoundation) {
+            clearTimeout(run._eco);
+            run._eco = setTimeout(() => R.showFoundation(result.cronaca), result.battle ? 3900 : 0);
+        }
     }
 
     function showNotice(msg, ok) {
@@ -203,19 +223,66 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Conferme in pagina (R.confirm), non window.confirm: il dialogo nativo viene
     // chiuso d'ufficio in certi contesti e l'azione non partiva mai.
-    $('board-end-turn').addEventListener('click', () => {
+    function askEndTurn() {
         R.confirm({
             title: 'Chiudere il tuo turno?',
             text: 'Le unità temporanee scadono, i rinforzi obbligatori rimasti vengono schierati d\'ufficio e si passa al regno successivo.',
             ok: 'Chiudi il turno'
         }, () => run(GA().endTurn()));
-    });
+    }
+
+    $('board-end-turn').addEventListener('click', askEndTurn);
 
     // Il giocatore può agire solo nel proprio turno, e solo a partita avviata.
     function isPlaying(player) {
         const t = R.turnoDi();
         return t !== null && t !== undefined && t === player.id;
     }
+
+    // ---------- fasi del turno ----------
+    // L'elenco delle fasi e la loro sequenza stanno in game-actions.js: qui si
+    // disegnano soltanto. Chi vuole aggiungere una fase la aggiunge là.
+
+    function phase(player) { return GA().phaseOf(player); }
+    function inPhase(player, f) { return isPlaying(player) && phase(player) === f && !player.conquista; }
+
+    function renderPhases(player) {
+        const box = $('bp-phases');
+        const cur = GA().phaseIndex(player);
+        box.innerHTML = '';
+        GA().PHASES.forEach((f, i) => {
+            const chip = document.createElement('div');
+            chip.className = 'bp-phase-chip' + (i === cur ? ' now' : i < cur ? ' done' : '');
+            chip.innerHTML = '<span class="n">' + (i < cur ? '✓' : i + 1) + '</span><span class="t"></span>';
+            chip.querySelector('.t').textContent = GA().PHASE_LABEL[f];
+            box.appendChild(chip);
+        });
+
+        const f = phase(player);
+        $('bp-phase-head').setAttribute('data-step', String(cur + 1));
+        setText('bp-phase-name', GA().PHASE_LABEL[f]);
+        setText('bp-phase-sub', isPlaying(player)
+            ? GA().PHASE_HINT[f]
+            : 'Non è il tuo turno: la plancia mostra dove sei rimasto.');
+
+        // Blocchi che esistono solo in una fase.
+        $('fase-schiera').style.display = f === 'schiera' ? '' : 'none';
+        $('fase-sposta').style.display = f === 'sposta' ? '' : 'none';
+
+        const next = $('bp-next-phase');
+        const last = cur === GA().PHASES.length - 1;
+        next.textContent = last ? '✓ Chiudi il turno'
+            : 'Fatto → ' + GA().PHASE_LABEL[GA().PHASES[cur + 1]];
+        next.className = 'bp-next' + (last ? ' end' : '');
+        next.disabled = !isPlaying(player) || !!player.conquista;
+    }
+
+    $('bp-next-phase').addEventListener('click', () => {
+        const player = currentPlayer();
+        if (!player) return;
+        if (GA().phaseIndex(player) === GA().PHASES.length - 1) { askEndTurn(); return; }
+        run(GA().nextPhase(player));
+    });
 
     // ---------- reclute in attesa (§5.1) ----------
     // Due mucchi: LIBERE (dove vuole) e OBBLIGATORIE (nella provincia dell'edificio
@@ -227,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bound = GA().boundPool(player);
         const boundTot = GA().boundTotal(player);
         const tot = free + boundTot;
-        const myTurn = isPlaying(player);
+        const myTurn = inPhase(player, 'schiera');
 
         setText('bp-pool', tot);
         setText('bp-pool-free', free);
@@ -281,8 +348,82 @@ document.addEventListener('DOMContentLoaded', () => {
         const note = $('bp-deploy-note');
         if (!tot) note.textContent = 'Nessuna recluta in attesa: arrivano a inizio turno.';
         else if (!myTurn) note.textContent = 'Le schiererai quando tocca a te.';
-        else note.textContent = 'Usa + e − nell\'elenco delle tue province: finché non chiudi il turno puoi spostarle a piacere.';
+        else note.textContent = 'Usa + e − sulla mappa (sulla provincia selezionata) o nell\'elenco delle province: ' +
+            'finché non chiudi la fase puoi spostarle a piacere.';
     }
+
+    // ---------- cursore di schieramento sulla mappa ----------
+    // In fase 1 le truppe si muovono anche senza guardare il pannello: sopra la
+    // provincia selezionata compare un − N + ancorato alla mappa. È HTML e non
+    // SVG apposta: dentro l'SVG i bottoni scalerebbero con lo zoom fino a
+    // diventare impraticabili sulle province piccole.
+    // La posizione si insegue con requestAnimationFrame perché pan e zoom della
+    // mappa non emettono eventi: si misura la sola provincia selezionata.
+
+    const hud = $('map-deploy-hud');
+    let hudRaf = null;
+    let hudLast = '';
+
+    function placeHud() {
+        const pos = selectedProvId && R.provinceScreenPos(selectedProvId);
+        if (!pos || !pos.visible) { hud.style.visibility = 'hidden'; return; }
+        hud.style.visibility = 'visible';
+        const key = Math.round(pos.x) + ':' + Math.round(pos.y);
+        if (key === hudLast) return;
+        hudLast = key;
+        hud.style.left = pos.x + 'px';
+        hud.style.top = pos.y + 'px';
+    }
+
+    function trackHud() {
+        if (hud.style.display === 'none') { hudRaf = null; return; }
+        placeHud();
+        hudRaf = requestAnimationFrame(trackHud);
+    }
+
+    function renderMapHud(player) {
+        const path = selectedProvId ? R.engine.path(selectedProvId) : null;
+        const on = path && inPhase(player, 'schiera') && R.engine.owner(path) === player.name;
+        if (!on) {
+            hud.style.display = 'none';
+            if (hudRaf) { cancelAnimationFrame(hudRaf); hudRaf = null; }
+            return;
+        }
+
+        const rec = GA().placedPool(player)[path.id] || { libere: 0, vincolate: 0 };
+        const messe = rec.libere + rec.vincolate;
+        const attesa = GA().boundPool(player)[path.id] || 0;
+        const libere = player.recluteDaSchierare || 0;
+
+        hud.querySelector('.mdh-name').textContent = R.provinceLabel(path);
+        setText('mdh-troops', R.countPiece(path, 'soldato'));
+        setText('mdh-added', messe ? '+' + messe : '');
+        $('mdh-minus').disabled = !Math.min(messe, spareOf(path));
+        $('mdh-plus').disabled = !(libere || attesa);
+        setText('mdh-note', attesa
+            ? '⚑ ' + attesa + ' obbligatorie da posare qui'
+            : libere ? libere + ' libere in mano' : 'nessuna recluta in mano');
+
+        hud.style.display = 'block';
+        hudLast = '';
+        placeHud();
+        if (!hudRaf) hudRaf = requestAnimationFrame(trackHud);
+    }
+
+    // Il + posa prima le obbligatorie della provincia: sono quelle che non hanno
+    // altro posto dove andare, tenerle in mano è solo un modo di scordarsele.
+    $('mdh-plus').addEventListener('click', () => {
+        const player = currentPlayer();
+        if (!player || !selectedProvId) return;
+        const attesa = GA().boundPool(player)[selectedProvId] || 0;
+        run(attesa ? GA().deployBound(player, selectedProvId, 1) : GA().deploy(player, selectedProvId, 1));
+    });
+
+    $('mdh-minus').addEventListener('click', () => {
+        const player = currentPlayer();
+        if (!player || !selectedProvId) return;
+        run(GA().undeploy(player, selectedProvId, 1));
+    });
 
     // ---------- pannello sinistro ----------
 
@@ -394,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
             box.innerHTML = '<div class="bp-empty-hint">Nessuna provincia: l\'admin te le assegna dalla mappa principale.</div>';
             return;
         }
-        const myTurn = isPlaying(player);
+        const myTurn = inPhase(player, 'schiera');   // i −/+ esistono solo in fase 1
         const bound = GA().boundPool(player);
         const placed = GA().placedPool(player);
 
@@ -447,8 +588,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ctl.appendChild(mk('⚑', 'Schiera qui i ' + attesa + ' rinforzi obbligatori', false,
                 () => run(GA().deployBound(player, path.id))));
         }
-        ctl.appendChild(mk('−', messe ? 'Ritira 1 recluta schierata in questo turno' : 'Qui non hai schierato nulla in questo turno',
-            !messe, () => run(GA().undeploy(player, path.id, 1))));
+        const ritirabili = Math.min(messe, spareOf(path));
+        ctl.appendChild(mk('−',
+            ritirabili ? 'Ritira 1 recluta schierata in questo turno'
+                : messe ? 'È l\'ultimo soldato: la provincia non resta sguarnita'
+                    : 'Qui non hai schierato nulla in questo turno',
+            !ritirabili, () => run(GA().undeploy(player, path.id, 1))));
         ctl.appendChild(mk('+', (player.recluteDaSchierare || 0) ? 'Schiera 1 recluta libera qui' : 'Nessuna recluta libera',
             !(player.recluteDaSchierare > 0), () => run(GA().deploy(player, path.id, 1))));
         return ctl;
@@ -470,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!path) {
             nameEl.textContent = 'Nessuna provincia selezionata';
             setText('bp-province-troops', '—');
-            actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa o nell\'elenco qui sotto.</div>';
+            actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa, o nell\'elenco 1.4 qui sotto.</div>';
             return;
         }
 
@@ -491,16 +636,37 @@ document.addEventListener('DOMContentLoaded', () => {
             actions.innerHTML = '<div class="bp-empty-hint">Non è tua. Per attaccarla, seleziona una tua provincia confinante.</div>';
             return;
         }
-        if (!GA().isMyTurn(player)) {
+        if (!isPlaying(player)) {
             actions.innerHTML = '<div class="bp-empty-hint">Non è il tuo turno: puoi guardare, non agire.</div>';
             return;
         }
+        if (player.conquista) {
+            actions.innerHTML = '<div class="bp-empty-hint">Conquista in sospeso: decidi qui sotto come occuparla.</div>';
+            return;
+        }
 
+        // Una fase per volta: mostrare le costruzioni mentre si schiera (o gli
+        // attacchi mentre si costruisce) è esattamente il disordine che questa
+        // struttura elimina. Il rifiuto vero lo fa comunque game-actions.js.
         actions.innerHTML = '';
-        actions.appendChild(deployGroup(player, path));
-        actions.appendChild(buildGroup(player, path, connectedSet));
-        actions.appendChild(roadGroup(player, path));
-        actions.appendChild(attackGroup(player, path));
+        switch (phase(player)) {
+            case 'schiera':
+                actions.appendChild(deployGroup(player, path));
+                break;
+            case 'costruisci':
+                actions.appendChild(buildGroup(player, path, connectedSet));
+                actions.appendChild(roadGroup(player, path));
+                break;
+            case 'attacca':
+                actions.appendChild(attackGroup(player, path));
+                break;
+            case 'sposta':
+                actions.innerHTML = '<div class="bp-empty-hint">Fase di spostamento: ' +
+                    (player.spostamentoFatto
+                        ? 'lo spostamento del turno è già stato fatto.'
+                        : 'questa è la provincia di partenza, scegli l\'arrivo qui sotto.') + '</div>';
+                break;
+        }
     }
 
     function group(title) {
@@ -541,12 +707,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<div class="bp-empty-hint">Serbatoio vuoto: le reclute arrivano a inizio turno.</div>');
         }
 
-        // Ripensarci è parte della fase: si ritira solo ciò che si è messo adesso.
+        // Ripensarci è parte della fase: si ritira solo ciò che si è messo adesso,
+        // e comunque mai l'ultimo soldato della provincia (§5).
         const rec = GA().placedPool(player)[path.id] || { libere: 0, vincolate: 0 };
         const messe = rec.libere + rec.vincolate;
-        if (messe) {
-            g.appendChild(numberRow('Ritira', messe, 'schierate ora: ' + messe,
+        const ritirabili = Math.min(messe, spareOf(path));
+        if (ritirabili) {
+            g.appendChild(numberRow('Ritira', ritirabili, 'schierate ora: ' + messe,
                 n => run(GA().undeploy(player, path.id, n))));
+        } else if (messe) {
+            g.insertAdjacentHTML('beforeend',
+                '<div class="bp-empty-hint">L\'ultima recluta non si ritira: senza di lei ' +
+                R.provinceLabel(path) + ' resterebbe sguarnita.</div>');
         }
         return g;
     }
@@ -567,7 +739,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function buildGroup(player, path, connectedSet) {
         const g = group('Costruisci');
-        const soldiersHere = R.countPiece(path, 'soldato');
+        const soldiersHere = spareOf(path);   // il presidio non si spende
+        g.insertAdjacentHTML('beforeend',
+            '<div class="bp-army"><span class="bp-army-n">' + soldiersHere + '</span>' +
+            '<span class="bp-army-l">soldati spendibili qui · uno resta sempre a presidiare</span></div>');
 
         GR().BUILDABLE_ON_PROVINCE.forEach(type => {
             const cost = GR().COSTS[type];
@@ -593,7 +768,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Unità temporanee: valgono solo questo turno.
         GR().TEMPORARY.forEach(type => {
             const cost = GR().COSTS[type];
-            const afford = GR().canAfford(player, cost, R.countPiece(path, 'soldato'));
+            const afford = GR().canAfford(player, cost, soldiersHere);
             g.appendChild(actionButton(pieceName(type) + ' (1 turno)', GR().formatCost(cost),
                 afford.ok ? null : shorten(GR().missingText(afford.missing)),
                 () => run(GA().recruit(player, path.id, type))));
@@ -622,7 +797,7 @@ document.addEventListener('DOMContentLoaded', () => {
         vicine.forEach(target => {
             let why = null;
             if (!gratis) {
-                const afford = GR().canAfford(player, GR().COSTS.strada, R.countPiece(path, 'soldato'));
+                const afford = GR().canAfford(player, GR().COSTS.strada, spareOf(path));
                 if (!afford.ok) why = shorten(GR().missingText(afford.missing));
             }
             g.appendChild(actionButton('→ ' + R.provinceLabel(target), cost, why,
@@ -632,15 +807,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function attackGroup(player, path) {
-        const g = group('Attacca');
+        const g = group('Attacca da ' + R.provinceLabel(path));
         const available = R.countPiece(path, 'soldato');
+        const partenti = spareOf(path);      // tutti meno il presidio (§5)
         const targets = GA().attackTargets(player, path.id);
 
+        // L'esercito a disposizione va detto prima dei bersagli: è il vincolo che
+        // decide tutto il resto (uno resta sempre a casa).
+        g.insertAdjacentHTML('beforeend',
+            '<div class="bp-army">' +
+            '<span class="bp-army-n">' + partenti + '</span>' +
+            '<span class="bp-army-l">possono partire · su ' + available +
+            ' nella provincia, uno resta sempre a presidiare</span></div>');
+
         if (!targets.length) {
-            g.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun confine nemico da qui.</div>');
+            g.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun confine nemico da qui: scegli un\'altra provincia di partenza.</div>');
             return g;
         }
-        if (available < 2) {
+        if (!partenti) {
             g.insertAdjacentHTML('beforeend',
                 '<div class="bp-empty-hint">Servono almeno 2 soldati: uno resta sempre a presidiare la provincia di partenza.</div>');
             return g;
@@ -651,12 +835,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = document.createElement('input');
         input.type = 'number';
         input.min = '1';
-        input.max = String(available - 1);
-        input.value = String(available - 1);
+        input.max = String(partenti);
+        input.value = String(partenti);
         input.title = 'Truppe impegnate (ne resta almeno 1 a presidiare)';
         row.appendChild(input);
         row.insertAdjacentHTML('beforeend',
-            '<span class="bp-act-cost">di ' + available + ' disponibili</span>');
+            '<span class="bp-act-cost">di ' + partenti + ' che possono partire</span>');
         g.appendChild(row);
 
         // Pronostico prima di lanciare la carica: è la stessa formula della
@@ -673,8 +857,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         title: 'Attaccare ' + t.label + '?',
                         text: n + (n === 1 ? ' truppa impegnata' : ' truppe impegnate') + ' contro ' +
                             t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
-                            ' · probabilità di vittoria ' + p + '%. Chi parte non torna indietro: ' +
-                            'le truppe impegnate lasciano ' + R.provinceLabel(path) + ' comunque vada.',
+                            ' · probabilità di vittoria ' + p + '%. Le truppe impegnate lasciano ' +
+                            R.provinceLabel(path) + ' comunque vada: se vinci deciderai quante ' +
+                            'restano nella provincia presa e quante rientrano; se perdi non torna nessuno.',
                         ok: '⚔ Carica', tone: 'war'
                     }, () => run(GA().attack(player, path.id, t.id, n)));
                 });
@@ -708,6 +893,119 @@ document.addEventListener('DOMContentLoaded', () => {
         return msg.length > 34 ? msg.slice(0, 32) + '…' : msg;
     }
 
+    // ---------- conquista: come occupare la provincia appena presa ----------
+    // Passo obbligato dopo una vittoria: finché è aperto game-actions rifiuta
+    // qualsiasi altra azione, quindi qui non serve disabilitare nient'altro.
+
+    function renderConquest(player) {
+        const box = $('bp-conquest');
+        const c = GA().conquestPending(player);
+        if (!c) { box.style.display = 'none'; return; }
+
+        box.style.display = 'block';
+        box.innerHTML = `
+            <div class="bc-head">⚑ ${c.toLabel} è tua — quanti restano a occuparla?</div>
+            <div class="bc-route">${c.superstiti} superstiti dell'assalto partito da ${c.fromLabel}</div>
+            <div class="bc-split">
+                <div class="bc-cell win"><span class="n" id="bc-occup">0</span><span class="l">occupano ${c.toLabel}</span></div>
+                <div class="bc-cell back"><span class="n" id="bc-back">0</span><span class="l">rientrano in ${c.fromLabel}</span></div>
+            </div>
+            <input type="range" id="bc-range" min="1" max="${c.superstiti}" value="${c.superstiti}">
+            <div class="bc-note">Almeno 1 deve restare, se no la provincia resta sguarnita.</div>
+            <button type="button" class="bp-act bc-go"><span class="bp-act-name">Conferma l'occupazione</span></button>`;
+
+        const range = box.querySelector('#bc-range');
+        const sync = () => {
+            const n = parseInt(range.value, 10);
+            setText('bc-occup', n);
+            setText('bc-back', c.superstiti - n);
+        };
+        range.addEventListener('input', sync);
+        sync();
+        box.querySelector('.bc-go').addEventListener('click',
+            () => run(GA().resolveConquest(player, parseInt(range.value, 10))));
+    }
+
+    // ---------- spostamento di fine turno (uno solo) ----------
+
+    function renderMove(player) {
+        const box = $('bp-move');
+        box.innerHTML = '';
+        if (!isPlaying(player)) {
+            box.innerHTML = '<div class="bp-empty-hint">Non è il tuo turno.</div>';
+            return;
+        }
+        if (player.spostamentoFatto) {
+            box.innerHTML = '<div class="bp-empty-hint">Spostamento già fatto: se ne fa uno solo per turno. ' +
+                'Puoi chiudere il turno.</div>';
+            return;
+        }
+
+        const path = selectedProvId ? R.engine.path(selectedProvId) : null;
+        if (!path || R.engine.owner(path) !== player.name) {
+            box.innerHTML = '<div class="bp-empty-hint">Scegli sulla mappa (o nell\'elenco) la provincia da cui far partire i soldati.</div>';
+            return;
+        }
+
+        const available = R.countPiece(path, 'soldato');
+        const mobili = spareOf(path);
+        if (!mobili) {
+            box.innerHTML = '<div class="bp-empty-hint">In ' + R.provinceLabel(path) +
+                ' c\'è un solo soldato: deve restare a presidiare.</div>';
+            return;
+        }
+
+        const targets = GA().moveTargets(player, path.id);
+        if (!targets.length) {
+            box.innerHTML = '<div class="bp-empty-hint">Da ' + R.provinceLabel(path) +
+                ' non si raggiunge nessun\'altra tua provincia via terra.</div>';
+            return;
+        }
+
+        box.insertAdjacentHTML('beforeend',
+            '<div class="bp-army"><span class="bp-army-n">' + mobili + '</span>' +
+            '<span class="bp-army-l">muovibili da ' + R.provinceLabel(path) + ' · su ' + available +
+            ', uno resta a presidiare</span></div>');
+
+        const row = document.createElement('div');
+        row.className = 'bp-act-row';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '1';
+        input.max = String(mobili);
+        input.value = String(mobili);
+        input.title = 'Soldati da spostare (ne resta almeno 1)';
+        row.appendChild(input);
+        row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">di ' + mobili + '</span>');
+        box.appendChild(row);
+
+        targets.forEach(t => {
+            box.appendChild(actionButton('→ ' + t.label, t.troops + ' già lì', null, () => {
+                const n = parseInt(input.value, 10);
+                R.confirm({
+                    title: 'Spostare a ' + t.label + '?',
+                    text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
+                        ' per ' + t.label + '. È l\'unico spostamento del turno: dopo non se ne fanno altri.',
+                    ok: 'Sposta'
+                }, () => run(GA().finalMove(player, path.id, t.id, n)));
+            }));
+        });
+    }
+
+    // ---------- frecce d'attacco sulla mappa ----------
+    // Si ridisegnano a ogni render perché i bersagli cambiano dopo ogni conquista.
+
+    function syncAttackArrows(player) {
+        const path = selectedProvId ? R.engine.path(selectedProvId) : null;
+        if (!path || !inPhase(player, 'attacca') || R.engine.owner(path) !== player.name) {
+            R.clearAttackArrows();
+            return;
+        }
+        const targets = GA().attackTargets(player, path.id);
+        if (R.countPiece(path, 'soldato') < 2 || !targets.length) { R.clearAttackArrows(); return; }
+        R.showAttackArrows(path.id, targets.map(t => t.id));
+    }
+
     // ---------- esito battaglia ----------
 
     function caduti(n) { return n ? '−' + n + ' caduti' : 'nessun caduto'; }
@@ -717,7 +1015,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // il giocatore torna a leggere con calma quello che sulla mappa è durato 3".
     function renderBattle() {
         const box = $('bp-battle');
-        if (!lastBattle || !lastBattle.battle) { box.style.display = 'none'; return; }
+        const title = $('bp-battle-title');   // il capitolo 1.3 esiste solo se c'è una battaglia
+        if (!lastBattle || !lastBattle.battle) {
+            box.style.display = 'none';
+            if (title) title.style.display = 'none';
+            return;
+        }
+        if (title) title.style.display = '';
 
         const L = lastBattle;
         const b = L.battle;
@@ -780,7 +1084,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // La legenda si genera da GameRules.COSTS: costi e testo non possono
         // divergere da quelli che la validazione applica davvero.
         const path = selectedProvId ? R.engine.path(selectedProvId) : null;
-        const soldiersHere = path ? R.countPiece(path, 'soldato') : 0;
+        const soldiersHere = path ? spareOf(path) : 0;
 
         box.innerHTML = Object.keys(GR().COSTS).map(type => {
             const cost = GR().COSTS[type];
@@ -798,8 +1102,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${stato}
             </div>`;
         }).join('') +
-            '<div class="bp-empty-hint">I costi in soldati si pagano sulla provincia selezionata' +
-            (path ? ' (' + R.provinceLabel(path) + ': ' + soldiersHere + ')' : '') + '.</div>';
+            '<div class="bp-empty-hint">I costi in soldati si pagano sulla provincia selezionata, ' +
+            'e uno resta sempre a presidiarla' +
+            (path ? ' (' + R.provinceLabel(path) + ': ' + soldiersHere + ' spendibili su ' +
+                R.countPiece(path, 'soldato') + ')' : '') + '.</div>';
     }
 
     function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
@@ -829,10 +1135,15 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTopbar(player, paths);
         renderPrestige(player);
         renderPopEffect(pop);
+        renderPhases(player);
         renderDeployPanel(player);
         renderSelected(player, connectedSet);
+        renderConquest(player);
         renderBattle();
+        renderMove(player);
         renderProvinceList(player, paths, connectedSet);
+        renderMapHud(player);
+        syncAttackArrows(player);
         renderTreasury(player, units, snapshot, connectedSet, pop);
         renderArmy(paths, units, pop, capitalPath, connectedSet);
         renderLegend(player);

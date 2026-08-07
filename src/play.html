@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=48">
-    <link rel="stylesheet" href="css/style.css?v=48">
-    <link rel="stylesheet" href="css/board.css?v=48">
+    <link rel="stylesheet" href="css/tokens.css?v=54">
+    <link rel="stylesheet" href="css/style.css?v=54">
+    <link rel="stylesheet" href="css/board.css?v=54">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -57,6 +57,18 @@
 
             <div id="map-wrapper">
                 <div id="svg-container">Caricamento mappa…</div>
+                <!-- Cursore di schieramento ancorato alla provincia selezionata: in
+                     fase 1 le truppe si spostano anche direttamente sulla mappa,
+                     senza passare dall'elenco. Lo posiziona player-board.js. -->
+                <div id="map-deploy-hud" style="display:none;">
+                    <div class="mdh-name">—</div>
+                    <div class="mdh-ctl">
+                        <button type="button" class="mdh-btn" id="mdh-minus" title="Ritira 1 recluta schierata ora">−</button>
+                        <span class="mdh-n"><span id="mdh-troops">0</span><em id="mdh-added"></em></span>
+                        <button type="button" class="mdh-btn" id="mdh-plus" title="Schiera 1 recluta qui">+</button>
+                    </div>
+                    <div class="mdh-note" id="mdh-note"></div>
+                </div>
             </div>
 
             <!-- ============ PANNELLO SINISTRO: corona ============ -->
@@ -84,8 +96,82 @@
             </div>
             <button id="board-left-tab" class="board-tab" type="button">◀ Corona</button>
 
-            <!-- ============ PANNELLO DESTRO: regno ============ -->
+            <!-- ============ PANNELLO DESTRO: il turno ============
+                 L'ordine di lettura è quello del turno stesso (docs/GAME_DESIGN.md §2):
+                   FASE 1 Schieramento → 2 Costruzioni → 3 Attacchi → 4 Spostamento.
+                 In alto la pista delle fasi dice sempre a che punto sei; sotto la
+                 pista compare SOLO la fase corrente, così non si legge roba che
+                 adesso non si può fare. Le fasi si avanzano e non si torna indietro
+                 (game-actions.js le fa rispettare anche lato azioni, non solo in UI).
+                 Sotto al turno, due sezioni sempre uguali: IL TUO REGNO (numeri di
+                 stato) e CONSULTA (costi). Chi aggiunge un blocco lo mette nella
+                 fase giusta, non in coda. -->
             <div id="board-right" class="board-panel">
+
+                <!-- pista delle fasi: generata da renderPhases() in player-board.js -->
+                <div id="bp-phases" class="bp-phases"></div>
+
+                <div class="bp-section" id="bp-phase-head" data-step="1">
+                    <span class="bp-section-name" id="bp-phase-name">Schieramento</span>
+                    <span class="bp-section-sub" id="bp-phase-sub">—</span>
+                </div>
+
+                <!-- ---------- FASE 1 · SCHIERAMENTO ---------- -->
+                <div id="fase-schiera" class="bp-phase">
+                    <div class="bp-box bp-deploy" id="bp-recruit-pool">
+                        <div class="bp-box-head"><span class="k">Reclute in mano</span><span class="v" id="bp-pool">0</span></div>
+                        <div class="bp-deploy-split">
+                            <div class="bp-deploy-cell free">
+                                <span class="n" id="bp-pool-free">0</span>
+                                <span class="l">libere · dove vuoi</span>
+                            </div>
+                            <div class="bp-deploy-cell bound">
+                                <span class="n" id="bp-pool-bound">0</span>
+                                <span class="l">obbligatorie · dove nascono</span>
+                            </div>
+                        </div>
+                        <div id="bp-bound-list"></div>
+                        <div class="bp-note" id="bp-deploy-note">Usa i tasti + e − sulla mappa o nell'elenco delle province: finché non chiudi la fase puoi spostarle a piacere.</div>
+                    </div>
+                </div>
+
+                <!-- ---------- provincia selezionata: c'è in tutte le fasi, ma le
+                     azioni dentro #bp-actions cambiano con la fase ---------- -->
+                <div class="bp-title" id="bp-selected-title">Provincia selezionata</div>
+                <div id="bp-selected" class="bp-selected">
+                    <div id="bp-province-name">Nessuna provincia selezionata</div>
+                    <div id="bp-province-details">
+                        <p>Regione: <span id="p-name">—</span></p>
+                        <p>Proprietario: <span id="p-owner">Nessuno</span></p>
+                        <p>Risorsa: <span id="p-resource">—</span></p>
+                        <p>Truppe: <span id="bp-province-troops">—</span></p>
+                    </div>
+                    <div id="bp-actions"><!-- iniettato da player-board.js --></div>
+                </div>
+
+                <!-- ---------- FASE 3b · CONQUISTA (solo a battaglia vinta) ---------- -->
+                <div id="bp-conquest" class="bp-conquest" style="display:none;"></div>
+
+                <!-- titolo e riquadro compaiono insieme: li accende renderBattle() -->
+                <div class="bp-title" id="bp-battle-title" style="display:none;">Ultima battaglia</div>
+                <div id="bp-battle" class="bp-battle" style="display:none;"></div>
+
+                <!-- ---------- FASE 4 · SPOSTAMENTO ---------- -->
+                <div id="fase-sposta" class="bp-phase" style="display:none;">
+                    <div id="bp-move"></div>
+                </div>
+
+                <div class="bp-title">Le mie province <span class="bp-title-hint">clicca per selezionare · in fase 1 anche + e −</span></div>
+                <div id="bp-province-list"></div>
+
+                <!-- avanzamento di fase: unico modo di passare oltre -->
+                <button id="bp-next-phase" type="button" class="bp-next">Avanti</button>
+
+                <!-- ============ IL TUO REGNO ============ -->
+                <div class="bp-section" data-step="§">
+                    <span class="bp-section-name">Il tuo regno</span>
+                    <span class="bp-section-sub">i numeri di stato: si leggono, non si toccano</span>
+                </div>
 
                 <div class="bp-title">Tesoro</div>
                 <div class="bp-hero">
@@ -98,40 +184,6 @@
                 <div class="bp-title">Scorte</div>
                 <div class="bp-res-grid" id="bp-resources"></div>
 
-                <!-- ===== AZIONI: il cuore del turno del giocatore ===== -->
-                <div class="bp-title">Il tuo turno</div>
-                <div class="bp-box bp-deploy" id="bp-recruit-pool">
-                    <div class="bp-box-head"><span class="k">Reclute da schierare</span><span class="v" id="bp-pool">0</span></div>
-                    <div class="bp-deploy-split">
-                        <div class="bp-deploy-cell free">
-                            <span class="n" id="bp-pool-free">0</span>
-                            <span class="l">libere · dove vuoi</span>
-                        </div>
-                        <div class="bp-deploy-cell bound">
-                            <span class="n" id="bp-pool-bound">0</span>
-                            <span class="l">obbligatorie · dove nascono</span>
-                        </div>
-                    </div>
-                    <div id="bp-bound-list"></div>
-                    <div class="bp-note" id="bp-deploy-note">Usa i tasti + e − nell'elenco delle tue province: finché non chiudi il turno puoi spostarle a piacere.</div>
-                </div>
-
-                <div id="bp-selected" class="bp-selected">
-                    <div id="bp-province-name">Nessuna provincia selezionata</div>
-                    <div id="bp-province-details">
-                        <p>Regione: <span id="p-name">—</span></p>
-                        <p>Proprietario: <span id="p-owner">Nessuno</span></p>
-                        <p>Risorsa: <span id="p-resource">—</span></p>
-                        <p>Truppe: <span id="bp-province-troops">—</span></p>
-                    </div>
-                    <div id="bp-actions"><!-- iniettato da player-board.js --></div>
-                </div>
-
-                <div id="bp-battle" class="bp-battle" style="display:none;"></div>
-
-                <div class="bp-title">Le mie province</div>
-                <div id="bp-province-list"></div>
-
                 <div class="bp-title">Territorio</div>
                 <div class="bp-row"><span class="k">Province controllate</span><span class="v" id="bp-prov-owned">0</span></div>
                 <div class="bp-row"><span class="k">Collegate alla Capitale</span><span class="v" id="bp-prov-connected">0</span></div>
@@ -143,13 +195,16 @@
                 <div class="bp-row"><span class="k">Generali · navi · vascelli</span><span class="v" id="bp-units">0 · 0 · 0</span></div>
                 <div class="bp-row"><span class="k">Città · fortezze · mercati</span><span class="v" id="bp-buildings">0 · 0 · 0</span></div>
 
+                <div class="bp-title">Prossimo turno</div>
                 <div class="bp-box">
-                    <div class="bp-box-head"><span class="k">Rinforzi del prossimo turno</span><span class="v" id="bp-reinf">0</span></div>
+                    <div class="bp-box-head"><span class="k">Rinforzi in arrivo</span><span class="v" id="bp-reinf">0</span></div>
                     <div id="bp-reinf-detail"></div>
                 </div>
 
-                <div class="bp-title">
-                    Legenda costi
+                <!-- ============ CONSULTA ============ -->
+                <div class="bp-section" data-step="?">
+                    <span class="bp-section-name">Consulta</span>
+                    <span class="bp-section-sub">costi ed effetti di ogni costruzione</span>
                     <button id="bp-legend-toggle" type="button" class="bp-title-btn">mostra</button>
                 </div>
                 <div id="bp-legend" style="display:none;"></div>
@@ -176,19 +231,22 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/sync.js"></script>
 
-    <script src="data/map_data.js?v=48"></script>
-    <script src="data/id_mapping.js?v=48"></script>
-    <script src="data/embedded_map.js?v=48"></script>
-    <script src="data/resource_icons.js?v=48"></script>
-    <script src="data/piece_icons.js?v=48"></script>
-    <script src="data/default_state.js?v=48"></script>
-    <script src="js/map-decor.js?v=48"></script>
-    <script src="js/battle.js?v=48"></script>
-    <script src="js/kingdom-stats.js?v=48"></script>
-    <script src="js/game-rules.js?v=48"></script>
-    <script src="js/app.js?v=48"></script>
-    <script src="js/game-actions.js?v=48"></script>
-    <script src="js/player-board.js?v=48"></script>
+    <script src="data/map_data.js?v=54"></script>
+    <script src="data/id_mapping.js?v=54"></script>
+    <script src="data/embedded_map.js?v=54"></script>
+    <script src="data/resource_icons.js?v=54"></script>
+    <script src="data/piece_icons.js?v=54"></script>
+    <script src="data/default_state.js?v=54"></script>
+    <script src="data/city_names.js?v=54"></script>
+    <script src="data/historic_battles.js?v=54"></script>
+    <script src="js/chronicle.js?v=54"></script>
+    <script src="js/map-decor.js?v=54"></script>
+    <script src="js/battle.js?v=54"></script>
+    <script src="js/kingdom-stats.js?v=54"></script>
+    <script src="js/game-rules.js?v=54"></script>
+    <script src="js/app.js?v=54"></script>
+    <script src="js/game-actions.js?v=54"></script>
+    <script src="js/player-board.js?v=54"></script>
 </body>
 
 </html>

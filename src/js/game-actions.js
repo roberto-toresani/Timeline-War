@@ -101,6 +101,19 @@
         return Math.max(0, max - E().countPiece(path, 'soldato'));
     }
 
+    // Soldati che possono LASCIARE la provincia: tutti meno il presidio minimo
+    // (§5, GameRules.MIN_GARRISON). Vale per gli attacchi, gli spostamenti, i
+    // costi in soldati delle costruzioni e il ritiro delle reclute: nessuna di
+    // queste può ridurre una provincia a zero.
+    function spare(path) {
+        return GR().spendableTroops(E().countPiece(path, 'soldato'));
+    }
+
+    function garrisonFail(path) {
+        return fail('In ' + R().provinceLabel(path) + ' resta un solo soldato: una provincia ' +
+            'non si lascia mai sguarnita.');
+    }
+
     function isMyTurn(player) {
         const t = R().turnoDi();
         return t === null || t === undefined || t === player.id;
@@ -110,6 +123,78 @@
         if (isMyTurn(player)) return null;
         const chi = R().players().find(p => p.id === R().turnoDi());
         return fail('Non è il tuo turno' + (chi ? ': tocca a ' + chi.name : '') + '.');
+    }
+
+    // ---------- fasi del turno (§2) ----------
+    // Il turno del giocatore è una sequenza, non un menù: prima si schiera, poi si
+    // costruisce, poi si attacca, e in coda si fa UN solo spostamento. Le fasi si
+    // avanzano e basta: tornare indietro dopo aver attaccato permetterebbe di
+    // costruire con le truppe già sacrificate, che è un altro gioco.
+    // Il vincolo vive QUI e non nella UI: la plancia nasconde i comandi fuori fase,
+    // ma è questo modulo a rifiutare l'azione, così un click fuori tempo non passa.
+
+    const PHASES = ['schiera', 'costruisci', 'attacca', 'sposta'];
+
+    const PHASE_LABEL = {
+        schiera: 'Schieramento',
+        costruisci: 'Costruzioni',
+        attacca: 'Attacchi',
+        sposta: 'Spostamento'
+    };
+
+    const PHASE_HINT = {
+        schiera: 'Distribuisci le reclute fra le tue province. Le obbligatorie restano dove nascono.',
+        costruisci: 'Spendi monete e risorse: edifici, navi, strade, unità temporanee.',
+        attacca: 'Scegli da dove parti e chi colpisci. Puoi attaccare quante volte vuoi.',
+        sposta: 'Un solo spostamento, fra due tue province collegate via terra.'
+    };
+
+    function phaseOf(player) {
+        if (PHASES.indexOf(player.fase) < 0) player.fase = PHASES[0];
+        return player.fase;
+    }
+
+    function phaseIndex(player) { return PHASES.indexOf(phaseOf(player)); }
+
+    // Errore se non siamo nella fase richiesta. Dice sempre dove siamo davvero:
+    // "non puoi" senza il perché è la cosa che fa sembrare rotto il gioco.
+    function requirePhase(player, fase) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        if (player.conquista) {
+            return fail('Prima decidi come occupare ' + labelOf(player.conquista.toId) + ': la conquista è in sospeso.');
+        }
+        if (phaseOf(player) === fase) return null;
+        return fail('Sei nella fase "' + PHASE_LABEL[phaseOf(player)] + '": ' +
+            (PHASES.indexOf(fase) < phaseIndex(player)
+                ? 'la fase "' + PHASE_LABEL[fase] + '" è già passata.'
+                : 'arriva prima alla fase "' + PHASE_LABEL[fase] + '".'));
+    }
+
+    function labelOf(provId) {
+        const path = E().path(provId);
+        return path ? R().provinceLabel(path) : provId;
+    }
+
+    // Passa alla fase successiva. Uscendo dallo schieramento i rinforzi obbligatori
+    // rimasti si posano d'ufficio: possono andare in un posto solo, tenerli in mano
+    // sarebbe solo un modo di dimenticarseli.
+    function nextPhase(player) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        if (player.conquista) {
+            return fail('Prima decidi come occupare ' + labelOf(player.conquista.toId) + '.');
+        }
+        const i = phaseIndex(player);
+        if (i >= PHASES.length - 1) return fail('Sei all\'ultima fase: da qui si chiude il turno.');
+
+        let nota = '';
+        if (PHASES[i] === 'schiera') {
+            const forzate = forcePendingBound(player);
+            if (forzate) nota = ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)';
+        }
+        player.fase = PHASES[i + 1];
+        E().refresh();
+        E().save();
+        return done('Fase ' + (i + 2) + ': ' + PHASE_LABEL[player.fase] + '.' + nota);
     }
 
     // ---------- avvio partita (admin) ----------
@@ -127,6 +212,9 @@
             pl.prestigioCiclo = 0;
             pl.puntiOro = 0;
             pl.temporanei = {};
+            pl.fase = PHASES[0];
+            pl.spostamentoFatto = false;
+            pl.conquista = null;
             E().ownedPaths(pl.name).forEach(path => {
                 const cur = E().countPiece(path, 'soldato');
                 E().addPiece(path, 'soldato', 5 - cur);
@@ -174,6 +262,12 @@
         });
         player.schierateTurno = {};
 
+        // Il turno riparte sempre dalla prima fase, con lo spostamento di nuovo
+        // disponibile e nessuna conquista in sospeso.
+        player.fase = PHASES[0];
+        player.spostamentoFatto = false;
+        player.conquista = null;
+
         return done('Turno di ' + player.name, { produzione: prod });
     }
 
@@ -188,7 +282,9 @@
         // senza averli posati li si schiera d'ufficio, invece di bloccarlo o di
         // lasciarli evaporare.
         const forzate = player ? forcePendingBound(player) : 0;
-        if (player) expireTemporaries(player);
+        // Conquista lasciata a metà: i superstiti restano tutti nella provincia
+        // presa (è già la situazione sulla mappa), si chiude solo la pratica.
+        if (player) { player.conquista = null; expireTemporaries(player); }
 
         const idx = ordine.indexOf(R().turnoDi());
         const primo = R().primoDelGiro();
@@ -227,9 +323,9 @@
 
     // ---------- azioni del giocatore ----------
 
-    // Provincia valida per schierare: mia, esistente, ed è il mio turno.
+    // Provincia valida per schierare: mia, esistente, e siamo nella fase 1.
     function deployablePath(player, provId) {
-        const turnErr = requireTurn(player); if (turnErr) return { err: turnErr };
+        const turnErr = requirePhase(player, 'schiera'); if (turnErr) return { err: turnErr };
         const path = E().path(provId);
         if (!path) return { err: fail('Provincia sconosciuta.') };
         if (E().owner(path) !== player.name) return { err: fail('Puoi schierare solo nelle tue province.') };
@@ -296,7 +392,7 @@
 
     // Posa in un colpo solo tutti i rinforzi obbligatori rimasti.
     function deployAllBound(player) {
-        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const turnErr = requirePhase(player, 'schiera'); if (turnErr) return turnErr;
         if (!boundTotal(player)) return fail('Non hai rinforzi obbligatori in attesa.');
         const n = forcePendingBound(player);
         E().refresh();
@@ -340,10 +436,12 @@
                 'si ritirano solo quelle appena messe.');
         }
 
+        // Anche il ritiro rispetta il presidio: l'ultima recluta di una provincia
+        // che senza di lei resterebbe vuota non si tira più indietro.
         n = (n === undefined || n === null) ? max : Math.floor(n);
         if (!(n > 0)) return fail('Indica quante reclute ritirare.');
-        n = Math.min(n, max, E().countPiece(path, 'soldato'));
-        if (!n) return fail('In ' + R().provinceLabel(path) + ' non ci sono soldati da ritirare.');
+        n = Math.min(n, max, spare(path));
+        if (!n) return garrisonFail(path);
 
         // Prima le libere: sono quelle che il giocatore può davvero riposizionare.
         const libere = Math.min(n, rec.libere);
@@ -363,7 +461,7 @@
 
     // Costruisce su UNA provincia propria (§6).
     function build(player, provId, type) {
-        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         const cost = GR().COSTS[type];
         if (!cost) return fail('Non si può costruire questo.');
         if (GR().BUILDABLE_ON_PROVINCE.indexOf(type) < 0) return fail('Questa voce non si costruisce su una provincia.');
@@ -389,8 +487,9 @@
             return fail(max === 1 ? nome + ' c\'è già qui.' : 'Massimo ' + max + ' ' + nome + ' per provincia.');
         }
 
-        const soldiersHere = E().countPiece(path, 'soldato');
-        const afford = GR().canAfford(player, cost, soldiersHere);
+        // I soldati del costo escono dalla provincia: si contano gli spendibili,
+        // non i presenti, o una Capitale (5 soldati) svuoterebbe una provincia da 5.
+        const afford = GR().canAfford(player, cost, spare(path));
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
         pay(player, cost, path);
@@ -403,16 +502,30 @@
         // La Capitale dà una strada gratuita (§6): la si spende col pulsante Strada.
         if (type === 'capitale') { player.stradeGratis = (player.stradeGratis || 0) + 1; extra = ' (hai 1 strada gratuita)'; }
 
+        // Città e Capitale non sono solo pedine: sono fatti di cronaca. Nome vero
+        // della città e anno dentro il decennio del turno (js/chronicle.js) -> la
+        // plancia apre la pergamena. Se chronicle.js non c'è, si costruisce e basta.
+        let fondazione = null;
+        if (root.Chronicle && (type === 'citta' || type === 'capitale')) {
+            const label = R().provinceLabel(path);
+            fondazione = (type === 'capitale')
+                ? root.Chronicle.foundCapital(label, R().turn(), player.name)
+                : root.Chronicle.foundCity(label, R().turn(), player.name);
+            fondazione.colore = player.color;
+            fondazione.id = path.id;
+        }
+
         E().redrawProvince(path);
         E().refresh();
         E().save();
         const nome = (typeof PIECES !== 'undefined' && PIECES[type]) ? PIECES[type].nome : type;
-        return done(nome + ' costruita in ' + R().provinceLabel(path) + extra + '.');
+        return done(nome + ' costruita in ' + R().provinceLabel(path) + extra + '.',
+            fondazione ? { fondazione } : null);
     }
 
     // Strada fra due province proprie adiacenti via terra (§6).
     function buildRoad(player, aId, bId) {
-        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         const A = E().path(aId), B = E().path(bId);
         if (!A || !B) return fail('Provincia sconosciuta.');
         if (E().owner(A) !== player.name || E().owner(B) !== player.name) {
@@ -424,7 +537,7 @@
         const gratis = (player.stradeGratis || 0) > 0;
         if (!gratis) {
             const cost = GR().COSTS.strada;
-            const afford = GR().canAfford(player, cost, E().countPiece(A, 'soldato'));
+            const afford = GR().canAfford(player, cost, spare(A));
             if (!afford.ok) return fail('Non puoi permettertela: ' + GR().missingText(afford.missing) + '.');
             pay(player, cost, A);
             E().redrawProvince(A);
@@ -442,14 +555,14 @@
 
     // Unità temporanee: valgono questo turno soltanto (§5.3).
     function recruit(player, provId, type) {
-        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         if (GR().TEMPORARY.indexOf(type) < 0) return fail('Non è un\'unità temporanea.');
         const path = E().path(provId);
         if (!path) return fail('Provincia sconosciuta.');
         if (E().owner(path) !== player.name) return fail('Puoi reclutare solo nelle tue province.');
 
         const cost = GR().COSTS[type];
-        const afford = GR().canAfford(player, cost, E().countPiece(path, 'soldato'));
+        const afford = GR().canAfford(player, cost, spare(path));
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
         pay(player, cost, path);
@@ -480,18 +593,23 @@
 
     // Attacco (§9): risolve con battle.js e applica l'esito alla mappa.
     function attack(player, fromId, toId, engaged, rng) {
-        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const turnErr = requirePhase(player, 'attacca'); if (turnErr) return turnErr;
         const from = E().path(fromId), to = E().path(toId);
         if (!from || !to) return fail('Provincia sconosciuta.');
         if (E().owner(from) !== player.name) return fail('Puoi attaccare solo da una tua provincia.');
         if (E().owner(to) === player.name) return fail('Non puoi attaccare te stesso.');
         if (!E().areLandAdjacent(fromId, toId)) return fail('Le due province non confinano via terra.');
 
-        const available = E().countPiece(from, 'soldato');
+        // Parte al massimo tutto meno il presidio: la provincia di partenza non
+        // resta mai vuota, nemmeno se l'attacco riesce.
+        const partenti = spare(from);
         engaged = Math.floor(engaged);
         if (!(engaged > 0)) return fail('Indica quante truppe impegnare.');
-        if (engaged > available) return fail('In ' + R().provinceLabel(from) + ' hai solo ' + available + ' soldati.');
-        if (engaged === available) return fail('Devi lasciare almeno 1 soldato a presidiare la provincia di partenza.');
+        if (!partenti) return garrisonFail(from);
+        if (engaged > partenti) {
+            return fail('Da ' + R().provinceLabel(from) + ' possono partire al massimo ' + partenti +
+                (partenti === 1 ? ' soldato' : ' soldati') + ': uno resta sempre a presidiare.');
+        }
 
         const defTroops = E().countPiece(to, 'soldato');
         const fort = GR().defenceBonus(unitsOf([to]));
@@ -516,8 +634,18 @@
             E().addPiece(to, 'soldato', res.attackerSurvivors);
             E().setArmyColor(to, player.color);
             pruneRoadsTouching(toId);
-            msg = 'Conquistata ' + R().provinceLabel(to) + ': entrano ' + res.attackerSurvivors +
-                ' soldati (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.';
+
+            // I superstiti entrano tutti nella provincia presa, ma la ripartizione
+            // vera la decide il giocatore in fase di conquista (resolveConquest):
+            // finché `player.conquista` è aperta nessun'altra azione passa. Con un
+            // solo superstite non c'è niente da scegliere e si chiude subito.
+            player.conquista = res.attackerSurvivors > 1
+                ? { fromId, toId, superstiti: res.attackerSurvivors }
+                : null;
+
+            msg = 'Conquistata ' + R().provinceLabel(to) + ': ' + res.attackerSurvivors +
+                (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
+                ' (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.';
         } else {
             E().addPiece(to, 'soldato', -(defTroops - res.defenderSurvivors));
             msg = R().provinceLabel(to) + ' ha retto: perdi tutte le ' + engaged +
@@ -536,7 +664,17 @@
         const perditeAttaccante = res.attackerWins ? res.losses : engaged;
         const perditeDifensore = res.attackerWins ? defTroops : (defTroops - res.defenderSurvivors);
 
+        // Eco storica: se in questa provincia, in questo decennio, si è davvero
+        // combattuta una battaglia, la cronaca la ricorda (js/chronicle.js +
+        // data/historic_battles.js). Prima la provincia contesa, poi quella di
+        // partenza; nessuna corrispondenza -> niente pergamena, ed è la norma.
+        const eco = root.Chronicle && root.Chronicle.battleEcho
+            ? root.Chronicle.battleEcho([toLabel, fromLabel], R().turn())
+            : null;
+        if (eco) { eco.colore = player.color; eco.id = eco.provincia === toLabel ? toId : fromId; }
+
         return done(msg, {
+            cronaca: eco,
             battle: res, engaged, defTroops, fort,
             fromId, toId, fromLabel, toLabel,
             attaccante: player.name, difensore,
@@ -544,8 +682,138 @@
             coloreDifensore: (R().players().find(p => p.name === difensore) || {}).color || null,
             perditeAttaccante, perditeDifensore,
             superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
-            conquistata: res.attackerWins
+            conquistata: res.attackerWins,
+            richiedeConquista: !!player.conquista
         });
+    }
+
+    // ---------- fase di conquista ----------
+    // Vinta la battaglia i superstiti sono tutti nella provincia presa: qui il
+    // giocatore decide quanti ne restano davvero e quanti tornano indietro a
+    // presidiare la provincia di partenza. Almeno 1 deve occupare la conquista,
+    // altrimenti la provincia resterebbe vuota di chi l'ha presa.
+
+    function conquestPending(player) {
+        const c = player.conquista;
+        if (!c) return null;
+        const from = E().path(c.fromId), to = E().path(c.toId);
+        // Se nel frattempo qualcosa non torna (stato caricato a metà), si chiude.
+        if (!from || !to || E().owner(to) !== player.name) { player.conquista = null; return null; }
+        return {
+            fromId: c.fromId, toId: c.toId,
+            fromLabel: R().provinceLabel(from), toLabel: R().provinceLabel(to),
+            superstiti: c.superstiti,
+            presidioAttuale: E().countPiece(from, 'soldato')
+        };
+    }
+
+    // occupanti = quanti dei superstiti restano nella provincia conquistata.
+    function resolveConquest(player, occupanti) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const c = conquestPending(player);
+        if (!c) return fail('Non c\'è nessuna conquista da sistemare.');
+
+        // Stessa regola di sempre, dall'altra parte del confine: la provincia presa
+        // deve restare presidiata, quindi almeno MIN_GARRISON superstiti si fermano
+        // lì. La provincia di partenza è già a posto — l'attacco non l'ha svuotata.
+        occupanti = Math.floor(occupanti);
+        if (!(occupanti >= GR().MIN_GARRISON)) {
+            return fail('Almeno ' + GR().MIN_GARRISON + ' soldato deve restare a occupare ' + c.toLabel +
+                ': una provincia non si lascia mai sguarnita.');
+        }
+        if (occupanti > c.superstiti) return fail('Hai solo ' + c.superstiti + ' superstiti.');
+
+        const indietro = c.superstiti - occupanti;
+        if (indietro) {
+            const to = E().path(c.toId), from = E().path(c.fromId);
+            const room = roomFor(from);
+            const k = Math.min(indietro, room);
+            if (k) {
+                E().addPiece(to, 'soldato', -k);
+                putSoldiers(player, from, k);
+                E().redrawProvince(to);
+            }
+            if (k < indietro) {
+                player.conquista = null;
+                E().refresh(); E().save();
+                return done(c.fromLabel + ' è piena: solo ' + k + ' sono potuti rientrare, ' +
+                    (c.superstiti - k) + ' restano in ' + c.toLabel + '.');
+            }
+        }
+
+        player.conquista = null;
+        E().refresh();
+        E().save();
+        return done(occupanti + (occupanti === 1 ? ' soldato occupa ' : ' soldati occupano ') + c.toLabel +
+            (indietro ? ', ' + indietro + ' rientrano in ' + c.fromLabel + '.' : '.'));
+    }
+
+    // ---------- fase di spostamento (uno solo per turno) ----------
+    // Si sposta fra due province PROPRIE unite da una catena ininterrotta di
+    // province proprie: è il classico "riposizionamento" del Risiko, non un
+    // teletrasporto. Almeno 1 soldato resta sempre a presidiare la partenza.
+
+    function ownReachable(player, fromId) {
+        const owned = new Set(E().ownedPaths(player.name).map(p => p.id));
+        if (!owned.has(fromId)) return new Set();
+        const seen = new Set([fromId]);
+        const queue = [fromId];
+        while (queue.length) {
+            const cur = queue.shift();
+            E().landNeighbors(cur).forEach(id => {
+                if (seen.has(id) || !owned.has(id)) return;
+                seen.add(id);
+                queue.push(id);
+            });
+        }
+        seen.delete(fromId);
+        return seen;
+    }
+
+    function moveTargets(player, fromId) {
+        return Array.from(ownReachable(player, fromId))
+            .map(id => E().path(id))
+            .filter(Boolean)
+            .map(p => ({ id: p.id, label: R().provinceLabel(p), troops: E().countPiece(p, 'soldato') }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    function finalMove(player, fromId, toId, n) {
+        const turnErr = requirePhase(player, 'sposta'); if (turnErr) return turnErr;
+        if (player.spostamentoFatto) return fail('Lo spostamento di fine turno si fa una volta sola: l\'hai già fatto.');
+
+        const from = E().path(fromId), to = E().path(toId);
+        if (!from || !to) return fail('Provincia sconosciuta.');
+        if (E().owner(from) !== player.name || E().owner(to) !== player.name) {
+            return fail('Lo spostamento avviene fra due province che possiedi.');
+        }
+        if (fromId === toId) return fail('Partenza e arrivo sono la stessa provincia.');
+        if (!ownReachable(player, fromId).has(toId)) {
+            return fail(R().provinceLabel(to) + ' non è raggiungibile da ' + R().provinceLabel(from) +
+                ' passando solo per province tue.');
+        }
+
+        const mobili = spare(from);
+        n = Math.floor(n);
+        if (!(n > 0)) return fail('Indica quanti soldati spostare.');
+        if (!mobili) return garrisonFail(from);
+        if (n > mobili) {
+            return fail('Da ' + R().provinceLabel(from) + ' puoi muoverne al massimo ' + mobili +
+                ': uno resta sempre a presidiare.');
+        }
+        const room = roomFor(to);
+        if (n > room) return fail(R().provinceLabel(to) + ' regge solo altri ' + room + ' soldati.');
+
+        E().addPiece(from, 'soldato', -n);
+        consumePlaced(player, fromId, n);
+        putSoldiers(player, to, n);
+        E().redrawProvince(from);
+        player.spostamentoFatto = true;
+
+        E().refresh();
+        E().save();
+        return done(n + (n === 1 ? ' soldato spostato da ' : ' soldati spostati da ') +
+            R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '. Lo spostamento del turno è speso.');
     }
 
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista
@@ -566,6 +834,9 @@
         startGame, beginTurn, endTurn,
         deploy, deployBound, deployAllBound, undeploy,
         build, buildRoad, recruit, attack, attackTargets,
+        conquestPending, resolveConquest,
+        moveTargets, finalMove,
+        PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool
     };

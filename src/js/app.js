@@ -96,6 +96,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof p.puntiOro !== 'number') p.puntiOro = 0;
         if (typeof p.stradeGratis !== 'number') p.stradeGratis = 0;
         if (!p.temporanei) p.temporanei = {};
+        // Fase del turno (§2): schiera → costruisci → attacca → sposta. Uno stato
+        // salvato prima delle fasi riparte dallo schieramento, che è corretto.
+        if (!p.fase) p.fase = 'schiera';
+        if (typeof p.spostamentoFatto !== 'boolean') p.spostamentoFatto = false;
+        if (p.conquista === undefined) p.conquista = null;
         return p;
     }
 
@@ -217,14 +222,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Un turno vale un decennio: il calendario sta tutto in js/chronicle.js,
+    // perché lo stesso anno serve anche alla fondazione delle città.
+    const yearOfTurn = (t) => (window.Chronicle ? window.Chronicle.yearOfTurn(t) : 1000 + (t || 0) * 10);
+
     function updateTurnUI() {
         if (turnDisplay) {
             turnDisplay.textContent = `Turno ${currentTurn}`;
         }
         const dateDisplay = document.getElementById('date-display');
         if (dateDisplay) {
-            const year = 1000 + currentTurn * 10;
-            dateDisplay.textContent = `${year} AD`;
+            dateDisplay.textContent = `${yearOfTurn(currentTurn)} AD`;
         }
     }
 
@@ -2205,7 +2213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         content.style.display = 'flex';
         const provincesOwned = getProvincesOwnedBy(active.name);
-        const year = 1000 + currentTurn * 10;
+        const year = yearOfTurn(currentTurn);
         content.innerHTML = `
             <div class="tab-header" style="border-left: 5px solid ${active.color};">
                 <strong>${active.name}</strong>
@@ -2465,6 +2473,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ============================================================
+    // PERGAMENA DI CRONACA — un annuncio, non una domanda.
+    // Tre eventi la srotolano (js/chronicle.js decide il contenuto):
+    //   - `citta`     una Città sorge: nome vero e anno dentro il decennio;
+    //   - `capitale`  il regno vi mette il seggio;
+    //   - `battaglia` in questa provincia, in questo decennio, si è combattuta
+    //                 davvero una battaglia (data/historic_battles.js).
+    // Si chiude con un click, Esc o Invio.
+    // ============================================================
+
+    const FOUNDATION_EYEBROW = {
+        battaglia: 'Cronaca — accadde davvero in questi anni',
+        capitale: 'Cronaca del regno'
+    };
+
+    function showFoundation(info) {
+        if (!info) return;
+        const old = document.getElementById('ui-foundation');
+        if (old) old.remove();
+
+        const wrap = document.createElement('div');
+        wrap.id = 'ui-foundation';
+        wrap.innerHTML =
+            '<div class="uf-scroll">' +
+            '<div class="uf-rod"></div>' +
+            '<div class="uf-sheet">' +
+            '<div class="uf-eyebrow"></div>' +
+            '<div class="uf-year"></div>' +
+            '<div class="uf-title"></div>' +
+            '<div class="uf-text"></div>' +
+            '<div class="uf-note"></div>' +
+            '<div class="uf-actions"><button type="button" class="uf-ok">Così sia</button></div>' +
+            '</div>' +
+            '<div class="uf-rod"></div>' +
+            '</div>';
+
+        const scroll = wrap.querySelector('.uf-scroll');
+        if (info.colore) scroll.style.setProperty('--kingdom', info.colore);
+        if (info.tipo) scroll.classList.add('uf-' + info.tipo);
+        wrap.querySelector('.uf-eyebrow').textContent =
+            FOUNDATION_EYEBROW[info.tipo] ||
+            ('Cronaca' + (info.regno ? ' del regno di ' + info.regno : ''));
+        wrap.querySelector('.uf-year').textContent = 'Anno Domini ' + info.anno;
+        wrap.querySelector('.uf-title').textContent = info.titolo || '';
+        wrap.querySelector('.uf-text').textContent = info.testo || '';
+        wrap.querySelector('.uf-note').textContent = info.nota || '';
+
+        const close = () => { document.removeEventListener('keydown', onKey); wrap.remove(); };
+        function onKey(e) {
+            if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); close(); }
+        }
+        wrap.querySelector('.uf-ok').addEventListener('click', close);
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(wrap);
+        wrap.querySelector('.uf-ok').focus();
+    }
+
+    // ============================================================
     // SCENA DELLA BATTAGLIA (§9) — un attacco deve VEDERSI sulla mappa, non solo
     // comparire come riga di testo in un pannello.
     // Tre battute, nell'ordine in cui il giocatore le capisce:
@@ -2524,6 +2590,97 @@ document.addEventListener('DOMContentLoaded', () => {
             style: 'animation-delay:' + delay + 'ms'
         }, 'fx-casualty');
         t.textContent = '−' + n;
+    }
+
+    // ============================================================
+    // FRECCE D'ATTACCO (fase 3) — la mappa deve dire da sola dove si può
+    // colpire: dalla provincia di partenza parte una freccia animata verso ogni
+    // confinante attaccabile.
+    // Stanno in un gruppo a parte (#attack-arrows) appeso in coda all'SVG, non
+    // fra le pedine: refreshMapDisplay riscrive `fill` sulle province e
+    // renderPiecesForPath rifà i gruppi delle pedine — qualsiasi cosa messa lì
+    // dentro verrebbe cancellata. La plancia le ridisegna a ogni render, perché
+    // i bersagli cambiano a ogni conquista.
+    // ============================================================
+
+    function clearAttackArrows() {
+        const g = document.getElementById('attack-arrows');
+        if (g) g.remove();
+    }
+
+    function showAttackArrows(fromId, targetIds) {
+        clearAttackArrows();
+        const svg = document.querySelector('svg');
+        if (!svg || !fromId || !targetIds || !targetIds.length) return;
+        const A = provinceCenter(document.getElementById(fromId));
+        if (!A) return;
+
+        const g = document.createElementNS(SVG_NS, 'g');
+        g.setAttribute('id', 'attack-arrows');
+        g.setAttribute('pointer-events', 'none');
+        svg.appendChild(g);
+
+        targetIds.forEach((id, i) => {
+            const B = provinceCenter(document.getElementById(id));
+            if (!B) return;
+            const dx = B.x - A.x, dy = B.y - A.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len, uy = dy / len;
+            // Parte fuori dal centro e si ferma prima del bersaglio: al centro
+            // delle province ci sono le pedine, una freccia lì sopra le copre.
+            // I due tagli sono limitati a una frazione della distanza: fra due
+            // province grandi e vicine i raggi sommati superano la distanza fra i
+            // centri e senza il clamp resta una freccia lunga due pixel.
+            const trimA = Math.min(A.r * 0.75, len * 0.28);
+            const trimB = Math.min(B.r * 0.85, len * 0.3);
+            const shaft = len - trimA - trimB;
+            const x1 = A.x + ux * trimA, y1 = A.y + uy * trimA;
+            const x2 = B.x - ux * trimB, y2 = B.y - uy * trimB;
+            // Spessore e punta scalano sulla freccia, non solo sulle province:
+            // su un tratto corto una punta "giusta" diventerebbe una macchia.
+            const w = Math.max(0.6, Math.min(Math.min(A.r, B.r) * 0.16, shaft * 0.16));
+            const delay = (i * 120) + 'ms';
+
+            const line = document.createElementNS(SVG_NS, 'line');
+            line.setAttribute('class', 'atk-arrow');
+            line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+            line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+            line.setAttribute('stroke-width', w);
+            line.setAttribute('stroke-dasharray', (w * 2.2) + ' ' + (w * 1.8));
+            line.style.animationDelay = delay;
+            g.appendChild(line);
+
+            // Punta: triangolo pieno sulla fine della linea.
+            const h = Math.min(w * 3.2, shaft * 0.5);
+            const px = -uy, py = ux;                       // perpendicolare
+            const head = document.createElementNS(SVG_NS, 'polygon');
+            head.setAttribute('class', 'atk-arrow-head');
+            head.setAttribute('points', [
+                x2 + ',' + y2,
+                (x2 - ux * h + px * h * 0.6) + ',' + (y2 - uy * h + py * h * 0.6),
+                (x2 - ux * h - px * h * 0.6) + ',' + (y2 - uy * h - py * h * 0.6)
+            ].join(' '));
+            head.style.animationDelay = delay;
+            g.appendChild(head);
+        });
+    }
+
+    // Posizione della provincia in pixel dentro #map-wrapper: serve alla plancia
+    // per ancorare il cursore di schieramento HTML sopra la mappa. In pixel e non
+    // in coordinate SVG apposta — l'overlay è HTML, non entra nel viewBox.
+    function provinceScreenPos(id) {
+        const path = document.getElementById(id);
+        const wrap = document.getElementById('map-wrapper');
+        if (!path || !wrap || !path.getBoundingClientRect) return null;
+        const b = path.getBoundingClientRect();
+        const w = wrap.getBoundingClientRect();
+        if (!b.width && !b.height) return null;
+        return {
+            x: b.left + b.width / 2 - w.left,
+            y: b.top + b.height / 2 - w.top,
+            w: b.width, h: b.height,
+            visible: b.right > w.left && b.left < w.right && b.bottom > w.top && b.top < w.bottom
+        };
     }
 
     // info: l'oggetto restituito da GameActions.attack.
@@ -2645,7 +2802,11 @@ document.addEventListener('DOMContentLoaded', () => {
         countPiece,
         playBattleFx,
         clearBattleFx,
+        showAttackArrows,
+        clearAttackArrows,
+        provinceScreenPos,
         confirm: askConfirm,
+        showFoundation,
         resourceKeyOf,
         getCapitalPathFor,
         computePopularity,
