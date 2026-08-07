@@ -830,6 +830,42 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
 .reinforce-num.on { color: var(--gold-bright); font-weight: bold; }
 .reinforce-num em { color: var(--ok-soft); font-style: normal; }
 .reinforce-note { color: var(--parchment-muted); font-size: .8em; margin-top: 4px; }
+
+/* Esito del sorteggio di una partita nuova (js/setup.js): chi sei e con che
+   testa giocano gli altri. */
+#new-game-result:not(:empty) {
+    margin-top: 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: var(--bg-inset);
+}
+
+.ng-head { color: var(--gold-bright); font-size: 1em; margin-bottom: 4px; }
+
+.ng-link {
+    display: block;
+    margin: 0 0 6px 0;
+    color: var(--gold);
+    font-size: .95em;
+    text-decoration: none;
+}
+
+.ng-link:hover { text-decoration: underline; }
+
+.ng-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 0;
+    font-size: .9em;
+    color: var(--parchment-muted);
+}
+
+.ng-row.me { color: var(--gold-bright); font-weight: bold; }
+.ng-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.ng-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ng-kind { flex: 0 0 auto; color: var(--parchment-dim); font-size: .9em; }
 .reinforce-note em { color: var(--ok-soft); font-style: normal; }
 
 #palette {

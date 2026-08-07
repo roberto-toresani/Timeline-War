@@ -1,8 +1,9 @@
 // ============================================================
 // CRONACA DEL REGNO — il calendario della partita e le note di cronaca.
 //
-// Un turno non è un numero: è un DECENNIO. Il turno 0 copre il 1000-1009, il
-// turno 1 il 1010-1019 e così via. Su questo calendario poggiano tre cose:
+// Un turno non è un numero: è un DECENNIO. Il turno 1 (il primo della partita)
+// copre il 1000-1009, il turno 2 il 1010-1019 e così via. Su questo calendario
+// poggiano tre cose:
 //   - la FONDAZIONE di una città: nome vero (data/city_names.js) e anno dentro
 //     il decennio → "Anno Domini 1143, nella provincia di Home Counties nasce
 //     la città di Londra";
@@ -26,8 +27,15 @@
     // in alto e l'anno della fondazione devono essere lo stesso calendario.
     const YEAR_ZERO = 1000;
     const YEARS_PER_TURN = 10;
+    // La partita comincia dal turno 1 (non dallo 0): il turno 1 è il decennio
+    // 1000-1009, il 2 il 1010-1019. Chi conta i turni parte da qui, così il
+    // calendario e la targhetta dell'anno non possono divergere.
+    const FIRST_TURN = 1;
 
-    function yearOfTurn(turn) { return YEAR_ZERO + (turn || 0) * YEARS_PER_TURN; }
+    function yearOfTurn(turn) {
+        const t = Math.max(FIRST_TURN, Math.floor(turn || FIRST_TURN));
+        return YEAR_ZERO + (t - FIRST_TURN) * YEARS_PER_TURN;
+    }
 
     // Primo e ultimo anno coperti dal turno.
     function spanOfTurn(turn) {
@@ -144,7 +152,7 @@
     }
 
     const api = {
-        YEAR_ZERO, YEARS_PER_TURN, yearOfTurn, spanOfTurn, cityNameFor,
+        YEAR_ZERO, YEARS_PER_TURN, FIRST_TURN, yearOfTurn, spanOfTurn, cityNameFor,
         foundCity, foundCapital, battlesOfTurn, battleEcho
     };
 

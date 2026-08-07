@@ -24,6 +24,8 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ player-board.js    render dei due pannelloni + azioni della plancia
 │  ├─ game-rules.js      costi (§6), connettività (§4), produzione di turno (§2) — puro
 │  ├─ game-actions.js    UNICO punto che muta lo stato: schiera/costruisci/attacca/turni
+│  ├─ bot.js             regni governati dall'IA: 5 strategie + driver dei turni
+│  ├─ setup.js           "Nuova partita": sorteggio feudi, Capitali, umano vs bot
 │  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
 │  ├─ chronicle.js       calendario (1 turno = 1 decennio) e fondazione delle città — puro
 │  ├─ map-decor.js       vestizione "carta antica": mare, grana, alone costiero
@@ -100,6 +102,48 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   prodotte, e a fine turno vengono schierate d'ufficio se il giocatore non l'ha fatto.
   Serbatoi sul record giocatore: `recluteDaSchierare`, `recluteVincolate` (per provincia),
   `schierateTurno` (cosa si è posato adesso: è l'unica cosa ritirabile).
+- **Partita contro l'IA**: `js/setup.js` (`GameSetup.newGame`) sorteggia la partita —
+  sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) e la
+  **Capitale in regalo** — i regni nascono tutti in **Europa, Nord Africa e Arabia**
+  (`GameSetup.REGIONS.europa`: rettangoli sulle coordinate dell'SVG, misurati sulla mappa
+  vera per lasciare fuori Persia, Sudan e Sahel; le province che scavalcano il bordo
+  mappa, tipo Alaska, hanno un bounding box largo quanto il mondo e si scartano dalla
+  larghezza). Senza Capitale non si raccoglie nulla e costruirla vorrebbe 5
+  soldati spendibili che all'inizio non ci sono: senza il regalo la partita non parte),
+  più una strada gratuita e un feudo che confina con una provincia di **pietra** (la
+  prima strada la collega e dà la materia prima per le successive). Poi estrae a sorte il
+  regno **umano** e assegna a tutti gli altri una strategia di `js/bot.js`.
+  I bot **non hanno scorciatoie**: chiamano le stesse funzioni di `game-actions.js` del
+  giocatore, quindi qualsiasi regola nuova vale anche per loro. Il turno di un bot è un
+  **generatore**: ogni `yield` è un'azione già applicata e il driver aspetta `Bot.speed()`
+  ms — serve a poterli guardare, non è una pausa di comodo. La catena parte da
+  `Bot.run()` (dopo il fine turno umano e all'apertura della pagina) e si ferma da sola
+  quando torna il turno di un umano. **Solo chi è admin** muove i bot (`Risiko.isAdmin()`):
+  le scritture di stato restano dell'admin, come da `firestore.rules`.
+  Una strategia in più = una voce in `Bot.STRATEGIES`, non un ramo `if` sparso.
+- **Terre di nessuno presidiate** (regola dell'utente): ogni provincia neutrale ha
+  `GameRules.neutralGarrison(turno)` soldati — 2 nei turni 1-5, 3 nei 6-10, e così via.
+  `GameActions.garrisonNeutrals()` è l'unico posto che li mette: gira all'avvio partita e
+  alla fine di ogni giro completo, e **alza soltanto** (una provincia conquistata non è
+  più neutrale e esce da sola dal conteggio; una che ha respinto un attacco torna a quota
+  al giro dopo).
+- **Popolarità e guardia della Capitale**: con ≤5 soldati nella Capitale la Popolarità
+  vale 2 (§8), cioè −1 risorsa e −1 recluta ogni turno — abbastanza da azzerare il
+  raccolto di un regno piccolo. Portare la guardia a 6+ la riporta a 3. I bot lo sanno
+  (`guardiaCapitale` nel profilo): schierano lì per primi, non fanno partire la guardia
+  all'attacco e ci riportano truppe con lo spostamento di fine turno.
+- **Prestigio sospeso**: `GameRules.PRESTIGE_ENABLED = false` (scelta dell'utente). Non si
+  accumula e il blocco sparisce dalla plancia; il §10 e il codice restano. Si riaccende
+  cambiando quella sola costante.
+- **Vista generale della plancia**: il bottone 🌍 in `play.html` chiama
+  `Risiko.focusPlayer(null)` — niente focus, niente nebbia, si vede tutta la mappa e si
+  guardano giocare i bot. Non dà permessi: le azioni restano quelle del proprio regno nel
+  proprio turno.
+- **Elenco province = `provincePaths()`**: l'alone costiero di `map-decor.js` è un clone di
+  `#map-group` con gli id rimossi ma con la stessa classe `state`. Chi cerca le province
+  con `querySelectorAll('path.state')` prende anche quello: prima finiva nel grafo dei
+  confini come nodo `""` confinante con tutto il mondo. Usa `provincePaths()` (app.js) o
+  `Risiko.engine.allPaths()`, mai il selettore crudo.
 - **Mai `window.confirm`/`alert`**: nel pannello d'anteprima (e in iframe sandboxati) il
   browser chiude d'ufficio il dialogo nativo e `confirm()` torna sempre `false` — l'azione
   non parte e sembra un bug del gioco. Usa `Risiko.confirm({title, text, ok, tone}, onYes)`
@@ -109,7 +153,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   `GameActions.attack` restituisce; il CSS sta in `style.css` ed è disattivato da
   `prefers-reduced-motion`. Il rapporto di battaglia nel pannello destro è
   `renderBattle()` in `player-board.js`.
-- **Calendario e fondazione delle città**: un turno è un **decennio** (turno 0 = 1000-1009).
+- **Calendario e fondazione delle città**: un turno è un **decennio** e la partita
+  comincia dal **turno 1** = 1000-1009 (`Chronicle.FIRST_TURN`; app.js parte da lì e
+  `resetHistory()` ci riporta). Chi conta i turni per un ciclo o per una soglia usa
+  `turno − 1`, non `turno`.
   Il calendario sta tutto in `js/chronicle.js` (`YEAR_ZERO`, `yearOfTurn`): `app.js` legge
   da lì per la targhetta dell'anno, non ricalcola `1000 + turno*10`. Quando si costruisce
   una **Città** (o una **Capitale**, `Chronicle.foundCapital`),

@@ -200,7 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
         $('board-crest').style.background = player.color;
         setText('board-kingdom', player.name);
         setText('board-subtitle', owned.length + (owned.length === 1 ? ' provincia' : ' province'));
-        setText('board-cycle', 'ciclo ' + (Math.floor(turn / 10) + 1) + ' · turno ' + (turn % 10 + 1) + '/10');
+        // Turni 1-based (js/chronicle.js): il ciclo 1 va dal turno 1 al 10.
+        setText('board-cycle', 'ciclo ' + (Math.floor((turn - 1) / 10) + 1) +
+            ' · turno ' + (((turn - 1) % 10) + 1) + '/10');
 
         const state = $('board-turn-state');
         const endBtn = $('board-end-turn');
@@ -215,10 +217,87 @@ document.addEventListener('DOMContentLoaded', () => {
             endBtn.disabled = false;
         } else {
             const chi = R.players().find(p => p.id === turnoDi);
-            state.textContent = 'Attendi: ' + (chi ? chi.name : '—');
+            const bot = (window.Bot && chi) ? window.Bot.strategyOf(chi) : null;
+            state.textContent = (bot ? '⚙ ' : 'Attendi: ') + (chi ? chi.name : '—') +
+                (bot ? ' · ' + bot.nome : '');
             state.className = 'turn-wait';
             endBtn.disabled = true;
         }
+    }
+
+    // ---------- vista generale (spettatore) ----------
+    // Toglie la nebbia e mostra tutta la mappa: serve a guardare i regni dell'IA
+    // giocare. Non cambia i permessi — le azioni restano quelle del proprio
+    // regno nel proprio turno; cambia solo cosa si vede.
+    let spectating = false;
+
+    function syncSpectateBtn() {
+        const b = $('board-spectate');
+        if (!b) return;
+        b.textContent = spectating ? '👑 Torna al regno' : '🌍 Mappa generale';
+        b.classList.toggle('on', spectating);
+        document.body.classList.toggle('spectating', spectating);
+    }
+
+    function setSpectate(on) {
+        const player = currentPlayer();
+        if (!player) return;
+        spectating = !!on;
+        if (spectating) {
+            R.focusPlayer(null);          // nessun focus = nessuna nebbia
+            R.resetView();
+            hasFitted = true;             // niente reinquadrature sul proprio regno
+        } else {
+            R.focusPlayer(player.id);
+            hasFitted = false;            // rientrando si reinquadra il regno
+        }
+        syncSpectateBtn();
+        render();
+    }
+
+    $('board-spectate').addEventListener('click', () => setSpectate(!spectating));
+
+    // ---------- velocità dell'IA ----------
+    // Guardare nove regni giocare a 600 ms per azione è bello la prima volta e
+    // lungo la decima: il bottone cicla fra "seguo l'azione" e "portami al mio
+    // turno". Sta qui e non in bot.js perché è una preferenza di chi guarda.
+    const SPEEDS = [
+        { ms: 600, label: '⏩ IA normale' },
+        { ms: 220, label: '⏩⏩ IA veloce' },
+        { ms: 40, label: '⏭ IA lampo' },
+        { ms: 1400, label: '🐢 IA lenta' }
+    ];
+    let speedIdx = 0;
+
+    function syncSpeedBtn() {
+        const b = $('board-speed');
+        if (b) b.textContent = SPEEDS[speedIdx].label;
+    }
+
+    $('board-speed').addEventListener('click', () => {
+        speedIdx = (speedIdx + 1) % SPEEDS.length;
+        if (window.Bot) window.Bot.speed(SPEEDS[speedIdx].ms);
+        syncSpeedBtn();
+    });
+
+    // ---------- regni in gioco ----------
+
+    function renderKingdoms(player) {
+        const box = $('bp-kingdoms');
+        if (!box) return;
+        const turnoDi = R.turnoDi();
+        box.innerHTML = R.players().map(p => {
+            const bot = window.Bot ? window.Bot.strategyOf(p) : null;
+            const province = R.ownedPaths(p.name).length;
+            if (!province && p.id !== player.id) return '';
+            return '<div class="bk-row' + (p.id === turnoDi ? ' now' : '') +
+                (p.id === player.id ? ' me' : '') + '">' +
+                '<span class="bk-dot" style="background:' + p.color + '"></span>' +
+                '<span class="bk-name">' + p.name + '</span>' +
+                '<span class="bk-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
+                '<span class="bk-prov">' + province + '</span>' +
+                '</div>';
+        }).join('') + '<div class="bp-empty-hint">Un regno sparisce dall\'elenco quando perde tutte le province.</div>';
     }
 
     // Conferme in pagina (R.confirm), non window.confirm: il dialogo nativo viene
@@ -228,7 +307,12 @@ document.addEventListener('DOMContentLoaded', () => {
             title: 'Chiudere il tuo turno?',
             text: 'Le unità temporanee scadono, i rinforzi obbligatori rimasti vengono schierati d\'ufficio e si passa al regno successivo.',
             ok: 'Chiudi il turno'
-        }, () => run(GA().endTurn()));
+        }, () => {
+            run(GA().endTurn());
+            // Chiuso il turno umano tocca all'IA: la catena dei bot va avanti da
+            // sola e si ferma quando torna il turno di un giocatore umano.
+            if (window.Bot) window.Bot.run();
+        });
     }
 
     $('board-end-turn').addEventListener('click', askEndTurn);
@@ -428,6 +512,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------- pannello sinistro ----------
 
     function renderPrestige(player) {
+        // Prestigio sospeso (GameRules.PRESTIGE_ENABLED): il blocco sparisce
+        // invece di mostrare numeri che non si muovono mai.
+        const block = $('bp-prestige-block');
+        if (!GR().PRESTIGE_ENABLED) {
+            if (block) block.style.display = 'none';
+            return;
+        }
+        if (block) block.style.display = '';
         setText('bp-gold-points', player.puntiOro || 0);
         const n = player.prestigioCiclo || 0;
         $('bp-cycle-ticks').innerHTML = Array.from({ length: 10 },
@@ -1142,6 +1234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBattle();
         renderMove(player);
         renderProvinceList(player, paths, connectedSet);
+        renderKingdoms(player);
         renderMapHud(player);
         syncAttackArrows(player);
         renderTreasury(player, units, snapshot, connectedSet, pop);
@@ -1166,9 +1259,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     R.onRefresh = render;
 
+    // I turni dell'IA (js/bot.js) arrivano qui: la mappa si ridisegna da sola
+    // (ogni azione chiama refresh), a noi resta da raccontare cosa è successo e,
+    // in vista generale, da seguire la battaglia con l'inquadratura.
+    if (window.Bot) {
+        window.Bot.onEvent = (evt) => {
+            if (!evt) return;
+            if (evt.type === 'start') {
+                showNotice('⚙ ' + evt.player.name + ' — ' + window.Bot.labelOf(evt.player) +
+                    ': ' + window.Bot.strategyOf(evt.player).motto, true);
+                return;
+            }
+            if (evt.type === 'action' && evt.result && evt.result.battle) {
+                if (spectating) R.fitToProvinces([evt.result.fromId, evt.result.toId]);
+                showNotice(evt.player.name + ' → ' + evt.result.msg, evt.result.ok);
+                return;
+            }
+            if (evt.type === 'idle') { render(); }
+        };
+    }
+
     function boot(attempt) {
         const player = resolvePlayer();
-        if (player) { enterKingdom(player); return; }
+        if (player) {
+            enterKingdom(player);
+            syncSpectateBtn();
+            syncSpeedBtn();
+            // Se al caricamento tocca a un regno dell'IA, la partita riparte da sé.
+            if (window.Bot) window.Bot.run();
+            return;
+        }
         if (attempt < 12) { setTimeout(() => boot(attempt + 1), 120); return; }
         showPicker();
     }

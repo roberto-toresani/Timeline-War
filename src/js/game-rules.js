@@ -68,6 +68,26 @@
         return Math.max(0, (troopsInProvince || 0) - MIN_GARRISON);
     }
 
+    // PRESIDIO DELLE PROVINCE NEUTRALI (regola dell'utente, non nel design doc).
+    // Le terre di nessuno non sono vuote: partono con 2 soldati e ogni 5 turni ne
+    // guadagnano 1, così l'espansione facile dei primi decenni si chiude da sola.
+    // Il presidio si ALZA soltanto (chi conquista non "eredita" il conto: la
+    // provincia smette di essere neutrale). Unica fonte: game-actions.garrisonNeutrals.
+    const NEUTRAL_START = 2;
+    const NEUTRAL_EVERY = 5;    // turni
+    const NEUTRAL_STEP = 1;
+
+    // I turni partono da 1 (js/chronicle.js): turni 1-5 → 2 soldati, 6-10 → 3, ecc.
+    function neutralGarrison(turn) {
+        const t = Math.max(1, Math.floor(turn || 1));
+        return NEUTRAL_START + Math.floor((t - 1) / NEUTRAL_EVERY) * NEUTRAL_STEP;
+    }
+
+    // PRESTIGIO SOSPESO (scelta dell'utente): il §10 resta scritto e il codice
+    // resta al suo posto, ma per ora non si accumula e la plancia non lo mostra.
+    // Rimettere a true per riaccenderlo: non serve toccare altro.
+    const PRESTIGE_ENABLED = false;
+
     function emptyScorte() {
         const s = {};
         RES.forEach(k => { s[k] = 0; });
@@ -201,7 +221,7 @@
             reclute: plan.libere,
             vincolate: plan.perProvincia,
             recluteTotali: plan.total,
-            prestigio: popMod.prestigio,
+            prestigio: PRESTIGE_ENABLED ? popMod.prestigio : 0,
             collegate, hasCapital: true
         };
     }
@@ -244,6 +264,7 @@
     const api = {
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, TEMPORARY, MIN_GARRISON,
+        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, neutralGarrison, PRESTIGE_ENABLED,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
         connected, turnProduction, popEffectOf, defenceBonus
     };

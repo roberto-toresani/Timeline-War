@@ -30,12 +30,18 @@ document.addEventListener('DOMContentLoaded', () => {
         resourceDisplay.style.color = r ? r.colore : '#888';
     }
 
-    let currentTurn = 0;
+    // La partita comincia dal turno 1: il calendario (js/chronicle.js) fa
+    // corrispondere il turno 1 al decennio 1000-1009.
+    const FIRST_TURN = (window.Chronicle && window.Chronicle.FIRST_TURN) || 1;
+    let currentTurn = FIRST_TURN;
     let TURN_HISTORY = {};
     let selectedPlayer = null;
     let selectedResource = null; // null = nessun "pennello risorsa" attivo; altrimenti chiave risorsa o '__erase__'
     let selectedPiece = null;    // null = nessun "pennello figura" attivo; altrimenti chiave figura o '__erase__'
     const PIECE_NEUTRAL = '#555555'; // colore delle figure su province senza proprietario
+    // Inchiostro del contorno delle pedine: unica fonte è PC_INK (piece_icons.js),
+    // qui serve per i pezzi disegnati a mano (il pallino del numero).
+    const PIECE_INK = (typeof PC_INK !== 'undefined') ? PC_INK : '#14100b';
     // Insediamenti maggiori: al massimo UNO per provincia (Capitale, Città o Fortezza
     // si escludono a vicenda). Le navi (barca/vascello) solo su province costiere.
     const SETTLEMENT_GROUP = ['capitale', 'citta', 'fortezza'];
@@ -49,6 +55,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let mapView = null;
     let NEIGHBORS = {};      // grafo completo (terra + brevi salti via mare): per usi futuri (navi)
     let NEIGHBORS_LAND = {}; // solo confini via terra (province che si toccano): usato dalla nebbia
+    // Il grafo dei confini si calcola in differita (vedi initMap): per un paio di
+    // secondi dopo il caricamento NON c'è. Chi ragiona sulle adiacenze — sorteggio
+    // di una partita nuova, turni dei bot — deve aspettare, o vedrebbe una mappa di
+    // isole scollegate e produrrebbe una partita rotta senza dire niente.
+    let neighborsReady = false;
     const SVG_NS = 'http://www.w3.org/2000/svg';
     const XLINK_NS = 'http://www.w3.org/1999/xlink';
 
@@ -202,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (turnDisplay && turnPrevBtn && turnNextBtn) {
         turnPrevBtn.addEventListener('click', () => {
             if (!isAdminMode) return;
-            if (currentTurn > 0) {
+            if (currentTurn > FIRST_TURN) {
                 saveCurrentTurnToHistory();
                 currentTurn--;
                 loadTurnFromHistory();
@@ -486,6 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const g = computeNeighborGraph(svg);
             NEIGHBORS = g.full;
             NEIGHBORS_LAND = g.land;
+            neighborsReady = true;
             renderResourceMarkers(svg);
             renderPieceMarkers(svg);
             renderRoads(svg);
@@ -503,75 +515,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Estrae i punti del bordo di un path parsando l'attributo "d" (assoluti), con
-    // densificazione dei segmenti lunghi. Evita getPointAtLength, che sui path complessi
-    // costa ~decine di ms A CHIAMATA e faceva saturare/crashare il browser.
-    function parsePathBoundaryPoints(d) {
-        const STEP = 0.5;       // interpola i segmenti piu' lunghi di questo
-        const MAX_INTERP = 60;  // cap di punti interpolati per segmento (sicurezza)
-        const pts = [];
-        if (!d) return pts;
-        const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g);
-        if (!tokens) return pts;
-
-        let i = 0, cx = 0, cy = 0, sx = 0, sy = 0, cmd = '';
-        let lastX = null, lastY = null;
-        const num = () => parseFloat(tokens[i++]);
-        const skip = n => { i += n; };
-        const isCmd = t => t.length === 1 && /[A-Za-z]/.test(t);
-
-        function push(x, y) {
-            if (lastX !== null) {
-                const dx = x - lastX, dy = y - lastY, dist = Math.hypot(dx, dy);
-                if (dist > STEP) {
-                    const n = Math.min(Math.floor(dist / STEP), MAX_INTERP);
-                    for (let k = 1; k < n; k++) pts.push({ x: lastX + dx * k / n, y: lastY + dy * k / n });
-                }
-            }
-            pts.push({ x, y });
-            lastX = x; lastY = y;
-        }
-
-        while (i < tokens.length) {
-            if (isCmd(tokens[i])) { cmd = tokens[i]; i++; }
-            else if (!cmd) { i++; continue; }
-            const rel = cmd === cmd.toLowerCase();
-            const C = cmd.toUpperCase();
-            if (C === 'Z') { cx = sx; cy = sy; push(cx, cy); continue; }
-            let x, y;
-            switch (C) {
-                case 'M':
-                    x = num(); y = num(); if (rel) { x += cx; y += cy; }
-                    cx = x; cy = y; sx = x; sy = y;
-                    lastX = null; lastY = null; // nuovo sotto-tracciato: niente densify dal precedente
-                    push(x, y);
-                    cmd = rel ? 'l' : 'L'; // le ripetizioni di M sono lineto
-                    break;
-                case 'L':
-                    x = num(); y = num(); if (rel) { x += cx; y += cy; }
-                    cx = x; cy = y; push(x, y); break;
-                case 'H':
-                    x = num(); if (rel) x += cx; cx = x; push(cx, cy); break;
-                case 'V':
-                    y = num(); if (rel) y += cy; cy = y; push(cx, cy); break;
-                case 'C': skip(4); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
-                case 'S': skip(2); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
-                case 'Q': skip(2); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
-                case 'T': x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
-                case 'A': skip(5); x = num(); y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; push(x, y); break;
-                default: i++; break; // token inatteso: avanza per non bloccare
-            }
-        }
-        return pts;
-    }
-
-    // Punti del bordo di una provincia (memoizzati sull'elemento).
-    function boundaryPoints(pathEl) {
-        if (pathEl.__bpts) return pathEl.__bpts;
-        const pts = parsePathBoundaryPoints(pathEl.getAttribute('d'));
-        pathEl.__bpts = pts;
-        return pts;
-    }
+    // Geometria della mappa (bordo delle province, ancoraggi di terra e di mare):
+    // vive in js/map-anchors.js, che non sa nulla del gioco ed è verificabile da
+    // solo. Qui restano solo gli alias, per non riscrivere mezzo file.
+    const boundaryPoints = p => MapAnchors.boundaryPoints(p);
 
     // Registra un punto in una griglia spaziale (hash) su una cella e le 8 adiacenti,
     // cosi' due punti a cavallo del bordo di cella si incontrano lo stesso.
@@ -611,6 +558,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Idea: un confine condiviso ha punti quasi coincidenti sui due lati (distanza ->0 con
     // molti campioni), mentre uno stretto di mare mantiene un divario -> nella griglia fine
     // i due lati non condividono celle e il collegamento sparisce.
+    // Le province VERE: i path.state che hanno un id. L'alone costiero
+    // (map-decor.js) è un clone congelato di #map-group con gli id rimossi, e
+    // ha la stessa classe: senza questo filtro entrava nel grafo delle adiacenze
+    // come un unico nodo "" confinante con tutto il mondo (e finiva anche nei
+    // presidi neutrali). Unica porta d'accesso all'elenco delle province.
+    function provincePaths(svg) {
+        const root = svg || document.querySelector('svg');
+        if (!root) return [];
+        return Array.from(root.querySelectorAll('path.state')).filter(p => p.id);
+    }
+
     function computeNeighborGraph(svg) {
         const CELL_FULL = 0.6;    // griglia grossa (comportamento storico, permissivo)
         const CELL_LAND = 0.32;   // griglia fine: separa terra (contatto) da mare (divario)
@@ -618,7 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const cellsLand = new Map();
         const ids = [];
 
-        svg.querySelectorAll('path.state').forEach(path => {
+        provincePaths(svg).forEach(path => {
             const id = path.id;
             ids.push(id);
             const pts = boundaryPoints(path);
@@ -650,50 +608,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return (k && typeof RESOURCES !== 'undefined' && RESOURCES[k]) ? k : '';
     }
 
-    function median(arr) {
-        const a = arr.slice().sort((x, y) => x - y);
-        const n = a.length;
-        if (!n) return 0;
-        return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
-    }
-
-    function pointInPath(path, x, y) {
-        if (typeof path.isPointInFill !== 'function') return true; // fallback: non bloccare
-        try { return path.isPointInFill(new DOMPoint(x, y)); } catch (e) { return true; }
-    }
+    const pointInPath = (path, x, y) => MapAnchors.pointInPath(path, x, y);
 
     // Ancora dell'icona-risorsa: individua il CORPO PRINCIPALE della provincia
     // (ignora isole lontane usando la mediana dei punti del perimetro), poi sceglie
     // un angolo di quel corpo e garantisce che il centro dell'icona cada dentro il
     // poligono (isPointInFill). Cosi' l'icona non sfora in mare o in un'altra provincia.
-    // BBox del CORPO PRINCIPALE della provincia: usa la mediana dei punti del
-    // perimetro per scartare le isole lontane, cosi' ancore e figure non finiscono
-    // in mare o su un'altra provincia. Condiviso da markerAnchor e dalle figure.
-    function mainBodyBBox(path) {
-        let b; try { b = path.getBBox(); } catch (e) { return null; }
-        if (!b || (!b.width && !b.height)) return null;
-
-        let mx = b.x, my = b.y, mw = b.width, mh = b.height;
-
-        const pts = boundaryPoints(path); // dai punti parsati del bordo (nessun getPointAtLength)
-        if (pts.length >= 8) {
-            const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-            const medX = median(xs), medY = median(ys);
-            const dist = new Array(pts.length);
-            for (let i = 0; i < pts.length; i++) dist[i] = Math.hypot(xs[i] - medX, ys[i] - medY);
-            const thr = Math.max(median(dist) * 2.5, 1e-6); // scarta i punti delle isole lontane
-            let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity, cnt = 0;
-            for (let i = 0; i < pts.length; i++) {
-                if (dist[i] > thr) continue;
-                const x = xs[i], y = ys[i];
-                if (x < minx) minx = x; if (x > maxx) maxx = x;
-                if (y < miny) miny = y; if (y > maxy) maxy = y;
-                cnt++;
-            }
-            if (cnt >= 3) { mx = minx; my = miny; mw = maxx - minx; mh = maxy - miny; }
-        }
-        return { x: mx, y: my, w: mw, h: mh };
-    }
+    const mainBodyBBox = path => MapAnchors.mainBodyBBox(path);
 
     function markerAnchor(path) {
         const bb = mainBodyBBox(path);
@@ -751,13 +672,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof RESOURCES === 'undefined') return;
         injectResourceDefs(svg);
         svg.querySelectorAll('.resource-marker').forEach(m => m.remove());
-        svg.querySelectorAll('path.state').forEach(path => renderMarkerForPath(svg, path));
+        provincePaths(svg).forEach(path => renderMarkerForPath(svg, path));
     }
 
     // Snapshot { provinceId: risorsa } delle sole province con risorsa assegnata.
     function collectResources(svg) {
         const out = {};
-        svg.querySelectorAll('path.state').forEach(p => {
+        provincePaths(svg).forEach(p => {
             const k = resourceKeyOf(p);
             if (k) out[p.id] = k;
         });
@@ -769,7 +690,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyResourceState(map) {
         const svg = document.querySelector('svg');
         if (!svg || !map || typeof map !== 'object') return;
-        svg.querySelectorAll('path.state').forEach(p => {
+        provincePaths(svg).forEach(p => {
             const k = map[p.id];
             if (k && typeof RESOURCES !== 'undefined' && RESOURCES[k]) p.setAttribute('data-resource', k);
             else p.removeAttribute('data-resource');
@@ -792,7 +713,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof PIECE_SYMBOLS === 'undefined') return;
         if (svg.querySelector('#pc-defs')) return;
         const doc = new DOMParser().parseFromString(
-            `<svg xmlns="${SVG_NS}"><defs id="pc-defs">${PIECE_SYMBOLS}</defs></svg>`,
+            // xmlns:xlink va dichiarato: i simboli usano <use xlink:href> e il
+            // parser XML (image/svg+xml) rifiuta un prefisso non dichiarato.
+            `<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}"><defs id="pc-defs">${PIECE_SYMBOLS}</defs></svg>`,
             'image/svg+xml'
         );
         const defs = doc.querySelector('#pc-defs');
@@ -856,8 +779,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Disegna (o ridisegna) le figure di UNA provincia: una fila compatta, piccola,
-    // centrata sul corpo principale e ridotta per stare dentro i confini. I tipi
-    // impilabili mostrano un pallino col numero. Nascoste in nebbia.
+    // ancorata dentro il corpo della provincia (le navi in mare aperto accanto alla
+    // costa) e ridotta per stare nello spazio libero. I tipi impilabili mostrano un
+    // pallino col numero. Nascoste in nebbia.
+    // Il centro del bounding box NON va bene come ancora: su Messico, Norvegia o
+    // Cile cade fuori dalla provincia. Le ancore le calcola map-anchors.js, che
+    // restituisce anche il raggio libero: la fila non deve sbordare da lì.
     function renderPiecesForPath(svg, path) {
         svg.querySelectorAll(`.piece-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => m.remove());
         const arr = piecesOf(path);
@@ -868,14 +795,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const fogged = path.classList.contains('fog');
         const sizeBase = Math.min(bb.w, bb.h) * 0.30;
 
-        // Figure di terra al centro del corpo; navi in mare accanto alla costa.
         const land = arr.filter(e => SHIP_TYPES.indexOf(e.type) < 0 && e.type !== 'strada');
         const ships = arr.filter(e => SHIP_TYPES.indexOf(e.type) >= 0);
 
-        if (land.length) drawPieceRow(svg, path, land, bb.x + bb.w / 2, bb.y + bb.h / 2, sizeBase, bb.w * 0.9, color, fogged);
+        if (land.length) {
+            const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
+            drawPieceRow(svg, path, land, a.x, a.y, sizeBase, Math.min(bb.w * 0.9, Math.max(a.r * 2.2, sizeBase * 1.5)), color, fogged);
+        }
         if (ships.length) {
             const a = seaAnchor(path);
-            drawPieceRow(svg, path, ships, a ? a.x : bb.x + bb.w / 2, a ? a.y : bb.y + bb.h / 2, sizeBase, bb.w * 1.6, color, fogged);
+            if (a) drawPieceRow(svg, path, ships, a.x, a.y, sizeBase, Math.min(bb.w * 1.6, Math.max(a.r * 2.2, sizeBase * 1.5)), color, fogged);
+            else {
+                const l = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
+                drawPieceRow(svg, path, ships, l.x, l.y, sizeBase, Math.min(bb.w * 0.9, l.r * 2.2), color, fogged);
+            }
         }
     }
 
@@ -914,8 +847,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const c = document.createElementNS(SVG_NS, 'circle');
                 c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
                 c.setAttribute('fill', '#fff');
-                c.setAttribute('stroke', 'currentColor');
-                c.setAttribute('stroke-width', size * 0.09);
+                // Anello scuro come il contorno delle pedine: il numero deve
+                // leggersi anche sopra una provincia del colore del giocatore.
+                c.setAttribute('stroke', PIECE_INK);
+                c.setAttribute('stroke-width', size * 0.11);
                 add(c);
                 const t = document.createElementNS(SVG_NS, 'text');
                 t.setAttribute('x', bx); t.setAttribute('y', by);
@@ -936,13 +871,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof PIECES === 'undefined') return;
         injectPieceDefs(svg);
         svg.querySelectorAll('.piece-marker').forEach(m => m.remove());
-        svg.querySelectorAll('path.state').forEach(path => renderPiecesForPath(svg, path));
+        provincePaths(svg).forEach(path => renderPiecesForPath(svg, path));
     }
 
     // Snapshot { provinceId: { t:"soldato:3,citta:1", c:"#e6194B" } } delle province con figure.
     function collectPieces(svg) {
         const out = {};
-        svg.querySelectorAll('path.state').forEach(p => {
+        provincePaths(svg).forEach(p => {
             const t = p.getAttribute('data-pieces');
             if (!t) return;
             const entry = { t };
@@ -958,7 +893,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyPieceState(map) {
         const svg = document.querySelector('svg');
         if (!svg || !map || typeof map !== 'object') return;
-        svg.querySelectorAll('path.state').forEach(p => {
+        provincePaths(svg).forEach(p => {
             const v = map[p.id];
             let str = '', color = '';
             if (v && typeof v === 'object' && !Array.isArray(v)) { str = v.t || ''; color = v.c || ''; }
@@ -1055,62 +990,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Regole di piazzamento (stile Risiko) ---
 
-    // Trova un punto del bordo che affaccia sull'acqua: dai punti del perimetro
-    // spingo un campione verso l'esterno; se cade fuori dalla provincia E fuori da
-    // ogni vicino di TERRA, quel lato e' mare. Restituisce il punto piu' "esposto"
-    // (piu' lontano dal centro) con la sua direzione verso il largo, oppure null.
-    function seaFacingSample(path) {
-        if (typeof path.isPointInFill !== 'function') return null;
-        const bb = mainBodyBBox(path);
-        const pts = boundaryPoints(path);
-        if (!bb || !pts.length) return null;
-        const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
-        const d = Math.min(Math.max(Math.max(bb.w, bb.h) * 0.05, 1.2), 5);
-        const neighPaths = Array.from(NEIGHBORS_LAND[path.id] || [])
-            .map(id => document.getElementById(id)).filter(Boolean);
-        const step = Math.max(1, Math.floor(pts.length / 80));
-        let best = null, bestDist = -1;
-        for (let i = 0; i < pts.length; i += step) {
-            const p = pts[i];
-            let ux = p.x - cx, uy = p.y - cy;
-            const len = Math.hypot(ux, uy) || 1; ux /= len; uy /= len;
-            const qx = p.x + ux * d, qy = p.y + uy * d;
-            if (pointInPath(path, qx, qy)) continue;
-            let inNeighbor = false;
-            for (const np of neighPaths) { if (pointInPath(np, qx, qy)) { inNeighbor = true; break; } }
-            if (inNeighbor) continue;
-            const dist = Math.hypot(p.x - cx, p.y - cy);
-            if (dist > bestDist) { bestDist = dist; best = { px: p.x, py: p.y, ux, uy }; }
-        }
-        return best;
-    }
-
-    // Costiera = ha un lato sul mare (incluso Mar Nero/Caspio, resi come acqua).
-    function isCoastalProvince(path) {
-        if (path.dataset.coast === '1') return true;
-        if (path.dataset.coast === '0') return false;
-        if (typeof path.isPointInFill !== 'function') return true; // browser vecchio: non bloccare
-        const coastal = !!seaFacingSample(path);
-        if (NEIGHBORS_LAND && Object.keys(NEIGHBORS_LAND).length) {
-            path.dataset.coast = coastal ? '1' : '0';
-        }
-        return coastal;
-    }
-
-    // Punto in mare, appena al largo della costa, dove disegnare le navi.
-    function seaAnchor(path) {
-        if (path.dataset.seaX) return { x: parseFloat(path.dataset.seaX), y: parseFloat(path.dataset.seaY) };
-        const s = seaFacingSample(path);
-        if (!s) return null;
-        const bb = mainBodyBBox(path);
-        const push = bb ? Math.min(Math.max(Math.max(bb.w, bb.h) * 0.16, 3.5), 10) : 5;
-        const anchor = { x: s.px + s.ux * push, y: s.py + s.uy * push };
-        if (NEIGHBORS_LAND && Object.keys(NEIGHBORS_LAND).length) {
-            path.dataset.seaX = anchor.x.toFixed(1);
-            path.dataset.seaY = anchor.y.toFixed(1);
-        }
-        return anchor;
-    }
+    // Costa e approdo delle navi: geometria pura, sta in map-anchors.js.
+    const isCoastalProvince = path => MapAnchors.isCoastal(path);
+    const seaAnchor = path => MapAnchors.seaAnchor(path);
 
     // Verifica se una figura puo' essere posata sulla provincia. { ok, msg }.
     function canPlacePiece(path, type) {
@@ -1132,7 +1014,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const svg = document.querySelector('svg');
                 let taken = false;
                 if (svg) {
-                    svg.querySelectorAll('path.state').forEach(pp => {
+                    provincePaths(svg).forEach(pp => {
                         if (pp === path || taken) return;
                         if (pp.getAttribute('data-pc-color') === color &&
                             piecesOf(pp).some(e => e.type === 'capitale')) taken = true;
@@ -1199,7 +1081,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // che l'SVG di MapChart lascia intorno alle terre emerse.
         function landBBox() {
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            svg.querySelectorAll('path.state').forEach(p => {
+            provincePaths(svg).forEach(p => {
                 let b; try { b = p.getBBox(); } catch (e) { return; }
                 if (!b || (!b.width && !b.height)) return;
                 if (b.x < minX) minX = b.x;
@@ -1484,9 +1366,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const prevTurn = currentTurn - 1;
             let source = INITIAL_MAP_DATA;
 
-            if (prevTurn >= 0 && TURN_HISTORY[prevTurn]) {
+            if (prevTurn >= FIRST_TURN && TURN_HISTORY[prevTurn]) {
                 source = TURN_HISTORY[prevTurn];
-            } else if (currentTurn > 0) {
+            } else if (currentTurn > FIRST_TURN) {
                 const turns = Object.keys(TURN_HISTORY).map(Number).sort((a, b) => b - a);
                 const latestTurn = turns.find(t => t < currentTurn);
                 if (latestTurn !== undefined) source = TURN_HISTORY[latestTurn];
@@ -1694,7 +1576,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         // Le figure il cui "colore-esercito" era quello vecchio seguono il nuovo colore.
         if (oldColor && oldColor !== newColor) {
-            svg.querySelectorAll('path.state').forEach(path => {
+            provincePaths(svg).forEach(path => {
                 if (path.getAttribute('data-pc-color') === oldColor) {
                     path.setAttribute('data-pc-color', newColor);
                     svg.querySelectorAll(`.piece-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => {
@@ -1893,7 +1775,68 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = GameActions.endTurn();
             showPieceNotice(r.msg);
             renderGameControls();
+            if (window.Bot) window.Bot.run();
         });
+    }
+
+    // --- NUOVA PARTITA (admin) ---
+    // Sorteggia feudi e Capitali, estrae il regno umano e mette l'IA su tutti
+    // gli altri (js/setup.js). È l'unico modo di riavviare davvero: "Avvia
+    // partita" azzera l'economia ma tiene la mappa com'è.
+    const newGameBtn = document.getElementById('new-game-btn');
+    if (newGameBtn) {
+        newGameBtn.addEventListener('click', () => {
+            if (!isAdminMode) return;
+            if (!window.GameSetup) { showPieceNotice('setup.js non caricato.'); return; }
+            if (!neighborsReady) {
+                showPieceNotice('La mappa sta ancora calcolando i confini: riprova fra un istante.');
+                return;
+            }
+            askConfirm({
+                title: 'Sorteggiare una nuova partita?',
+                text: 'La mappa attuale viene sparecchiata: province, pedine, strade e cronologia dei turni. ' +
+                    'I 10 regni nascono in ' + window.GameSetup.REGIONS.europa.nome +
+                    ', con 3 province, una Capitale e 1000 monete a testa; le terre di nessuno con ' +
+                    GameRules.NEUTRAL_START + ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' +
+                    GameRules.NEUTRAL_EVERY + ' turni).',
+                ok: '🎲 Sorteggia',
+                tone: 'danger'
+            }, () => {
+                const res = window.GameSetup.newGame();
+                showPieceNotice(res.msg);
+                renderGameControls();
+                renderNewGameResult(res);
+                // Inquadra la regione dei regni: la partita si gioca lì, non serve
+                // guardare il planisfero intero.
+                if (res.ok && mapView) {
+                    const ids = res.regni.reduce((a, r) => a.concat(r.province), []);
+                    if (ids.length) mapView.fitToProvinces(ids);
+                }
+                if (window.Bot) window.Bot.run();
+            });
+        });
+    }
+
+    // Esito del sorteggio: chi sei, con che link entri nella tua plancia, e con
+    // che testa giocano gli altri nove.
+    function renderNewGameResult(res) {
+        const box = document.getElementById('new-game-result');
+        if (!box || !res || !res.ok) return;
+        const umano = res.umano;
+        const righe = res.regni.map(r => {
+            const p = r.player;
+            const bot = window.Bot ? window.Bot.strategyOf(p) : null;
+            return '<div class="ng-row' + (umano && p.id === umano.id ? ' me' : '') + '">' +
+                '<span class="ng-dot" style="background:' + p.color + '"></span>' +
+                '<span class="ng-name">' + p.name + '</span>' +
+                '<span class="ng-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
+                '</div>';
+        }).join('');
+        const link = umano ? inviteUrlFor(umano) : null;
+        box.innerHTML =
+            '<div class="ng-head">' + (umano ? 'Giochi ' + umano.name : 'Nessun regno umano') + '</div>' +
+            (link ? '<a class="ng-link" href="' + link + '">▶ Apri la tua plancia</a>' : '') +
+            righe;
     }
 
     renderGameControls();
@@ -2168,7 +2111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function ownedPaths(playerName) {
         const svg = document.querySelector('svg');
         if (!svg || !playerName) return [];
-        return Array.from(svg.querySelectorAll('path.state'))
+        return provincePaths(svg)
             .filter(p => p.getAttribute('data-owner') === playerName);
     }
 
@@ -2269,7 +2212,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const svg = document.querySelector('svg');
         if (!svg || !player) return null;
         let found = null;
-        svg.querySelectorAll('path.state').forEach(pp => {
+        provincePaths(svg).forEach(pp => {
             if (found) return;
             if (pieceColorOf(pp) === player.color &&
                 piecesOf(pp).some(e => e.type === 'capitale')) found = pp;
@@ -2675,9 +2618,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const b = path.getBoundingClientRect();
         const w = wrap.getBoundingClientRect();
         if (!b.width && !b.height) return null;
+        // Il cursore va sopra la provincia, non sopra il centro del suo rettangolo:
+        // sulle province a mezzaluna quello cade in mare. Stessa ancora delle pedine,
+        // riportata in pixel con la matrice dello schermo.
+        let px = b.left + b.width / 2, py = b.top + b.height / 2;
+        const a = MapAnchors.landAnchor(path);
+        const ctm = path.getScreenCTM && path.getScreenCTM();
+        if (a && ctm) {
+            px = ctm.a * a.x + ctm.c * a.y + ctm.e;
+            py = ctm.b * a.x + ctm.d * a.y + ctm.f;
+        }
         return {
-            x: b.left + b.width / 2 - w.left,
-            y: b.top + b.height / 2 - w.top,
+            x: px - w.left,
+            y: py - w.top,
             w: b.width, h: b.height,
             visible: b.right > w.left && b.left < w.right && b.bottom > w.top && b.top < w.bottom
         };
@@ -2827,12 +2780,22 @@ document.addEventListener('DOMContentLoaded', () => {
             loadTurnFromHistory();
             updateTurnUI();
         },
+        // Riporta il calendario all'anno zero e butta via la cronologia dei
+        // proprietari: serve solo a chi apre una partita NUOVA (js/setup.js).
+        resetHistory() {
+            TURN_HISTORY = {};
+            currentTurn = FIRST_TURN;
+            updateTurnUI();
+        },
 
         // --- primitive di manipolazione della mappa, usate da game-actions.js ---
         // Superficie volutamente stretta: game-actions non conosce il DOM dell'SVG.
         engine: {
             path: (id) => document.getElementById(id),
             ownedPaths,
+            // Tutte le province della mappa (serve ai presidi neutrali e al
+            // sorteggio dei regni iniziali): niente alone costiero, vedi provincePaths.
+            allPaths: () => provincePaths(),
             landNeighbors: (id) => Array.from(NEIGHBORS_LAND[id] || []),
             areLandAdjacent,
             pieces: piecesOf,
@@ -2869,6 +2832,8 @@ document.addEventListener('DOMContentLoaded', () => {
         fitToProvinces(ids) { return mapView ? mapView.fitToProvinces(ids) : false; },
         setViewInsets(left, right) { if (mapView) mapView.setInsets(left, right); },
         resetView() { if (mapView) mapView.resetView(); },
-        mapReady: () => !!mapView
+        mapReady: () => !!mapView,
+        // Confini pronti? Finché è false le adiacenze sono vuote (vedi neighborsReady).
+        neighborsReady: () => neighborsReady
     };
 });

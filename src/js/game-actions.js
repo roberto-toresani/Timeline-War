@@ -114,6 +114,27 @@
             'non si lascia mai sguarnita.');
     }
 
+    // ---------- presidio delle terre di nessuno ----------
+    // Regola dell'utente: nessuna provincia neutrale è vuota. Parte con 2 soldati
+    // e ogni 5 turni ne guadagna 1 (GameRules.neutralGarrison). Si chiama all'avvio
+    // e alla fine di ogni giro completo: alza il presidio di chi è sotto la quota
+    // del decennio e non tocca nient'altro — una provincia conquistata non è più
+    // neutrale, quindi esce da qui da sola.
+    function garrisonNeutrals() {
+        const target = GR().neutralGarrison(R().turn());
+        let province = 0, soldati = 0;
+        E().allPaths().forEach(path => {
+            if (E().owner(path)) return;
+            const cur = E().countPiece(path, 'soldato');
+            const delta = Math.min(target - cur, roomFor(path));
+            if (delta <= 0) return;
+            E().addPiece(path, 'soldato', delta);
+            E().redrawProvince(path);
+            province++; soldati += delta;
+        });
+        return { target, province, soldati };
+    }
+
     function isMyTurn(player) {
         const t = R().turnoDi();
         return t === null || t === undefined || t === player.id;
@@ -223,6 +244,9 @@
             });
         });
 
+        // Le terre di nessuno partono presidiate (2 soldati, +1 ogni 5 turni).
+        garrisonNeutrals();
+
         // Giocano solo i regni che hanno almeno una provincia.
         const ordine = players.filter(pl => E().ownedPaths(pl.name).length).map(pl => pl.id);
         R().setTurnState(ordine.length ? ordine[0] : null, ordine, 0);
@@ -292,8 +316,12 @@
 
         // Giro completo quando si torna a chi lo ha aperto.
         const giroFinito = nextIdx === primo;
+        let neutrali = null;
         if (giroFinito) {
             R().advanceGlobalTurn();
+            // Nuovo decennio: le terre di nessuno si rinforzano se è scattata la
+            // soglia dei 5 turni (garrisonNeutrals alza solo chi è sotto quota).
+            neutrali = garrisonNeutrals();
             const nuovoPrimo = (primo + 1) % ordine.length;
             R().setTurnState(ordine[nuovoPrimo], ordine, nuovoPrimo);
         } else {
@@ -304,8 +332,10 @@
         E().refresh();
         E().save();
         const nota = forzate ? ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)' : '';
-        return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota,
-            { produzione: res.produzione });
+        const notaN = (neutrali && neutrali.province)
+            ? ' Le terre di nessuno salgono a ' + neutrali.target + ' soldati.' : '';
+        return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota + notaN,
+            { produzione: res.produzione, neutrali });
     }
 
     // Mercenari e Guarnigioni valgono un turno solo (§5.3).
@@ -835,7 +865,7 @@
         deploy, deployBound, deployAllBound, undeploy,
         build, buildRoad, recruit, attack, attackTargets,
         conquestPending, resolveConquest,
-        moveTargets, finalMove,
+        moveTargets, finalMove, ownReachable, garrisonNeutrals,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool

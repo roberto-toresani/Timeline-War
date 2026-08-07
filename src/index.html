@@ -8,8 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=54">
-    <link rel="stylesheet" href="css/style.css?v=54">
+    <link rel="stylesheet" href="css/tokens.css?v=57">
+    <link rel="stylesheet" href="css/style.css?v=57">
 </head>
 
 <body>
@@ -104,6 +104,13 @@
                             <button id="start-game-btn" style="flex:1;">🏁 Avvia partita</button>
                             <button id="end-turn-btn" style="flex:1;">⏭️ Fine turno</button>
                         </div>
+                        <!-- Sorteggia una partita nuova: feudi iniziali, Capitali,
+                             regno umano estratto a sorte e IA su tutti gli altri
+                             (js/setup.js + js/bot.js). -->
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <button id="new-game-btn" style="flex:1;">🎲 Nuova partita (1 umano + bot)</button>
+                        </div>
+                        <div id="new-game-result"></div>
                         <!-- Reclute in attesa, regno per regno: si vede a colpo d'occhio
                              chi deve ancora schierare (iniettato da app.js). -->
                         <div id="game-reinforce-board"></div>
@@ -140,21 +147,24 @@
     <script src="js/sync.js"></script>
 
     <!-- Scripts -->
-    <script src="data/map_data.js?v=54"></script>
-    <script src="data/id_mapping.js?v=54"></script>
-    <script src="data/embedded_map.js?v=54"></script>
-    <script src="data/resource_icons.js?v=54"></script>
-    <script src="data/piece_icons.js?v=54"></script>
-    <script src="data/default_state.js?v=54"></script>
-    <script src="data/city_names.js?v=54"></script>
-    <script src="data/historic_battles.js?v=54"></script>
-    <script src="js/chronicle.js?v=54"></script>
-    <script src="js/map-decor.js?v=54"></script>
-    <script src="js/battle.js?v=54"></script>
-    <script src="js/kingdom-stats.js?v=54"></script>
-    <script src="js/game-rules.js?v=54"></script>
-    <script src="js/app.js?v=54"></script>
-    <script src="js/game-actions.js?v=54"></script>
+    <script src="data/map_data.js?v=57"></script>
+    <script src="data/id_mapping.js?v=57"></script>
+    <script src="data/embedded_map.js?v=57"></script>
+    <script src="data/resource_icons.js?v=57"></script>
+    <script src="data/piece_icons.js?v=57"></script>
+    <script src="data/default_state.js?v=57"></script>
+    <script src="data/city_names.js?v=57"></script>
+    <script src="data/historic_battles.js?v=57"></script>
+    <script src="js/chronicle.js?v=57"></script>
+    <script src="js/map-decor.js?v=57"></script>
+    <script src="js/battle.js?v=57"></script>
+    <script src="js/kingdom-stats.js?v=57"></script>
+    <script src="js/game-rules.js?v=57"></script>
+    <script src="js/map-anchors.js?v=57"></script>
+    <script src="js/app.js?v=57"></script>
+    <script src="js/game-actions.js?v=57"></script>
+    <script src="js/bot.js?v=57"></script>
+    <script src="js/setup.js?v=57"></script>
 </body>
 
 </html>

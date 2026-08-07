@@ -4,7 +4,7 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-08-07
+- **Ultimo aggiornamento:** 2026-08-07 (partita contro l'IA, presidi neutrali, vista generale)
 - **Branch corrente:** `feat/pedine-gioco`
 - **Ultimo commit:** vedi `git log` — Plancia giocatore giocabile (turni, economia, costruzioni, attacco)
 
@@ -60,6 +60,34 @@ e in particolare al momento del commit.
   impegnati, caduti e superstiti dei due schieramenti, probabilità che si aveva di vincere
   e bottone ↺ per rivedere lo scontro. Prima di attaccare, ogni bersaglio mostra il
   pronostico in % che si aggiorna col numero di truppe scelto.
+
+- **Partita contro l'IA (nuovo)** — `js/bot.js` + `js/setup.js`.
+  - **Nuova partita** (bottone 🎲 nell'editor): sparecchia la mappa, sorteggia 10 feudi da
+    3 province **in Europa, Nord Africa e Arabia** (`GameSetup.REGIONS`), il più distanti
+    possibile fra loro, regala a ognuno la **Capitale** e una strada gratuita, estrae a
+    sorte il regno **umano** e assegna una strategia a tutti gli altri. Il pannello mostra
+    chi sei e il link diretto alla tua plancia; la mappa si inquadra sulla regione.
+  - **Cinque strategie**: Espansione, Conservatore, Costruttore, Opportunista, Predone —
+    cambiano dove schierano, cosa costruiscono, con quale margine di rischio attaccano e
+    quanti superstiti lasciano nella provincia presa.
+  - I bot **non hanno poteri speciali**: passano dalle stesse azioni di `game-actions.js`
+    (fasi, presidio minimo, costi, conquista). Giocano **a passi visibili** (600 ms, vedi
+    `Bot.speed`), così la partita si può guardare. Li muove solo chi ha i permessi di
+    scrittura (`Risiko.isAdmin()`).
+- **Terre di nessuno presidiate (nuovo)** — ogni provincia neutrale ha **2 soldati** (turni
+  1-5), e ogni **5 turni** la quota sale di 1 (`GameRules.neutralGarrison`, applicata da
+  `GameActions.garrisonNeutrals` all'avvio e a ogni giro completo).
+- **Il calendario parte dal turno 1 (nuovo)** — turno 1 = 1000-1009, turno 2 = 1010-1019
+  (`Chronicle.FIRST_TURN`). Prima si partiva dal turno 0.
+- **Vista generale nella plancia (nuovo)** — bottone 🌍 nella barra: toglie la nebbia e
+  mostra tutta la mappa per guardare giocare l'IA; 👑 riporta al proprio regno. Non cambia
+  i permessi, solo cosa si vede.
+- **Prestigio sospeso** — `GameRules.PRESTIGE_ENABLED = false`: non si accumula e il blocco
+  sparisce dalla plancia. Il codice e il §10 restano al loro posto.
+- **Fix adiacenze** — l'alone costiero (`map-decor.js`) è un clone di `#map-group` senza id
+  ma con la stessa classe `state`: entrava nel grafo dei confini come un nodo `""`
+  confinante con tutto il mondo. Ora l'elenco delle province passa da `provincePaths()`
+  (solo path con id) in `js/app.js`.
 
 ## In lavorazione (WIP)
 
