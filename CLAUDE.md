@@ -28,6 +28,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ setup.js           "Nuova partita": sorteggio feudi, Capitali, umano vs bot
 │  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
 │  ├─ chronicle.js       calendario (1 turno = 1 decennio) e fondazione delle città — puro
+│  ├─ map-anchors.js     DOVE si posano le cose: ancora di terra e approdo — puro
 │  ├─ map-decor.js       vestizione "carta antica": mare, grana, alone costiero
 │  ├─ battle.js          risoluzione probabilistica delle battaglie (funzione pura)
 │  ├─ sync.js            sincronizzazione multiplayer (Firestore)
@@ -38,6 +39,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ city_names.js      provincia → città storica che vi sorge (solo colore)
 │  ├─ historic_battles.js battaglie vere: anno + provincia (solo se verificate)
 │  └─ id_mapping.js      mappatura id SVG ↔ nomi province
+├─ _diag-anchors.html    pagina di lavoro: disegna gli ancoraggi di tutte le province
 └─ assets/               mappe SVG (world_map*.svg)
 firebase/firestore.rules regole di sicurezza Firestore (da pubblicare nella console Firebase)
 scripts/serve.ps1        server statico locale dependency-free (PowerShell)
@@ -102,7 +104,21 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   prodotte, e a fine turno vengono schierate d'ufficio se il giocatore non l'ha fatto.
   Serbatoi sul record giocatore: `recluteDaSchierare`, `recluteVincolate` (per provincia),
   `schierateTurno` (cosa si è posato adesso: è l'unica cosa ritirabile).
-- **Partita contro l'IA**: `js/setup.js` (`GameSetup.newGame`) sorteggia la partita —
+- **Alias di funzione: `function`, non `const arrow`.** `initMap()` gira in cima alla
+  closure di `app.js` e da lì scende fino al render di risorse e pedine: qualunque
+  helper dichiarato più in basso con `const`/`let` è ancora nella sua **zona morta** e
+  lancia "Cannot access before initialization". L'errore veniva inghiottito dal
+  try/catch di `loadAutoSave`, quindi lo stato salvato non si caricava e la plancia
+  diceva "Partita non avviata" con la partita in corso. Gli alias verso `MapAnchors`
+  (`boundaryPoints`, `pointInPath`, `mainBodyBBox`, `isCoastalProvince`, `seaAnchor`)
+  sono `function` apposta: sono hoistate e il buco non esiste.
+- **Partita contro l'IA — due avvii diversi.** Quello NORMALE (`⚔️ Gioca con l'IA`,
+  `GameSetup.newGame()`) **tiene la mappa dipinta nell'editor**: i regni sono quelli
+  che ci sono, con i loro confini; chi non ha una Capitale la riceve nella sua
+  provincia più interna, l'economia torna ai valori del §11 e il calendario al turno 1.
+  Il sorteggio (`🎲 Sorteggia una mappa nuova`, `newGame({mantieniMappa:false})`)
+  **cancella** province, pedine e strade: è l'eccezione, e il dialogo lo dice.
+- **Sorteggio della mappa (solo `mantieniMappa:false`)**: `js/setup.js` —
   sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) e la
   **Capitale in regalo** — i regni nascono tutti in **Europa, Nord Africa e Arabia**
   (`GameSetup.REGIONS.europa`: rettangoli sulle coordinate dell'SVG, misurati sulla mappa
@@ -139,6 +155,36 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   `Risiko.focusPlayer(null)` — niente focus, niente nebbia, si vede tutta la mappa e si
   guardano giocare i bot. Non dà permessi: le azioni restano quelle del proprio regno nel
   proprio turno.
+- **Dove si posano pedine e navi (`js/map-anchors.js`)**: il centro del bounding box
+  NON è un punto della provincia — su Messico, Norvegia, Cile e su ogni forma a
+  mezzaluna cade in mare o dentro il vicino. `MapAnchors.landAnchor(path)` cerca il
+  punto più *profondo* (il più lontano dal bordo) fra i candidati che stanno davvero
+  dentro il poligono e restituisce `{x, y, r}`, dove `r` è il raggio libero: chi
+  disegna una fila la stringe dentro quel raggio. `MapAnchors.seaAnchor(path)` fa
+  l'equivalente in acqua per le navi: prende i punti di bordo la cui **normale
+  uscente** porta in acqua, li spinge al largo e sceglie il più vicino alla provincia
+  fra quelli con abbastanza acqua libera intorno; se al largo è tutto terra (Baltico,
+  Adriatico, Manica) si riaccosta alla riva invece di rinunciare. "È acqua?" si chiede
+  a **tutte** le province tramite un indice per bounding box (`landIndex`), non ai soli
+  vicini di terra: era da lì che le navi finivano sopra una provincia non confinante.
+  - **I laghi non sono mare** (scelta dell'utente): niente navi sul lago Ciad, sui laghi
+    finlandesi, sui Grandi Laghi o nella fessura fra due province mal ritagliate. Il
+    discrimine è la **stazza** dello specchio d'acqua: `waterIsSea` allaga (BFS) la
+    macchia d'acqua su una griglia di `WCELL` e si ferma appena supera `SEA_CELLS` celle
+    — chi arriva al tetto è mare, chi si chiude prima è lago. Il verdetto vale per tutte
+    le celle visitate, quindi ogni specchio d'acqua si paga una volta per l'intera
+    mappa. Da qui discende `isCoastal`: **costiera = ha un approdo vero**, ed è la
+    stessa risposta che usa `canPlacePiece` per accettare o rifiutare una nave. Con le
+    soglie attuali il Caspio passa per mare (è grande) e i Grandi Laghi no: se serve
+    cambiare, si tocca `SEA_CELLS`, non si aggiungono elenchi di eccezioni.
+  - **Anticollisione**: ogni approdo assegnato si registra in `svg.__seaSpots` con il
+    proprio ingombro; i successivi preferiscono i punti liberi e, se il posto migliore è
+    comunque occupato, `shiftAway` scivola al largo o lungo la costa finché le navi non
+    si sovrappongono più. Nei mari stretti lo zero non esiste e si tiene il meno peggio.
+  Tutto è memoizzato sull'elemento `<path>` e ricalcolato solo al ricaricamento della
+  mappa. Verifica: `http://localhost:5500/_diag-anchors.html` disegna gli ancoraggi di
+  tutte le province (verde = dentro, rosso = fuori, blu = approdo) e conta gli errori;
+  `?zoom=Provence`, `?only=Mexico,Sonora`, `?pieces=1` per guardare le pedine vere.
 - **Elenco province = `provincePaths()`**: l'alone costiero di `map-decor.js` è un clone di
   `#map-group` con gli id rimossi ma con la stessa classe `state`. Chi cerca le province
   con `querySelectorAll('path.state')` prende anche quello: prima finiva nel grafo dei

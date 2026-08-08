@@ -4,7 +4,7 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-08-07 (partita contro l'IA, presidi neutrali, vista generale)
+- **Ultimo aggiornamento:** 2026-08-08 (pedine scontornate, ancoraggi di terra e approdi)
 - **Branch corrente:** `feat/pedine-gioco`
 - **Ultimo commit:** vedi `git log` — Plancia giocatore giocabile (turni, economia, costruzioni, attacco)
 
@@ -15,7 +15,19 @@ e in particolare al momento del commit.
 - **Giocatori e turni** — gestione giocatori, turni, colori, UI.
 - **Risorse** — sistema risorse per provincia; nebbia via terra.
 - **Popolarità e Prestigio** — definiti a design; prestigio convertibile in punti d'oro.
-- **Figure di gioco (pedine)** — aggiunte con editor sulla mappa (WIP).
+- **Figure di gioco (pedine)** — aggiunte con editor sulla mappa (WIP). Ogni pedina è
+  **scontornata di nero** (strato di contorno in `data/piece_icons.js`, costanti `PC_INK`
+  / `PC_OUT` / `PC_LINE`): si legge anche de-zoomando e anche quando la provincia ha lo
+  stesso colore del giocatore. **Dove** si posano lo decide `js/map-anchors.js`: ancora
+  di terra sempre dentro la provincia (prima era il centro del bounding box, che su
+  Messico & co. cadeva in mare) e approdo delle navi in acqua aperta verificato contro
+  tutte le province. **I laghi non contano come mare** (Ciad, laghi finlandesi, Grandi
+  Laghi, fessure fra province): le province costiere sono passate da 447 a 364 e la
+  regola vale anche per `canPlacePiece`, quindi lì le navi non si possono proprio
+  costruire. Gli approdi si tengono **staccati fra loro** (anticollisione): niente più
+  flotte sovrapposte nello stesso braccio di mare. Numeri: su 628 province, col criterio
+  vecchio la pedina cadeva fuori dalla provincia in **48** casi, ora in **0**; navi
+  finite su terra: **0**. Controllo ripetibile: `/_diag-anchors.html`.
 - **Motore di battaglia / Combattimento** — modello probabilistico con bonus difensivo
   ridotto, ora collegato alla UI (vedi sotto).
 - **Plancia giocatore (`play.html`)** — pagina separata dall'editor: si apre col link
@@ -62,7 +74,16 @@ e in particolare al momento del commit.
   pronostico in % che si aggiorna col numero di truppe scelto.
 
 - **Partita contro l'IA (nuovo)** — `js/bot.js` + `js/setup.js`.
-  - **Nuova partita** (bottone 🎲 nell'editor): sparecchia la mappa, sorteggia 10 feudi da
+  - **Avvio normale** (bottone ⚔️ nell'editor): si gioca **la mappa che c'è**, con i regni
+    già dipinti e i loro confini. A chi non ha una Capitale viene data nella provincia più
+    interna, l'economia torna ai valori del §11, il calendario al turno 1, un regno a caso
+    è l'umano e gli altri li governa l'IA.
+  - **Fix: lo stato salvato non si caricava più.** Gli alias di geometria verso
+    `MapAnchors` erano `const arrow` dichiarati sotto il punto in cui `initMap()` li usa:
+    zona morta → "Cannot access before initialization" → `loadAutoSave` falliva in
+    silenzio (try/catch) e la plancia diceva "Partita non avviata" a partita avviata.
+    Ora sono `function` (hoistate).
+  - **Sorteggio** (bottone 🎲, l'eccezione): sparecchia la mappa, sorteggia 10 feudi da
     3 province **in Europa, Nord Africa e Arabia** (`GameSetup.REGIONS`), il più distanti
     possibile fra loro, regala a ognuno la **Capitale** e una strada gratuita, estrae a
     sorte il regno **umano** e assegna una strategia a tutti gli altri. Il pannello mostra

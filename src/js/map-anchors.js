@@ -183,6 +183,51 @@ const MapAnchors = (() => {
 
     const isWater = (svg, x, y) => !isLand(svg, x, y, null);
 
+    // ------------------------------------------------------- mare oppure lago
+    // I laghi NON sono mare (scelta dell'utente): niente navi sul Ciad, sui laghi
+    // finlandesi o nelle fessure fra due province. Il discrimine è la STAZZA dello
+    // specchio d'acqua: si allaga (BFS) la macchia d'acqua a partire dal punto, su
+    // una griglia grossolana, e ci si ferma appena si superano SEA_CELLS celle.
+    // Chi arriva al tetto è mare, chi si chiude prima è lago.
+    // Tutte le celle visitate ereditano il verdetto: ogni specchio d'acqua si paga
+    // una volta sola per l'intera mappa, non una volta per provincia.
+    const WCELL = 1.5;        // lato della cella (unità SVG; la mappa è 1200x575)
+    const SEA_CELLS = 200;    // ~450 unità² d'acqua = mare. Sotto: lago.
+
+    function cellIsWater(svg, i, j, memo) {
+        const k = i + ':' + j;
+        let v = memo.get(k);
+        if (v === undefined) { v = !isLand(svg, (i + 0.5) * WCELL, (j + 0.5) * WCELL, null); memo.set(k, v); }
+        return v;
+    }
+
+    function waterIsSea(svg, x, y) {
+        const verdict = svg.__waterBody || (svg.__waterBody = new Map());
+        const cells = svg.__waterCells || (svg.__waterCells = new Map());
+        const si = Math.floor(x / WCELL), sj = Math.floor(y / WCELL);
+        const key0 = si + ':' + sj;
+        if (verdict.has(key0)) return verdict.get(key0);
+        if (!cellIsWater(svg, si, sj, cells)) return false;
+
+        const seen = new Set([key0]);
+        const queue = [[si, sj]];
+        let sea = false;
+        for (let head = 0; head < queue.length; head++) {
+            if (seen.size > SEA_CELLS) { sea = true; break; }
+            const [i, j] = queue[head];
+            const around = [[i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]];
+            for (const [ni, nj] of around) {
+                const k = ni + ':' + nj;
+                if (seen.has(k)) continue;
+                if (!cellIsWater(svg, ni, nj, cells)) continue;
+                seen.add(k);
+                queue.push([ni, nj]);
+            }
+        }
+        seen.forEach(k => verdict.set(k, sea));
+        return sea;
+    }
+
     // -------------------------------------------------------- ancora di terra
     // Punto ben dentro il corpo principale + raggio libero attorno. Si prova una
     // griglia di candidati, si tengono quelli dentro il poligono e vince il più
@@ -218,14 +263,23 @@ const MapAnchors = (() => {
                 if (!best || score > best.score) best = { x, y, r, score };
             }
         }
-        // Rete di sicurezza: province minuscole dove la griglia non becca nulla.
+        // Rete di sicurezza per gli arcipelaghi (isolotti più piccoli del passo
+        // della griglia, tipo West_Micronesia): il punto di mezzo di una corda
+        // fra due punti vicini dello stesso isolotto cade dentro l'isolotto.
         if (!best) {
-            if (pointInPath(path, cx, cy)) best = { x: cx, y: cy, r: Math.min(bb.w, bb.h) / 4 };
-            else {
-                const p = edge[0] || { x: cx, y: cy };
-                best = { x: (p.x + cx) / 2, y: (p.y + cy) / 2, r: Math.min(bb.w, bb.h) / 6 };
+            const chord = [2, 4, 8, 16];
+            for (let i = 0; i < edge.length && !best; i++) {
+                for (const k of chord) {
+                    const q = edge[(i + k) % edge.length];
+                    const x = (edge[i].x + q.x) / 2, y = (edge[i].y + q.y) / 2;
+                    if (!pointInPath(path, x, y)) continue;
+                    const r = clearRadius(x, y);
+                    if (!best || r > best.r) best = { x, y, r };
+                    break;
+                }
             }
         }
+        if (!best) best = { x: cx, y: cy, r: Math.min(bb.w, bb.h) / 6 };
         const out = { x: best.x, y: best.y, r: Math.max(best.r, 0.5) };
         path.__landAnchor = out;
         return out;
@@ -293,8 +347,29 @@ const MapAnchors = (() => {
         return r;
     }
 
-    // Punto in mare aperto appena al largo, dove disegnare le navi.
+    // Ingombro della fila di navi di una provincia (raggio): serve sia a tenere
+    // gli approdi staccati fra loro sia a sapere quanto spazio chiedere all'acqua.
+    function shipFootprint(bb) {
+        return Math.max(2.5, Math.min(Math.min(bb.w, bb.h) * 0.30, 8)) * 0.9;
+    }
+
+    // Quanto un approdo pesta i piedi agli approdi già assegnati (0 = libero).
+    function crowding(svg, x, y, occ) {
+        const spots = svg.__seaSpots;
+        if (!spots || !spots.length) return 0;
+        let worst = 0;
+        for (let i = 0; i < spots.length; i++) {
+            const s = spots[i];
+            const need = occ + s.occ;
+            const d = Math.hypot(x - s.x, y - s.y);
+            if (d < need && need - d > worst) worst = need - d;
+        }
+        return worst;
+    }
+
+    // Punto in MARE APERTO appena al largo, dove disegnare le navi.
     // { x, y, r } con r = acqua libera attorno (serve a dimensionare la fila).
+    // null = questa provincia non ha sbocco sul mare (i laghi non contano).
     function seaAnchor(path) {
         if (path.__seaAnchor !== undefined) return path.__seaAnchor;
         const svg = path.ownerSVGElement;
@@ -303,37 +378,84 @@ const MapAnchors = (() => {
         let out = null;
         if (bb && cands.length) {
             const size = Math.max(bb.w, bb.h);
-            const push = Math.min(Math.max(size * 0.16, 3.5), 10);
+            const push0 = Math.min(Math.max(size * 0.16, 3.5), 10);
             const la = landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2 };
-            const want = push * 0.75;   // acqua libera considerata "sufficiente"
-            let best = null;
-            cands.forEach(c => {
-                const x = c.x + c.nx * push, y = c.y + c.ny * push;
-                const clear = waterClearance(svg, x, y, push);
-                if (!clear) return;
-                const dist = Math.hypot(x - la.x, y - la.y);
-                // prima chi ha acqua a sufficienza, poi chi è più vicino alla
-                // provincia: le navi devono leggersi come "sue".
-                const enough = clear >= want ? 1 : 0;
-                if (!best || enough > best.enough ||
-                    (enough === best.enough && (enough ? dist < best.dist : clear > best.clear))) {
-                    best = { x, y, r: clear, dist, clear, enough };
-                }
-            });
-            if (best) out = { x: best.x, y: best.y, r: best.r };
+            const occ = shipFootprint(bb);
+            // Si prova prima al largo; se lì è tutto terra (mari stretti: Baltico,
+            // Adriatico, Manica) ci si accosta alla riva invece di rinunciare.
+            for (const f of [1, 0.6, 0.35, 0.2]) {
+                const push = push0 * f;
+                const want = push * 0.75;   // acqua libera considerata "sufficiente"
+                let best = null;
+                cands.forEach(c => {
+                    const x = c.x + c.nx * push, y = c.y + c.ny * push;
+                    const clear = waterClearance(svg, x, y, push);
+                    if (!clear) return;
+                    if (!waterIsSea(svg, x, y)) return; // è un lago: non è un porto
+                    const dist = Math.hypot(x - la.x, y - la.y);
+                    // in ordine: chi non si sovrappone agli approdi già assegnati,
+                    // chi ha acqua a sufficienza, chi è più vicino alla provincia
+                    // (le navi devono leggersi come "sue").
+                    const crowd = crowding(svg, x, y, occ);
+                    const enough = clear >= want ? 1 : 0;
+                    // chiave di preferenza, dalla più importante alla meno (minore vince)
+                    const key = [crowd ? 1 : 0, -enough, crowd || (enough ? dist : -clear)];
+                    if (!best || key.some((v, i) => v !== best.key[i] && v < best.key[i]
+                        && key.slice(0, i).every((w, j) => w === best.key[j]))) {
+                        best = { x, y, r: clear, dist, clear, enough, crowd, key, c, push };
+                    }
+                });
+                if (best) { out = shiftAway(svg, best, occ); break; }
+            }
         }
         path.__seaAnchor = out;
+        if (out) {
+            (svg.__seaSpots || (svg.__seaSpots = [])).push({ x: out.x, y: out.y, occ: out.occ });
+        }
         return out;
     }
 
-    // Costiera = ha almeno un affaccio sul mare (Mar Nero/Caspio inclusi: sono
-    // resi come acqua). Domanda frequente (validazione delle navi): esce al
-    // primo affaccio trovato e memorizza la risposta.
+    // Anticollisione: se il posto migliore è comunque occupato, si scivola al largo
+    // lungo la normale (e in subordine lungo la costa) finché le navi non si
+    // sovrappongono più, restando in acqua. Se non si trova, si tiene il meno peggio.
+    function shiftAway(svg, best, occ) {
+        const keep = { x: best.x, y: best.y, r: best.r, occ };
+        if (!best.crowd) return keep;
+        const c = best.c;
+        const tries = [];
+        for (let k = 1; k <= 4; k++) {
+            const d = best.crowd * k / 2;
+            tries.push([c.nx * d, c.ny * d]);                       // più al largo
+            tries.push([c.tx * d, c.ty * d]);                       // lungo la costa
+            tries.push([-c.tx * d, -c.ty * d]);
+            tries.push([(c.nx + c.tx) * d * 0.7, (c.ny + c.ty) * d * 0.7]);
+            tries.push([(c.nx - c.tx) * d * 0.7, (c.ny - c.ty) * d * 0.7]);
+        }
+        // si prende lo spostamento che si pesta MENO i piedi (0 = perfetto); nei mari
+        // stretti (Adriatico, Manica) lo zero non esiste e ci si accontenta del meglio.
+        let win = null;
+        for (const [dx, dy] of tries) {
+            const x = best.x + dx, y = best.y + dy;
+            if (isLand(svg, x, y, null)) continue;
+            if (!waterIsSea(svg, x, y)) continue;
+            const crowd = crowding(svg, x, y, occ);
+            if (crowd >= best.crowd) continue;
+            const r = waterClearance(svg, x, y, best.push);
+            if (!r) continue;
+            if (!win || crowd < win.crowd) win = { x, y, r, occ, crowd };
+            if (!crowd) break;
+        }
+        return win ? { x: win.x, y: win.y, r: win.r, occ } : keep;
+    }
+
+    // Costiera = ha un approdo vero sul mare. I laghi non contano (scelta
+    // dell'utente): niente navi sul Ciad o sui laghi finlandesi. Risposta
+    // memorizzata sull'elemento, la calcola seaAnchor una volta sola.
     function isCoastal(path) {
         if (path.dataset.coast === '1') return true;
         if (path.dataset.coast === '0') return false;
         if (typeof path.isPointInFill !== 'function') return true; // browser vecchio: non bloccare
-        const coastal = seaCandidates(path, true).length > 0;
+        const coastal = !!seaAnchor(path);
         path.dataset.coast = coastal ? '1' : '0';
         return coastal;
     }

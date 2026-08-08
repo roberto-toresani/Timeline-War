@@ -160,7 +160,64 @@
         if (R().resetHistory) R().resetHistory();
     }
 
-    // opts: { province, distanza, regione, umano (id), rng }
+    // ---------- partita sulla mappa già disegnata ----------
+    // È il modo NORMALE di cominciare: i regni sono quelli che l'admin ha dipinto
+    // sulla mappa, con i loro confini storici. Non si sorteggia niente — si
+    // aggiunge solo quel che serve per giocare (Capitale, colori, economia).
+
+    function kingdomsOnMap(players) {
+        return players
+            .map(pl => ({ player: pl, province: E().ownedPaths(pl.name).map(p => p.id) }))
+            .filter(k => k.province.length);
+    }
+
+    // Dove mettere la Capitale di un regno che non ce l'ha: la provincia più
+    // "interna" (più confinanti dello stesso regno), a parità quella con una
+    // risorsa. È la scelta che un giocatore farebbe: la sede al riparo.
+    function capitalSiteFor(k) {
+        const mie = new Set(k.province);
+        let best = null, bestScore = -1;
+        k.province.forEach(id => {
+            const path = E().path(id);
+            if (!path) return;
+            // Capitale, Città e Fortezza si escludono: dove c'è già un insediamento
+            // non si può posare.
+            const occupata = ['capitale', 'citta', 'fortezza'].some(t => E().countPiece(path, t) > 0);
+            if (occupata) return;
+            const amici = E().landNeighbors(id).filter(n => mie.has(n)).length;
+            const score = amici * 2 + (resourceOf(id) ? 1 : 0);
+            if (score > bestScore) { bestScore = score; best = id; }
+        });
+        return best;
+    }
+
+    function prepareExisting(players) {
+        const regni = kingdomsOnMap(players);
+        regni.forEach(k => {
+            const pl = k.player;
+            // Il colore-esercito serve a riconoscere la Capitale del regno: se la
+            // mappa è stata dipinta senza pedine, va messo adesso.
+            k.province.forEach(id => {
+                const path = E().path(id);
+                if (path) E().setArmyColor(path, pl.color);
+            });
+            let cap = R().getCapitalPathFor(pl);
+            if (!cap) {
+                const sito = capitalSiteFor(k);
+                if (sito) {
+                    const path = E().path(sito);
+                    E().addPiece(path, 'capitale', 1);
+                    E().setArmyColor(path, pl.color);
+                    E().redrawProvince(path);
+                    cap = path;
+                }
+            }
+            k.capitale = cap ? cap.id : null;
+        });
+        return regni;
+    }
+
+    // opts: { mantieniMappa, province, distanza, regione, umano (id), rng }
     function newGame(opts) {
         const o = Object.assign({}, DEFAULTS, opts || {});
         const rand = o.rng || Math.random;
@@ -174,6 +231,18 @@
         // rotta (vedi neighborsReady in app.js).
         if (R().neighborsReady && !R().neighborsReady()) {
             return { ok: false, msg: 'La mappa sta ancora calcolando i confini: riprova fra un istante.' };
+        }
+
+        // MODO NORMALE: si gioca la mappa che c'è. Il sorteggio dei feudi resta
+        // disponibile (mantieniMappa: false) ma è l'eccezione — cancella il lavoro
+        // fatto nell'editor, e non è quello che si vuole quasi mai.
+        const suMappa = o.mantieniMappa !== false && kingdomsOnMap(players).length > 0;
+        if (suMappa) {
+            const regni = prepareExisting(players);
+            const esito = finalize(players, regni, o, rand);
+            esito.msg = 'Partita avviata sulla mappa attuale: ' + regni.length + ' regni. ' + esito.avvio;
+            esito.suMappa = true;
+            return esito;
         }
 
         clearMap();
@@ -200,41 +269,49 @@
             regni.push({ player: pl, capitale: seed, province: feudo });
         });
 
-        // Chi gioca l'umano: sorteggiato fra tutti i regni, come chiesto.
+        const esito = finalize(players, regni, o, rand);
+        esito.distanza = distanza;
+        esito.regione = region.nome;
+        esito.msg = 'Nuova partita in ' + region.nome + ': ' + regni.length + ' regni, ' +
+            o.province + ' province a testa. ' + esito.avvio;
+        return esito;
+    }
+
+    // Coda comune ai due modi (mappa attuale o sorteggio): chi gioca l'umano, le
+    // strategie dell'IA, l'avvio vero del motore e il salvataggio.
+    function finalize(players, regni, o, rand) {
+        // Chi gioca l'umano: sorteggiato fra i regni CHE ESISTONO sulla mappa —
+        // pescare un regno senza province vorrebbe dire dare al giocatore un seggio
+        // già eliminato.
+        const inGioco = regni.map(r => r.player);
         const umano = (o.umano !== undefined && o.umano !== null)
             ? players.find(p => p.id === o.umano)
-            : players[Math.floor(rand() * players.length)];
+            : inGioco[Math.floor(rand() * inGioco.length)];
         if (root.Bot) root.Bot.assignStrategies(players, umano ? umano.id : null, rand);
+
+        // Il calendario riparte dall'anno 1000 (turno 1), ma la mappa resta com'è.
+        if (R().resetHistory) R().resetHistory();
 
         // Da qui in poi comanda il motore: 5 soldati per provincia, 1000 monete,
         // scorte a zero, ordine di turno, terre di nessuno presidiate (§11).
         const avvio = root.GameActions.startGame();
 
-        // Una strada gratuita a testa, come se la Capitale fosse stata costruita:
-        // serve a collegare subito la provincia della risorsa. Valore assoluto e
-        // non incremento: due sorteggi di fila non devono regalare due strade.
+        // Una strada gratuita a testa, come se la Capitale fosse stata costruita.
+        // Valore assoluto e non incremento: due avvii di fila non regalano due strade.
         // Tassazione al valore iniziale del §11.
         players.forEach(pl => { pl.stradeGratis = 1; pl.tassazione = 'normale'; });
 
         // Codice d'invito a tutti PRIMA del salvataggio: il link della plancia
-        // deve funzionare subito dopo il sorteggio. Generarlo dopo il save lo
-        // lascerebbe solo in memoria, e play.html non troverebbe il regno.
+        // deve funzionare subito. Generarlo dopo il save lo lascerebbe solo in
+        // memoria, e play.html non troverebbe il regno.
         if (R().inviteUrlFor) players.forEach(pl => R().inviteUrlFor(pl));
 
         E().refresh();
         E().save();
 
-        return {
-            ok: true,
-            umano,
-            regni,
-            distanza,
-            regione: region.nome,
-            msg: 'Nuova partita in ' + region.nome + ': ' + regni.length + ' regni, ' +
-                o.province + ' province a testa. ' + avvio.msg
-        };
+        return { ok: true, umano, regni, avvio: avvio.msg };
     }
 
-    root.GameSetup = { newGame, clearMap, inRegion, REGIONS, DEFAULTS };
+    root.GameSetup = { newGame, clearMap, kingdomsOnMap, inRegion, REGIONS, DEFAULTS };
 
 })(typeof window !== 'undefined' ? window : globalThis);

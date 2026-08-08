@@ -518,7 +518,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Geometria della mappa (bordo delle province, ancoraggi di terra e di mare):
     // vive in js/map-anchors.js, che non sa nulla del gioco ed è verificabile da
     // solo. Qui restano solo gli alias, per non riscrivere mezzo file.
-    const boundaryPoints = p => MapAnchors.boundaryPoints(p);
+    // ATTENZIONE: alias dichiarati come `function` e non come `const arrow`. initMap()
+    // gira in cima a questa closure e da lì scende fino a renderResourceMarkers: un
+    // `const` più in basso nel file è ancora nella sua zona morta e lancia
+    // "Cannot access before initialization". L'errore veniva inghiottito dal
+    // try/catch di loadAutoSave e la partita salvata non si caricava più (la plancia
+    // diceva "Partita non avviata"). Le function declaration sono hoistate: nessun buco.
+    function boundaryPoints(p) { return MapAnchors.boundaryPoints(p); }
 
     // Registra un punto in una griglia spaziale (hash) su una cella e le 8 adiacenti,
     // cosi' due punti a cavallo del bordo di cella si incontrano lo stesso.
@@ -608,13 +614,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return (k && typeof RESOURCES !== 'undefined' && RESOURCES[k]) ? k : '';
     }
 
-    const pointInPath = (path, x, y) => MapAnchors.pointInPath(path, x, y);
+    function pointInPath(path, x, y) { return MapAnchors.pointInPath(path, x, y); }
 
     // Ancora dell'icona-risorsa: individua il CORPO PRINCIPALE della provincia
     // (ignora isole lontane usando la mediana dei punti del perimetro), poi sceglie
     // un angolo di quel corpo e garantisce che il centro dell'icona cada dentro il
     // poligono (isPointInFill). Cosi' l'icona non sfora in mare o in un'altra provincia.
-    const mainBodyBBox = path => MapAnchors.mainBodyBBox(path);
+    function mainBodyBBox(path) { return MapAnchors.mainBodyBBox(path); }
 
     function markerAnchor(path) {
         const bb = mainBodyBBox(path);
@@ -991,8 +997,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Regole di piazzamento (stile Risiko) ---
 
     // Costa e approdo delle navi: geometria pura, sta in map-anchors.js.
-    const isCoastalProvince = path => MapAnchors.isCoastal(path);
-    const seaAnchor = path => MapAnchors.seaAnchor(path);
+    // Function declaration, non const: vedi la nota su boundaryPoints — questi alias
+    // vengono chiamati dal render delle pedine, che parte da initMap in cima al file.
+    function isCoastalProvince(path) { return MapAnchors.isCoastal(path); }
+    function seaAnchor(path) { return MapAnchors.seaAnchor(path); }
 
     // Verifica se una figura puo' essere posata sulla provincia. { ok, msg }.
     function canPlacePiece(path, type) {
@@ -1779,43 +1787,58 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- NUOVA PARTITA (admin) ---
-    // Sorteggia feudi e Capitali, estrae il regno umano e mette l'IA su tutti
-    // gli altri (js/setup.js). È l'unico modo di riavviare davvero: "Avvia
-    // partita" azzera l'economia ma tiene la mappa com'è.
-    const newGameBtn = document.getElementById('new-game-btn');
-    if (newGameBtn) {
-        newGameBtn.addEventListener('click', () => {
-            if (!isAdminMode) return;
-            if (!window.GameSetup) { showPieceNotice('setup.js non caricato.'); return; }
-            if (!neighborsReady) {
-                showPieceNotice('La mappa sta ancora calcolando i confini: riprova fra un istante.');
-                return;
+    // --- PARTITA CONTRO L'IA (admin) ---
+    // Due strade, e la differenza è tutta qui: la prima TIENE i regni disegnati
+    // sulla mappa (è il modo normale di cominciare), la seconda li butta e ne
+    // sorteggia di nuovi. "🏁 Avvia partita" resta quello di prima: azzera
+    // l'economia e basta, senza IA.
+    function avviaPartitaIA(mantieniMappa) {
+        if (!isAdminMode) return;
+        if (!window.GameSetup) { showPieceNotice('setup.js non caricato.'); return; }
+        if (!neighborsReady) {
+            showPieceNotice('La mappa sta ancora calcolando i confini: riprova fra un istante.');
+            return;
+        }
+        const neutrali = 'Le terre di nessuno partono con ' + GameRules.NEUTRAL_START +
+            ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' + GameRules.NEUTRAL_EVERY + ' turni).';
+        const opts = mantieniMappa
+            ? {
+                title: 'Giocare con i regni che sono sulla mappa?',
+                text: 'I territori restano esattamente come li hai dipinti. Ogni regno che non ha ' +
+                    'una Capitale la riceve nella sua provincia più interna, torna a 1000 monete e ' +
+                    '5 soldati per provincia, e il calendario riparte dal turno 1 (1000 AD). ' +
+                    'Uno dei regni sarà tuo, gli altri li governa l\'IA. ' + neutrali,
+                ok: '⚔️ Comincia'
             }
-            askConfirm({
-                title: 'Sorteggiare una nuova partita?',
-                text: 'La mappa attuale viene sparecchiata: province, pedine, strade e cronologia dei turni. ' +
-                    'I 10 regni nascono in ' + window.GameSetup.REGIONS.europa.nome +
-                    ', con 3 province, una Capitale e 1000 monete a testa; le terre di nessuno con ' +
-                    GameRules.NEUTRAL_START + ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' +
-                    GameRules.NEUTRAL_EVERY + ' turni).',
+            : {
+                title: 'Sorteggiare una mappa nuova?',
+                text: 'Attenzione: la mappa attuale viene sparecchiata — province, pedine, strade e ' +
+                    'cronologia dei turni. I regni rinascono in ' + window.GameSetup.REGIONS.europa.nome +
+                    ' con 3 province e una Capitale a testa. ' + neutrali,
                 ok: '🎲 Sorteggia',
                 tone: 'danger'
-            }, () => {
-                const res = window.GameSetup.newGame();
-                showPieceNotice(res.msg);
-                renderGameControls();
-                renderNewGameResult(res);
-                // Inquadra la regione dei regni: la partita si gioca lì, non serve
-                // guardare il planisfero intero.
-                if (res.ok && mapView) {
-                    const ids = res.regni.reduce((a, r) => a.concat(r.province), []);
-                    if (ids.length) mapView.fitToProvinces(ids);
-                }
-                if (window.Bot) window.Bot.run();
-            });
+            };
+
+        askConfirm(opts, () => {
+            const res = window.GameSetup.newGame({ mantieniMappa: !!mantieniMappa });
+            showPieceNotice(res.msg);
+            renderGameControls();
+            renderNewGameResult(res);
+            // Inquadra i regni in gioco: la partita si gioca lì, non serve il
+            // planisfero intero.
+            if (res.ok && mapView) {
+                const ids = res.regni.reduce((a, r) => a.concat(r.province), []);
+                if (ids.length) mapView.fitToProvinces(ids);
+            }
+            if (window.Bot) window.Bot.run();
         });
     }
+
+    const newGameBtn = document.getElementById('new-game-btn');
+    if (newGameBtn) newGameBtn.addEventListener('click', () => avviaPartitaIA(true));
+
+    const drawGameBtn = document.getElementById('draw-game-btn');
+    if (drawGameBtn) drawGameBtn.addEventListener('click', () => avviaPartitaIA(false));
 
     // Esito del sorteggio: chi sei, con che link entri nella tua plancia, e con
     // che testa giocano gli altri nove.
