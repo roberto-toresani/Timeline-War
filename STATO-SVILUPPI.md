@@ -5,8 +5,8 @@ e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qual
 e in particolare al momento del commit.
 
 - **Ultimo aggiornamento:** 2026-08-08 (pedine scontornate, ancoraggi di terra e approdi)
-- **Branch corrente:** `feat/pedine-gioco`
-- **Ultimo commit:** vedi `git log` — Plancia giocatore giocabile (turni, economia, costruzioni, attacco)
+- **Branch corrente:** `feat/partita-giocabile`
+- **Ultimo commit:** vedi `git log` — Pedine scontornate e ancoraggi (niente truppe in mare, navi in acqua aperta)
 
 ## Sistemi in gioco (stato attuale)
 
