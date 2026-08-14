@@ -169,14 +169,28 @@ giocatori, turno, storico). Salvato in localStorage/Firestore e in Save/Load.
 }
 ```
 
-### Strade / navi (collegamenti)
+### Strade (collegamenti) e navi (scafi)
 ```
 strade: [ [provA, provB], ... ]   // archi non orientati tra province controllate
-navi:   [ [provA, provB], ... ]   // collegamenti marittimi (Nave)
-vascelli: [ provId, ... ]         // provincia con Vascello = movimento globale
+scafi: [                          // OGNI nave è un oggetto a sé: ha identità e carico
+  { id, tipo: 'barca'|'vascello', owner, prov, carico: int, rotta?, pos?: {x,y} },
+  ...
+]
 ```
+Le navi **non sono archi** e **non si impilano**: ogni scafo è un'entità singola con un suo
+carico di uomini, perché quel numero va **mostrato** a chi la vede o la intercetta (§9.2). Due
+Navi nella stessa provincia sono due pedine distinte — 16 uomini possono partire come 8+8 su
+due scafi diretti a due bersagli diversi. Uno scafo è ancorato a una provincia costiera
+(`prov`) e da lì proietta la sua **portata**; un Veliero in rotta lunga sta in mare aperto,
+fuori da ogni provincia, e allora porta con sé `pos` e la `rotta` che sta seguendo.
+
+Questo **non** è il modello attuale del codice: oggi le pedine vivono in `data-pieces` come
+`"tipo:quantità"` (`barca` e `vascello` hanno `max: 15` in `data/piece_icons.js`) e si
+disegnano come un marker unico con un pallino col numero. Gli scafi vanno tirati fuori da lì:
+lista propria nello stato, marker propri sulla mappa, uno per scafo, ciascuno con il suo carico.
 Una provincia è **collegata** se raggiungibile dalla Capitale (o da una Città) percorrendo
-solo strade/navi tra province **dello stesso proprietario** (§4).
+solo **strade** tra province **dello stesso proprietario** (§4). **Le navi non collegano**
+(§9.2): oltremare si produce solo dopo aver fondato una Città.
 
 Nota: `truppe` per-provincia è **[PROPOSTA]** (le truppe sono unità che si spostano e
 presidiano; la Capitale ne ospita per la "guardia cittadina").
@@ -195,7 +209,7 @@ presidiano; la Capitale ne ospita per la "guardia cittadina").
 - **[PROPOSTA]** La diversità di risorse collegate (tipi distinti, max 5) alimenta la
   Popolarità (§8), non moltiplica la resa.
 
-Connettività (algoritmo): grafo dei collegamenti = archi `strade`/`navi` i cui due estremi
+Connettività (algoritmo): grafo dei collegamenti = archi `strade` i cui due estremi
 sono province dello **stesso** proprietario; le province nella componente connessa che
 contiene una **Capitale o Città** del giocatore sono "collegate".
 
@@ -217,8 +231,9 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 - **Generale** in una provincia: "facilita i movimenti interni" → consente movimento libero
   (qualsiasi distanza) all'interno della propria rete collegata, per le truppe che partono
   con lui.
-- **Vascello**: movimento **globale** senza limiti geografici da/verso la sua provincia.
-- **Nave**: consente movimento/espansione verso la provincia marittima/isola collegata.
+- **Nave / Veliero**: portata di mare e sbarchi hanno regole proprie — vedi **§9.2**. Il
+  movimento globale illimitato del Vascello è **superato**: nessuna nave attraversa un oceano
+  in un turno.
 
 ### 5.3 Valori delle unità speciali
 - **Generale** = vale 2 soldati **[REGOLA]**, e conta per la Popolarità se nella Capitale.
@@ -235,12 +250,12 @@ dove indicato.
 | Elemento | Costo | Effetto |
 |---|---|---|
 | **Strada** | 1 Pietra + 1 soldato | Collega due province controllate adiacenti. |
-| **Nave** | 1 Legno + 3 soldati | Collega/espande verso province lontane o isole. |
+| **Nave** | 2 Legno + 2 soldati | Solo su provincia **costiera**. Portata di mare **12**, carico **8** soldati (§9.2). |
 | **Capitale** | 5 soldati + 500 monete | **Conta come una Città a tutti gli effetti** (difesa **+1**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. |
 | **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 1000 monete | Capitale secondaria (collegamento locale). Difesa **+1**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
 | **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 2000 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+3**. Ogni turno: +5 soldati **oppure** +1 Generale. |
-| **Vascello** | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 4000 monete | Movimento globale senza limiti (§5.2). |
-| **Mercato** | 4 soldati + 1000 monete | Scambio risorse con la banca **2:1**. |
+| **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 4000 monete | Solo su provincia **costiera**. Portata di mare **170**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
+| **Mercato** | 4 soldati + 800 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
 | **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 500 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
 | **Mercenario** | 100 monete | +1 soldato temporaneo (1 turno). |
 | **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +2 soldati temporanei (1 turno). |
@@ -351,12 +366,12 @@ un **pannello dedicato** che si **aggiorna automaticamente** ed evolve, mostrand
 
 ## 9. Combattimento e conquista **[REGOLA]**
 
-Modello **probabilistico**: il più numeroso è favorito in modo **super-lineare** (il quadrato),
+Modello **probabilistico**: il più numeroso è favorito in modo **super-lineare** (l'esponente),
 ma il più debole ha **sempre** una probabilità non nulla. Implementato in `src/js/battle.js`
-(funzione pura `resolveBattle(A, D, fort, rng)`, testata).
+(funzione pura `resolveBattle(A, D, fort, rng, esponente)`, testata).
 
-**Bersagli validi:** provincia nemica/neutra **adiacente via terra**, o raggiungibile via **Nave**
-(marittima/isola) o **Vascello** (ovunque).
+**Bersagli validi:** provincia nemica/neutra **adiacente via terra**, oppure costiera dentro la
+**portata di mare** di una propria Nave/Veliero (§9.2) — che a tutti gli effetti la rende limitrofa.
 
 **Valori:**
 - `A` = truppe attaccanti **impegnate** (l'attaccante **sceglie quante**; un Generale conta 2).
@@ -364,10 +379,51 @@ ma il più debole ha **sempre** una probabilità non nulla. Implementato in `src
 - `Deff = D + bonus struttura` — bonus: **Città/Capitale +1**, **Fortezza +3** (esclusive → al più
   uno). Le **mura difendono anche a guarnigione vuota** (D=0). Neutra senza truppe né strutture:
   `Deff = 0` → l'attaccante vince.
+- `k` = **esponente del terreno** della provincia **attaccata** (vedi sotto).
 
-**Probabilità di vittoria dell'attaccante:** `P_A = A² / (A² + Deff²)`.
-Esempi (D=5): aperto A5 → 50% · A8 → 72% · A10 → 80%; **Città (+1)** pareggio a **A6**;
+**Probabilità di vittoria dell'attaccante:** `P_A = A^k / (A^k + Deff^k)`.
+Esempi (D=5, terreno neutro k=2): A5 → 50% · A8 → 72% · A10 → 80%; **Città (+1)** pareggio a **A6**;
 **Fortezza (+3)** pareggio a **A8** (A10 → 61%).
+
+### 9.1 Terreno **[REGOLA]**
+
+Ogni provincia della mappa è **`chiuso`** o **`aperto`** — nessuna terza via. È la geografia, non
+stato di partita: sta in `src/data/province_terrain.js` (tutte e 628 le province), le regole in
+`src/js/terrain.js`. Non entra negli snapshot, non si dipinge nell'editor, non cambia mai.
+
+Il terreno **non è un bonus difensivo** come le mura (quelle sommano difensori virtuali). È la
+misura di **quanto conta il numero**: cambia l'esponente `k`.
+
+| terreno | `k` | cos'è | cosa vuol dire |
+|---|---|---|---|
+| `aperto` | **2,6** | pianure, steppe, deserti aperti, grandi valli | c'è spazio per schierare tutti: il vantaggio numerico si moltiplica |
+| (nessuno) | 2,0 | ripiego se `terrain.js` non c'è | il vecchio quadrato |
+| `chiuso` | **1,4** | monti, gole, foreste, paludi, coste a fiordo, isole montuose | fronte stretto: un drappello può reggere a un'armata |
+
+Conta **il terreno della provincia attaccata**: è lì che si combatte.
+
+| A/Deff | `chiuso` | neutro | `aperto` |
+|---|---|---|---|
+| 1,5× | 64% | 69% | 74% |
+| 2× | 73% | 80% | 86% |
+| 3× | 82% | 90% | 95% |
+| 4× | 87% | 94% | 97% |
+
+Un 3-contro-1 in montagna lascia al difensore quasi il doppio delle possibilità che in pianura.
+Attaccare in salita si può — si paga.
+
+**Criterio di assegnazione** (documentato in testa a `province_terrain.js`): `chiuso` dove il
+terreno ha storicamente favorito i piccoli reparti (Termopili, Roncisvalle, Teutoburgo, Morgarten,
+il Rif, la Sierra Maestra, il Darién); `aperto` dove le armate numerose hanno potuto pesare
+(Gaugamela, Canne, i Campi Catalaunici, Mohács, Kursk). Nel dubbio ha vinto il tratto che ha
+**deciso le guerre** di quel territorio, non la percentuale di rilievo. Bilancio: 326 `chiuso`,
+302 `aperto`.
+
+**Dove si vede:** il pronostico della plancia e il rapporto di battaglia mostrano il terreno
+accanto alla percentuale; il bottone **⛰ Terreno** (plancia ed editor) colora la mappa per
+terreno — solo pittura, come la vista per fede. I **bot** leggono lo stesso campo dai bersagli di
+`attackTargets` e usano la stessa `RisikoBattle.winChance`: non attaccano in montagna credendo di
+essere in pianura.
 
 **Attrito (perdite), calcolato sulle TRUPPE REALI (le mura spostano la probabilità, non fanno
 vittime extra):**
@@ -383,6 +439,84 @@ vittime extra):**
 - **Strade**: una strada appartiene al colore di chi l'ha costruita. La conquista di UNA delle
   due province che collega **non la distrugge**: sparisce solo quando **entrambe** le province
   sono passate a un colore diverso da quello della strada.
+
+### 9.2 Mare: portata, carico, sbarco **[REGOLA]**
+
+**La portata si misura sull'acqua, non in linea d'aria.** Il raggio si propaga per rotta di
+mare: gira attorno alle penisole, passa per gli stretti, si ferma sulle coste. Un cerchio
+geometrico non funziona e non è un dettaglio — misurato su questa mappa, dalla Normandia il
+**Languedoc** (costa mediterranea, oltre tutta la Francia) dista **16,4** unità in linea d'aria
+e le **Asturie 21,8**: un cerchio abbastanza largo da mostrare la Spagna del nord farebbe
+attaccare Montpellier a una nave ferma nella Manica.
+
+Unità di misura: la mappa è **1200×575**, 1 unità ≈ **33 km**. Riferimento comodo:
+**Barcellona–Gerusalemme per mare = 111 unità**.
+
+| | portata | carico | dove |
+|---|---|---|---|
+| **Nave** | **12** | **8** soldati | solo provincia costiera |
+| **Veliero** | **170** | **15** soldati | solo provincia costiera |
+
+**Tutto ciò che sta dentro la portata è provincia limitrofa a tutti gli effetti**: si vede sulla
+mappa e si attacca subito, senza passaggi intermedi né turni di avvicinamento. Oltre la portata
+c'è il buio.
+
+Quanto apre una portata (province raggiungibili, **misurate** sulla mappa vera):
+
+| nave ancorata a | Nave (12) | Veliero (170) |
+|---|---|---|
+| Barcellona | 6 | 133 |
+| Sicilia | 13 | 123 |
+| Normandia | 7 | 107 |
+
+Esempi di Nave (12), come li calcola `js/sea-routes.js`: Normandia → West Country, Home
+Counties, East Anglia, Fiandre, **Olanda**; Sicilia → Calabria, Tunisia, Campania, Puglia,
+Sardegna, Abruzzo, Lazio. È la traversata di uno stretto o di un mare breve, mai un mare intero.
+
+**Rotte lunghe (solo Veliero).** Oltre la portata il giocatore indica una **rotta** — uno degli 8
+punti cardinali — e ogni turno il veliero avanza di una portata piena, scoprendo quel che gli
+entra nel raggio; può fermarsi appena avvista una terra nuova. Turni di navigazione da
+Barcellona, **misurati**:
+
+| turni | mete |
+|---|---|
+| **1** | tutto il Mediterraneo (Gerusalemme compresa), Senegal, Guinea, Sierra Leone, Islanda |
+| **2** | Groenlandia, Terranova, Brasile, Virginia, **Cuba**, Florida, **Capo di Buona Speranza**, Yucatan |
+| **3** | Messico, Veracruz, Zanzibar, Somalia |
+| **4** | Yemen, Oman, **India**, **Sumatra, Malacca, Giava** |
+
+**Suez non esiste**: per l'Asia si passa dal Capo. Verificato sulla mappa — Barcellona→Yemen
+misura 560 unità (giro dell'Africa), non 230 (Mar Rosso).
+
+**Lo sbarco è la nave stessa.** Attaccare via mare significa **approdare**: la nave lascia la sua
+provincia, si porta dietro il carico e combatte nella provincia bersaglio, col terreno di
+quella provincia (§9.1).
+- **Vinta** → nave e superstiti occupano la provincia presa. La nave è ora ancorata lì e la
+  portata successiva si misura da quella costa: **la flotta avanza con la conquista**.
+- **Persa** → l'attaccante perde tutte le truppe impegnate **e la nave, che passa al difensore**.
+
+Sbarco solo su provincia **costiera**. Il carico è il tetto **per scafo**: un'invasione vera si
+programma con più navi (3 Navi = 6 Legno + 6 soldati = **24 uomini a turno** oltre la Manica).
+
+**Ogni scafo è una pedina a sé** (§3): non si impilano e non si contano come i soldati. Ognuno
+imbarca il suo carico e lo **mostra** — 16 uomini si dividono in 8+8 su due Navi che possono
+partire per due bersagli diversi, e chi le avvista sa quanti uomini portano. È anche la ragione
+per cui il carico dev'essere un dato dello scafo e non della provincia: serve a chi guarda, non
+solo a chi muove.
+
+**Le navi seguono la provincia.** Chi conquista una provincia eredita le navi che vi sono
+ancorate, Veliero compreso: è lo stesso principio delle costruzioni (§9 — non si rade nulla,
+cambia il colore).
+
+**Le navi non collegano** (§4). Uno scafo porta uomini, non rifornimenti: una conquista
+d'oltremare **non è collegata** alla Capitale e quindi **non produce nulla** finché non vi si
+costruisce una **Città**, che da lì fa da capitale secondaria per tutto quel che le sta attorno.
+Prendere una costa è a buon mercato; farla rendere è l'investimento vero. Il Veliero da 4000
+monete ti **apre** un continente, la Città da 1000 te lo fa diventare impero.
+
+**Aperto, da definire:** lo **scontro navale in mare aperto** — due velieri che si incontrano
+durante una rotta lunga si combattono. Rimandato di proposito: nel calendario compresso i
+velieri sono roba del 1500, cioè a molti turni dall'inizio, e tutto il resto funziona senza.
 
 ---
 
@@ -467,7 +601,7 @@ il vero bilanciamento. → *in discussione.*
 ## 14. Stato delle decisioni
 
 **Confermate [REGOLA]:**
-- Combattimento **probabilistico** `P_A = A²/(A²+Deff²)` con attrito anti-valanga (§9,
+- Combattimento **probabilistico** `P_A = A^k/(A^k+Deff^k)`, `k` dal terreno, con attrito anti-valanga (§9,
   `battle.js`), bonus difensivi **Città/Capitale +1, Fortezza +3** (in `Deff = D + bonus`).
 - Vittoria: **soglia di prestigio** (proposta 30) **oppure** eliminazione degli altri; si
   **perde** restando senza province. Nessuna scadenza a turni.

@@ -8,9 +8,13 @@
 // Modello (vedi anche il regolamento §9):
 //   Difesa effettiva  Deff = D + bonus struttura   (Citta'/Capitale +1, Fortezza +3;
 //   sono esclusive, quindi al piu' uno). Le mura difendono anche a guarnigione vuota (D=0).
-//   Probabilita' di vittoria dell'attaccante   P_A = A^2 / (A^2 + Deff^2)
-//   Il quadrato amplifica il vantaggio numerico (chi e' piu' grande non e'
-//   solo proporzionalmente favorito, ha un vantaggio extra).
+//   Probabilita' di vittoria dell'attaccante   P_A = A^k / (A^k + Deff^k)
+//   L'esponente k amplifica il vantaggio numerico (chi e' piu' grande non e'
+//   solo proporzionalmente favorito, ha un vantaggio extra) e lo decide il
+//   TERRENO della provincia attaccata (js/terrain.js): k = 2.6 in pianura, dove
+//   l'armata numerosa schiera tutti i suoi uomini; k = 1.4 fra monti, gole e
+//   paludi, dove il fronte stretto annulla i numeri. Senza terreno k = 2, il
+//   valore storico del gioco.
 //   Esito:  u ~ U(0,1);  attaccante vince se  u < P_A,  altrimenti difensore.
 //   L'attrito (perdite) si calcola sulle TRUPPE REALI (A, D), non su Deff: le mura
 //   spostano la probabilita', non fanno vittime extra.
@@ -38,23 +42,41 @@
 
     function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
 
+    // Esponente di default: nessun terreno = il valore storico del gioco.
+    const DEFAULT_EXP = 2;
+
+    // Probabilita' di vittoria dell'attaccante, sola. E' l'UNICO posto in cui la
+    // formula vive: il pronostico della plancia e quello del bot chiamano qui,
+    // cosi' quel che si promette al giocatore e quel che poi succede non possono
+    // divergere. Deff = difensori + bonus struttura; k = esponente del terreno.
+    function winChance(A, Deff, k) {
+        A = Math.max(0, A);
+        Deff = Math.max(0, Deff);
+        if (A <= 0) return 0;
+        k = (k > 0) ? k : DEFAULT_EXP;
+        const a = Math.pow(A, k), d = Math.pow(Deff, k);
+        return a / (a + d);        // A>0 => denominatore > 0 (Deff=0 => 1)
+    }
+
     // Risolve una battaglia. rng() opzionale: deve restituire U(0,1) (default
-    // Math.random); iniettabile per test deterministici. Restituisce null se
-    // non c'e' battaglia possibile (nessuna truppa da entrambe le parti).
-    // Tutti i valori casuali e intermedi vengono restituiti per trasparenza/log.
-    function resolveBattle(A, D, fort, rng) {
+    // Math.random); iniettabile per test deterministici. `esponente` viene dal
+    // terreno della provincia attaccata (Terrain.exponent); omesso vale 2.
+    // Restituisce null se non c'e' battaglia possibile (nessuna truppa da
+    // entrambe le parti). Tutti i valori casuali e intermedi vengono restituiti
+    // per trasparenza/log.
+    function resolveBattle(A, D, fort, rng, esponente) {
         // Retro-compat: se il 3o argomento e' una funzione, e' il rng (nessun bonus).
         if (typeof fort === 'function') { rng = fort; fort = 0; }
         rng = rng || Math.random;
         A = Math.max(0, Math.floor(A));
         D = Math.max(0, Math.floor(D));
         fort = Math.max(0, Math.floor(fort || 0)); // bonus difensivo: Citta'/Capitale +1, Fortezza +3
+        const k = (esponente > 0) ? esponente : DEFAULT_EXP;
         if (A === 0) return null;                   // niente attacco senza truppe impegnate
 
         // Difensori "virtuali": le mura difendono anche a guarnigione vuota (D=0).
         const Deff = D + fort;
-        const a2 = A * A, d2 = Deff * Deff;
-        const P_A = a2 / (a2 + d2);   // A>0 => denominatore > 0 (D=0 e fort=0 => P_A=1)
+        const P_A = winChance(A, Deff, k);
         const P_D = 1 - P_A;
         const I = 4 * P_A * P_D;
 
@@ -82,14 +104,14 @@
             defenderSurvivors: attackerWins ? 0 : survivors,
             losses: C,                 // truppe perse dal vincitore
             // Valori diagnostici (utili per log/animazioni/bilanciamento):
-            fort: fort, Deff: Deff,
+            fort: fort, Deff: Deff, esponente: k,
             P_A: P_A, P_D: P_D, I: I,
             u: u, z: z,
             muBase: muBase, muAttrito: muAttrito, mu: mu, muF: muF
         };
     }
 
-    const api = { resolveBattle: resolveBattle, clamp: clamp };
+    const api = { resolveBattle: resolveBattle, winChance: winChance, clamp: clamp, DEFAULT_EXP: DEFAULT_EXP };
 
     // Espone sia come global browser (window.RisikoBattle) sia come modulo Node
     // (per test da riga di comando), senza build step.

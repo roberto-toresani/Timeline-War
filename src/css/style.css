@@ -232,6 +232,16 @@ svg path.fog {
     filter: none;
 }
 
+/* Nebbia LEGGERA (docs/GAME_DESIGN.md §9.2): la portata di una nostra nave. Si
+   riconosce di chi è la provincia — il colore resta quello del proprietario — ma
+   le pedine sono nascoste: dal mare si vede la bandiera, non la guarnigione.
+   Il velo è tratteggiato apposta: deve leggersi come "informazione parziale",
+   non come una tinta diversa. Le pedine le spegne refreshMapDisplay. */
+svg path.haze {
+    opacity: 0.62;
+    stroke-dasharray: 2 1.6;
+}
+
 /* ============================================================
    CONFERMA IN PAGINA (askConfirm in js/app.js)
    Sostituisce window.confirm, che in un pannello di anteprima o in un iframe
@@ -645,6 +655,28 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
 
 #decor-ornaments .decor-eye { fill: #16384f; stroke: none; }
 
+/* Nomi di oceani e mari: stesso font delle province ('Cinzel', ereditato dal
+   gruppo), inchiostro un filo più scuro degli ornamenti perché la scrittura
+   deve leggersi anche piccola. L'opacità del gruppo (.5) si moltiplica comunque
+   con questa: i mari restano più tenui degli oceani, come su una carta vera. */
+#decor-ornaments .decor-water {
+    fill: #1c4661;
+    stroke: none;
+    font-weight: 600;
+}
+#decor-ornaments .decor-water.sea {
+    font-weight: 500;
+    font-style: italic;
+    opacity: .85;
+}
+
+/* Mentre si zooma o si trascina, l'alone costiero sparisce: è una silhouette di
+   mille e quattrocento path dentro due sfocature, e il browser la ricalcola da
+   capo a ogni cambio di scala. Tenerlo acceso durante la gesture voleva dire
+   uno scatto per ogni tacca di rotella. La classe la mette e la toglie
+   `wireMapZoom` in app.js, 140 ms dopo l'ultimo movimento. */
+svg.map-interacting #decor-coast-layer { display: none; }
+
 /* Vignettatura: i bordi della carta si scuriscono verso la cornice di legno,
    così la mappa sembra appoggiata sul tavolo invece che incollata sopra. Sta in
    un ::after perché un box-shadow inset finirebbe sotto l'SVG. */
@@ -686,7 +718,7 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
     /* Misura base di tutto il pannello: quasi ogni figlio è in em, quindi è
        questa la manopola che rende leggibile l'editor senza toccare 30 regole.
        Cresce con la finestra, ma non scende sotto il leggibile. */
-    font-size: clamp(1.15rem, 1.15vw, 1.5rem);
+    font-size: clamp(1.3rem, 1.2vw, 1.6rem);
 }
 
 #svg-container {
@@ -772,6 +804,27 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
 #random-assign-btn {
     margin-bottom: 10px;
 }
+
+/* Mappa iniziale (js/start-map.js): la posizione di partenza in cassaforte.
+   Sta sopra i comandi di partita perché viene prima — prima si prepara la
+   mappa, poi si gioca. */
+#start-map-controls {
+    margin-bottom: 12px;
+    padding: 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, .25);
+}
+
+#start-map-info {
+    font-size: .95em;
+    color: var(--parchment-muted);
+    border-left: 4px solid var(--rule-strong);
+    padding-left: 8px;
+    margin-bottom: 8px;
+}
+
+#start-map-info.on { color: var(--gold); }
 
 /* Comandi partita dell'admin: avvio e passaggio di turno. */
 #game-controls {

@@ -36,6 +36,7 @@
             avanzata: 1,            // quota di superstiti che resta nella provincia presa
             build: ['capitale', 'strada', 'citta'],
             mercenari: 4,
+            baratto: 1.2,           // quanto deve ricevere per ogni unità che dà (§7)
             dispiegamento: 'punta'
         },
         conservativo: {
@@ -44,8 +45,9 @@
             soglia: 0.82, maxAttacchi: 1, impegno: 0.7, riservaCasa: 2, guardiaCapitale: 9,
             pesoNeutrali: 1.5, pesoGiocatori: 0.6,
             avanzata: 0.5,
-            build: ['capitale', 'strada', 'fortezza', 'citta'],
+            build: ['capitale', 'strada', 'fortezza', 'mercato', 'citta'],
             mercenari: 0,
+            baratto: 1.5,
             dispiegamento: 'minaccia'
         },
         costruttore: {
@@ -54,8 +56,9 @@
             soglia: 0.75, maxAttacchi: 2, impegno: 0.8, riservaCasa: 1, guardiaCapitale: 8,
             pesoNeutrali: 1.6, pesoGiocatori: 0.7,
             avanzata: 0.6,
-            build: ['capitale', 'strada', 'citta', 'fortezza'],
+            build: ['capitale', 'strada', 'citta', 'mercato', 'fortezza'],
             mercenari: 0,
+            baratto: 0.9,           // le risorse gli servono: tratta volentieri
             dispiegamento: 'fronte'
         },
         opportunista: {
@@ -64,8 +67,9 @@
             soglia: 0.68, maxAttacchi: 4, impegno: 0.9, riservaCasa: 1, guardiaCapitale: 7,
             pesoNeutrali: 1.2, pesoGiocatori: 1.1,
             avanzata: 0.8,
-            build: ['capitale', 'strada', 'citta'],
+            build: ['capitale', 'strada', 'citta', 'mercato'],
             mercenari: 2,
+            baratto: 1.1,
             dispiegamento: 'punta'
         },
         predone: {
@@ -76,6 +80,7 @@
             avanzata: 1,
             build: ['capitale', 'strada'],
             mercenari: 5,
+            baratto: 2.5,           // prende quello che vuole: quasi non baratta
             dispiegamento: 'punta'
         }
     };
@@ -101,10 +106,11 @@
         const max = (typeof PIECES !== 'undefined' && PIECES.soldato && PIECES.soldato.max) || 30;
         return Math.max(0, max - troopsAt(id));
     }
-    function winProb(A, D, fort) {
-        const d = (D || 0) + (fort || 0);
-        if (A <= 0) return 0;
-        return (A * A) / (A * A + d * d);
+    // Pronostico su un bersaglio di GA().attackTargets: truppe + mura + TERRENO
+    // (§9). Non ricalcola niente, chiama la stessa formula della battaglia — così
+    // il bot non attacca in montagna credendo di essere in pianura.
+    function winProb(A, t) {
+        return RisikoBattle.winChance(A, (t.troops || 0) + (t.fort || 0), t.esponente);
     }
 
     // Ritratto di una provincia del regno: quanto vale come base di partenza e
@@ -239,6 +245,66 @@
         return GR().canAfford(player, cost, GR().spendableTroops(troopsAt(provId))).ok;
     }
 
+    // ---------- FASE 2 · commerci (§7) ----------
+    // Un bot col Mercato commercia come tutto il resto: passando dalle azioni del
+    // giocatore. Fa due cose, entrambe in fase costruzioni.
+    //
+    // Quanto vale una merce per un bot, in monete: l'oro vale il suo taglio, una
+    // risorsa vale COIN_PER_RES (le risorse sono più scarse del denaro, quindi
+    // valgono più di 100). Serve a confrontare offerte in oro e in risorse.
+    const COIN_PER_RES = 150;
+    function goodValue(g) {
+        if (!g) return 0;
+        return g.tipo === 'monete' ? g.n : g.n * COIN_PER_RES;
+    }
+    function haveGood(player, g) {
+        return g.tipo === 'monete' ? (player.monete || 0) : ((player.scorte && player.scorte[g.tipo]) || 0);
+    }
+    //
+    // RISPONDE alle carovane arrivate: accetta se ci guadagna abbastanza (il VALORE
+    // che riceve è almeno `baratto` volte quello che consegna) e se ha la merce; se
+    // no rifiuta, così il pegno torna al mittente invece di marcire. Rispondere non
+    // chiede turno né fase (vedi acceptTrade), ma il bot lo fa nel suo turno
+    // perché è lì che il generatore gira.
+    // L'oro e le risorse si confrontano solo passando da un valore comune
+    // (goodValue): senza, "200 monete" e "2 pietra" non sono paragonabili, e la
+    // merce chiesta in oro va cercata nel tesoro, non nelle scorte.
+    function tradeAnswers(player, s) {
+        const mosse = [];
+        const soglia = (s && s.baratto) || 1.1;
+        GA().tradeInbox(player).forEach(o => {
+            const hai = haveGood(player, o.chiedo);
+            const conviene = goodValue(o.offro) >= goodValue(o.chiedo) * soglia;
+            if (conviene && hai >= o.chiedo.n) mosse.push({ kind: 'accept', id: o.id });
+            else mosse.push({ kind: 'refuse', id: o.id });
+        });
+        return mosse;
+    }
+
+    // PROPONE uno scambio quando ha un'eccedenza netta di una risorsa e gli manca
+    // un'altra: offre un po' di ciò che gli avanza per un po' di ciò che gli serve,
+    // a un altro regno ancora vivo. Una proposta per turno basta: non deve
+    // scommerciare, deve solo non star fermo se ha risorse ferme.
+    function tradePlan(player, s) {
+        if (!GA().hasMarket(player)) return null;
+        if (GA().tradeOutbox(player).length >= GR().TRADE_MAX_PENDING) return null;
+
+        const scorte = player.scorte || {};
+        const ordinate = GR().RES.slice().sort((a, b) => (scorte[b] || 0) - (scorte[a] || 0));
+        const abbondante = ordinate[0], scarso = ordinate[ordinate.length - 1];
+        if ((scorte[abbondante] || 0) < 6) return null;             // niente da svendere
+        if ((scorte[abbondante] || 0) - (scorte[scarso] || 0) < 4) return null;  // scorte piatte
+
+        const altri = R().players().filter(p =>
+            p.id !== player.id && E().ownedPaths(p.name).length);
+        if (!altri.length) return null;
+        const verso = altri[Math.floor(Math.random() * altri.length)];
+
+        // Offre 3 dell'abbondante per 2 dello scarso: un affare per chi riceve,
+        // così la proposta ha davvero speranza di essere accettata.
+        return { toId: verso.id, offro: { tipo: abbondante, n: 3 }, chiedo: { tipo: scarso, n: 2 } };
+    }
+
     // ---------- FASE 3 · attacchi ----------
 
     // Il miglior attacco possibile in questo momento, o null se nessuno supera
@@ -254,14 +320,19 @@
             const disponibili = Math.max(0, Math.min(p.spare, tetto) - s.riservaCasa);
             if (disponibili < 1) return;
             GA().attackTargets(player, p.id).forEach(t => {
-                const p100 = winProb(disponibili, t.troops, t.fort);
+                // Sbarco (§9.2): non partono tutti i disponibili, parte quel che
+                // sta sullo scafo. Il bot deve fare il conto con lo stesso tetto
+                // del giocatore, se no pronostica su un'armata che non s'imbarca.
+                const imbarcabili = t.viaMare ? Math.min(disponibili, t.carico) : disponibili;
+                if (imbarcabili < 1) return;
+                const p100 = winProb(imbarcabili, t);
                 if (p100 < s.soglia) return;
                 const u = unitsAt(t.id) || {};
                 const premio = 1 + (u.capitale ? 1.2 : 0) + (u.citta ? 0.6 : 0) + (u.fortezza ? 0.4 : 0);
                 const peso = (t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori;
                 const score = (p100 - s.soglia + 0.1) * premio * peso;
                 if (!best || score > best.score) {
-                    best = { fromId: p.id, toId: t.id, disponibili, target: t, score, p100 };
+                    best = { fromId: p.id, toId: t.id, disponibili: imbarcabili, target: t, score, p100 };
                 }
             });
         });
@@ -273,7 +344,7 @@
     function engagedFor(best, s) {
         const D = best.target.troops + best.target.fort;
         let minimo = 1;
-        while (minimo < best.disponibili && winProb(minimo, best.target.troops, best.target.fort) < s.soglia) {
+        while (minimo < best.disponibili && winProb(minimo, best.target) < s.soglia) {
             minimo++;
         }
         const voluto = Math.ceil(best.disponibili * s.impegno);
@@ -369,6 +440,17 @@
             yield GA().build(player, sito.id, type);
             costruite++;
         }
+        // Commerci (§7): prima si risponde alle carovane arrivate (il pegno di chi
+        // ha proposto non deve marcire), poi si prova a mandarne una se c'è
+        // un'eccedenza ferma. Tutto dentro la fase costruzioni, come per l'umano.
+        if (GA().phaseOf(player) === 'costruisci') {
+            for (const m of tradeAnswers(player, s)) {
+                yield m.kind === 'accept' ? GA().acceptTrade(player, m.id) : GA().refuseTrade(player, m.id);
+            }
+            const prop = tradePlan(player, s);
+            if (prop) yield GA().proposeTrade(player, prop.toId, prop.offro, prop.chiedo);
+        }
+
         // Mercenari: monete convertite in muscoli per questo turno soltanto.
         // Li comprano solo i profili aggressivi, e solo dove partirà l'attacco.
         if (s.mercenari && costruite < 99) {
@@ -430,11 +512,20 @@
         }
     }
 
-    // Le battaglie dei bot si vedono sulla mappa come quelle del giocatore: è il
-    // motivo per cui il turno è a passi e non istantaneo.
+    // La scena della battaglia si vede anche quando attacca l'IA: la carica, il
+    // lampo e i caduti sono il modo in cui la partita si racconta. Quello che il
+    // bot NON fa è muovere la telecamera: `playBattleFx` disegna dove le province
+    // già stanno, `fitToProvinces` invece inquadra d'ufficio — e con una battaglia
+    // ogni pochi decimi di secondo la mappa diventava un frullatore.
     function showResult(player, result) {
         if (!result) return;
-        if (result.battle && R().playBattleFx) R().playBattleFx(result);
+        // La scena si vede solo se almeno una delle due province è fuori dalla
+        // nebbia: una battaglia dall'altra parte del mondo non deve arrivare a
+        // chi non potrebbe saperne nulla (Risiko.isVisible → null = nessuna
+        // nebbia, cioè editor o vista generale).
+        const guardabile = !R().isVisible ||
+            R().isVisible(result.toId) || R().isVisible(result.fromId);
+        if (result.battle && guardabile && R().playBattleFx) R().playBattleFx(result);
         emit('action', player, result);
     }
 

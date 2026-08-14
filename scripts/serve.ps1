@@ -46,7 +46,25 @@ while ($listener.IsListening) {
         # La query string (es. ?v=16) e' gia' esclusa da LocalPath.
         $filePath = Join-Path $rootFull ($path.TrimStart("/"))
 
-        if (Test-Path $filePath -PathType Leaf) {
+        # MAPPA INIZIALE (POST /_start-map): l'editor manda il JSON della posizione
+        # di partenza e lo scriviamo noi in src/data/start_map.json, cosi' il
+        # salvataggio e' un click solo e il file nasce gia' dov'e' versionato,
+        # invece che nei Download. E' l'UNICA rotta che scrive su disco, e scrive
+        # sempre e solo quel file: il percorso non arriva mai dalla richiesta.
+        if ($req.HttpMethod -eq "POST" -and $path -eq "/_start-map") {
+            $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
+            $bodyText = $reader.ReadToEnd()
+            $reader.Close()
+            $target = Join-Path $rootFull "data\start_map.json"
+            $utf8 = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($target, $bodyText, $utf8)
+            Write-Host "mappa iniziale salvata: $target ($($bodyText.Length) caratteri)"
+            $body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
+            $res.StatusCode = 200
+            $res.ContentType = "application/json; charset=utf-8"
+            $res.ContentLength64 = $body.Length
+            $res.OutputStream.Write($body, 0, $body.Length)
+        } elseif (Test-Path $filePath -PathType Leaf) {
             $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
             $ct = $mime[$ext]
             if (-not $ct) { $ct = "application/octet-stream" }

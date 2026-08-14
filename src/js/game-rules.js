@@ -29,7 +29,7 @@
         citta:       { monete: 1000, pietra: 3, argilla: 2, bestiame: 2 },
         fortezza:    { monete: 2000, pietra: 6, legno: 4, argilla: 4, bestiame: 2, grano: 2 },
         vascello:    { monete: 4000, legno: 10, argilla: 2, bestiame: 4, grano: 4 },
-        mercato:     { monete: 1000, soldati: 4 },
+        mercato:     { monete: 800, soldati: 4 },
         generale:    { monete: 500, bestiame: 3, grano: 3, argilla: 1 },
         mercenario:  { monete: 100 },
         guarnigione: { bestiame: 2, grano: 2, argilla: 1 }
@@ -43,7 +43,7 @@
         citta:       'Capitale secondaria: difesa +1, paga le tasse, +1 soldato/turno. Alla costruzione dà +1 Pietra.',
         fortezza:    'Difesa +3. Ogni turno +5 soldati. Non dove c\'è già Capitale o Città.',
         vascello:    'Movimento globale, senza limiti geografici. Solo su costa.',
-        mercato:     'Scambio di risorse con la banca al rapporto 2:1.',
+        mercato:     'Apre i commerci: scambio con l\'estero al rapporto 2:1 e trattative con gli altri regni.',
         generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
         mercenario:  '+1 soldato temporaneo: scade a fine turno.',
         guarnigione: '+2 soldati temporanei: scadono a fine turno.'
@@ -81,6 +81,74 @@
     function neutralGarrison(turn) {
         const t = Math.max(1, Math.floor(turn || 1));
         return NEUTRAL_START + Math.floor((t - 1) / NEUTRAL_EVERY) * NEUTRAL_STEP;
+    }
+
+    // COMMERCI (§7). Il Mercato apre due canali, e sono due cose diverse:
+    //   - l'ESTERO (la banca): 2 unità di una risorsa che hai → 1 di un altro
+    //     tipo, subito, senza contrattare con nessuno. SOLO risorse: la banca
+    //     non compra né vende oro.
+    //   - le TRATTATIVE con gli altri regni: una proposta che parte, resta in
+    //     sospeso e vive finché l'altro risponde (o finché scade). Qui la merce
+    //     può essere una risorsa OPPURE oro (monete): risorse↔risorse,
+    //     oro→risorse, risorse→oro. L'oro si muove a multipli di 100 (§7).
+    // Qui sta solo la parte pura — il rapporto della banca e la validazione delle
+    // merci; chi muove davvero scorte e monete è game-actions.js.
+    const TRADE_RATE = 2;           // quante ne dai per riceverne 1 dalla banca
+    const TRADE_MAX_PENDING = 3;    // proposte aperte contemporaneamente per regno
+    const TRADE_MAX_UNITS = 20;     // tetto per lato in RISORSE di una proposta
+    const TRADE_EXPIRY = 2;         // turni di vita di una proposta senza risposta
+    const GOLD_UNIT = 100;          // l'oro nelle proposte va a multipli di 100
+    const TRADE_MAX_GOLD = 2000;    // tetto per lato in ORO di una proposta
+
+    // Una merce barattabile in una proposta fra regni: risorsa o oro (monete).
+    // La banca invece accetta solo risorse (vedi canBankTrade).
+    function isTradeGood(tipo) { return RES.indexOf(tipo) >= 0 || tipo === 'monete'; }
+
+    // Valida un lato di una proposta ({tipo, n}). L'oro va a multipli di 100 e ha
+    // un tetto suo; le risorse restano intere entro TRADE_MAX_UNITS.
+    function checkGoods(g) {
+        const tipo = g && g.tipo;
+        const n = Math.floor((g && g.n) || 0);
+        if (!isTradeGood(tipo)) return { ok: false, msg: 'Merce sconosciuta.' };
+        if (!(n > 0)) return { ok: false, msg: 'Indica la quantità.' };
+        if (tipo === 'monete') {
+            if (n % GOLD_UNIT !== 0) return { ok: false, msg: 'L\'oro si scambia a multipli di ' + GOLD_UNIT + ' monete.' };
+            if (n > TRADE_MAX_GOLD) return { ok: false, msg: 'Una carovana porta al massimo ' + TRADE_MAX_GOLD + ' monete per lato.' };
+        } else if (n > TRADE_MAX_UNITS) {
+            return { ok: false, msg: 'Una carovana porta al massimo ' + TRADE_MAX_UNITS + ' unità per lato.' };
+        }
+        return { ok: true };
+    }
+
+    function bankTradeCost(n) { return Math.max(0, Math.floor(n || 0)) * TRADE_RATE; }
+
+    // Lo scambio con la banca è valido? Ritorna anche il costo, così chi chiama
+    // non ricalcola il rapporto per conto suo.
+    function canBankTrade(player, dai, prendi, n) {
+        n = Math.floor(n || 0);
+        if (RES.indexOf(dai) < 0 || RES.indexOf(prendi) < 0) return { ok: false, msg: 'Risorsa sconosciuta.' };
+        if (dai === prendi) {
+            return { ok: false, msg: 'Il mercato scambia risorse diverse: dai un tipo, ne ricevi un altro.' };
+        }
+        if (!(n > 0)) return { ok: false, msg: 'Indica quante risorse vuoi ricevere.' };
+        const costo = bankTradeCost(n);
+        const hai = ((player && player.scorte) || {})[dai] || 0;
+        if (hai < costo) {
+            return {
+                ok: false, costo,
+                msg: 'Per ' + n + ' ' + RES_LABEL[prendi] + ' servono ' + costo + ' ' + RES_LABEL[dai] +
+                    ': ne hai ' + hai + '.'
+            };
+        }
+        return { ok: true, costo };
+    }
+
+    // "3 Pietra", "200 monete": come una merce si legge in un messaggio o su un
+    // bottone. L'oro segue lo stesso minuscolo dei costi ("500 monete").
+    function goodsText(g) {
+        if (!g) return '';
+        if (g.tipo === 'monete') return g.n + (g.n === 1 ? ' moneta' : ' monete');
+        return g.n + ' ' + (RES_LABEL[g.tipo] || g.tipo);
     }
 
     // PRESTIGIO SOSPESO (scelta dell'utente): il §10 resta scritto e il codice
@@ -265,6 +333,9 @@
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, TEMPORARY, MIN_GARRISON,
         NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, neutralGarrison, PRESTIGE_ENABLED,
+        TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,
+        GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,
+        bankTradeCost, canBankTrade, goodsText,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
         connected, turnProduction, popEffectOf, defenceBonus
     };

@@ -20,36 +20,61 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPlayerId = null;
     let hasFitted = false;
     let selectedProvId = null;
-    let legendOpen = false;
     let lastBattle = null;
+
+    // Stato dei moduli di commercio (§7): si tiene qui perché render() ricostruisce
+    // l'HTML a ogni azione (anche dei bot) e i menù a tendina perderebbero la scelta.
+    const tradeUI = { dai: null, prendi: null, n: 1, verso: null, offroT: null, offroN: 3, chiedoT: null, chiedoN: 2 };
 
     // ---------- pannelli: tre colonne, o tendine su schermi stretti ----------
     // Da 1200px in su i pannelli sono due colonne vere della griglia: la mappa
     // ha la sua terza colonna tutta per sé e gli inset restano a zero. Sotto,
-    // tornano tendine sovrapposte e servono le linguette (vedi board.css).
+    // tornano tendine sovrapposte sulla mappa.
+    // I DUE PANNELLI SI CHIUDONO SEMPRE (richiesta dell'utente): chiuso, il
+    // pannello sparisce e la sua colonna va a zero (classi left-closed /
+    // right-closed su #board-main), così la mappa si prende lo spazio invece
+    // di lasciare un buco. Chiudendoli entrambi resta solo la mappa.
+    // Le linguette stanno dentro la cornice della mappa: sono sempre allo
+    // stesso posto, aperto o chiuso.
 
     const leftPanel = $('board-left');
     const rightPanel = $('board-right');
+    const mainEl = $('board-main');
     const wideQuery = window.matchMedia('(min-width: 1200px)');
     const isWide = () => wideQuery.matches;
 
     // La mappa ha una colonna sua: niente da compensare nel viewBox. La chiamata
-    // serve comunque a rifare il fit quando la colonna centrale cambia misura.
+    // serve comunque a rifare il fit quando la colonna centrale cambia misura —
+    // ed è proprio quello che succede aprendo o chiudendo un pannello.
     function syncViewInsets() { R.setViewInsets(0, 0); }
 
-    function wirePanelToggle(panel, tab, openLabel, closedLabel) {
-        if (!panel || !tab) return;
-        const sync = () => {
-            const open = !panel.classList.contains('collapsed');
-            tab.textContent = open ? openLabel : closedLabel;
-        };
-        tab.addEventListener('click', () => { panel.classList.toggle('collapsed'); sync(); });
-        if (!isWide()) panel.classList.add('collapsed');
-        sync();
+    // Le frecce puntano dove va il pannello: aperto, indica la direzione in cui
+    // sparirà; chiuso, quella da cui tornerà.
+    const PANEL_GLYPH = { left: ['◀', '▶'], right: ['▶', '◀'] };
+    const PANEL_NAME = { left: 'della corona', right: 'del turno' };
+
+    function syncPanelTab(panel, tab, side) {
+        const open = !panel.classList.contains('collapsed');
+        tab.textContent = PANEL_GLYPH[side][open ? 0 : 1];
+        tab.title = (open ? 'Nascondi' : 'Mostra') + ' il pannello ' + PANEL_NAME[side];
+        mainEl.classList.toggle(side + '-closed', !open);
     }
 
-    wirePanelToggle(leftPanel, $('board-left-tab'), '◀ Corona', 'Corona ▶');
-    wirePanelToggle(rightPanel, $('board-right-tab'), 'Regno ▶', '◀ Regno');
+    function wirePanelToggle(panel, tab, side) {
+        if (!panel || !tab) return;
+        tab.addEventListener('click', () => {
+            panel.classList.toggle('collapsed');
+            syncPanelTab(panel, tab, side);
+            // La mappa ha appena cambiato larghezza: si reinquadra dopo che il
+            // layout si è assestato, altrimenti misura la colonna vecchia.
+            requestAnimationFrame(syncViewInsets);
+        });
+        if (!isWide()) panel.classList.add('collapsed');
+        syncPanelTab(panel, tab, side);
+    }
+
+    wirePanelToggle(leftPanel, $('board-left-tab'), 'left');
+    wirePanelToggle(rightPanel, $('board-right-tab'), 'right');
 
     // Al cambio di modalità i pannelli si rimettono nello stato giusto: aperti
     // in griglia (dove non coprono nulla), chiusi come tendine (dove aperti
@@ -59,8 +84,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const wide = isWide();
         leftPanel.classList.toggle('collapsed', !wide);
         rightPanel.classList.toggle('collapsed', !wide);
-        $('board-left-tab').textContent = wide ? '◀ Corona' : 'Corona ▶';
-        $('board-right-tab').textContent = wide ? 'Regno ▶' : '◀ Regno';
+        syncPanelTab(leftPanel, $('board-left-tab'), 'left');
+        syncPanelTab(rightPanel, $('board-right-tab'), 'right');
     };
     if (wideQuery.addEventListener) wideQuery.addEventListener('change', onWideChange);
     else wideQuery.addListener(onWideChange);
@@ -150,19 +175,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!result) return;
         if (result.battle) {
             lastBattle = result;
-            // La battaglia va guardata: si inquadrano le due province e parte la
-            // scena sulla mappa (vedi playBattleFx in app.js).
-            R.fitToProvinces([result.fromId, result.toId]);
+            // Scena sulla mappa, ma nessuna inquadratura: la vista è del
+            // giocatore, si sposta solo quando la sposta lui (zoom, trascinamento
+            // o il bottone ↺ del rapporto di battaglia).
             R.playBattleFx(result);
         }
         showNotice(result.msg, result.ok);
         render();
         // La nascita di una città (o di una capitale) è un fatto di cronaca: si
-        // inquadra la provincia e si srotola la pergamena (showFoundation in
-        // app.js). Dopo il render, altrimenti il ridisegno della plancia ruba il
-        // focus al bottone.
+        // srotola la pergamena (showFoundation in app.js). Dopo il render,
+        // altrimenti il ridisegno della plancia ruba il focus al bottone.
         if (result.fondazione && R.showFoundation) {
-            if (result.fondazione.id) R.fitToProvinces([result.fondazione.id]);
             R.showFoundation(result.fondazione);
         }
         // Eco storica di una battaglia: si aspetta che la scena sulla mappa sia
@@ -172,6 +195,8 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(run._eco);
             run._eco = setTimeout(() => R.showFoundation(result.cronaca), result.battle ? 3900 : 0);
         }
+        // Razzie delle terre di nessuno di fine giro (il proprio Fine turno).
+        if (result.razzie) reportRaids(result.razzie);
     }
 
     function showNotice(msg, ok) {
@@ -257,6 +282,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('board-spectate').addEventListener('click', () => setSpectate(!spectating));
 
+    // ---------- viste alternative della mappa: fede e terreno ----------
+    // Colorano la mappa per religione o per terreno invece che per regno
+    // (Risiko.setMapPaint). È solo pittura: non tocca proprietari, turni o
+    // permessi, e rispetta la nebbia. I due modi sono esclusivi, quindi si
+    // accendono e si spengono insieme dallo stesso interruttore.
+    const VIEW_BTNS = [
+        { id: 'board-faith', mode: 'fede', on: '☩ Regni', off: '☩ Fedi',
+            titleOn: 'Torna a colorare per regno', titleOff: 'Colora la mappa per religione' },
+        { id: 'board-terrain', mode: 'terreno', on: '⛰ Regni', off: '⛰ Terreno',
+            titleOn: 'Torna a colorare per regno',
+            titleOff: 'Colora la mappa per terreno: dove il numero conta e dove no' }
+    ];
+
+    function syncViewBtns() {
+        const mode = R.mapPaint ? R.mapPaint() : 'owner';
+        VIEW_BTNS.forEach(v => {
+            const b = $(v.id);
+            if (!b) return;
+            const on = mode === v.mode;
+            b.textContent = on ? v.on : v.off;
+            b.title = on ? v.titleOn : v.titleOff;
+            b.classList.toggle('on', on);
+        });
+    }
+
+    (function wireViewBtns() {
+        if (!R.setMapPaint) return;
+        VIEW_BTNS.forEach(v => {
+            const b = $(v.id);
+            if (!b) return;
+            b.addEventListener('click', () => {
+                R.setMapPaint(R.mapPaint() === v.mode ? 'owner' : v.mode);
+                syncViewBtns();
+            });
+        });
+        syncViewBtns();
+    })();
+
     // ---------- velocità dell'IA ----------
     // Guardare nove regni giocare a 600 ms per azione è bello la prima volta e
     // lungo la decima: il bottone cicla fra "seguo l'azione" e "portami al mio
@@ -280,24 +343,152 @@ document.addEventListener('DOMContentLoaded', () => {
         syncSpeedBtn();
     });
 
+    // ---------- registro dell'IA ----------
+    // Guardare i bot non deve voler dire inseguirli. La telecamera resta dove
+    // l'hai lasciata: quello che fanno si LEGGE qui, una riga per azione, e sulla
+    // mappa si vede solo il colore cambiare più un alone breve sulla provincia
+    // toccata. Niente zoom automatici, niente scena della battaglia — a 600 ms
+    // per mossa diventavano un frullatore.
+    const AI_LOG_MAX = 16;
+    const aiLines = [];
+
+    // La prima frase basta: "Conquistata Baviera: 4 superstiti (1 caduti)." dice
+    // già tutto, il resto è testo per il pannello del giocatore.
+    function shortMsg(msg) {
+        const s = String(msg || '').trim();
+        const cut = s.indexOf('. ');
+        return (cut > 20 ? s.slice(0, cut + 1) : s);
+    }
+
+    // Ordine di CRONACA (il più recente in fondo, come un diario) e non a stack:
+    // l'intestazione del regno deve stare sopra le sue mosse, altrimenti si legge
+    // il turno al contrario. Il riquadro segue da solo l'ultima riga.
+    // NEBBIA: il registro racconta solo quello che il regno può davvero vedere.
+    // Ogni azione dice dove è successa (`prov`, `provs`, `fromId`/`toId` nei
+    // risultati di game-actions.js); se nessuna di quelle province è visibile, la
+    // riga non esiste — sapere che un regno lontano ha schierato truppe è
+    // un'informazione che il giocatore non ha. In vista generale (🌍) e
+    // nell'editor la nebbia non c'è e si vede tutto.
+    function placesOf(result) {
+        const ids = [result.prov, result.prov2, result.fromId, result.toId];
+        if (Array.isArray(result.provs)) ids.push.apply(ids, result.provs);
+        return ids.filter(Boolean);
+    }
+
+    function visibleAction(result) {
+        const ids = placesOf(result);
+        if (!ids.length) return false;          // azione senza luogo: non si racconta
+        return ids.some(id => R.isVisible(id));
+    }
+
+    // L'intestazione del regno si scrive solo se poi c'è qualcosa da raccontare:
+    // altrimenti resterebbe un blocco vuoto che dice comunque "questo regno sta
+    // giocando lì da qualche parte".
+    let pendingHeader = null;
+
+    function aiLog(player, result) {
+        const box = $('bp-ailog');
+        if (!box || !player) return;
+
+        if (!result) {
+            const s = window.Bot ? window.Bot.strategyOf(player) : null;
+            pendingHeader = { colore: player.color, capo: true, n: 1,
+                txt: player.name + (s ? ' · ' + s.nome : '') };
+            return;
+        }
+
+        if (!result.ok) return;                                  // rifiuti del motore: rumore
+        if (/^Fase \d/.test(result.msg || '')) return;            // passaggi di fase: rumore
+        if (!visibleAction(result)) return;                       // succede nella nebbia
+
+        if (pendingHeader) { aiLines.push(pendingHeader); pendingHeader = null; }
+
+        const txt = shortMsg(result.msg);
+        const ultima = aiLines[aiLines.length - 1];
+        // Tre mercenari di fila sono una riga sola con "×3": il registro serve
+        // a capire il turno, non a contare i click.
+        if (ultima && !ultima.capo && ultima.txt === txt) ultima.n++;
+        else aiLines.push({ colore: player.color, capo: false, n: 1, txt });
+
+        while (aiLines.length > AI_LOG_MAX) aiLines.shift();
+        renderAiLog();
+    }
+
+    // Le razzie delle terre di nessuno (game-actions.neutralRaids) arrivano nel
+    // risultato di fine turno. Le si racconta come le mosse dei bot, ma solo se
+    // toccano una provincia VISIBILE (§3, nebbia): sotto nebbia non si deve sapere
+    // di una razzia dall'altra parte del mondo.
+    const RAID_COLOR = '#9c8f7a';   // grigio-terra: la fede di nessuno
+    function reportRaids(razzie) {
+        if (!Array.isArray(razzie) || !razzie.length) return;
+        let added = false;
+        razzie.forEach(r => {
+            if (!R.isVisible(r.fromId) && !R.isVisible(r.toId)) return;
+            const txt = r.esito === 'riconquistata'
+                ? 'Le terre di nessuno riprendono ' + r.toLabel + ' a ' + r.difensore + '.'
+                : r.toLabel + ' respinge una razzia delle terre di nessuno.';
+            aiLines.push({ colore: RAID_COLOR, capo: false, n: 1, txt });
+            added = true;
+        });
+        if (!added) return;
+        while (aiLines.length > AI_LOG_MAX) aiLines.shift();
+        renderAiLog();
+    }
+
+    function renderAiLog() {
+        const box = $('bp-ailog');
+        if (!box) return;
+
+        if (!aiLines.length) {
+            // Registro vuoto per una ragione precisa, e va detta: se non si dice,
+            // sembra rotto. Sotto nebbia si sa solo quel che succede ai propri
+            // confini — il resto della guerra si guarda dalla vista generale.
+            box.innerHTML = '<div class="bp-empty-hint">' + (R.visibleProvinces()
+                ? 'Dai tuoi confini non si vede nulla di quel che fanno gli altri regni. Passa alla vista generale (🌍) per seguire tutta la guerra.'
+                : 'Qui compaiono le mosse dell\'IA, una riga per azione.') + '</div>';
+            return;
+        }
+
+        box.innerHTML = aiLines.map(l =>
+            '<div class="ai-line' + (l.capo ? ' capo' : '') + '">' +
+            '<span class="ai-dot" style="background:' + l.colore + '"></span>' +
+            '<span class="ai-txt"></span>' +
+            (l.n > 1 ? '<span class="ai-n">×' + l.n + '</span>' : '') +
+            '</div>').join('');
+        // testo via textContent: i nomi delle province arrivano dai dati, non si
+        // concatenano dentro l'HTML.
+        box.querySelectorAll('.ai-txt').forEach((el, i) => { el.textContent = aiLines[i].txt; });
+        box.scrollTop = box.scrollHeight;
+    }
+
     // ---------- regni in gioco ----------
 
     function renderKingdoms(player) {
         const box = $('bp-kingdoms');
         if (!box) return;
         const turnoDi = R.turnoDi();
+        // Quante province ha un regno è cosa che si CONTA guardando la mappa:
+        // sotto nebbia non si sa, e il numero salirebbe da solo a ogni conquista
+        // dall'altra parte del mondo. Il proprio si vede sempre; gli altri solo
+        // in vista generale (🌍).
+        const contaVisibile = !R.visibleProvinces();
         box.innerHTML = R.players().map(p => {
             const bot = window.Bot ? window.Bot.strategyOf(p) : null;
             const province = R.ownedPaths(p.name).length;
-            if (!province && p.id !== player.id) return '';
+            const mio = p.id === player.id;
+            if (!province && !mio) return '';
             return '<div class="bk-row' + (p.id === turnoDi ? ' now' : '') +
-                (p.id === player.id ? ' me' : '') + '">' +
+                (mio ? ' me' : '') + '">' +
                 '<span class="bk-dot" style="background:' + p.color + '"></span>' +
                 '<span class="bk-name">' + p.name + '</span>' +
                 '<span class="bk-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
-                '<span class="bk-prov">' + province + '</span>' +
+                '<span class="bk-prov">' + ((mio || contaVisibile) ? province : '—') + '</span>' +
                 '</div>';
-        }).join('') + '<div class="bp-empty-hint">Un regno sparisce dall\'elenco quando perde tutte le province.</div>';
+        }).join('') +
+            '<div class="bp-empty-hint">' + (contaVisibile
+                ? 'Un regno sparisce dall\'elenco quando perde tutte le province.'
+                : 'Le province degli altri regni si contano solo dalla vista generale (🌍).') +
+            '</div>';
     }
 
     // Conferme in pagina (R.confirm), non window.confirm: il dialogo nativo viene
@@ -323,35 +514,89 @@ document.addEventListener('DOMContentLoaded', () => {
         return t !== null && t !== undefined && t === player.id;
     }
 
-    // ---------- fasi del turno ----------
+    // ---------- fasi del turno: quattro cartelle ----------
     // L'elenco delle fasi e la loro sequenza stanno in game-actions.js: qui si
     // disegnano soltanto. Chi vuole aggiungere una fase la aggiunge là.
+    // Le quattro linguette sono CARTELLE: cliccandone una si apre il suo
+    // contenuto nel corpo del pannello, e nel corpo c'è solo quello. Aprire non
+    // è agire — il turno avanza col bottone in fondo, e solo in avanti.
 
     function phase(player) { return GA().phaseOf(player); }
     function inPhase(player, f) { return isPlaying(player) && phase(player) === f && !player.conquista; }
 
+    // Cartella aperta. null = "segui la fase in corso", che è il caso normale:
+    // così un turno nuovo non si apre sulla cartella lasciata aperta in quello
+    // vecchio. Si torna a null appena la fase vera cambia.
+    let openFolder = null;
+    let lastPhaseSeen = null;
+
+    function viewPhase(player) {
+        const cur = phase(player);
+        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; }
+        return (openFolder && GA().PHASES.indexOf(openFolder) >= 0) ? openFolder : cur;
+    }
+
+    // Sto sbirciando: la cartella aperta non è la fase in corso, o non è il mio
+    // turno. Si legge, non si agisce.
+    function peeking(player) { return !isPlaying(player) || viewPhase(player) !== phase(player); }
+
+    // Spegne i comandi di un blocco: è la traduzione visiva di "questa cartella
+    // la stai solo guardando". Il rifiuto vero resta di game-actions.js
+    // (requirePhase), qui si evita solo il click che non poteva funzionare.
+    function freeze(box) {
+        if (!box) return;
+        box.querySelectorAll('button, input, select').forEach(el => { el.disabled = true; });
+    }
+
     function renderPhases(player) {
         const box = $('bp-phases');
         const cur = GA().phaseIndex(player);
+        const view = viewPhase(player);
+        const peek = peeking(player);
         box.innerHTML = '';
         GA().PHASES.forEach((f, i) => {
-            const chip = document.createElement('div');
-            chip.className = 'bp-phase-chip' + (i === cur ? ' now' : i < cur ? ' done' : '');
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'bp-phase-chip' + (i === cur ? ' now' : i < cur ? ' done' : '') +
+                (f === view ? ' open' : '') + (f === view && peek ? ' peek' : '');
             chip.innerHTML = '<span class="n">' + (i < cur ? '✓' : i + 1) + '</span><span class="t"></span>';
             chip.querySelector('.t').textContent = GA().PHASE_LABEL[f];
+            chip.title = 'Apri la cartella "' + GA().PHASE_LABEL[f] + '"' +
+                (i === cur ? ' (la fase in corso)' : ' — solo per guardare');
+            chip.addEventListener('click', () => { openFolder = f; render(); });
             box.appendChild(chip);
         });
 
-        const f = phase(player);
-        $('bp-phase-head').setAttribute('data-step', String(cur + 1));
-        setText('bp-phase-name', GA().PHASE_LABEL[f]);
-        setText('bp-phase-sub', isPlaying(player)
-            ? GA().PHASE_HINT[f]
-            : 'Non è il tuo turno: la plancia mostra dove sei rimasto.');
+        $('bp-phase-head').setAttribute('data-step', String(GA().PHASES.indexOf(view) + 1));
+        setText('bp-phase-name', GA().PHASE_LABEL[view]);
+        setText('bp-phase-sub', GA().PHASE_HINT[view]);
 
-        // Blocchi che esistono solo in una fase.
-        $('fase-schiera').style.display = f === 'schiera' ? '' : 'none';
-        $('fase-sposta').style.display = f === 'sposta' ? '' : 'none';
+        // Perché i comandi sono spenti: detto qui una volta, invece che
+        // ripetuto su ogni bottone.
+        const note = $('bp-peek-note');
+        if (!peek) {
+            note.style.display = 'none';
+        } else {
+            note.style.display = '';
+            note.textContent = !isPlaying(player)
+                ? 'Non è il tuo turno: la plancia si legge, non si tocca.'
+                : GA().PHASES.indexOf(view) < cur
+                    ? 'Fase già chiusa: la stai rileggendo. Ora sei in "' + GA().PHASE_LABEL[GA().PHASES[cur]] + '".'
+                    : 'Fase non ancora aperta: prima devi chiudere "' + GA().PHASE_LABEL[GA().PHASES[cur]] + '".';
+            if (isPlaying(player)) {
+                const back = document.createElement('button');
+                back.type = 'button';
+                back.className = 'bp-mini wide';
+                back.textContent = '↩ torna alla fase in corso';
+                back.addEventListener('click', () => { openFolder = null; render(); });
+                note.appendChild(back);
+            }
+        }
+
+        // Blocchi che esistono solo in una cartella.
+        $('fase-schiera').style.display = view === 'schiera' ? '' : 'none';
+        $('fase-commerci').style.display = view === 'costruisci' ? '' : 'none';
+        $('fase-sposta').style.display = view === 'sposta' ? '' : 'none';
 
         const next = $('bp-next-phase');
         const last = cur === GA().PHASES.length - 1;
@@ -555,16 +800,18 @@ document.addEventListener('DOMContentLoaded', () => {
             ' per turno';
     }
 
-    // ---------- pannello destro: tesoro e scorte ----------
+    // ---------- cruscotto sempre visibile ----------
+    // Oro, esercito, fede di stato e scorte: i quattro numeri con cui si decide
+    // ogni mossa. Stanno fuori dalla parte che scorre (#bp-status), così
+    // restano sotto gli occhi per tutto il turno, in qualunque cartella si sia.
 
     function renderTreasury(player, units, snapshot, connectedSet, pop) {
         const inc = KingdomStats.income(units, player.tassazione || 'normale');
         setText('bp-coins', (player.monete || 0).toLocaleString('it-IT'));
         const note = $('bp-income');
-        note.textContent = inc.cities
-            ? '+' + inc.total + ' / turno · ' + inc.cities + ' città × ' + inc.rate
-            : 'Nessuna città: nessuna entrata (§7).';
-        note.className = inc.cities ? 'bp-note good' : 'bp-note';
+        note.textContent = inc.cities ? signed(inc.total) + ' per turno' : 'nessuna città, nessuna entrata';
+        note.className = inc.cities ? 'good' : '';
+        note.title = inc.cities ? inc.cities + ' città × ' + inc.rate + ' (§7)' : 'Le entrate vengono dalle città (§7).';
 
         // La resa conta solo le province COLLEGATE (§4): senza Capitale è zero.
         const collegate = snapshot.filter(p => connectedSet.has(p.id));
@@ -574,32 +821,47 @@ document.addEventListener('DOMContentLoaded', () => {
             const gain = yields[k] || 0;
             const have = (player.scorte && player.scorte[k]) || 0;
             return `
-            <div class="bp-res" style="border-left-color:${RESOURCES[k].colore}">
-                <div class="bp-res-name">
-                    <svg viewBox="0 0 100 100" aria-hidden="true"><use href="#res-${k}"></use></svg>${RESOURCES[k].nome}
-                </div>
-                <div class="bp-res-val">${have}
-                    <span class="bp-res-gain${gain ? '' : ' zero'}">${gain ? '+' + gain : '0'}/turno</span>
-                </div>
+            <div class="bps-r" style="border-bottom-color:${RESOURCES[k].colore}"
+                 title="${RESOURCES[k].nome}: ${have} in scorta, ${gain ? '+' + gain : 'nessuna'} per turno">
+                <svg viewBox="0 0 100 100" aria-hidden="true"><use href="#res-${k}"></use></svg>
+                <span class="bps-r-n">${have}</span>
+                <span class="bps-r-g${gain ? '' : ' zero'}">${gain ? '+' + gain : '—'}</span>
             </div>`;
         }).join('');
 
-        if (pop) {
-            const mod = GR().popEffectOf(pop.totale).risorse;
-            if (mod) $('bp-resources').insertAdjacentHTML('beforeend',
-                `<div class="bp-res" style="grid-column:1/-1;border-left-color:var(--gold-edge)">
-                    <div class="bp-res-name">Modificatore Popolarità</div>
-                    <div class="bp-res-val">${signed(mod)} <span class="bp-res-gain zero">unità totali/turno</span></div>
-                </div>`);
+        const mod = pop ? GR().popEffectOf(pop.totale).risorse : 0;
+        const modEl = $('bp-pop-mod');
+        modEl.style.display = mod ? '' : 'none';
+        modEl.textContent = mod ? 'Popolarità ' + pop.totale + '/5: ' + signed(mod) + ' unità di risorse per turno' : '';
+
+        // Fede di stato: è quella della Capitale (Risiko.stateReligionOf), quindi
+        // perderla o spostarla cambia religione all'impero. Sta nel cruscotto
+        // perché entra negli obiettivi e nelle razzie delle terre di nessuno.
+        const faithEl = $('bp-faith-state');
+        const fede = R.stateReligionOf ? R.stateReligionOf(player) : null;
+        if (fede && window.Religions) {
+            faithEl.innerHTML = '<span class="p-faith-dot" style="background:' +
+                window.Religions.color(fede) + '"></span><span class="bps-faith-t"></span>';
+            faithEl.querySelector('.bps-faith-t').textContent = window.Religions.label(fede);
+            faithEl.title = 'Religione di stato: quella della Capitale';
+        } else {
+            faithEl.textContent = '—';
+            faithEl.title = 'Senza Capitale non c\'è religione di stato';
         }
     }
 
     function renderArmy(owned, units, pop, capitalPath, connectedSet) {
         setText('bp-prov-owned', owned.length);
         setText('bp-prov-connected', connectedSet.size);
-        setText('bp-capital', capitalPath ? R.provinceLabel(capitalPath) : 'Nessuna');
+        setText('bp-capital', capitalPath ? 'Capitale: ' + R.provinceLabel(capitalPath) : 'nessuna Capitale');
         setText('bp-soldiers', units.soldato);
-        setText('bp-soldiers-cap', capitalPath ? R.countPiece(capitalPath, 'soldato') : 0);
+        const inCap = capitalPath ? R.countPiece(capitalPath, 'soldato') : 0;
+        // Sotto i 6 la Popolarità cade a 2 (§8): il numero da solo non lo dice.
+        setText('bp-soldiers-cap', inCap + ' in Capitale' + (capitalPath && inCap <= 5 ? ' ⚠' : ''));
+        $('bp-soldiers-cap').className = (capitalPath && inCap <= 5) ? 'bad' : '';
+        $('bp-soldiers-cap').title = (capitalPath && inCap <= 5)
+            ? 'Guardia debole: con 5 o meno soldati in Capitale la Popolarità scende a 2 (§8)'
+            : 'Soldati di guardia nella Capitale';
         setText('bp-units', units.generale + ' · ' + units.barca + ' · ' + units.vascello);
         setText('bp-buildings', units.citta + ' · ' + units.fortezza + ' · ' + units.mercato);
 
@@ -699,6 +961,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- azioni sulla provincia selezionata ----------
 
+    // La fede della provincia, come promemoria nel pannello. Sotto nebbia non si
+    // svela (come il proprietario, §3); altrimenti pallino colorato + nome.
+    function renderFaith(path, fogged) {
+        const el = $('p-faith');
+        if (!el) return;
+        const Rel = window.Religions;
+        if (!path || fogged || !Rel) { el.textContent = fogged ? 'Sconosciuta' : '—'; return; }
+        const f = R.faithOf(path.id);
+        if (!f) { el.textContent = '—'; return; }
+        el.innerHTML = '<span class="p-faith-dot" style="background:' + Rel.color(f) + '"></span>' +
+            Rel.label(f);
+    }
+
     function renderSelected(player, connectedSet) {
         const nameEl = $('bp-province-name');
         const actions = $('bp-actions');
@@ -707,13 +982,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!path) {
             nameEl.textContent = 'Nessuna provincia selezionata';
             setText('bp-province-troops', '—');
-            actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa, o nell\'elenco 1.4 qui sotto.</div>';
+            renderFaith(null, false);
+            actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa, o aprila dalla cartellina "Le mie province" qui sotto.</div>';
             return;
         }
 
         const fogged = path.classList.contains('fog');
         const mine = R.engine.owner(path) === player.name;
         nameEl.textContent = R.provinceLabel(path);
+        renderFaith(path, fogged);
+
+        // Anagrafica della provincia. La riempie anche app.js quando si clicca
+        // sulla mappa, ma selezionando dall'elenco quel click non c'è: senza
+        // questo le righe restavano quelle della provincia di prima.
+        setText('p-name', R.provinceLabel(path));
+        const owner = fogged ? 'Sconosciuto' : (R.engine.owner(path) || 'Nessuno');
+        const ownerPlayer = R.players().find(p => p.name === owner);
+        setText('p-owner', owner);
+        $('p-owner').style.color = ownerPlayer ? ownerPlayer.color : '#888';
+        const resKey = fogged ? '' : (R.resourceKeyOf(path) || '');
+        const res = resKey && typeof RESOURCES !== 'undefined' ? RESOURCES[resKey] : null;
+        setText('p-resource', fogged ? '—' : (res ? res.nome : 'Nessuna'));
+        $('p-resource').style.color = res ? res.colore : '#888';
 
         const pieces = R.piecesOf(path);
         setText('bp-province-troops', fogged ? '—' : (pieces.length
@@ -737,11 +1027,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Una fase per volta: mostrare le costruzioni mentre si schiera (o gli
-        // attacchi mentre si costruisce) è esattamente il disordine che questa
-        // struttura elimina. Il rifiuto vero lo fa comunque game-actions.js.
+        // Una cartella per volta: mostrare le costruzioni mentre si schiera (o
+        // gli attacchi mentre si costruisce) è esattamente il disordine che
+        // questa struttura elimina. Le azioni seguono la cartella APERTA; se non
+        // è la fase in corso, render() le spegne (freeze) e il perché sta in
+        // #bp-peek-note. Il rifiuto vero lo fa comunque game-actions.js.
         actions.innerHTML = '';
-        switch (phase(player)) {
+        switch (viewPhase(player)) {
             case 'schiera':
                 actions.appendChild(deployGroup(player, path));
                 break;
@@ -938,28 +1230,57 @@ document.addEventListener('DOMContentLoaded', () => {
         // Pronostico prima di lanciare la carica: è la stessa formula della
         // battaglia (§9, P_A = A² / (A² + Deff²)), così il giocatore sa cosa
         // rischia invece di tirare a caso.
+        // Attacco di terra o SBARCO (§9.2): lo stesso elenco porta i due modi. Su
+        // un bersaglio di mare il tetto non è l'esercito ma il CARICO dello scafo,
+        // quindi il numero impegnato si stringe lì — ed è il numero su cui si fa
+        // il pronostico, se no la percentuale mostrata mentirebbe.
+        const engagedFor = (t) => {
+            const n = parseInt(input.value, 10) || 0;
+            return t.viaMare ? Math.min(n, t.carico) : n;
+        };
+
         const odds = [];
         targets.forEach(t => {
             const bonus = t.fort ? ' +' + t.fort : '';
-            const btn = actionButton('⚔ ' + t.label, t.owner + ' · ' + t.troops + bonus, null,
+            const terr = terrainTag(t.terreno);
+            const sbarco = t.viaMare
+                ? ' · ⚓ sbarco, max ' + t.carico + ' a bordo'
+                : '';
+            const btn = actionButton((t.viaMare ? '⚓ ' : '⚔ ') + t.label,
+                t.owner + ' · ' + t.troops + bonus + (terr ? ' · ' + terr : '') + sbarco, null,
                 () => {
-                    const n = parseInt(input.value, 10);
+                    const n = engagedFor(t);
                     const p = winChance(n, t);
+                    // Il terreno è la cosa che il giocatore rischia di non vedere:
+                    // va detta prima della carica, non nel rapporto dopo.
+                    const nota = (typeof Terrain !== 'undefined' && Terrain.exists(t.terreno))
+                        ? ' ' + Terrain.label(t.terreno) + ' (' + Terrain.get(t.terreno).breve + '): ' +
+                          Terrain.get(t.terreno).testo
+                        : '';
+                    // Uno sbarco si paga di più di un attacco: parte anche la nave,
+                    // e non c'è modo di richiamarla indietro (§9.2). Va detto qui,
+                    // prima della carica, non scoperto nel rapporto dopo.
+                    const testoSbarco = t.viaMare
+                        ? ' Parte anche la ' + (t.scafo === 'vascello' ? 'nave da guerra' : 'nave') +
+                          ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
+                          'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ' +
+                          'Uno sbarco non si può fermare a metà.'
+                        : ' Le truppe impegnate lasciano ' + R.provinceLabel(path) +
+                          ' comunque vada: se vinci deciderai quante restano nella provincia presa ' +
+                          'e quante rientrano; se perdi non torna nessuno.';
                     R.confirm({
-                        title: 'Attaccare ' + t.label + '?',
-                        text: n + (n === 1 ? ' truppa impegnata' : ' truppe impegnate') + ' contro ' +
+                        title: (t.viaMare ? 'Sbarcare a ' : 'Attaccare ') + t.label + '?',
+                        text: n + (n === 1 ? ' truppa imbarcata' : ' truppe') + ' contro ' +
                             t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
-                            ' · probabilità di vittoria ' + p + '%. Le truppe impegnate lasciano ' +
-                            R.provinceLabel(path) + ' comunque vada: se vinci deciderai quante ' +
-                            'restano nella provincia presa e quante rientrano; se perdi non torna nessuno.',
-                        ok: '⚔ Carica', tone: 'war'
+                            ' · probabilità di vittoria ' + p + '%.' + nota + testoSbarco,
+                        ok: t.viaMare ? '⚓ Sbarca' : '⚔ Carica', tone: 'war'
                     }, () => run(GA().attack(player, path.id, t.id, n)));
                 });
             const chip = document.createElement('span');
             chip.className = 'bp-odds';
             btn.appendChild(chip);
             odds.push(() => {
-                const p = winChance(parseInt(input.value, 10), t);
+                const p = winChance(engagedFor(t), t);
                 chip.textContent = p + '%';
                 chip.className = 'bp-odds ' + (p >= 60 ? 'good' : p >= 40 ? 'even' : 'bad');
             });
@@ -973,11 +1294,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
+    // La formula NON si riscrive qui: chiama battle.js, così il pronostico e la
+    // battaglia vera non possono divergere (mura + terreno del bersaglio, §9).
     function winChance(n, target) {
         const a = Math.max(0, Math.floor(n || 0));
         if (!a) return 0;
-        const deff = target.troops + target.fort;
-        return Math.round(100 * (a * a) / (a * a + deff * deff));
+        return Math.round(100 * RisikoBattle.winChance(a, target.troops + target.fort, target.esponente));
+    }
+
+    // Etichetta del terreno di un bersaglio: '⛰ chiuso' / '≈ aperto'.
+    function terrainTag(key) {
+        if (!key || typeof Terrain === 'undefined' || !Terrain.exists(key)) return '';
+        return Terrain.icon(key) + ' ' + key;
     }
 
     function shorten(msg) {
@@ -1084,6 +1412,306 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ---------- commerci (§7) ----------
+    // Tre cose in una sezione, tutte dentro la fase costruzioni: lo scambio con
+    // l'estero (banca 2:1), l'invio di proposte agli altri regni e le carovane
+    // arrivate. Le regole e le mutazioni stanno in game-rules/game-actions: qui
+    // si disegna e si raccolgono i clic.
+
+    const RES = () => GR().RES;
+    const GOLD = 'monete';
+    function resName(k) { return (GR().RES_LABEL && GR().RES_LABEL[k]) || k; }
+    function goodName(k) { return k === GOLD ? 'Oro' : resName(k); }
+
+    // <select> di risorse, con la scelta corrente preselezionata. La banca (2:1)
+    // scambia solo risorse, quindi qui NON compare l'oro.
+    function resSelect(current, onChange) {
+        const sel = document.createElement('select');
+        sel.className = 'bp-trade-sel';
+        RES().forEach(k => {
+            const o = document.createElement('option');
+            o.value = k; o.textContent = resName(k);
+            if (k === current) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => onChange(sel.value));
+        return sel;
+    }
+
+    // Come resSelect, ma con l'ORO in coda: nelle proposte fra regni una merce
+    // può essere una risorsa o oro (oro→risorse, risorse→oro).
+    function goodSelect(current, onChange) {
+        const sel = document.createElement('select');
+        sel.className = 'bp-trade-sel';
+        RES().concat([GOLD]).forEach(k => {
+            const o = document.createElement('option');
+            o.value = k; o.textContent = goodName(k);
+            if (k === current) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => onChange(sel.value));
+        return sel;
+    }
+
+    function qtyInput(value, max, onChange) {
+        const inp = document.createElement('input');
+        inp.type = 'number'; inp.min = '1'; inp.className = 'bp-trade-qty';
+        if (max) inp.max = String(max);
+        inp.value = String(value);
+        inp.addEventListener('input', () => onChange(parseInt(inp.value, 10) || 0));
+        return inp;
+    }
+
+    // Campo quantità che conosce la merce: l'oro va a passi di 100 e ha il suo
+    // tetto, le risorse a passi di 1. Così il numero mostrato è già valido.
+    function goodQty(tipo, value, onChange) {
+        const gold = tipo === GOLD;
+        const step = gold ? GR().GOLD_UNIT : 1;
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.className = 'bp-trade-qty';
+        inp.min = String(step);
+        inp.step = String(step);
+        inp.max = String(gold ? GR().TRADE_MAX_GOLD : GR().TRADE_MAX_UNITS);
+        inp.value = String(value);
+        inp.addEventListener('input', () => onChange(parseInt(inp.value, 10) || 0));
+        return inp;
+    }
+
+    // Un'altra merce, diversa da quella data: serve a non ritrovarsi "oro per oro"
+    // o "pietra per pietra" quando si cambia un lato della proposta.
+    function altGood(tipo) { return tipo === GOLD ? RES()[0] : (RES().find(k => k !== tipo) || GOLD); }
+
+    // Cambia il TIPO di un lato della proposta e rimette una quantità sensata per
+    // quel tipo (oro→100, risorsa→un piccolo default), evitando i due lati uguali.
+    function setLegType(leg, tipo) {
+        if (leg === 'offro') { tradeUI.offroT = tipo; tradeUI.offroN = tipo === GOLD ? GR().GOLD_UNIT : 3; }
+        else { tradeUI.chiedoT = tipo; tradeUI.chiedoN = tipo === GOLD ? GR().GOLD_UNIT : 2; }
+        if (tradeUI.offroT === tradeUI.chiedoT) {
+            if (leg === 'offro') tradeUI.chiedoT = altGood(tipo);
+            else tradeUI.offroT = altGood(tipo);
+        }
+    }
+
+    function renderTrade(player) {
+        const box = $('bp-trade');
+        if (!box) return;
+
+        if (!GA().hasMarket(player)) {
+            box.innerHTML = '<div class="bp-empty-hint">Nessun Mercato: costruiscine uno per commerciare con l\'estero ' +
+                'e trattare con gli altri regni.</div>';
+            return;
+        }
+
+        // Valori di default coerenti con le scorte del regno.
+        const scorte = player.scorte || {};
+        if (!tradeUI.dai) tradeUI.dai = RES().slice().sort((a, b) => (scorte[b] || 0) - (scorte[a] || 0))[0];
+        if (!tradeUI.prendi) tradeUI.prendi = RES().find(k => k !== tradeUI.dai);
+        if (!tradeUI.offroT) tradeUI.offroT = tradeUI.dai;
+        if (!tradeUI.chiedoT) tradeUI.chiedoT = tradeUI.prendi;
+
+        box.innerHTML = '';
+        const myTurn = inPhase(player, 'costruisci');
+
+        box.appendChild(bankTradeCard(player, myTurn));
+        box.appendChild(proposeCard(player, myTurn));
+        box.appendChild(inboxCard(player, myTurn));
+        box.appendChild(outboxCard(player, myTurn));
+    }
+
+    // --- scambio con l'estero (banca 2:1) ---
+    function bankTradeCard(player, myTurn) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        card.innerHTML = '<div class="bp-trade-head">Scambio con l\'estero <span class="bp-trade-rate">' +
+            GR().TRADE_RATE + ':1</span></div>';
+
+        if (tradeUI.prendi === tradeUI.dai) tradeUI.prendi = RES().find(k => k !== tradeUI.dai);
+
+        const row = document.createElement('div');
+        row.className = 'bp-trade-row';
+
+        const give = document.createElement('div');
+        give.className = 'bp-trade-leg';
+        give.innerHTML = '<span class="bp-trade-lab">dai</span>';
+        give.appendChild(resSelect(tradeUI.dai, v => { tradeUI.dai = v; renderTrade(player); }));
+
+        const get = document.createElement('div');
+        get.className = 'bp-trade-leg';
+        get.innerHTML = '<span class="bp-trade-lab">ricevi</span>';
+        get.appendChild(resSelect(tradeUI.prendi, v => { tradeUI.prendi = v; renderTrade(player); }));
+        get.appendChild(qtyInput(tradeUI.n, GR().TRADE_MAX_UNITS, v => { tradeUI.n = v; syncBank(); }));
+
+        row.appendChild(give);
+        row.insertAdjacentHTML('beforeend', '<span class="bp-trade-arrow">→</span>');
+        row.appendChild(get);
+        card.appendChild(row);
+
+        const check = GR().canBankTrade(player, tradeUI.dai, tradeUI.prendi, tradeUI.n);
+        const cost = GR().bankTradeCost(tradeUI.n);
+        const note = document.createElement('div');
+        note.className = 'bp-trade-cost';
+        note.textContent = 'Costo: ' + cost + ' ' + resName(tradeUI.dai) +
+            ' (ne hai ' + (player.scorte[tradeUI.dai] || 0) + ')';
+        card.appendChild(note);
+
+        const why = myTurn ? (check.ok ? null : check.msg) : 'Solo nel tuo turno, in fase costruzioni.';
+        card.appendChild(actionButton('Scambia', null, why ? shorten(why) : null,
+            () => run(GA().tradeWithBank(player, tradeUI.dai, tradeUI.prendi, tradeUI.n))));
+        card._syncBank = () => { note.textContent = 'Costo: ' + GR().bankTradeCost(tradeUI.n) + ' ' +
+            resName(tradeUI.dai) + ' (ne hai ' + (player.scorte[tradeUI.dai] || 0) + ')'; };
+        function syncBank() { if (card._syncBank) card._syncBank(); }
+        return card;
+    }
+
+    // --- proposta a un altro regno ---
+    function proposeCard(player, myTurn) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        card.innerHTML = '<div class="bp-trade-head">Proponi a un regno</div>';
+
+        const altri = R.players().filter(p => p.id !== player.id && R.ownedPaths(p.name).length);
+        if (!altri.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun altro regno con cui trattare.</div>');
+            return card;
+        }
+        if (!tradeUI.verso || !altri.some(p => p.id === tradeUI.verso)) tradeUI.verso = altri[0].id;
+        if (tradeUI.chiedoT === tradeUI.offroT) tradeUI.chiedoT = RES().find(k => k !== tradeUI.offroT);
+
+        const dst = document.createElement('div');
+        dst.className = 'bp-trade-leg';
+        dst.innerHTML = '<span class="bp-trade-lab">a</span>';
+        const sel = document.createElement('select');
+        sel.className = 'bp-trade-sel';
+        altri.forEach(p => {
+            const o = document.createElement('option');
+            o.value = String(p.id); o.textContent = p.name;
+            if (p.id === tradeUI.verso) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => { tradeUI.verso = parseInt(sel.value, 10); });
+        dst.appendChild(sel);
+        card.appendChild(dst);
+
+        const row = document.createElement('div');
+        row.className = 'bp-trade-row';
+        const off = document.createElement('div');
+        off.className = 'bp-trade-leg';
+        off.innerHTML = '<span class="bp-trade-lab">offri</span>';
+        off.appendChild(goodQty(tradeUI.offroT, tradeUI.offroN, v => { tradeUI.offroN = v; }));
+        off.appendChild(goodSelect(tradeUI.offroT, v => { setLegType('offro', v); renderTrade(player); }));
+
+        const req = document.createElement('div');
+        req.className = 'bp-trade-leg';
+        req.innerHTML = '<span class="bp-trade-lab">chiedi</span>';
+        req.appendChild(goodQty(tradeUI.chiedoT, tradeUI.chiedoN, v => { tradeUI.chiedoN = v; }));
+        req.appendChild(goodSelect(tradeUI.chiedoT, v => { setLegType('chiedo', v); renderTrade(player); }));
+
+        row.appendChild(off);
+        row.insertAdjacentHTML('beforeend', '<span class="bp-trade-arrow">⇄</span>');
+        row.appendChild(req);
+        card.appendChild(row);
+
+        const aperte = GA().tradeOutbox(player).length;
+        const offHave = tradeUI.offroT === GOLD ? (player.monete || 0) : (player.scorte[tradeUI.offroT] || 0);
+        const offChk = GR().checkGoods({ tipo: tradeUI.offroT, n: tradeUI.offroN });
+        const chiChk = GR().checkGoods({ tipo: tradeUI.chiedoT, n: tradeUI.chiedoN });
+        let why = null;
+        if (!myTurn) why = 'Solo nel tuo turno, in fase costruzioni.';
+        else if (aperte >= GR().TRADE_MAX_PENDING) why = 'Hai già ' + aperte + ' proposte aperte.';
+        else if (!offChk.ok) why = offChk.msg;
+        else if (!chiChk.ok) why = chiChk.msg;
+        else if (offHave < tradeUI.offroN) why = 'Non hai abbastanza da offrire.';
+
+        card.insertAdjacentHTML('beforeend',
+            '<div class="bp-trade-cost">La merce offerta parte subito come pegno: torna se rifiutano o alla scadenza.</div>');
+        card.appendChild(actionButton('Invia proposta', null, why ? shorten(why) : null,
+            () => run(GA().proposeTrade(player, tradeUI.verso,
+                { tipo: tradeUI.offroT, n: tradeUI.offroN }, { tipo: tradeUI.chiedoT, n: tradeUI.chiedoN }))));
+        return card;
+    }
+
+    // --- carovane arrivate ---
+    function inboxCard(player, myTurn) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        const inbox = GA().tradeInbox(player);
+        card.innerHTML = '<div class="bp-trade-head">Richieste dall\'estero' +
+            (inbox.length ? ' <span class="bp-trade-badge">' + inbox.length + '</span>' : '') + '</div>';
+
+        if (!inbox.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessuna carovana in arrivo.</div>');
+            return card;
+        }
+
+        inbox.forEach(o => {
+            const from = R.players().find(p => p.id === o.da);
+            const hai = o.chiedo.tipo === GOLD ? (player.monete || 0) : (player.scorte[o.chiedo.tipo] || 0);
+            const puoi = hai >= o.chiedo.n;
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((from && from.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-terms"><span class="in">+ ' + GR().goodsText(o.offro) +
+                '</span><span class="out">− ' + GR().goodsText(o.chiedo) + '</span></div>';
+            item.querySelector('.bp-trade-from').textContent = (from ? from.name : 'Regno ignoto') +
+                ' offre uno scambio';
+
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const ok = document.createElement('button');
+            ok.type = 'button'; ok.className = 'bp-mini ok'; ok.textContent = '✓ Accetta';
+            ok.disabled = !puoi;
+            ok.title = puoi ? 'Consegni ' + GR().goodsText(o.chiedo) : 'Non hai ' + GR().goodsText(o.chiedo);
+            ok.addEventListener('click', () => run(GA().acceptTrade(player, o.id)));
+            const no = document.createElement('button');
+            no.type = 'button'; no.className = 'bp-mini no'; no.textContent = '✕ Rifiuta';
+            no.addEventListener('click', () => run(GA().refuseTrade(player, o.id)));
+            acts.appendChild(ok); acts.appendChild(no);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+        return card;
+    }
+
+    // --- proposte partite, in attesa di risposta ---
+    function outboxCard(player) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        const outbox = GA().tradeOutbox(player);
+        card.innerHTML = '<div class="bp-trade-head">Proposte in attesa' +
+            (outbox.length ? ' <span class="bp-trade-badge">' + outbox.length + '</span>' : '') + '</div>';
+
+        if (!outbox.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessuna proposta in sospeso.</div>');
+            return card;
+        }
+
+        outbox.forEach(o => {
+            const to = R.players().find(p => p.id === o.a);
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((to && to.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-terms"><span class="out">− ' + GR().goodsText(o.offro) +
+                '</span><span class="in">+ ' + GR().goodsText(o.chiedo) + '</span></div>';
+            item.querySelector('.bp-trade-from').textContent = 'A ' + (to ? to.name : 'regno ignoto');
+
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'bp-mini no'; cancel.textContent = 'Ritira';
+            cancel.title = 'Ritira la proposta: la merce offerta torna nelle scorte';
+            cancel.addEventListener('click', () => run(GA().cancelTrade(player, o.id)));
+            acts.appendChild(cancel);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+        return card;
+    }
+
     // ---------- frecce d'attacco sulla mappa ----------
     // Si ridisegnano a ogni render perché i bersagli cambiano dopo ogni conquista.
 
@@ -1095,7 +1723,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const targets = GA().attackTargets(player, path.id);
         if (R.countPiece(path, 'soldato') < 2 || !targets.length) { R.clearAttackArrows(); return; }
-        R.showAttackArrows(path.id, targets.map(t => t.id));
+        // Le frecce servono a leggere il fronte, non a tappezzare la mappa: un
+        // Veliero raggiunge oltre cento province e disegnarle tutte nasconderebbe
+        // proprio quello che si vuole vedere. Il mare entra solo se resta leggibile;
+        // l'elenco del pannello le mostra comunque tutte.
+        const terra = targets.filter(t => !t.viaMare);
+        const mare = targets.filter(t => t.viaMare);
+        const mostrati = mare.length <= 12 ? targets : terra;
+        R.showAttackArrows(path.id, mostrati.map(t => t.id));
     }
 
     // ---------- esito battaglia ----------
@@ -1119,6 +1754,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const b = L.battle;
         const vinta = b.attackerWins;
         const odds = Math.round(b.P_A * 100);
+        // Il terreno del campo di battaglia: spiega perché quel numero è quello.
+        const terreno = terrainTag(L.terreno) ? ' · ' + terrainTag(L.terreno) : '';
 
         box.style.display = 'block';
         box.className = 'bp-battle ' + (vinta ? 'win' : 'lose');
@@ -1145,7 +1782,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="bb-odds">
                 <div class="bb-bar"><span style="width:${odds}%"></span></div>
-                <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}</div>
+                <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}${terreno}</div>
             </div>`;
 
         box.querySelector('.bb-route').textContent = L.fromLabel + ' → ' + L.toLabel;
@@ -1160,18 +1797,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------- legenda costi ----------
+    // Cartellina richiudibile: si genera solo da aperta, così il pannello non
+    // paga a ogni render (anche dei bot) un calcolo che nessuno sta guardando.
 
-    $('bp-legend-toggle').addEventListener('click', () => {
-        legendOpen = !legendOpen;
-        render();
-    });
+    $('fold-legend').addEventListener('toggle', () => render());
 
     function renderLegend(player) {
         const box = $('bp-legend');
-        const btn = $('bp-legend-toggle');
-        btn.textContent = legendOpen ? 'nascondi' : 'mostra';
-        box.style.display = legendOpen ? 'block' : 'none';
-        if (!legendOpen) return;
+        if (!$('fold-legend').open) { box.innerHTML = ''; return; }
 
         // La legenda si genera da GameRules.COSTS: costi e testo non possono
         // divergere da quelli che la validazione applica davvero.
@@ -1230,16 +1863,26 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPhases(player);
         renderDeployPanel(player);
         renderSelected(player, connectedSet);
+        renderTrade(player);
         renderConquest(player);
         renderBattle();
         renderMove(player);
         renderProvinceList(player, paths, connectedSet);
         renderKingdoms(player);
+        renderAiLog();
         renderMapHud(player);
         syncAttackArrows(player);
         renderTreasury(player, units, snapshot, connectedSet, pop);
         renderArmy(paths, units, pop, capitalPath, connectedSet);
         renderLegend(player);
+
+        // Cartella aperta ≠ fase in corso: i comandi di quella cartella si
+        // spengono in blocco. L'elenco delle province resta vivo apposta —
+        // i suoi + e − esistono solo nella fase 1 vera, e da lì si seleziona
+        // una provincia anche mentre si sbircia un'altra cartella.
+        if (peeking(player)) {
+            ['fase-schiera', 'fase-commerci', 'fase-sposta', 'bp-actions'].forEach(id => freeze($(id)));
+        }
 
         if (!hasFitted && paths.length && R.mapReady()) {
             hasFitted = R.fitToProvinces(paths.map(p => p.id));
@@ -1265,16 +1908,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.Bot) {
         window.Bot.onEvent = (evt) => {
             if (!evt) return;
-            if (evt.type === 'start') {
-                showNotice('⚙ ' + evt.player.name + ' — ' + window.Bot.labelOf(evt.player) +
-                    ': ' + window.Bot.strategyOf(evt.player).motto, true);
-                return;
-            }
-            if (evt.type === 'action' && evt.result && evt.result.battle) {
-                if (spectating) R.fitToProvinces([evt.result.fromId, evt.result.toId]);
-                showNotice(evt.player.name + ' → ' + evt.result.msg, evt.result.ok);
-                return;
-            }
+            if (evt.type === 'start') { aiLog(evt.player, null); return; }
+            if (evt.type === 'action') { aiLog(evt.player, evt.result); return; }
+            // Fine turno di un bot: a giro finito può portare razzie delle terre
+            // di nessuno (gli scismi si srotolano da soli in app.js).
+            if (evt.type === 'end') { if (evt.result && evt.result.razzie) reportRaids(evt.result.razzie); return; }
             if (evt.type === 'idle') { render(); }
         };
     }

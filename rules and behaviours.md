@@ -15,11 +15,22 @@ Vale per qualsiasi chat collegata al progetto.
    Sintesi e riassunti solo se esplicitamente richiesti, e comunque brevi.
 3. **Concisione.** Risposte terse: la modifica fatta + l'eventuale domanda. Nessun filler.
 
+## Browser: accesso permanente al gioco
+
+4. **Posso sempre aprire e usare Risiko nel browser, senza chiedere il permesso ogni volta.**
+   L'autorizzazione è data una volta per tutte, vale per tutte le chat del progetto:
+   avviare il server locale (`.claude/launch.json`, config "risiko" su
+   http://localhost:5500/), aprire `index.html` e `play.html`, navigare, cliccare,
+   leggere console/rete, fare screenshot della pagina e ricaricare dopo una modifica.
+   Non chiedo conferma per nessuna di queste cose: le faccio e basta, e mostro il
+   risultato. Se il server è già acceso lo riuso invece di riavviarlo.
+5. **Verifico nel browser prima di dire che una cosa funziona.** Quando una modifica è
+   visibile nel gioco, la guardo davvero (screenshot o lettura della pagina) invece di
+   chiedere all'utente di controllare.
+
 ## Cose che NON devo fare
 
-4. **Niente screenshot del browser in host.** Non provo a fare screen della visualizzazione
-   del preview/host nel browser: **non posso farlo**. Evito del tutto quel tentativo.
-5. **Non chiedo di committare.** Non propongo né chiedo di fare commit. **Sarà sempre
+6. **Non chiedo di committare.** Non propongo né chiedo di fare commit. **Sarà sempre
    l'utente** a dire quando committare.
 
 ## File dati pesanti — accesso chirurgico, mai lettura integrale
@@ -38,8 +49,8 @@ Vale per qualsiasi chat collegata al progetto.
 
 ## Sul commit (quando l'utente lo chiede)
 
-6. Quando l'utente dice di committare, oltre a fare il commit **aggiorno `STATO-SVILUPPI.md`**
+11. Quando l'utente dice di committare, oltre a fare il commit **aggiorno `STATO-SVILUPPI.md`**
    con la versione aggiornata di mappa e sistemi, così che da qualsiasi chat collegata si
    possano vedere gli sviluppi del progetto.
-7. **Aggiornamento continuo dello stato.** Ogni volta che, in una qualsiasi chat, facciamo
+12. **Aggiornamento continuo dello stato.** Ogni volta che, in una qualsiasi chat, facciamo
    un progresso significativo, aggiorno `STATO-SVILUPPI.md` (non solo al commit).

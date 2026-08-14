@@ -53,5 +53,5 @@
        questa è l'unica manopola per allargare/stringere il pannello. Proporzionale
        alla finestra: su schermi con scaling alto una misura fissa si mangiava
        mezzo schermo, su monitor grandi restava striminzita. */
-    --editor-col: clamp(340px, 27vw, 520px);
+    --editor-col: clamp(400px, 30vw, 560px);
 }

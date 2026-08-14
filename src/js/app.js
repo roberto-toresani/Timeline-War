@@ -60,6 +60,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // di una partita nuova, turni dei bot — deve aspettare, o vedrebbe una mappa di
     // isole scollegate e produrrebbe una partita rotta senza dire niente.
     let neighborsReady = false;
+    // Province visibili al regno in focus, aggiornate da refreshMapDisplay.
+    // null = nessuna nebbia (vista generale o editor): si vede tutto.
+    let visibleSet = null;
+    // Come si colora la mappa: 'owner' (per regno, di default), 'fede' (per
+    // religione) o 'terreno' (chiuso/aperto, §9 — dove conviene attaccare).
+    // È solo pittura: non cambia proprietari né permessi, e rispetta la nebbia.
+    let mapPaintMode = 'owner';
     const SVG_NS = 'http://www.w3.org/2000/svg';
     const XLINK_NS = 'http://www.w3.org/1999/xlink';
 
@@ -112,6 +119,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p.fase) p.fase = 'schiera';
         if (typeof p.spostamentoFatto !== 'boolean') p.spostamentoFatto = false;
         if (p.conquista === undefined) p.conquista = null;
+        // Commerci (§7): le proposte RICEVUTE stanno sul record di chi le riceve.
+        // Chi le ha mandate le ritrova scorrendo gli altri regni (tradeOutbox in
+        // game-actions.js): una proposta esiste in un posto solo.
+        if (!Array.isArray(p.offerte)) p.offerte = [];
         return p;
     }
 
@@ -286,6 +297,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Vestizione "carta antica": mare, grana, alone costiero (js/map-decor.js).
         if (window.MapDecor) MapDecor.decorate(svg);
 
+        // Griglia delle rotte di mare (§9.2): ~0,5 s una volta sola, in sottofondo.
+        // Finché non è pronta le portate restano vuote, quindi appena arriva si
+        // ridipinge — è lì che compaiono le province in nebbia leggera.
+        if (window.SeaRoutes) {
+            SeaRoutes.prepare(svg).then(() => { try { refreshMapDisplay(); } catch (e) {} });
+        }
+
         // Tooltip
         let tooltip = document.getElementById('map-tooltip');
         if (!tooltip) {
@@ -305,8 +323,12 @@ document.addEventListener('DOMContentLoaded', () => {
         injectResourceDefs(svg);
         injectPieceDefs(svg);
 
-        // Solo i territori giocabili (class="state"): esclude sfondo, bordi e pattern dell'SVG.
-        const paths = svg.querySelectorAll('path.state');
+        // Solo i territori giocabili: `provincePaths` esclude sfondo, bordi e
+        // pattern dell'SVG *e* la copia congelata delle terre che fa da alone
+        // costiero, che ha anche lei class="state" ma non ha id. Col selettore
+        // crudo le si riscriveva addosso il fill di ogni provincia: l'alone
+        // restava blu solo perché il suo filtro reimpone la tinta.
+        const paths = provincePaths(svg);
         const defaultFill = NEUTRAL_FILL;
 
         paths.forEach(path => {
@@ -326,6 +348,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (seedKey && typeof RESOURCES !== 'undefined' && RESOURCES[seedKey]) {
                     path.setAttribute('data-resource', seedKey);
                 }
+            }
+
+            // Seed iniziale della RELIGIONE (js/religions.js): eccezione per nome,
+            // poi blocco regionale per coordinate. Come per la risorsa, uno stato
+            // salvato piu' recente potra' sovrascriverla (applyReligionState).
+            if (!path.hasAttribute('data-religione') && typeof Religions !== 'undefined') {
+                let b = null; try { b = path.getBBox(); } catch (e) { b = null; }
+                const cx = b ? b.x + b.width / 2 : 0;
+                const cy = b ? b.y + b.height / 2 : 0;
+                const faith = Religions.seedFaith(provinceLabel(path), cx, cy);
+                if (faith) path.setAttribute('data-religione', faith);
             }
 
             path.addEventListener('mouseenter', () => {
@@ -399,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // Pennello STRADA: collega due province cliccandole in sequenza.
-                // La strada compare a meta' del confine tra le due (province adiacenti).
+                // Il selciato compare a cavallo del confine tra le due (adiacenti).
                 if (isAdminMode && selectedPiece === 'strada') {
                     if (pendingRoad === null) {
                         pendingRoad = path.id;
@@ -435,7 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const chk = canPlacePiece(path, selectedPiece);
                         if (!chk.ok) { showPieceNotice(chk.msg); return; }
                         changePiece(path, selectedPiece, +1);
-                        if (path.getAttribute('data-pieces')) {
+                        if (path.getAttribute('data-pieces') || path.getAttribute('data-ships')) {
                             if (selectedPlayer) path.setAttribute('data-pc-color', selectedPlayer.color);
                             else if (!path.getAttribute('data-pc-color')) {
                                 const oc = ownerColorHex(path);
@@ -485,7 +518,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.stopPropagation();
                 if (selectedPiece === '__erase__') changePiece(path, '__erase__');
                 else changePiece(path, selectedPiece, -1);
-                if (!path.getAttribute('data-pieces')) path.removeAttribute('data-pc-color');
+                if (!path.getAttribute('data-pieces') && !path.getAttribute('data-ships')) {
+                    path.removeAttribute('data-pc-color');
+                }
                 renderPiecesForPath(svg, path);
                 renderPopularityPanel();
                 saveAutoSave();
@@ -704,6 +739,74 @@ document.addEventListener('DOMContentLoaded', () => {
         renderResourceMarkers(svg);
     }
 
+    // ====================== RELIGIONE ======================
+    // La fede di una provincia vive nell'attributo data-religione, come la
+    // risorsa. È dato di mappa (parte della posizione di partenza), non di
+    // partita: viaggia negli snapshot accanto a resources/pieces/roads.
+    function religionKeyOf(path) {
+        const k = path && path.getAttribute('data-religione');
+        return (k && typeof Religions !== 'undefined' && Religions.exists(k)) ? k : '';
+    }
+
+    // ====================== TERRENO ======================
+    // Il terreno (§9) non è stato di partita né dato di mappa modificabile: è la
+    // geografia, sempre uguale, e sta in data/province_terrain.js. Non entra
+    // negli snapshot e non si dipinge nell'editor — si legge e basta. Memoizzato
+    // sull'elemento perché la vista-mappa per terreno lo chiede a tutte e 628 le
+    // province a ogni refresh, e provinceLabel non è gratis.
+    function terrainKeyOf(path) {
+        if (!path || typeof Terrain === 'undefined') return '';
+        if (path.__terrain === undefined) path.__terrain = Terrain.of(provinceLabel(path));
+        return path.__terrain;
+    }
+
+    // Snapshot { provinceId: fede } delle sole province con religione assegnata.
+    function collectReligions(svg) {
+        const out = {};
+        provincePaths(svg || document.querySelector('svg')).forEach(p => {
+            const k = religionKeyOf(p);
+            if (k) out[p.id] = k;
+        });
+        return out;
+    }
+
+    // Applica uno snapshot religioni: le province presenti prendono la fede
+    // indicata, le altre restano come stanno (uno snapshot vuoto non spoglia la
+    // mappa dei seed iniziali). Poi ridisegna, perché la vista-fede dipende da qui.
+    function applyReligionState(map) {
+        const svg = document.querySelector('svg');
+        if (!svg || !map || typeof map !== 'object') return;
+        provincePaths(svg).forEach(p => {
+            const k = map[p.id];
+            if (k && typeof Religions !== 'undefined' && Religions.exists(k)) {
+                p.setAttribute('data-religione', k);
+            }
+        });
+        if (mapPaintMode === 'fede') refreshMapDisplay();
+    }
+
+    // Religione di STATO di un regno = fede della provincia della sua Capitale.
+    // Nessuna Capitale → nessuna religione di stato (null).
+    function stateReligionOf(player) {
+        if (!player) return null;
+        // getCapitalPathFor cerca per COLORE: vuole il record del giocatore,
+        // non il suo nome (col nome trovava sempre null e ogni regno risultava
+        // senza religione di stato).
+        const cap = getCapitalPathFor(player);
+        return cap ? religionKeyOf(cap) : null;
+    }
+
+    // Province possedute da `playerName` la cui fede appartiene alla FAMIGLIA
+    // indicata (cristiani, musulmani…): è il conto su cui poggiano gli obiettivi
+    // di prestigio ("conquista 3 province cristiane"). `family` null → tutte.
+    function provincesByFamily(playerName, family) {
+        return ownedPaths(playerName).filter(p => {
+            const f = religionKeyOf(p);
+            if (!f) return false;
+            return !family || (Religions.familyOf(f) === family);
+        });
+    }
+
     // ====================== FIGURE (pedine di gioco) ======================
     // Modello "Risiko da tavolo":
     //   - data-pieces  = lista "tipo:quantita" separata da virgole, es.
@@ -732,39 +835,124 @@ document.addEventListener('DOMContentLoaded', () => {
         return (typeof PIECES !== 'undefined' && PIECES[type] && PIECES[type].max) || 1;
     }
 
-    // Elenco (validato, con quantita') delle figure di una provincia: [{type,count}].
-    function piecesOf(path) {
-        const raw = path.getAttribute('data-pieces');
+    // ====================== SCAFI (docs/GAME_DESIGN.md §9.2) ======================
+    // Le navi NON si contano come i soldati: ogni scafo è una pedina a sé, con il
+    // suo carico di uomini, perché quel numero va MOSTRATO a chi la vede o la
+    // intercetta. Due Navi nella stessa provincia sono due scafi distinti: 16
+    // uomini possono partire 8+8 su due chiglie dirette a due bersagli diversi.
+    //
+    //   data-ships = "barca:8,barca:0,vascello:15" — UNA voce per scafo, in ordine.
+    //
+    // Perché un attributo separato da data-pieces: lì la forma è "tipo:quantità" e
+    // una quantità non può portare carichi diversi. Restano però in data-pieces per
+    // il CONTEGGIO: piecesOf() sintetizza le voci-nave leggendo di qui, così tutto
+    // ciò che vuole solo sapere "quante navi ha" (countPiece, kingdom-stats, la
+    // plancia) continua a funzionare senza sapere che esistono gli scafi.
+    // Carico massimo di uno scafo (§9.2). È una `function` con i numeri dentro,
+    // non un `const` con una tabella, e non è pigrizia: `initMap` → `loadAutoSave`
+    // → `applyPieceState` legge gli scafi PRIMA che i `const` di questa metà della
+    // closure siano inizializzati, quindi una tabella dichiarata qui sarebbe ancora
+    // nella sua zona morta ("Cannot access before initialization"). L'errore lo
+    // inghiottiva il try/catch di loadAutoSave e lo stato salvato non si caricava
+    // più. Le dichiarazioni di funzione sono hoistate e il buco non esiste — è la
+    // stessa ragione per cui gli alias di MapAnchors sono `function` (CLAUDE.md).
+    function shipCapacity(tipo) {
+        if (tipo === 'barca') return 8;
+        if (tipo === 'vascello') return 15;
+        return 0;
+    }
+
+    function shipsOf(path) {
+        const raw = path.getAttribute('data-ships');
         if (!raw) return [];
         const out = [];
         raw.split(',').forEach(tok => {
             const parts = tok.split(':');
+            const tipo = (parts[0] || '').trim();
+            if (SHIP_TYPES.indexOf(tipo) < 0) return;
+            const n = parseInt(parts[1], 10);
+            out.push({ tipo, carico: Math.max(0, Math.min(n > 0 ? n : 0, shipCapacity(tipo))) });
+        });
+        return out;
+    }
+
+    function setShips(path, arr) {
+        const s = (arr || []).map(e => e.tipo + ':' + (e.carico || 0)).join(',');
+        if (s) path.setAttribute('data-ships', s);
+        else path.removeAttribute('data-ships');
+    }
+
+    function addShip(path, tipo, carico) {
+        if (SHIP_TYPES.indexOf(tipo) < 0) return;
+        const arr = shipsOf(path);
+        arr.push({ tipo, carico: Math.max(0, Math.min(carico || 0, shipCapacity(tipo))) });
+        setShips(path, arr);
+    }
+
+    // Toglie l'ULTIMO scafo di quel tipo (è quello appena messo: il pennello
+    // dell'editor e il ritiro di una costruzione tolgono sempre l'ultimo).
+    function removeShip(path, tipo) {
+        const arr = shipsOf(path);
+        for (let i = arr.length - 1; i >= 0; i--) {
+            if (arr[i].tipo === tipo) { arr.splice(i, 1); break; }
+        }
+        setShips(path, arr);
+    }
+
+    // Elenco (validato, con quantita') delle figure di una provincia: [{type,count}].
+    // Le navi non stanno in data-pieces: si sintetizzano dagli scafi, così chi
+    // conta non deve sapere nulla di carichi e chiglie.
+    function piecesOf(path) {
+        const out = [];
+        const raw = path.getAttribute('data-pieces');
+        if (raw) raw.split(',').forEach(tok => {
+            const parts = tok.split(':');
             const type = (parts[0] || '').trim();
             if (!type || typeof PIECES === 'undefined' || !PIECES[type]) return;
+            if (SHIP_TYPES.indexOf(type) >= 0) return;   // le navi vivono in data-ships
             let n = parseInt(parts[1], 10);
             if (!(n > 0)) n = 1;
             const ex = out.find(e => e.type === type);
             if (ex) ex.count = Math.min(ex.count + n, pieceMax(type));
             else out.push({ type, count: Math.min(n, pieceMax(type)) });
         });
+        shipsOf(path).forEach(s => {
+            const ex = out.find(e => e.type === s.tipo);
+            if (ex) ex.count++;
+            else out.push({ type: s.tipo, count: 1 });
+        });
         return out;
     }
 
     function serializePieces(arr) {
-        return arr.filter(e => e.count > 0).map(e => e.type + ':' + e.count).join(',');
+        return arr.filter(e => e.count > 0 && SHIP_TYPES.indexOf(e.type) < 0)
+            .map(e => e.type + ':' + e.count).join(',');
     }
 
     // Applica una lista [{type,count}] alla provincia (svuota gli attributi se vuota).
+    // Le voci-nave si ignorano: gli scafi si toccano con addShip/removeShip.
     function setPieces(path, arr) {
         const s = serializePieces(arr);
         if (s) path.setAttribute('data-pieces', s);
-        else { path.removeAttribute('data-pieces'); path.removeAttribute('data-pc-color'); }
+        else {
+            path.removeAttribute('data-pieces');
+            if (!path.getAttribute('data-ships')) path.removeAttribute('data-pc-color');
+        }
     }
 
     // +1 / -1 di un tipo (rispetta il max; '__erase__' svuota tutto).
     function changePiece(path, type, delta) {
-        if (type === '__erase__') { path.removeAttribute('data-pieces'); path.removeAttribute('data-pc-color'); return; }
+        if (type === '__erase__') {
+            path.removeAttribute('data-pieces');
+            path.removeAttribute('data-ships');
+            path.removeAttribute('data-pc-color');
+            return;
+        }
         if (typeof PIECES === 'undefined' || !PIECES[type]) return;
+        if (SHIP_TYPES.indexOf(type) >= 0) {
+            if (delta > 0) addShip(path, type, 0); else removeShip(path, type);
+            return;
+        }
         const max = pieceMax(type);
         const arr = piecesOf(path);
         const e = arr.find(x => x.type === type);
@@ -802,7 +990,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const sizeBase = Math.min(bb.w, bb.h) * 0.30;
 
         const land = arr.filter(e => SHIP_TYPES.indexOf(e.type) < 0 && e.type !== 'strada');
-        const ships = arr.filter(e => SHIP_TYPES.indexOf(e.type) >= 0);
+        // Una pedina PER SCAFO, non una pedina col numero di navi: ognuna mostra il
+        // proprio carico di uomini (§9.2). È la ragione per cui gli scafi non si
+        // impilano — quel numero serve a chi le guarda, non solo a chi le muove.
+        const ships = shipsOf(path).map(s => ({ type: s.tipo, count: 1, badge: s.carico }));
 
         if (land.length) {
             const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
@@ -848,7 +1039,10 @@ document.addEventListener('DOMContentLoaded', () => {
             use.setAttribute('height', size);
             add(use);
 
-            if (e.count > 1) {
+            // `badge` = numero da mostrare sempre (il carico di uno scafo, anche 0);
+            // altrimenti si mostra la quantità, e solo se vale la pena.
+            const badge = (e.badge !== undefined) ? e.badge : (e.count > 1 ? e.count : null);
+            if (badge !== null) {
                 const bx = x + size * 0.9, by = y + size * 0.1, br = size * 0.42;
                 const c = document.createElementNS(SVG_NS, 'circle');
                 c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
@@ -866,7 +1060,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 t.setAttribute('font-weight', 'bold');
                 t.setAttribute('font-family', 'sans-serif');
                 t.setAttribute('fill', 'currentColor');
-                t.textContent = e.count;
+                t.textContent = badge;
                 add(t);
             }
         });
@@ -885,8 +1079,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const out = {};
         provincePaths(svg).forEach(p => {
             const t = p.getAttribute('data-pieces');
-            if (!t) return;
-            const entry = { t };
+            const s = p.getAttribute('data-ships');   // scafi, §9.2
+            if (!t && !s) return;
+            const entry = {};
+            if (t) entry.t = t;
+            if (s) entry.s = s;
             const c = p.getAttribute('data-pc-color');
             if (c) entry.c = c;
             out[p.id] = entry;
@@ -901,15 +1098,37 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => {
             const v = map[p.id];
-            let str = '', color = '';
-            if (v && typeof v === 'object' && !Array.isArray(v)) { str = v.t || ''; color = v.c || ''; }
+            let str = '', ships = '', color = '';
+            if (v && typeof v === 'object' && !Array.isArray(v)) {
+                str = v.t || ''; ships = v.s || ''; color = v.c || '';
+            }
             else if (typeof v === 'string') str = v;
             else if (Array.isArray(v)) str = v.join(',');
+
+            // Salvataggi vecchi: le navi stavano in data-pieces come "barca:2".
+            // Si convertono in altrettanti scafi vuoti — nessuna migrazione a mano.
             const arr = piecesFromString(str);
-            if (arr.length) {
-                p.setAttribute('data-pieces', serializePieces(arr));
-                if (color) p.setAttribute('data-pc-color', color); else p.removeAttribute('data-pc-color');
-            } else { p.removeAttribute('data-pieces'); p.removeAttribute('data-pc-color'); }
+            const hulls = [];
+            if (ships) {
+                ships.split(',').forEach(tok => {
+                    const parts = tok.split(':');
+                    const tipo = (parts[0] || '').trim();
+                    if (SHIP_TYPES.indexOf(tipo) < 0) return;
+                    const n = parseInt(parts[1], 10);
+                    hulls.push({ tipo, carico: n > 0 ? n : 0 });
+                });
+            } else {
+                arr.forEach(e => {
+                    if (SHIP_TYPES.indexOf(e.type) < 0) return;
+                    for (let i = 0; i < e.count; i++) hulls.push({ tipo: e.type, carico: 0 });
+                });
+            }
+
+            const land = serializePieces(arr);   // filtra da sé le voci-nave
+            if (land) p.setAttribute('data-pieces', land); else p.removeAttribute('data-pieces');
+            setShips(p, hulls);
+            if ((land || hulls.length) && color) p.setAttribute('data-pc-color', color);
+            else p.removeAttribute('data-pc-color');
         });
         renderPieceMarkers(svg);
     }
@@ -924,6 +1143,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const set = NEIGHBORS_LAND[a];
         if (!set) return false;
         return set.has ? set.has(b) : (Array.isArray(set) && set.indexOf(b) >= 0);
+    }
+
+    function toggleRoad(aId, bId, color) {
+        const existing = findRoad(aId, bId);
+        if (existing) { ROADS = ROADS.filter(r => r !== existing); return 'removed'; }
+        ROADS.push({ a: aId, b: bId, c: color || PIECE_NEUTRAL });
+        return 'added';
     }
 
     // Punto a meta' del confine condiviso tra due province (media dei punti-bordo
@@ -946,36 +1172,92 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    function toggleRoad(aId, bId, color) {
-        const existing = findRoad(aId, bId);
-        if (existing) { ROADS = ROADS.filter(r => r !== existing); return 'removed'; }
-        ROADS.push({ a: aId, b: bId, c: color || PIECE_NEUTRAL });
-        return 'added';
+    // Estremi (coordinate SVG) di una strada: un tratto CORTO centrato sul confine
+    // e orientato A->B. Non deve attraversare le province: basta far capire che le
+    // due hanno un confine collegato, quindi resta piccolo e non ingombrante.
+    function roadEndpoints(A, B) {
+        const mid = sharedBorderMidpoint(A, B); if (!mid) return null;
+        const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
+        if (!ba || !bb) return null;
+        let dx = (bb.x + bb.w / 2) - (ba.x + ba.w / 2);
+        let dy = (bb.y + bb.h / 2) - (ba.y + ba.h / 2);
+        const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+        const ref = Math.min(Math.min(ba.w, ba.h), Math.min(bb.w, bb.h));
+        const half = Math.max(3.5, Math.min(ref * 0.3, 7));   // meta' lunghezza: corta
+        return [{ x: mid.x - dx * half, y: mid.y - dy * half },
+                { x: mid.x + dx * half, y: mid.y + dy * half }];
     }
 
+    // Le strade vivono in un LORO strato, subito sopra le terre (#map-group) e
+    // sotto i marker (risorse, pedine): questi ultimi sono appesi in coda al root
+    // e restano cosi' sempre davanti, senza piu' coprirli con le strade.
+    function roadsLayer(svg) {
+        let layer = svg.querySelector('#roads-layer');
+        if (!layer) {
+            layer = document.createElementNS(SVG_NS, 'g');
+            layer.setAttribute('id', 'roads-layer');
+            layer.setAttribute('pointer-events', 'none');
+            const land = svg.querySelector('#map-group');
+            if (land && land.nextSibling) svg.insertBefore(layer, land.nextSibling);
+            else svg.appendChild(layer);
+        }
+        return layer;
+    }
+
+    // Una strada e' un piccolo SELCIATO (stile Catan) a cavallo del confine: corto,
+    // giusto per far capire che le due province sono collegate. E' fatto di SASSI
+    // veri — file di ciottoli arrotondati posati a mattoni (righe sfalsate) nel
+    // colore del regno, su un fondo scuro che fa da malta e da bordo. Il gruppo e'
+    // ruotato lungo la strada, cosi' i ciottoli si disegnano in coordinate locali
+    // (x = lungo la strada, y = di traverso).
     function renderRoads(svg) {
-        injectPieceDefs(svg);
         svg.querySelectorAll('.road-marker').forEach(m => m.remove());
+        const layer = roadsLayer(svg);
+        const ROAD_INK = '#14100b';   // const locale: renderRoads gira da initMap
+        const rect = (parent, x, y, w, h, rx, fill, stroke, sw) => {
+            const el = document.createElementNS(SVG_NS, 'rect');
+            el.setAttribute('x', x.toFixed(2)); el.setAttribute('y', y.toFixed(2));
+            el.setAttribute('width', w.toFixed(2)); el.setAttribute('height', h.toFixed(2));
+            el.setAttribute('rx', rx.toFixed(2));
+            el.setAttribute('fill', fill);
+            if (stroke) { el.setAttribute('stroke', stroke); el.setAttribute('stroke-width', sw.toFixed(2)); }
+            parent.appendChild(el);
+        };
         ROADS.forEach(r => {
             const A = document.getElementById(r.a), B = document.getElementById(r.b);
             if (!A || !B) return;
-            const mid = sharedBorderMidpoint(A, B);
-            if (!mid) return;
+            const ends = roadEndpoints(A, B); if (!ends) return;
+            const [p1, p2] = ends;
             const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
             const ref = Math.min(ba ? Math.min(ba.w, ba.h) : 12, bb ? Math.min(bb.w, bb.h) : 12);
-            const size = Math.max(4, Math.min(ref * 0.5, 12));
-            const use = document.createElementNS(SVG_NS, 'use');
-            use.setAttribute('href', '#pc-strada');
-            use.setAttributeNS(XLINK_NS, 'href', '#pc-strada');
-            use.setAttribute('x', mid.x - size / 2);
-            use.setAttribute('y', mid.y - size / 2);
-            use.setAttribute('width', size);
-            use.setAttribute('height', size);
-            use.setAttribute('class', 'road-marker');
-            use.setAttribute('data-road', roadKey(r.a, r.b));
-            use.setAttribute('pointer-events', 'none');
-            use.style.color = r.c || PIECE_NEUTRAL;
-            svg.appendChild(use);
+            const W = Math.max(3, Math.min(ref * 0.13, 5));            // larghezza strada
+            const L = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+            const color = r.c || PIECE_NEUTRAL;
+            const g = document.createElementNS(SVG_NS, 'g');
+            g.setAttribute('class', 'road-marker');
+            g.setAttribute('data-road', roadKey(r.a, r.b));
+            g.setAttribute('pointer-events', 'none');
+            g.setAttribute('transform', `translate(${p1.x.toFixed(1)} ${p1.y.toFixed(1)}) rotate(${ang.toFixed(1)})`);
+            // fondo scuro (malta + bordo), estremi arrotondati
+            const e = W * 0.12;
+            rect(g, -e, -W / 2, L + 2 * e, W, W * 0.5, ROAD_INK, null, 0);
+            // ciottoli: righe sfalsate a mattoni
+            const rows = W >= 4 ? 3 : 2;
+            const rowH = W / rows;
+            const stoneH = rowH * 0.82;
+            const pitch = rowH * 1.12;
+            const stoneL = pitch * 0.82;
+            const rx = Math.min(stoneL, stoneH) * 0.38;
+            const sw = Math.max(0.3, W * 0.07);
+            for (let row = 0; row < rows; row++) {
+                const cy = -W / 2 + rowH * (row + 0.5);
+                const off = (row % 2) * (pitch / 2);
+                for (let x = pitch * 0.55 + off; x <= L - pitch * 0.15; x += pitch) {
+                    rect(g, x - stoneL / 2, cy - stoneH / 2, stoneL, stoneH, rx, color, ROAD_INK, sw);
+                }
+            }
+            layer.appendChild(g);
         });
     }
 
@@ -1135,6 +1417,34 @@ document.addEventListener('DOMContentLoaded', () => {
             svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
         }
 
+        /* --------------------------------------------------------------
+           ZOOM E PAN FLUIDI.
+
+           Cambiare viewBox costringe il browser a ridisegnare la mappa a una
+           risoluzione nuova, e con lei l'alone costiero: mille e quattrocento
+           path clonati dentro due sfocature. Rifarlo a ogni evento di rotella
+           (che ne spara decine al secondo) è ciò che rendeva lo zoom una
+           sequenza di scatti. Due accorgimenti, entrambi solo per la durata
+           della gesture:
+             - il viewBox si riscrive UNA volta per frame, non una per evento;
+             - l'alone si spegne mentre la mano si muove (`.map-interacting`
+               in style.css) e torna 140 ms dopo l'ultimo scatto.
+           Chi inquadra a comando (fit, reset, insets) continua a usare
+           `apply()`, che è sincrono: lì il ridisegno è uno solo.
+           -------------------------------------------------------------- */
+        let frameRaf = null, idleTimer = null;
+
+        function applySoon() {
+            if (frameRaf === null) {
+                frameRaf = requestAnimationFrame(() => { frameRaf = null; apply(); });
+            }
+            svg.classList.add('map-interacting');
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                svg.classList.remove('map-interacting');
+            }, 140);
+        }
+
         // Non uscire mai dai confini della vista intera.
         function clampPan() {
             if (vb.w > base.w) vb.w = base.w;
@@ -1213,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', () => {
             vb.w = newW;
             vb.h = vb.h * scale;
             clampPan();
-            apply();
+            applySoon();
         }, { passive: false });
 
         // Pan con trascinamento. Attivo solo oltre una soglia, altrimenti il click
@@ -1242,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 vb.x = startVBx - dx * (vb.w / rect.width);
                 vb.y = startVBy - dy * (vb.h / rect.height);
                 clampPan();
-                apply();
+                applySoon();
             }
         });
 
@@ -1314,6 +1624,33 @@ document.addEventListener('DOMContentLoaded', () => {
             syncPlayerControlsVisibility();
             refreshMapDisplay();
         });
+
+        // Viste alternative anche nell'editor: comode per controllare religioni e
+        // terreno mentre si dipinge la mappa. Solo pittura, come nella plancia.
+        // Sono modi esclusivi dello stesso interruttore: accenderne uno spegne
+        // l'altro, quindi i due bottoni si risincronizzano insieme.
+        const faithBtn = document.getElementById('faith-view-btn');
+        const terrainBtn = document.getElementById('terrain-view-btn');
+        function syncViewBtns() {
+            if (faithBtn) {
+                const on = mapPaintMode === 'fede';
+                faithBtn.textContent = on ? '☩ Regni' : '☩ Fedi';
+                faithBtn.classList.toggle('on', on);
+            }
+            if (terrainBtn) {
+                const on = mapPaintMode === 'terreno';
+                terrainBtn.textContent = on ? '⛰ Regni' : '⛰ Terreno';
+                terrainBtn.classList.toggle('on', on);
+            }
+        }
+        function toggleView(mode) {
+            mapPaintMode = (mapPaintMode === mode) ? 'owner' : mode;
+            syncViewBtns();
+            refreshMapDisplay();
+        }
+        if (faithBtn) faithBtn.addEventListener('click', () => toggleView('fede'));
+        if (terrainBtn) terrainBtn.addEventListener('click', () => toggleView('terreno'));
+        syncViewBtns();
     }
 
     // Il pannello palette+file (usato dall'admin per assegnare liberamente le province)
@@ -1348,6 +1685,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if ('resources' in data) applyResourceState(data.resources || {});
+        if ('religions' in data) applyReligionState(data.religions || {});
         if ('pieces' in data) applyPieceState(data.pieces || {});
         if ('roads' in data) applyRoadState(data.roads || []);
         applyTurnState(data);
@@ -1881,6 +2219,7 @@ document.addEventListener('DOMContentLoaded', () => {
             history: TURN_HISTORY,
             provinces: saveData,
             resources: collectResources(svg),
+            religions: collectReligions(svg),
             pieces: collectPieces(svg),
             roads: collectRoads()
         }, null, 2);
@@ -1923,6 +2262,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if ('resources' in data) applyResourceState(data.resources || {});
+                if ('religions' in data) applyReligionState(data.religions || {});
                 if ('pieces' in data) applyPieceState(data.pieces || {});
                 if ('roads' in data) applyRoadState(data.roads || []);
                 renderPlayerTabs();
@@ -1948,6 +2288,7 @@ document.addEventListener('DOMContentLoaded', () => {
             players: PLAYERS,
             history: TURN_HISTORY,
             resources: collectResources(svg),
+            religions: collectReligions(svg),
             pieces: collectPieces(svg),
             roads: collectRoads(),
             turnoDi: turnoDi,
@@ -1983,6 +2324,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 internalApplyMapData(data.provinces);
             }
             if ('resources' in data) applyResourceState(data.resources || {});
+            if ('religions' in data) applyReligionState(data.religions || {});
             if ('pieces' in data) applyPieceState(data.pieces || {});
             if ('roads' in data) applyRoadState(data.roads || []);
             applyTurnState(data);
@@ -2014,38 +2356,83 @@ document.addEventListener('DOMContentLoaded', () => {
     //   - Main view (selectedTabPlayerId === null): show real owner colors for every province.
     //   - Focus view (a player tab is active): show real owner colors for that player's provinces
     //     and their direct neighbors; every other province is "fogged" (dark, non-interactive).
+    // Indice dei marker per provincia, in UNA passata. Prima si cercavano con
+    // querySelectorAll dentro il ciclo, cioè due query su tutto l'SVG per ognuna
+    // delle 628 province: 1256 query a refresh, ~1 secondo misurato. E il refresh
+    // gira dopo OGNI azione — anche dopo ogni singola mossa dei bot, che era il
+    // motivo per cui la partita "laggava" a guardarli giocare.
+    function markerIndex(svg) {
+        const res = new Map(), pieces = new Map();
+        svg.querySelectorAll('.resource-marker').forEach(m => {
+            const k = m.getAttribute('data-prov'); if (k) res.set(k, m);
+        });
+        svg.querySelectorAll('.piece-marker').forEach(m => {
+            const k = m.getAttribute('data-prov'); if (!k) return;
+            let arr = pieces.get(k); if (!arr) { arr = []; pieces.set(k, arr); }
+            arr.push(m);
+        });
+        return { res, pieces };
+    }
+
     function refreshMapDisplay() {
         const svg = document.querySelector('svg');
         if (!svg) return;
 
         const focus = PLAYERS.find(p => p.id === selectedTabPlayerId);
-        const visible = focus ? computeVisibleProvinces(focus.name) : null;
+        const seen = focus ? computeVisibleProvinces(focus.name) : null;
+        // `visible` = si vede la provincia (piena o in nebbia leggera).
+        // `hazed`   = si vede la provincia ma NON le sue pedine (§9.2).
+        const visible = seen ? new Set([...seen.visible, ...seen.haze]) : null;
+        const hazed = seen ? seen.haze : null;
 
-        svg.querySelectorAll('path').forEach(path => {
+        visibleSet = visible;   // memorizzato per Risiko.isVisible (nebbia, §fog)
+
+        const { res, pieces } = markerIndex(svg);
+        // Colore per proprietario, una volta sola invece di un find per provincia.
+        const colorOf = new Map(PLAYERS.map(p => [p.name, p.color]));
+
+        // Solo le province vere: l'alone costiero (map-decor.js) è un clone
+        // filtrato, il suo `fill` non si vede e ridipingerlo raddoppiava il lavoro.
+        const faithView = mapPaintMode === 'fede' && typeof Religions !== 'undefined';
+        const terrainView = mapPaintMode === 'terreno' && typeof Terrain !== 'undefined';
+        provincePaths(svg).forEach(path => {
             const owner = path.getAttribute('data-owner');
-            const pObj = PLAYERS.find(p => p.name === owner);
             const isVisible = !visible || visible.has(path.id);
 
-            const color = isVisible
-                ? (pObj ? pObj.color : NEUTRAL_FILL)
-                : FOG_FILL;
+            // Vista per fede: la provincia prende la tinta della sua religione;
+            // le terre senza fede assegnata e quelle in nebbia restano al neutro.
+            // Vista per terreno: la tinta dice se lì il numero conta o no (§9).
+            const color = !isVisible
+                ? FOG_FILL
+                : (terrainView
+                    ? Terrain.color(terrainKeyOf(path))
+                    : faithView
+                    ? (religionKeyOf(path) ? Religions.color(religionKeyOf(path)) : NEUTRAL_FILL)
+                    : (colorOf.get(owner) || NEUTRAL_FILL));
             // Path SVG "fill=" attribute takes precedence over CSS in some browsers,
             // so we drive both the attribute and the inline style to stay consistent.
             path.setAttribute('fill', color);
             path.style.fill = color;
             path.classList.toggle('fog', !isVisible);
+            // Nebbia leggera: la provincia si vede (colore del proprietario), le
+            // sue pedine no — dal mare si riconosce la bandiera, non la guarnigione.
+            const isHazed = !!(hazed && hazed.has(path.id));
+            path.classList.toggle('haze', isHazed);
 
             // L'icona-risorsa segue la visibilita' della sua provincia (sparisce in nebbia).
-            const marker = svg.querySelector(`.resource-marker[data-prov="${CSS.escape(path.id)}"]`);
+            const marker = res.get(path.id);
             if (marker) marker.style.display = isVisible ? '' : 'none';
 
             // Le figure usano il colore-esercito memorizzato (fallback proprietario/
             // neutro) e seguono la nebbia per la visibilita'.
-            const pcColor = pieceColorOf(path);
-            svg.querySelectorAll(`.piece-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => {
-                m.style.color = pcColor;
-                m.style.display = isVisible ? '' : 'none';
-            });
+            const lista = pieces.get(path.id);
+            if (lista) {
+                const pcColor = pieceColorOf(path);
+                lista.forEach(m => {
+                    m.style.color = pcColor;
+                    m.style.display = (isVisible && !isHazed) ? '' : 'none';
+                });
+            }
         });
 
         // Le strade spariscono se anche una sola delle due province e' in nebbia.
@@ -2068,18 +2455,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Due gradi di visibilità (§9.2):
+    //   visible → si vede tutto, pedine comprese;
+    //   haze    → NEBBIA LEGGERA: quel che raggiunge una nostra nave. Si vede di
+    //             chi è la provincia (o che è neutrale) ma NON quanti uomini ci
+    //             sono. È quel che si scorge dal mare: bandiera sì, guarnigione no.
     function computeVisibleProvinces(playerName) {
         const svg = document.querySelector('svg');
-        const visible = new Set();
-        if (!svg) return visible;
+        const visible = new Set(), haze = new Set();
+        if (!svg) return { visible, haze };
         svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
             visible.add(path.id);
-            // Nebbia di default: si vedono solo le province confinanti via TERRA.
-            // I collegamenti via mare verranno sbloccati dalle navi (feature futura).
+            // Nebbia di default: si vedono le province confinanti via TERRA...
             const neigh = NEIGHBORS_LAND[path.id];
             if (neigh) neigh.forEach(id => visible.add(id));
+            // ...e, appena si costruisce una nave, tutto quel che quella nave
+            // raggiunge via mare — ma solo in nebbia leggera.
+            if (typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return;
+            SHIP_TYPES.forEach(tipo => {
+                if (!countPiece(path, tipo)) return;
+                const r = SeaRoutes.rangeOf(tipo);
+                if (r > 0) SeaRoutes.reachCached(svg, path.id, r).forEach(id => haze.add(id));
+            });
         });
-        return visible;
+        haze.forEach(id => { if (visible.has(id)) haze.delete(id); });
+        return { visible, haze };
     }
 
     function internalApplyMapData(saveData) {
@@ -2450,8 +2850,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const FOUNDATION_EYEBROW = {
         battaglia: 'Cronaca — accadde davvero in questi anni',
-        capitale: 'Cronaca del regno'
+        capitale: 'Cronaca del regno',
+        scisma: 'Cronaca della fede'
     };
+
+    // ---------- scismi (js/religions.js) ----------
+    // A un dato turno una fede si spezza in un'altra dentro certe regioni. Muta le
+    // province sulla mappa e srotola la pergamena (uguale a una fondazione, tinta
+    // 'scisma'). Chiamata da game-actions.endTurn a giro finito; si autodisegna,
+    // così vale sia per il turno umano sia per quelli dei bot. Ritorna gli scismi
+    // che hanno davvero cambiato qualcosa (per log/test).
+    function applySchisms(turn) {
+        if (typeof Religions === 'undefined') return [];
+        const fired = Religions.schismsAt(turn);
+        if (!fired.length) return [];
+        const svg = document.querySelector('svg');
+        if (!svg) return [];
+        const paths = provincePaths(svg);
+
+        // Centro di ogni provincia, una volta sola: le regole degli scismi filtrano
+        // per rettangolo sul centro.
+        const center = new Map();
+        paths.forEach(p => {
+            let b = null; try { b = p.getBBox(); } catch (e) { b = null; }
+            center.set(p, b ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : { x: 0, y: 0 });
+        });
+
+        const done = [];
+        fired.forEach(sc => {
+            let changed = 0;
+            (sc.rules || []).forEach(rule => {
+                const scoped = !!(rule.rects || rule.names);
+                paths.forEach(p => {
+                    if (religionKeyOf(p) !== rule.from) return;
+                    if (scoped) {
+                        const c = center.get(p);
+                        const inRect = rule.rects && rule.rects.some(r =>
+                            c.x >= r[0] && c.x <= r[2] && c.y >= r[1] && c.y <= r[3]);
+                        const inNames = rule.names && rule.names.indexOf(provinceLabel(p)) >= 0;
+                        if (!inRect && !inNames) return;
+                    }
+                    p.setAttribute('data-religione', rule.to);
+                    changed++;
+                });
+            });
+            if (changed) done.push(sc);
+        });
+
+        if (done.length) {
+            refreshMapDisplay();
+            const anno = (typeof Chronicle !== 'undefined') ? Chronicle.yearOfTurn(turn) : 1000;
+            // Uno scisma per turno (SCHISMS ha turni distinti): srotola il primo.
+            const sc = done[0];
+            showFoundation({ tipo: 'scisma', anno, titolo: sc.titolo, testo: sc.testo, nota: sc.nota });
+        }
+        return done;
+    }
 
     function showFoundation(info) {
         if (!info) return;
@@ -2788,6 +3242,24 @@ document.addEventListener('DOMContentLoaded', () => {
         computePopularity,
         save: saveAutoSave,
 
+        // --- religione (js/religions.js) ---
+        // Fede di una provincia (per id), religione di stato di un regno, conteggio
+        // per famiglia (per gli obiettivi di prestigio), pittura della mappa per
+        // fede e applicazione degli scismi (chiamata da game-actions).
+        faithOf(id) { const p = document.getElementById(id); return p ? religionKeyOf(p) : ''; },
+        stateReligionOf,
+        provincesByFamily,
+        applySchisms,
+        setMapPaint(mode) {
+            mapPaintMode = (mode === 'fede' || mode === 'terreno') ? mode : 'owner';
+            refreshMapDisplay();
+            return mapPaintMode;
+        },
+        mapPaint: () => mapPaintMode,
+
+        // Terreno di una provincia (per id): 'chiuso' o 'aperto' (§9, js/terrain.js).
+        terrainOf(id) { return terrainKeyOf(document.getElementById(id)); },
+
         // --- stato di turno (docs/GAME_DESIGN.md §2) ---
         turnoDi: () => turnoDi,
         ordine: () => ordine.slice(),
@@ -2826,6 +3298,20 @@ document.addEventListener('DOMContentLoaded', () => {
             canPlacePiece,
             addPiece(path, type, delta) { changePiece(path, type, delta); },
             erasePieces(path) { changePiece(path, '__erase__'); },
+            // SCAFI (§9.2): ogni nave è una pedina a sé, col suo carico.
+            ships: shipsOf,
+            setShips,
+            addShip,
+            removeShip,
+            shipCapacity,
+            shipRange: (tipo) => (typeof SeaRoutes !== 'undefined' ? SeaRoutes.rangeOf(tipo) : 0),
+            // Che cosa raggiunge via mare una provincia con quel raggio (§9.2).
+            // Vuoto finché la griglia non è pronta: la portata non si inventa.
+            seaReach(provId, radius) {
+                const svg = document.querySelector('svg');
+                if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return new Set();
+                return SeaRoutes.reachCached(svg, provId, radius);
+            },
             armyColor: pieceColorOf,
             setArmyColor(path, color) {
                 if (color) path.setAttribute('data-pc-color', color);
@@ -2835,6 +3321,12 @@ document.addEventListener('DOMContentLoaded', () => {
             setOwner(path, name) {
                 if (name) path.setAttribute('data-owner', name);
                 else path.removeAttribute('data-owner');
+            },
+            religion: (path) => religionKeyOf(path),
+            setReligion(path, faith) {
+                if (faith && typeof Religions !== 'undefined' && Religions.exists(faith)) {
+                    path.setAttribute('data-religione', faith);
+                }
             },
             roads: () => ROADS.slice(),
             hasRoad: (a, b) => !!findRoad(a, b),
@@ -2851,11 +3343,72 @@ document.addEventListener('DOMContentLoaded', () => {
             save: saveAutoSave
         },
 
+        // --- MAPPA INIZIALE (js/start-map.js) ---
+        // Fotografa e rimette la POSIZIONE DI PARTENZA. È una mappa, non una
+        // partita salvata: entrano proprietari, risorse, pedine, strade e
+        // l'anagrafica dei regni (id/nome/colore), e nient'altro. Tesoro,
+        // scorte, reclute, fase, turno e strategie dei bot restano fuori
+        // apposta — se ne occupa `GameActions.startGame()` quando la partita
+        // comincia davvero, e così la stessa mappa si rigioca identica.
+        scenario: {
+            capture() {
+                const svg = document.querySelector('svg');
+                if (!svg) return null;
+                const provinces = {};
+                provincePaths(svg).forEach(p => {
+                    const owner = p.getAttribute('data-owner');
+                    if (owner) provinces[p.id] = owner;
+                });
+                return {
+                    players: PLAYERS.map(p => ({ id: p.id, name: p.name, color: p.color })),
+                    provinces,
+                    resources: collectResources(svg),
+                    religions: collectReligions(svg),
+                    pieces: collectPieces(svg),
+                    roads: collectRoads()
+                };
+            },
+            // Rimette la mappa e riporta tutto a "partita non avviata":
+            // calendario al turno 1, nessun turno in corso, cronologia buttata.
+            // Da qui si preme "⚔️ Gioca con l'IA (mappa attuale)".
+            apply(data) {
+                if (!data || !document.querySelector('svg')) return false;
+                if (window.Bot) window.Bot.stop();
+                if (Array.isArray(data.players) && data.players.length) {
+                    mergePlayerData(data.players);
+                    initPalette();
+                }
+                TURN_HISTORY = {};
+                currentTurn = FIRST_TURN;
+                updateTurnUI();
+                internalApplyMapData(data.provinces || {});
+                applyResourceState(data.resources || {});
+                if (data.religions) applyReligionState(data.religions);
+                applyPieceState(data.pieces || {});
+                applyRoadState(data.roads || []);
+                turnoDi = null;
+                ordine = [];
+                primoDelGiro = 0;
+                renderPlayerTabs();
+                refreshMapDisplay();
+                saveAutoSave();
+                return true;
+            }
+        },
+
         // Vista mappa (disponibile solo dopo initMap).
         fitToProvinces(ids) { return mapView ? mapView.fitToProvinces(ids) : false; },
         setViewInsets(left, right) { if (mapView) mapView.setInsets(left, right); },
         resetView() { if (mapView) mapView.resetView(); },
         mapReady: () => !!mapView,
+
+        // --- NEBBIA ---
+        // Cosa può vedere adesso chi sta guardando: `null` = nessuna nebbia
+        // (editor, o vista generale della plancia). Serve a chi racconta quel che
+        // succede — registro dell'IA, scena della battaglia — perché una notizia
+        // da dentro la nebbia è un'informazione che il giocatore non deve avere.
+        visibleProvinces: () => visibleSet,
+        isVisible: (id) => !visibleSet || visibleSet.has(id),
         // Confini pronti? Finché è false le adiacenze sono vuote (vedi neighborsReady).
         neighborsReady: () => neighborsReady
     };

@@ -24,6 +24,18 @@
         return KingdomStats.countUnits(paths.map(p => ({ pieces: E().pieces(p) })));
     }
 
+    // Il terreno di una provincia e l'esponente che ne esce (§9, js/terrain.js).
+    // Si combatte SEMPRE nella provincia attaccata: è il suo terreno a decidere
+    // quanto pesa il numero. Senza il modulo si torna al vecchio quadrato.
+    function terrainOf(path) {
+        if (typeof Terrain === 'undefined' || !path) return null;
+        return Terrain.of(R().provinceLabel(path));
+    }
+    function terrainExp(path) {
+        const t = terrainOf(path);
+        return t ? Terrain.exponent(t) : RisikoBattle.DEFAULT_EXP;
+    }
+
     function snapshotOf(player) {
         return E().ownedPaths(player.name).map(p => ({
             id: p.id,
@@ -135,6 +147,82 @@
         return { target, province, soldati };
     }
 
+    // ---------- razzie delle terre di nessuno (regola dell'utente) ----------
+    // La fede conta anche per le neutrali: una provincia di nessuno della TUA
+    // stessa religione ti lascia in pace, una di fede diversa può marciarti
+    // contro. Gira a fine giro (prima del rifornimento neutrale), una volta per
+    // provincia neutrale: sceglie il vicino-giocatore più debole di fede diversa,
+    // risolve con battle.js e, se VINCE, si riprende la provincia — che torna
+    // neutrale coi superstiti. Se perde, il difensore incassa solo i caduti.
+    // Restituisce l'elenco delle razzie (con le province, per la nebbia §3).
+    function neutralRaids(turn) {
+        if (typeof Religions === 'undefined') return { razzie: [], perse: 0 };
+        const razzie = [];
+        E().allPaths().forEach(np => {
+            if (E().owner(np)) return;                       // solo terre di nessuno
+            const nf = E().religion(np);
+            const truppeNeutrali = E().countPiece(np, 'soldato');
+            const attaccanti = GR().spendableTroops(truppeNeutrali);
+            if (!nf || attaccanti <= 0) return;
+
+            // Bersagli: confinanti di un giocatore, di fede DIVERSA dalla neutrale, e
+            // che la neutrale SUPERA in numero. Regola dell'utente: una terra di
+            // nessuno marcia solo quando ha almeno 1 soldato più della provincia che
+            // vuole colpire (soldati neutrali > soldati del bersaglio).
+            const targets = E().landNeighbors(np.id)
+                .map(id => E().path(id))
+                .filter(tp => tp && E().owner(tp)
+                    && !Religions.sameFaith(E().religion(tp), nf)
+                    && E().countPiece(tp, 'soldato') < truppeNeutrali);
+            if (!targets.length) return;
+            targets.sort((a, b) => E().countPiece(a, 'soldato') - E().countPiece(b, 'soldato'));
+            const tp = targets[0];
+
+            const difOwner = E().owner(tp);
+            const difTruppe = E().countPiece(tp, 'soldato');
+            const fort = GR().defenceBonus(unitsOf([tp]));
+            const res = RisikoBattle.resolveBattle(attaccanti, difTruppe, fort, null, terrainExp(tp));
+            if (!res) return;
+
+            // Gli attaccanti lasciano comunque la provincia neutrale (resta il presidio).
+            E().addPiece(np, 'soldato', -attaccanti);
+
+            let esito;
+            if (res.attackerWins) {
+                // La provincia RITORNA NEUTRALE coi superstiti: le costruzioni
+                // restano (come in una conquista normale), cambia solo il colore.
+                E().addPiece(tp, 'soldato', -difTruppe);
+                const difensore = R().players().find(p => p.name === difOwner);
+                if (difensore && difensore.temporanei) delete difensore.temporanei[tp.id];
+                E().setOwner(tp, null);
+                E().addPiece(tp, 'soldato', res.attackerSurvivors);
+                E().setArmyColor(tp, null);
+                pruneRoadsTouching(tp.id);
+                esito = 'riconquistata';
+            } else {
+                // Respinta: il difensore perde solo i caduti, tiene la provincia.
+                E().addPiece(tp, 'soldato', -(difTruppe - res.defenderSurvivors));
+                esito = 'respinta';
+            }
+            E().redrawProvince(np);
+            E().redrawProvince(tp);
+
+            razzie.push({
+                fromId: np.id, toId: tp.id,
+                fromLabel: R().provinceLabel(np), toLabel: R().provinceLabel(tp),
+                esito, difensore: difOwner,
+                fedeNeutrale: nf,
+                attaccanti, difensori: difTruppe,
+                perditeDifensore: res.attackerWins ? difTruppe : (difTruppe - res.defenderSurvivors),
+                superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
+                battle: res,
+                coloreDifensore: (R().players().find(p => p.name === difOwner) || {}).color || null
+            });
+        });
+        if (razzie.length) E().redrawRoads();
+        return { razzie, perse: razzie.filter(r => r.esito === 'riconquistata').length };
+    }
+
     function isMyTurn(player) {
         const t = R().turnoDi();
         return t === null || t === undefined || t === player.id;
@@ -233,6 +321,7 @@
             pl.prestigioCiclo = 0;
             pl.puntiOro = 0;
             pl.temporanei = {};
+            pl.offerte = [];
             pl.fase = PHASES[0];
             pl.spostamentoFatto = false;
             pl.conquista = null;
@@ -317,8 +406,20 @@
         // Giro completo quando si torna a chi lo ha aperto.
         const giroFinito = nextIdx === primo;
         let neutrali = null;
+        let scadute = 0;
+        let razzie = null;
+        let scismi = null;
         if (giroFinito) {
             R().advanceGlobalTurn();
+            // Nuovo decennio: uno SCISMA può spezzare una fede (Religions.SCHISMS).
+            // È un fatto di cronaca globale: app.js srotola la pergamena da sé.
+            scismi = R().applySchisms ? R().applySchisms(R().turn()) : null;
+            // Nuovo decennio: le carovane rimaste senza risposta tornano a casa
+            // con la merce (§7) — il pegno non resta appeso all'infinito.
+            scadute = expireTrades();
+            // Le terre di nessuno di fede diversa razziano PRIMA del rifornimento,
+            // così colpiscono a piena forza e poi tornano in quota (§ religione).
+            razzie = neutralRaids(R().turn());
             // Nuovo decennio: le terre di nessuno si rinforzano se è scattata la
             // soglia dei 5 turni (garrisonNeutrals alza solo chi è sotto quota).
             neutrali = garrisonNeutrals();
@@ -334,8 +435,14 @@
         const nota = forzate ? ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)' : '';
         const notaN = (neutrali && neutrali.province)
             ? ' Le terre di nessuno salgono a ' + neutrali.target + ' soldati.' : '';
-        return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota + notaN,
-            { produzione: res.produzione, neutrali });
+        const notaC = scadute
+            ? ' ' + scadute + (scadute === 1 ? ' proposta di commercio è scaduta' : ' proposte di commercio sono scadute') + '.'
+            : '';
+        const notaR = (razzie && razzie.perse)
+            ? ' Le terre di nessuno ne riprendono ' + razzie.perse + '.' : '';
+        return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota + notaN + notaC + notaR,
+            { produzione: res.produzione, neutrali, scadute,
+              razzie: (razzie && razzie.razzie) || [], scismi: scismi || [] });
     }
 
     // Mercenari e Guarnigioni valgono un turno solo (§5.3).
@@ -390,8 +497,11 @@
 
         E().refresh();
         E().save();
+        // `prov` dice DOVE è successo: serve a chi racconta l'azione (il registro
+        // dell'IA nella plancia) per tacere quel che accade dentro la nebbia.
         return done(n + (n === 1 ? ' recluta schierata' : ' reclute schierate') + ' in ' +
-            R().provinceLabel(path) + '. Restano ' + player.recluteDaSchierare + ' libere.');
+            R().provinceLabel(path) + '. Restano ' + player.recluteDaSchierare + ' libere.',
+            { prov: provId });
     }
 
     // Schiera i rinforzi OBBLIGATORI di una provincia (quelli di Capitale, Città e
@@ -417,17 +527,19 @@
         E().refresh();
         E().save();
         return done(n + (n === 1 ? ' rinforzo obbligatorio schierato' : ' rinforzi obbligatori schierati') +
-            ' in ' + R().provinceLabel(path) + '.');
+            ' in ' + R().provinceLabel(path) + '.', { prov: provId });
     }
 
     // Posa in un colpo solo tutti i rinforzi obbligatori rimasti.
     function deployAllBound(player) {
         const turnErr = requirePhase(player, 'schiera'); if (turnErr) return turnErr;
         if (!boundTotal(player)) return fail('Non hai rinforzi obbligatori in attesa.');
+        const dove = Object.keys(boundPool(player));
         const n = forcePendingBound(player);
         E().refresh();
         E().save();
-        return done(n + (n === 1 ? ' rinforzo obbligatorio schierato' : ' rinforzi obbligatori schierati') + '.');
+        return done(n + (n === 1 ? ' rinforzo obbligatorio schierato' : ' rinforzi obbligatori schierati') + '.',
+            { provs: dove });
     }
 
     // Svuota il serbatoio vincolato senza chiedere: usato dal bottone "schiera tutti"
@@ -486,7 +598,8 @@
         E().refresh();
         E().save();
         return done(n + (n === 1 ? ' recluta ritirata' : ' reclute ritirate') + ' da ' + R().provinceLabel(path) +
-            (vincolate ? ' (' + vincolate + ' obbligatorie: possono tornare solo qui).' : '.'));
+            (vincolate ? ' (' + vincolate + ' obbligatorie: possono tornare solo qui).' : '.'),
+            { prov: provId });
     }
 
     // Costruisce su UNA provincia propria (§6).
@@ -550,7 +663,7 @@
         E().save();
         const nome = (typeof PIECES !== 'undefined' && PIECES[type]) ? PIECES[type].nome : type;
         return done(nome + ' costruita in ' + R().provinceLabel(path) + extra + '.',
-            fondazione ? { fondazione } : null);
+            Object.assign({ prov: provId }, fondazione ? { fondazione } : null));
     }
 
     // Strada fra due province proprie adiacenti via terra (§6).
@@ -580,7 +693,7 @@
         E().refresh();
         E().save();
         return done('Strada fra ' + R().provinceLabel(A) + ' e ' + R().provinceLabel(B) +
-            (gratis ? ' (gratuita).' : '.'));
+            (gratis ? ' (gratuita).' : '.'), { prov: aId, prov2: bId });
     }
 
     // Unità temporanee: valgono questo turno soltanto (§5.3).
@@ -604,21 +717,299 @@
         E().redrawProvince(path);
         E().refresh();
         E().save();
-        return done('+' + n + ' soldati temporanei in ' + R().provinceLabel(path) + ' (scadono a fine turno).');
+        return done('+' + n + ' soldati temporanei in ' + R().provinceLabel(path) + ' (scadono a fine turno).',
+            { prov: provId });
+    }
+
+    // ---------- COMMERCI (§7) ----------
+    // Il Mercato è l'infrastruttura del commercio: senza, un regno non tratta con
+    // nessuno. Da lì partono due canali diversi, tutti e due dentro la fase
+    // "costruisci":
+    //   - L'ESTERO (la banca): 2 unità di una risorsa tua → 1 di un altro tipo,
+    //     subito. Non c'è nessuno dall'altra parte, quindi non c'è niente da
+    //     aspettare.
+    //   - LE PROPOSTE agli altri regni: si mandano nel proprio turno, ma si
+    //     RISPONDE quando arrivano — accettare o rifiutare non chiede né turno né
+    //     fase (una carovana che bussa alla porta si accoglie quando bussa).
+    // La merce offerta lascia SUBITO la scorta di chi propone (è un pegno): senza
+    // questo la stessa pietra si potrebbe promettere a tre regni diversi.
+    // Una proposta vive in un posto solo: la lista `offerte` di CHI LA RICEVE.
+
+    function marketPath(player) {
+        return E().ownedPaths(player.name).find(p => E().countPiece(p, 'mercato') > 0) || null;
+    }
+
+    function hasMarket(player) { return !!marketPath(player); }
+
+    // Dove "succede" un'azione che non ha una provincia sua (accettare, rifiutare,
+    // ritirare): la Capitale, o la prima provincia del regno. Serve alla nebbia —
+    // ogni azione deve dire dove è avvenuta, o il registro non sa se raccontarla.
+    function homeId(player) {
+        const cap = R().getCapitalPathFor(player);
+        if (cap) return cap.id;
+        const first = E().ownedPaths(player.name)[0];
+        return first ? first.id : null;
+    }
+
+    function offersOf(player) {
+        if (!Array.isArray(player.offerte)) player.offerte = [];
+        return player.offerte;
+    }
+
+    // Le proposte ARRIVATE a questo regno.
+    function tradeInbox(player) { return offersOf(player).slice(); }
+
+    // Le proposte PARTITE da questo regno: stanno sul record di chi le ha ricevute.
+    function tradeOutbox(player) {
+        const out = [];
+        R().players().forEach(p => offersOf(p).forEach(o => {
+            if (o.da === player.id) out.push(o);
+        }));
+        return out;
+    }
+
+    function newTradeId() {
+        return 't' + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36);
+    }
+
+    function goods(x) {
+        return { tipo: x && x.tipo, n: Math.floor((x && x.n) || 0) };
+    }
+
+    // Quanta di una merce ha un regno, e come gliela si aggiunge/toglie. L'oro
+    // vive sul tesoro (player.monete), le risorse nelle scorte: qui il resto del
+    // commercio non deve sapere quale sia quale.
+    function haveGood(player, g) {
+        return g.tipo === 'monete' ? (player.monete || 0) : ((player.scorte && player.scorte[g.tipo]) || 0);
+    }
+
+    function giveGood(player, g, sign) {
+        if (g.tipo === 'monete') player.monete = (player.monete || 0) + sign * g.n;
+        else player.scorte[g.tipo] = ((player.scorte && player.scorte[g.tipo]) || 0) + sign * g.n;
+    }
+
+    function nameOf(id) {
+        const p = R().players().find(x => x.id === id);
+        return p ? p.name : 'un regno scomparso';
+    }
+
+    // Scambio con la banca: 2:1, immediato (GameRules.canBankTrade fa le regole).
+    function tradeWithBank(player, dai, prendi, n) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const mercato = marketPath(player);
+        if (!mercato) return fail('Senza un Mercato non si commercia con l\'estero: costruiscine uno.');
+
+        const check = GR().canBankTrade(player, dai, prendi, n);
+        if (!check.ok) return fail(check.msg);
+
+        n = Math.floor(n);
+        player.scorte[dai] -= check.costo;
+        player.scorte[prendi] += n;
+
+        E().refresh();
+        E().save();
+        return done('Mercato di ' + R().provinceLabel(mercato) + ': ' + check.costo + ' ' +
+            GR().RES_LABEL[dai] + ' → ' + n + ' ' + GR().RES_LABEL[prendi] + '.',
+            { prov: mercato.id });
+    }
+
+    // Manda una proposta a un altro regno. La merce offerta esce subito (pegno).
+    function proposeTrade(player, toId, offro, chiedo) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const mercato = marketPath(player);
+        if (!mercato) return fail('Serve un Mercato per far partire una carovana: costruiscine uno.');
+
+        const altro = R().players().find(p => String(p.id) === String(toId));
+        if (!altro) return fail('Regno sconosciuto.');
+        if (altro.id === player.id) return fail('Non si commercia con se stessi.');
+        if (!E().ownedPaths(altro.name).length) {
+            return fail(altro.name + ' non ha più province: non c\'è nessuno con cui trattare.');
+        }
+
+        const off = goods(offro), chi = goods(chiedo);
+        // Ogni lato può essere una risorsa o oro (multipli di 100): risorse↔risorse,
+        // oro→risorse, risorse→oro. Non oro↔oro — sarebbe spostare monete e basta.
+        const offChk = GR().checkGoods(off); if (!offChk.ok) return fail(offChk.msg);
+        const chiChk = GR().checkGoods(chi); if (!chiChk.ok) return fail(chiChk.msg);
+        if (off.tipo === chi.tipo) {
+            return fail(off.tipo === 'monete'
+                ? 'Oro per oro non è un commercio: chiedi o offri una risorsa.'
+                : 'Offri e chiedi la stessa risorsa: non è uno scambio.');
+        }
+        if (haveGood(player, off) < off.n) {
+            return fail('Non hai ' + GR().goodsText(off) + ' da offrire.');
+        }
+
+        const aperte = tradeOutbox(player).length;
+        if (aperte >= GR().TRADE_MAX_PENDING) {
+            return fail('Hai già ' + aperte + ' proposte in attesa di risposta: ritirane una prima di mandarne altre.');
+        }
+
+        giveGood(player, off, -1);      // pegno: la merce parte con la carovana
+        offersOf(altro).push({
+            id: newTradeId(), da: player.id, a: altro.id,
+            offro: off, chiedo: chi, turno: R().turn()
+        });
+
+        E().refresh();
+        E().save();
+        return done('Proposta inviata a ' + altro.name + ': ' + GR().goodsText(off) +
+            ' in cambio di ' + GR().goodsText(chi) + '. La merce offerta è già partita.',
+            { prov: mercato.id });
+    }
+
+    // La merce in pegno torna a chi l'aveva offerta (rifiuto, ritiro, scadenza).
+    function refundTrade(off) {
+        const mittente = R().players().find(p => p.id === off.da);
+        if (mittente) giveGood(mittente, off.offro, +1);
+    }
+
+    function takeOffer(player, offerId) {
+        const list = offersOf(player);
+        const i = list.findIndex(o => o.id === offerId);
+        return i < 0 ? null : { list, i, off: list[i] };
+    }
+
+    // Accetta: NIENTE vincolo di turno o di fase. Il Mercato e la fase costruzioni
+    // li deve avere chi manda la carovana, non chi la riceve — altrimenti una
+    // trattativa durerebbe un giro intero e nessuno commercerebbe mai.
+    function acceptTrade(player, offerId) {
+        const found = takeOffer(player, offerId);
+        if (!found) return fail('Questa proposta non c\'è più.');
+        const { list, i, off } = found;
+
+        const mittente = R().players().find(p => p.id === off.da);
+        if (!mittente) {
+            list.splice(i, 1);
+            E().save();
+            return fail('Il regno che l\'aveva mandata non esiste più: proposta annullata.');
+        }
+        if (haveGood(player, off.chiedo) < off.chiedo.n) {
+            return fail('Non hai ' + GR().goodsText(off.chiedo) + ' da consegnare: la proposta resta aperta.');
+        }
+
+        giveGood(player, off.chiedo, -1);        // consegni quel che ti hanno chiesto
+        giveGood(player, off.offro, +1);         // ricevi il pegno del mittente
+        giveGood(mittente, off.chiedo, +1);      // il mittente incassa la contropartita
+        list.splice(i, 1);
+
+        E().refresh();
+        E().save();
+        return done('Accordo con ' + mittente.name + ': ricevi ' + GR().goodsText(off.offro) +
+            ', consegni ' + GR().goodsText(off.chiedo) + '.', { prov: homeId(player) });
+    }
+
+    function refuseTrade(player, offerId) {
+        const found = takeOffer(player, offerId);
+        if (!found) return fail('Questa proposta non c\'è più.');
+        const { list, i, off } = found;
+        refundTrade(off);
+        list.splice(i, 1);
+
+        E().refresh();
+        E().save();
+        return done('Proposta di ' + nameOf(off.da) + ' rifiutata: la carovana torna indietro.',
+            { prov: homeId(player) });
+    }
+
+    // Ritiro da parte di CHI HA MANDATO la proposta: la cerca fra i regni, non
+    // fra le proprie (una proposta vive solo nella lista di chi la riceve).
+    function cancelTrade(player, offerId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        let tolta = null;
+        R().players().forEach(p => {
+            const list = offersOf(p);
+            const i = list.findIndex(o => o.id === offerId && o.da === player.id);
+            if (i >= 0 && !tolta) { tolta = list[i]; list.splice(i, 1); }
+        });
+        if (!tolta) return fail('Questa proposta non c\'è più.');
+        refundTrade(tolta);
+
+        E().refresh();
+        E().save();
+        return done('Proposta a ' + nameOf(tolta.a) + ' ritirata: ' + GR().goodsText(tolta.offro) +
+            ' torna nelle scorte.', { prov: homeId(player) });
+    }
+
+    // Una proposta senza risposta non resta in pegno per sempre: dopo
+    // GameRules.TRADE_EXPIRY turni la carovana torna a casa con la merce.
+    // Gira a giro completato (endTurn), cioè una volta per decennio.
+    function expireTrades() {
+        const limite = R().turn() - GR().TRADE_EXPIRY;
+        let scadute = 0;
+        R().players().forEach(p => {
+            const list = offersOf(p);
+            for (let i = list.length - 1; i >= 0; i--) {
+                if ((list[i].turno || 0) > limite) continue;
+                refundTrade(list[i]);
+                list.splice(i, 1);
+                scadute++;
+            }
+        });
+        return scadute;
     }
 
     // Bersagli d'attacco validi: province adiacenti via terra non tue (§9).
+    // `terreno`/`esponente` viaggiano col bersaglio: plancia e bot pronosticano
+    // con lo stesso numero che poi userà la battaglia, senza rileggerlo da sé.
     function attackTargets(player, provId) {
-        return E().landNeighbors(provId)
+        const seen = new Set();
+        const card = (p, viaMare, scafo) => ({
+            id: p.id,
+            label: R().provinceLabel(p),
+            owner: E().owner(p) || 'Neutrale',
+            troops: E().countPiece(p, 'soldato'),
+            fort: GR().defenceBonus(unitsOf([p])),
+            terreno: terrainOf(p),
+            esponente: terrainExp(p),
+            // Come ci si arriva: via terra o con uno sbarco (§9.2). Chi sbarca
+            // porta al massimo il carico dello scafo, non tutta la provincia.
+            viaMare: !!viaMare,
+            scafo: viaMare ? scafo.tipo : null,
+            carico: viaMare ? E().shipCapacity(scafo.tipo) : null
+        });
+
+        const out = [];
+        E().landNeighbors(provId)
             .map(id => E().path(id))
             .filter(p => p && E().owner(p) !== player.name)
-            .map(p => ({
-                id: p.id,
-                label: R().provinceLabel(p),
-                owner: E().owner(p) || 'Neutrale',
-                troops: E().countPiece(p, 'soldato'),
-                fort: GR().defenceBonus(unitsOf([p]))
-            }));
+            .forEach(p => { seen.add(p.id); out.push(card(p, false, null)); });
+
+        // Sbarchi: ogni scafo ancorato qui rende limitrofa ogni provincia
+        // costiera dentro la sua portata (§9.2). A parità di bersaglio vince lo
+        // scafo più capiente, che è quello che ci può portare più uomini.
+        const from = E().path(provId);
+        if (!from || E().owner(from) !== player.name) return out;
+        const hulls = E().ships(from);
+        if (!hulls.length) return out;
+        const best = new Map();
+        hulls.forEach(h => {
+            const r = E().shipRange(h.tipo);
+            if (!(r > 0)) return;
+            E().seaReach(provId, r).forEach(id => {
+                if (seen.has(id)) return;   // già raggiungibile via terra
+                const prev = best.get(id);
+                if (!prev || E().shipCapacity(h.tipo) > E().shipCapacity(prev.tipo)) best.set(id, h);
+            });
+        });
+        best.forEach((h, id) => {
+            const p = E().path(id);
+            if (p && E().owner(p) !== player.name) out.push(card(p, true, h));
+        });
+        return out;
+    }
+
+    // Lo scafo con cui si può sbarcare a `toId` portando `engaged` uomini:
+    // il MENO capiente che basti, per non sprecare un Veliero dove basta una Nave.
+    function hullForLanding(from, toId, engaged) {
+        let pick = null;
+        E().ships(from).forEach(h => {
+            const r = E().shipRange(h.tipo);
+            if (!(r > 0) || !E().seaReach(from.id, r).has(toId)) return;
+            if (E().shipCapacity(h.tipo) < engaged) return;
+            if (!pick || E().shipCapacity(h.tipo) < E().shipCapacity(pick.tipo)) pick = h;
+        });
+        return pick;
     }
 
     // Attacco (§9): risolve con battle.js e applica l'esito alla mappa.
@@ -628,7 +1019,19 @@
         if (!from || !to) return fail('Provincia sconosciuta.');
         if (E().owner(from) !== player.name) return fail('Puoi attaccare solo da una tua provincia.');
         if (E().owner(to) === player.name) return fail('Non puoi attaccare te stesso.');
-        if (!E().areLandAdjacent(fromId, toId)) return fail('Le due province non confinano via terra.');
+        // ATTACCO DI TERRA o SBARCO (§9.2). Se le due province non confinano, si
+        // cerca uno scafo che copra la distanza: è lui a rendere `to` limitrofa.
+        const viaMare = !E().areLandAdjacent(fromId, toId);
+        let scafo = null;
+        if (viaMare) {
+            const raggiungibile = E().ships(from).some(h => {
+                const r = E().shipRange(h.tipo);
+                return r > 0 && E().seaReach(fromId, r).has(toId);
+            });
+            if (!raggiungibile) {
+                return fail('Le due province non confinano via terra e nessuna tua nave arriva fin lì.');
+            }
+        }
 
         // Parte al massimo tutto meno il presidio: la provincia di partenza non
         // resta mai vuota, nemmeno se l'attacco riesce.
@@ -641,16 +1044,41 @@
                 (partenti === 1 ? ' soldato' : ' soldati') + ': uno resta sempre a presidiare.');
         }
 
+        // Lo sbarco ha un secondo tetto: il CARICO dello scafo (§9.2). È questo,
+        // più del raggio, a impedire di rovesciare un'armata oltremare in un turno.
+        if (viaMare) {
+            scafo = hullForLanding(from, toId, engaged);
+            if (!scafo) {
+                const capienza = E().ships(from)
+                    .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); })
+                    .reduce((m, h) => Math.max(m, E().shipCapacity(h.tipo)), 0);
+                return fail('Nessuna nave può portare ' + engaged + ' uomini fin lì: al massimo ' +
+                    capienza + ' per sbarco.');
+            }
+        }
+
         const defTroops = E().countPiece(to, 'soldato');
         const fort = GR().defenceBonus(unitsOf([to]));
         const difensore = E().owner(to) || 'Neutrale';
         const fromLabel = R().provinceLabel(from), toLabel = R().provinceLabel(to);
-        const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng);
+        // Si combatte in casa del difensore: il terreno è il suo (§9).
+        const terreno = terrainOf(to);
+        const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng, terrainExp(to));
         if (!res) return fail('Nessuna battaglia possibile.');
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
         E().addPiece(from, 'soldato', -engaged);
         consumePlaced(player, fromId, engaged);
+
+        // LO SBARCO È LA NAVE STESSA (§9.2): lo scafo lascia la sua provincia e
+        // approda in quella attaccata, comunque vada. Non si torna indietro —
+        // o si conquista, o si perdono uomini E nave. Chi possiede la provincia
+        // possiede le navi che ci stanno: se l'assalto fallisce lo scafo è già
+        // sulla spiaggia del difensore, e diventa suo senza bisogno di dirlo.
+        if (viaMare && scafo) {
+            E().removeShip(from, scafo.tipo);
+            E().addShip(to, scafo.tipo, 0);
+        }
 
         let msg;
         if (res.attackerWins) {
@@ -673,13 +1101,16 @@
                 ? { fromId, toId, superstiti: res.attackerSurvivors }
                 : null;
 
-            msg = 'Conquistata ' + R().provinceLabel(to) + ': ' + res.attackerSurvivors +
-                (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
-                ' (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.';
+            msg = (viaMare ? 'Sbarco riuscito a ' : 'Conquistata ') + R().provinceLabel(to) + ': ' +
+                res.attackerSurvivors + (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
+                ' (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.' +
+                (viaMare ? ' La nave è ora ancorata lì: la prossima portata si misura da quella costa.' : '');
         } else {
             E().addPiece(to, 'soldato', -(defTroops - res.defenderSurvivors));
             msg = R().provinceLabel(to) + ' ha retto: perdi tutte le ' + engaged +
-                ' truppe impegnate, al difensore restano ' + res.defenderSurvivors + '.';
+                ' truppe impegnate, al difensore restano ' + res.defenderSurvivors + '.' +
+                (viaMare ? ' La ' + (scafo.tipo === 'vascello' ? 'nave da guerra' : 'nave') +
+                    ' è finita in mano al difensore.' : '');
         }
 
         E().redrawProvince(from);
@@ -705,7 +1136,8 @@
 
         return done(msg, {
             cronaca: eco,
-            battle: res, engaged, defTroops, fort,
+            battle: res, engaged, defTroops, fort, terreno,
+            viaMare, scafo: viaMare && scafo ? scafo.tipo : null,
             fromId, toId, fromLabel, toLabel,
             attaccante: player.name, difensore,
             coloreAttaccante: player.color,
@@ -775,7 +1207,8 @@
         E().refresh();
         E().save();
         return done(occupanti + (occupanti === 1 ? ' soldato occupa ' : ' soldati occupano ') + c.toLabel +
-            (indietro ? ', ' + indietro + ' rientrano in ' + c.fromLabel + '.' : '.'));
+            (indietro ? ', ' + indietro + ' rientrano in ' + c.fromLabel + '.' : '.'),
+            { fromId: c.fromId, toId: c.toId });
     }
 
     // ---------- fase di spostamento (uno solo per turno) ----------
@@ -843,7 +1276,8 @@
         E().refresh();
         E().save();
         return done(n + (n === 1 ? ' soldato spostato da ' : ' soldati spostati da ') +
-            R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '. Lo spostamento del turno è speso.');
+            R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '. Lo spostamento del turno è speso.',
+            { fromId, toId });
     }
 
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista
@@ -864,8 +1298,11 @@
         startGame, beginTurn, endTurn,
         deploy, deployBound, deployAllBound, undeploy,
         build, buildRoad, recruit, attack, attackTargets,
+        hasMarket, marketPath, tradeWithBank,
+        proposeTrade, acceptTrade, refuseTrade, cancelTrade,
+        tradeInbox, tradeOutbox, expireTrades,
         conquestPending, resolveConquest,
-        moveTargets, finalMove, ownReachable, garrisonNeutrals,
+        moveTargets, finalMove, ownReachable, garrisonNeutrals, neutralRaids,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool

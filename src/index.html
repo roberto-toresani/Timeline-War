@@ -8,8 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=58">
-    <link rel="stylesheet" href="css/style.css?v=58">
+    <link rel="stylesheet" href="css/tokens.css?v=72">
+    <link rel="stylesheet" href="css/style.css?v=72">
 </head>
 
 <body>
@@ -52,6 +52,8 @@
                 <!-- Tab buttons injected by JS -->
             </div>
             <button id="player-tabs-clear" title="Torna alla vista principale (nessun focus)">✕ Vista principale</button>
+            <button id="faith-view-btn" title="Colora la mappa per religione">☩ Fedi</button>
+            <button id="terrain-view-btn" title="Colora la mappa per terreno: dove il numero conta e dove no">⛰ Terreno</button>
         </div>
         <div id="player-tab-content">
             <!-- Selected player details injected by JS -->
@@ -95,6 +97,21 @@
                         <button id="save-btn" style="flex:1;">💾 Save</button>
                         <button id="load-btn" style="flex:1;">📂 Load</button>
                         <input type="file" id="file-input" style="display:none;" accept=".json" />
+                    </div>
+
+                    <!-- MAPPA INIZIALE (js/start-map.js): la posizione di partenza,
+                         dipinta a mano e conservata in data/start_map.json. Si dipinge
+                         una volta e ci si torna quando si vuole — è il punto zero delle
+                         prove contro l'IA e della partita vera. -->
+                    <div id="start-map-controls">
+                        <div id="start-map-info">Mappa iniziale: —</div>
+                        <div style="display:flex; gap:5px;">
+                            <button id="start-map-load-btn" style="flex:1;">🗺 Carica iniziale</button>
+                            <button id="start-map-save-btn" style="flex:1;">📌 Salva iniziale</button>
+                        </div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <button id="start-map-clear-btn" style="flex:1;">🧹 Svuota la mappa (pagina bianca)</button>
+                        </div>
                     </div>
 
                     <!-- Comandi partita (admin): avviano il gioco vero e passano i turni. -->
@@ -151,24 +168,30 @@
     <script src="js/sync.js"></script>
 
     <!-- Scripts -->
-    <script src="data/map_data.js?v=58"></script>
-    <script src="data/id_mapping.js?v=58"></script>
-    <script src="data/embedded_map.js?v=58"></script>
-    <script src="data/resource_icons.js?v=58"></script>
-    <script src="data/piece_icons.js?v=58"></script>
-    <script src="data/default_state.js?v=58"></script>
-    <script src="data/city_names.js?v=58"></script>
-    <script src="data/historic_battles.js?v=58"></script>
-    <script src="js/chronicle.js?v=58"></script>
-    <script src="js/map-decor.js?v=58"></script>
-    <script src="js/battle.js?v=58"></script>
-    <script src="js/kingdom-stats.js?v=58"></script>
-    <script src="js/game-rules.js?v=58"></script>
-    <script src="js/map-anchors.js?v=58"></script>
-    <script src="js/app.js?v=58"></script>
-    <script src="js/game-actions.js?v=58"></script>
-    <script src="js/bot.js?v=58"></script>
-    <script src="js/setup.js?v=58"></script>
+    <script src="data/map_data.js?v=72"></script>
+    <script src="data/id_mapping.js?v=72"></script>
+    <script src="data/embedded_map.js?v=72"></script>
+    <script src="data/resource_icons.js?v=72"></script>
+    <script src="data/piece_icons.js?v=72"></script>
+    <script src="data/default_state.js?v=72"></script>
+    <script src="data/city_names.js?v=72"></script>
+    <script src="data/historic_battles.js?v=72"></script>
+    <script src="data/start_religions.js?v=72"></script>
+    <script src="data/province_terrain.js?v=72"></script>
+    <script src="js/chronicle.js?v=72"></script>
+    <script src="js/religions.js?v=72"></script>
+    <script src="js/terrain.js?v=72"></script>
+    <script src="js/map-decor.js?v=72"></script>
+    <script src="js/battle.js?v=72"></script>
+    <script src="js/kingdom-stats.js?v=72"></script>
+    <script src="js/game-rules.js?v=72"></script>
+    <script src="js/map-anchors.js?v=72"></script>
+    <script src="js/sea-routes.js?v=72"></script>
+    <script src="js/app.js?v=72"></script>
+    <script src="js/game-actions.js?v=72"></script>
+    <script src="js/bot.js?v=72"></script>
+    <script src="js/setup.js?v=72"></script>
+    <script src="js/start-map.js?v=72"></script>
 </body>
 
 </html>
