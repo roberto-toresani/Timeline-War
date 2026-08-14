@@ -965,8 +965,13 @@
             // Come ci si arriva: via terra o con uno sbarco (§9.2). Chi sbarca
             // porta al massimo il carico dello scafo, non tutta la provincia.
             viaMare: !!viaMare,
-            scafo: viaMare ? scafo.tipo : null,
-            carico: viaMare ? E().shipCapacity(scafo.tipo) : null
+            // `scafi` = TUTTI i tipi di scafo ancorati qui che ci arrivano: è
+            // quello su cui la plancia filtra quando il giocatore ha scelto con
+            // che nave partire. `scafo`/`carico` restano il più capiente, che è
+            // il default quando nessuno sceglie (i bot).
+            scafi: viaMare ? scafo.slice() : [],
+            scafo: viaMare ? scafo[scafo.length - 1] : null,
+            carico: viaMare ? E().shipCapacity(scafo[scafo.length - 1]) : null
         });
 
         const out = [];
@@ -982,28 +987,38 @@
         if (!from || E().owner(from) !== player.name) return out;
         const hulls = E().ships(from);
         if (!hulls.length) return out;
+        // Per ogni bersaglio, TUTTI i tipi di scafo che ci arrivano, ordinati per
+        // capienza crescente: l'ultimo è il più capiente e fa da default.
         const best = new Map();
         hulls.forEach(h => {
             const r = E().shipRange(h.tipo);
             if (!(r > 0)) return;
             E().seaReach(provId, r).forEach(id => {
                 if (seen.has(id)) return;   // già raggiungibile via terra
-                const prev = best.get(id);
-                if (!prev || E().shipCapacity(h.tipo) > E().shipCapacity(prev.tipo)) best.set(id, h);
+                let list = best.get(id);
+                if (!list) { list = []; best.set(id, list); }
+                if (list.indexOf(h.tipo) < 0) {
+                    list.push(h.tipo);
+                    list.sort((a, b) => E().shipCapacity(a) - E().shipCapacity(b));
+                }
             });
         });
-        best.forEach((h, id) => {
+        best.forEach((tipi, id) => {
             const p = E().path(id);
-            if (p && E().owner(p) !== player.name) out.push(card(p, true, h));
+            if (p && E().owner(p) !== player.name) out.push(card(p, true, tipi));
         });
         return out;
     }
 
-    // Lo scafo con cui si può sbarcare a `toId` portando `engaged` uomini:
-    // il MENO capiente che basti, per non sprecare un Veliero dove basta una Nave.
-    function hullForLanding(from, toId, engaged) {
+    // Lo scafo con cui si può sbarcare a `toId` portando `engaged` uomini.
+    // Se il giocatore ne ha scelto uno (`voluto`), è quello e basta: la plancia
+    // fa scegliere la nave PRIMA della destinazione, e il motore non deve
+    // scavalcare quella scelta. Senza preferenza si prende il MENO capiente che
+    // basti, per non sprecare un Veliero dove arriva una Nave (è il caso dei bot).
+    function hullForLanding(from, toId, engaged, voluto) {
         let pick = null;
         E().ships(from).forEach(h => {
+            if (voluto && h.tipo !== voluto) return;
             const r = E().shipRange(h.tipo);
             if (!(r > 0) || !E().seaReach(from.id, r).has(toId)) return;
             if (E().shipCapacity(h.tipo) < engaged) return;
@@ -1013,7 +1028,9 @@
     }
 
     // Attacco (§9): risolve con battle.js e applica l'esito alla mappa.
-    function attack(player, fromId, toId, engaged, rng) {
+    // `scafoVoluto` (facoltativo): con che nave si parte, quando è il giocatore a
+    // sceglierlo dalla plancia. Senza, il motore prende quella che basta.
+    function attack(player, fromId, toId, engaged, rng, scafoVoluto) {
         const turnErr = requirePhase(player, 'attacca'); if (turnErr) return turnErr;
         const from = E().path(fromId), to = E().path(toId);
         if (!from || !to) return fail('Provincia sconosciuta.');
@@ -1025,6 +1042,7 @@
         let scafo = null;
         if (viaMare) {
             const raggiungibile = E().ships(from).some(h => {
+                if (scafoVoluto && h.tipo !== scafoVoluto) return false;
                 const r = E().shipRange(h.tipo);
                 return r > 0 && E().seaReach(fromId, r).has(toId);
             });
@@ -1047,9 +1065,10 @@
         // Lo sbarco ha un secondo tetto: il CARICO dello scafo (§9.2). È questo,
         // più del raggio, a impedire di rovesciare un'armata oltremare in un turno.
         if (viaMare) {
-            scafo = hullForLanding(from, toId, engaged);
+            scafo = hullForLanding(from, toId, engaged, scafoVoluto);
             if (!scafo) {
                 const capienza = E().ships(from)
+                    .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
                     .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); })
                     .reduce((m, h) => Math.max(m, E().shipCapacity(h.tipo)), 0);
                 return fail('Nessuna nave può portare ' + engaged + ' uomini fin lì: al massimo ' +
@@ -1097,7 +1116,13 @@
             // vera la decide il giocatore in fase di conquista (resolveConquest):
             // finché `player.conquista` è aperta nessun'altra azione passa. Con un
             // solo superstite non c'è niente da scegliere e si chiude subito.
-            player.conquista = res.attackerSurvivors > 1
+            //
+            // LO SBARCO È TOTALE (§9.2): chi scende dalla nave resta a terra, non
+            // esiste il drappello che si reimbarca a fine battaglia. Chi vuole
+            // riportare indietro degli uomini lo fa con lo spostamento di fine
+            // turno, usando la nave come mezzo di trasporto — che è una scelta
+            // successiva e visibile, non un ripensamento dentro l'assalto.
+            player.conquista = (!viaMare && res.attackerSurvivors > 1)
                 ? { fromId, toId, superstiti: res.attackerSurvivors }
                 : null;
 

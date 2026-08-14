@@ -21,6 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let hasFitted = false;
     let selectedProvId = null;
     let lastBattle = null;
+    // Con che cosa si parte all'attacco (§9.2): null = via terra, altrimenti il
+    // tipo di scafo scelto. Si azzera da sé quando cambia la provincia di
+    // partenza — una nave scelta in Normandia non ha senso partendo da Napoli.
+    let attackVessel = null;
+    let attackVesselProv = null;
 
     // Stato dei moduli di commercio (§7): si tiene qui perché render() ricostruisce
     // l'HTML a ogni azione (anche dei bot) e i menù a tendina perderebbero la scelta.
@@ -1194,7 +1199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const g = group('Attacca da ' + R.provinceLabel(path));
         const available = R.countPiece(path, 'soldato');
         const partenti = spareOf(path);      // tutti meno il presidio (§5)
-        const targets = GA().attackTargets(player, path.id);
+        let targets = GA().attackTargets(player, path.id);
 
         // L'esercito a disposizione va detto prima dei bersagli: è il vincolo che
         // decide tutto il resto (uno resta sempre a casa).
@@ -1204,8 +1209,49 @@ document.addEventListener('DOMContentLoaded', () => {
             '<span class="bp-army-l">possono partire · su ' + available +
             ' nella provincia, uno resta sempre a presidiare</span></div>');
 
+        // ---- CON CHE COSA SI PARTE (§9.2) ----
+        // Prima la nave, poi quanti uomini, poi dove: la nave non si sceglie da
+        // sé in fondo al percorso. Chi non ha scafi qui non vede nemmeno la riga.
+        const flotta = [];
+        R.engine.ships(path).forEach(h => {
+            const e = flotta.find(x => x.tipo === h.tipo);
+            if (e) e.n++; else flotta.push({ tipo: h.tipo, n: 1 });
+        });
+        if (attackVesselProv !== path.id) { attackVessel = null; attackVesselProv = path.id; }
+        if (attackVessel && !flotta.some(f => f.tipo === attackVessel)) attackVessel = null;
+
+        if (flotta.length) {
+            const row = document.createElement('div');
+            row.className = 'bp-vessels';
+            const pick = (tipo, testo, sub) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'bp-vessel' + (attackVessel === tipo ? ' on' : '');
+                b.innerHTML = '<span class="bv-name">' + testo + '</span>' +
+                    '<span class="bv-sub">' + sub + '</span>';
+                b.addEventListener('click', () => { attackVessel = tipo; render(); });
+                row.appendChild(b);
+            };
+            pick(null, '⚔ Via terra', 'fino a ' + partenti + ' uomini');
+            flotta.forEach(f => {
+                const cap = R.engine.shipCapacity(f.tipo);
+                pick(f.tipo,
+                    (f.tipo === 'vascello' ? '🚢 Veliero' : '⛵ Nave') + (f.n > 1 ? ' ×' + f.n : ''),
+                    'porta ' + cap + ' uomini');
+            });
+            g.appendChild(row);
+        }
+
+        // L'elenco dei bersagli segue la scelta: via terra i confinanti, con una
+        // nave solo quel che QUELLA nave raggiunge.
+        targets = attackVessel
+            ? targets.filter(t => t.viaMare && t.scafi.indexOf(attackVessel) >= 0)
+            : targets.filter(t => !t.viaMare);
+
         if (!targets.length) {
-            g.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun confine nemico da qui: scegli un\'altra provincia di partenza.</div>');
+            g.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">' + (attackVessel
+                ? 'Questa nave non raggiunge nessuna costa nemica da qui.'
+                : 'Nessun confine nemico da qui: scegli un\'altra provincia di partenza.') + '</div>');
             return g;
         }
         if (!partenti) {
@@ -1214,17 +1260,25 @@ document.addEventListener('DOMContentLoaded', () => {
             return g;
         }
 
+        // Quanti uomini: con una nave il tetto è il suo carico, non l'esercito.
+        const tetto = attackVessel
+            ? Math.min(partenti, R.engine.shipCapacity(attackVessel))
+            : partenti;
         const row = document.createElement('div');
         row.className = 'bp-act-row';
         const input = document.createElement('input');
         input.type = 'number';
         input.min = '1';
-        input.max = String(partenti);
-        input.value = String(partenti);
-        input.title = 'Truppe impegnate (ne resta almeno 1 a presidiare)';
+        input.max = String(tetto);
+        input.value = String(tetto);
+        input.title = attackVessel
+            ? 'Uomini da imbarcare (il resto non ci sta a bordo)'
+            : 'Truppe impegnate (ne resta almeno 1 a presidiare)';
         row.appendChild(input);
-        row.insertAdjacentHTML('beforeend',
-            '<span class="bp-act-cost">di ' + partenti + ' che possono partire</span>');
+        row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">' + (attackVessel
+            ? 'a bordo · la nave ne porta ' + R.engine.shipCapacity(attackVessel) +
+              ', in provincia ne possono partire ' + partenti
+            : 'di ' + partenti + ' che possono partire') + '</span>');
         g.appendChild(row);
 
         // Pronostico prima di lanciare la carica: è la stessa formula della
@@ -1234,22 +1288,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // un bersaglio di mare il tetto non è l'esercito ma il CARICO dello scafo,
         // quindi il numero impegnato si stringe lì — ed è il numero su cui si fa
         // il pronostico, se no la percentuale mostrata mentirebbe.
-        const engagedFor = (t) => {
-            const n = parseInt(input.value, 10) || 0;
-            return t.viaMare ? Math.min(n, t.carico) : n;
-        };
+        const engagedFor = () => Math.max(0, Math.min(parseInt(input.value, 10) || 0, tetto));
 
         const odds = [];
         targets.forEach(t => {
             const bonus = t.fort ? ' +' + t.fort : '';
             const terr = terrainTag(t.terreno);
-            const sbarco = t.viaMare
-                ? ' · ⚓ sbarco, max ' + t.carico + ' a bordo'
-                : '';
             const btn = actionButton((t.viaMare ? '⚓ ' : '⚔ ') + t.label,
-                t.owner + ' · ' + t.troops + bonus + (terr ? ' · ' + terr : '') + sbarco, null,
+                t.owner + ' · ' + t.troops + bonus + (terr ? ' · ' + terr : ''), null,
                 () => {
-                    const n = engagedFor(t);
+                    const n = engagedFor();
                     const p = winChance(n, t);
                     // Il terreno è la cosa che il giocatore rischia di non vedere:
                     // va detta prima della carica, non nel rapporto dopo.
@@ -1261,7 +1309,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // e non c'è modo di richiamarla indietro (§9.2). Va detto qui,
                     // prima della carica, non scoperto nel rapporto dopo.
                     const testoSbarco = t.viaMare
-                        ? ' Parte anche la ' + (t.scafo === 'vascello' ? 'nave da guerra' : 'nave') +
+                        ? ' Parte anche la ' + (attackVessel === 'vascello' ? 'nave da guerra' : 'nave') +
                           ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
                           'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ' +
                           'Uno sbarco non si può fermare a metà.'
@@ -1274,13 +1322,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
                             ' · probabilità di vittoria ' + p + '%.' + nota + testoSbarco,
                         ok: t.viaMare ? '⚓ Sbarca' : '⚔ Carica', tone: 'war'
-                    }, () => run(GA().attack(player, path.id, t.id, n)));
+                    }, () => run(GA().attack(player, path.id, t.id, n, undefined, attackVessel)));
                 });
             const chip = document.createElement('span');
             chip.className = 'bp-odds';
             btn.appendChild(chip);
             odds.push(() => {
-                const p = winChance(engagedFor(t), t);
+                const p = winChance(engagedFor(), t);
                 chip.textContent = p + '%';
                 chip.className = 'bp-odds ' + (p >= 60 ? 'good' : p >= 40 ? 'even' : 'bad');
             });
@@ -1723,14 +1771,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const targets = GA().attackTargets(player, path.id);
         if (R.countPiece(path, 'soldato') < 2 || !targets.length) { R.clearAttackArrows(); return; }
-        // Le frecce servono a leggere il fronte, non a tappezzare la mappa: un
-        // Veliero raggiunge oltre cento province e disegnarle tutte nasconderebbe
-        // proprio quello che si vuole vedere. Il mare entra solo se resta leggibile;
-        // l'elenco del pannello le mostra comunque tutte.
-        const terra = targets.filter(t => !t.viaMare);
-        const mare = targets.filter(t => t.viaMare);
-        const mostrati = mare.length <= 12 ? targets : terra;
-        R.showAttackArrows(path.id, mostrati.map(t => t.id));
+        // Le frecce seguono la nave scelta: via terra i confinanti, con uno scafo
+        // quel che quello scafo raggiunge. Un Veliero però tocca oltre cento
+        // province e disegnarle tutte nasconderebbe proprio quel che si vuole
+        // vedere, quindi il mare entra solo se resta leggibile — l'elenco del
+        // pannello le mostra comunque tutte.
+        const scelti = attackVessel
+            ? targets.filter(t => t.viaMare && t.scafi.indexOf(attackVessel) >= 0)
+            : targets.filter(t => !t.viaMare);
+        R.showAttackArrows(path.id, (scelti.length <= 12 ? scelti : []).map(t => t.id));
     }
 
     // ---------- esito battaglia ----------

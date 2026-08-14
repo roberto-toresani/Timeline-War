@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Risiko Online — Mappa definitiva (posizione di partenza)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
+    <link rel="stylesheet" href="../css/tokens.css">
+    <style>
+        /* Visualizzatore a sé: non tocca style.css/board.css, così un ritocco
+           all'editor non può cambiare l'aspetto della mappa in cassaforte. */
+        * { box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg-page);
+            color: var(--text);
+            font-family: 'Cinzel', Georgia, serif;
+        }
+
+        body { display: flex; flex-direction: column; }
+
+        /* --- barra --- */
+        .md-bar {
+            display: flex;
+            align-items: baseline;
+            gap: 14px;
+            padding: 10px 18px;
+            background: var(--bg-panel-solid);
+            border-bottom: 2px solid var(--rule);
+            flex: 0 0 auto;
+        }
+
+        .md-bar h1 {
+            margin: 0;
+            font-size: 19px;
+            font-weight: 600;
+            color: var(--gold-bright);
+            letter-spacing: .5px;
+        }
+
+        .md-bar .md-sub { font-size: 12px; color: var(--parchment-muted); }
+        .md-bar .md-spacer { flex: 1; }
+
+        .md-btn {
+            font-family: inherit;
+            font-size: 12px;
+            padding: 5px 11px;
+            border-radius: 6px;
+            border: 1px solid var(--gold-edge);
+            background: var(--bg-inset);
+            color: var(--gold);
+            cursor: pointer;
+        }
+
+        .md-btn:hover { background: var(--rule); color: var(--gold-bright); }
+        .md-btn[aria-pressed="true"] { background: var(--gold); color: #241b12; }
+
+        /* --- corpo: mappa + colonna dei regni --- */
+        .md-main {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 1fr 300px;
+        }
+
+        #md-map {
+            position: relative;
+            overflow: hidden;
+            background: var(--sea);
+            border-right: 2px solid var(--rule);
+        }
+
+        #md-map svg { display: block; width: 100%; height: 100%; cursor: grab; }
+        #md-map.dragging svg { cursor: grabbing; }
+
+        /* Come nell'editor: durante pan/zoom l'alone costiero sparisce, altrimenti
+           il browser rifà due sfocature su 628 sagome a ogni tacca di rotella. */
+        #md-map svg.map-interacting #decor-coast-layer { display: none; }
+
+        /* Ornamenti della carta (map-decor.js): senza queste regole, che nel gioco
+           stanno in style.css, cartiglio e nomi dei mari escono neri. Copia fedele. */
+        #decor-ornaments {
+            fill: #2f5f80;
+            stroke: #2f5f80;
+            opacity: .5;
+            font-family: 'Cinzel', Georgia, serif;
+        }
+
+        #decor-ornaments text { stroke: none; fill: #24506e; }
+        #decor-ornaments .decor-cartouche { opacity: .9; }
+        #decor-ornaments .decor-scroll { fill: #e8dcc0; stroke: #8a7452; stroke-width: 1; }
+        #decor-ornaments .decor-scroll-end { fill: #d6c7a4; stroke: #8a7452; stroke-width: 1; }
+        #decor-ornaments .decor-cartouche text { fill: #6b4f2a; }
+        #decor-ornaments .decor-eye { fill: #16384f; stroke: none; }
+
+        #decor-ornaments .decor-water { fill: #1c4661; stroke: none; font-weight: 600; }
+        #decor-ornaments .decor-water.sea { font-weight: 500; font-style: italic; opacity: .85; }
+
+        .md-side {
+            overflow-y: auto;
+            padding: 12px 14px 24px;
+            background: var(--bg-panel-solid);
+        }
+
+        .md-side h2 {
+            margin: 0 0 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gold);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .md-side .md-hint {
+            margin: 0 0 12px;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: Georgia, serif;
+        }
+
+        .md-king {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            width: 100%;
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            border: 1px solid transparent;
+            border-radius: 7px;
+            background: none;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .md-king:hover { background: var(--bg-inset); }
+        .md-king[aria-pressed="true"] { border-color: var(--gold-edge); background: var(--bg-inset); }
+
+        .md-swatch {
+            width: 15px;
+            height: 15px;
+            flex: 0 0 auto;
+            border-radius: 3px;
+            border: 1px solid #0007;
+        }
+
+        .md-king .md-name { flex: 1; }
+        .md-king .md-count { font-size: 11px; color: var(--parchment-muted); }
+
+        .md-tot {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid var(--rule);
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: Georgia, serif;
+            line-height: 1.6;
+        }
+
+        /* --- tooltip --- */
+        #md-tip {
+            position: fixed;
+            z-index: 50;
+            display: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--gold-edge);
+            background: #241b12f2;
+            color: var(--gold-bright);
+            font-size: 12px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        #md-tip .md-tip-sub {
+            display: block;
+            font-size: 11px;
+            color: var(--parchment-dim);
+            font-family: Georgia, serif;
+        }
+
+        #md-err {
+            padding: 24px;
+            color: var(--danger-text);
+            font-family: Georgia, serif;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="md-bar">
+        <h1>Mappa definitiva</h1>
+        <span class="md-sub" id="md-saved"></span>
+        <span class="md-spacer"></span>
+        <button class="md-btn" id="md-res" aria-pressed="true">Risorse</button>
+        <button class="md-btn" id="md-reset">Inquadra tutto</button>
+    </div>
+
+    <div class="md-main">
+        <div id="md-map"></div>
+        <aside class="md-side">
+            <h2>Regni</h2>
+            <p class="md-hint">Clic su un regno per isolarlo. Rotella per lo zoom, trascina per spostarti.</p>
+            <div id="md-kings"></div>
+            <div class="md-tot" id="md-tot"></div>
+        </aside>
+    </div>
+
+    <div id="md-tip"></div>
+
+    <!-- Dati e moduli del gioco: il visualizzatore non ne duplica nessuno. -->
+    <script src="../data/embedded_map.js"></script>
+    <script src="../data/id_mapping.js"></script>
+    <script src="../data/city_names.js"></script>
+    <script src="../data/resource_icons.js"></script>
+    <script src="../data/piece_icons.js"></script>
+    <script src="../js/map-anchors.js"></script>
+    <script src="../js/map-decor.js"></script>
+    <!-- La mappa congelata (copia di data/start_map.json): è un .js e non un .json
+         apposta, così la pagina si apre anche col doppio clic, senza server. -->
+    <script src="mappa-definitiva.js"></script>
+
+    <script>
+        (function () {
+            'use strict';
+
+            const SVG_NS = 'http://www.w3.org/2000/svg';
+            const XLINK = 'http://www.w3.org/1999/xlink';
+            const MAP = window.MAPPA_DEFINITIVA;
+            const host = document.getElementById('md-map');
+
+            function fail(msg) { host.innerHTML = '<p id="md-err">' + msg + '</p>'; }
+
+            if (!MAP) return fail('Manca mappa-definitiva.js.');
+            if (typeof RAW_SVG_CONTENT === 'undefined') return fail('Manca data/embedded_map.js.');
+
+            const NEUTRAL = getComputedStyle(document.documentElement)
+                .getPropertyValue('--province-neutral').trim() || '#e8dcc0';
+
+            // nome del regno -> colore, e province possedute da ciascuno
+            const colorOf = {};
+            const owned = {};
+            (MAP.players || []).forEach(p => { colorOf[p.name] = p.color; owned[p.name] = []; });
+            Object.entries(MAP.provinces || {}).forEach(([id, king]) => {
+                if (owned[king]) owned[king].push(id);
+            });
+
+            host.innerHTML = RAW_SVG_CONTENT;
+            const svg = host.querySelector('svg');
+            if (!svg) return fail('SVG non valido.');
+
+            svg.setAttribute('viewBox', '0 0 1200 575');
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            if (window.MapDecor) MapDecor.decorate(svg);
+
+            // Le province VERE: path.state CON id. Senza il filtro sull'id si prende
+            // anche la copia congelata che fa da alone costiero (vedi CLAUDE.md).
+            const paths = Array.from(svg.querySelectorAll('path.state')).filter(p => p.id);
+
+            /* ---------- pittura ---------- */
+
+            let isolato = null;   // regno isolato dal clic sulla legenda, o null
+
+            function paint() {
+                paths.forEach(p => {
+                    const king = MAP.provinces[p.id];
+                    const spento = isolato && king !== isolato;
+                    p.style.fill = king && !spento ? colorOf[king] : NEUTRAL;
+                    p.style.opacity = spento ? 0.55 : 1;
+                    p.style.stroke = '#000';
+                    p.style.strokeWidth = '.25';
+                });
+            }
+
+            /* ---------- risorse ---------- */
+
+            function injectDefs(id, markup) {
+                if (!markup || svg.querySelector('#' + id)) return;
+                const doc = new DOMParser().parseFromString(
+                    '<svg xmlns="' + SVG_NS + '"><defs id="' + id + '">' + markup + '</defs></svg>',
+                    'image/svg+xml');
+                const defs = doc.querySelector('defs');
+                if (defs) svg.insertBefore(svg.ownerDocument.importNode(defs, true), svg.firstChild);
+            }
+
+            // Stesso ancoraggio dell'editor: un angolo del corpo principale, scivolando
+            // verso il centro finché il punto non cade davvero dentro il poligono.
+            function markerAnchor(path) {
+                const bb = MapAnchors.mainBodyBBox(path);
+                if (!bb) return null;
+                const size = Math.max(3, Math.min(Math.min(bb.w, bb.h) * 0.5, 11));
+                const inset = size * 0.6;
+                const ccx = bb.x + bb.w / 2, ccy = bb.y + bb.h / 2;
+                const corners = [
+                    [bb.x + inset, bb.y + inset],
+                    [bb.x + bb.w - inset, bb.y + inset],
+                    [bb.x + inset, bb.y + bb.h - inset],
+                    [bb.x + bb.w - inset, bb.y + bb.h - inset],
+                    [ccx, ccy]
+                ];
+                let cx = ccx, cy = ccy;
+                for (const [qx, qy] of corners) {
+                    let ok = null;
+                    for (let t = 0; t <= 1.0001; t += 0.2) {
+                        const px = qx + (ccx - qx) * t, py = qy + (ccy - qy) * t;
+                        if (MapAnchors.pointInPath(path, px, py)) { ok = [px, py]; break; }
+                    }
+                    if (ok) { cx = ok[0]; cy = ok[1]; break; }
+                }
+                return { x: cx - size / 2, y: cy - size / 2, size };
+            }
+
+            function drawResources() {
+                if (typeof RESOURCE_SYMBOLS === 'undefined') return;
+                injectDefs('res-defs', RESOURCE_SYMBOLS);
+                Object.entries(MAP.resources || {}).forEach(([id, key]) => {
+                    const path = document.getElementById(id);
+                    if (!path || !RESOURCES[key]) return;
+                    const a = markerAnchor(path);
+                    if (!a) return;
+                    const use = document.createElementNS(SVG_NS, 'use');
+                    use.setAttribute('href', '#res-' + key);
+                    use.setAttributeNS(XLINK, 'href', '#res-' + key);
+                    use.setAttribute('x', a.x);
+                    use.setAttribute('y', a.y);
+                    use.setAttribute('width', a.size);
+                    use.setAttribute('height', a.size);
+                    use.setAttribute('class', 'md-res-marker');
+                    use.setAttribute('pointer-events', 'none');
+                    svg.appendChild(use);
+                });
+            }
+
+            /* ---------- pedine e strade ----------
+               La mappa di partenza non ne ha (si dipingono in editor), ma se un
+               giorno la versione congelata ne avrà, si vedono senza toccare qui. */
+
+            function parsePieces(txt) {
+                return String(txt || '').split(',').filter(Boolean).map(v => {
+                    const [k, n] = v.split(':');
+                    return { key: k, n: Math.max(1, parseInt(n, 10) || 1) };
+                });
+            }
+
+            function drawPieces() {
+                const entries = Object.entries(MAP.pieces || {});
+                if (!entries.length || typeof PIECE_SYMBOLS === 'undefined') return;
+                injectDefs('pc-defs', PIECE_SYMBOLS);
+                entries.forEach(([id, entry]) => {
+                    const path = document.getElementById(id);
+                    if (!path) return;
+                    const a = MapAnchors.landAnchor(path);
+                    if (!a) return;
+                    const list = parsePieces(entry.t).concat(parsePieces(entry.s));
+                    if (!list.length) return;
+                    const size = Math.max(3.5, Math.min(a.r * 1.1, 9));
+                    const totW = list.length * size;
+                    list.forEach((it, i) => {
+                        const use = document.createElementNS(SVG_NS, 'use');
+                        use.setAttribute('href', '#pc-' + it.key);
+                        use.setAttributeNS(XLINK, 'href', '#pc-' + it.key);
+                        use.setAttribute('x', a.x - totW / 2 + i * size);
+                        use.setAttribute('y', a.y - size / 2);
+                        use.setAttribute('width', size);
+                        use.setAttribute('height', size);
+                        use.setAttribute('pointer-events', 'none');
+                        use.style.color = entry.c || colorOf[MAP.provinces[id]] || '#555';
+                        svg.appendChild(use);
+                    });
+                });
+            }
+
+            function drawRoads() {
+                (MAP.roads || []).forEach(r => {
+                    const A = document.getElementById(r.a), B = document.getElementById(r.b);
+                    if (!A || !B) return;
+                    const pa = MapAnchors.landAnchor(A), pb = MapAnchors.landAnchor(B);
+                    if (!pa || !pb) return;
+                    const line = document.createElementNS(SVG_NS, 'line');
+                    line.setAttribute('x1', pa.x); line.setAttribute('y1', pa.y);
+                    line.setAttribute('x2', pb.x); line.setAttribute('y2', pb.y);
+                    line.setAttribute('stroke', r.c || '#6b5b45');
+                    line.setAttribute('stroke-width', '1.1');
+                    line.setAttribute('stroke-dasharray', '2 1.4');
+                    line.setAttribute('pointer-events', 'none');
+                    svg.appendChild(line);
+                });
+            }
+
+            /* ---------- zoom e pan ---------- */
+
+            const FULL = { x: 0, y: 0, w: 1200, h: 575 };
+            let view = Object.assign({}, FULL);
+            let raf = 0, idle = 0;
+
+            function applyView() {
+                svg.setAttribute('viewBox', view.x + ' ' + view.y + ' ' + view.w + ' ' + view.h);
+            }
+
+            // Durante una gesture il viewBox si riscrive una volta per frame, non
+            // una per evento: è la regola che tiene fluido lo zoom nel gioco.
+            function applySoon() {
+                svg.classList.add('map-interacting');
+                clearTimeout(idle);
+                idle = setTimeout(() => svg.classList.remove('map-interacting'), 140);
+                if (raf) return;
+                raf = requestAnimationFrame(() => { raf = 0; applyView(); });
+            }
+
+            function svgPoint(ev) {
+                const r = svg.getBoundingClientRect();
+                // preserveAspectRatio="meet": la mappa è centrata nel riquadro
+                const scale = Math.min(r.width / view.w, r.height / view.h);
+                const offX = (r.width - view.w * scale) / 2;
+                const offY = (r.height - view.h * scale) / 2;
+                return {
+                    x: view.x + (ev.clientX - r.left - offX) / scale,
+                    y: view.y + (ev.clientY - r.top - offY) / scale
+                };
+            }
+
+            svg.addEventListener('wheel', ev => {
+                ev.preventDefault();
+                const p = svgPoint(ev);
+                const k = ev.deltaY < 0 ? 0.85 : 1 / 0.85;
+                const w = Math.min(FULL.w, Math.max(30, view.w * k));
+                const h = w * (FULL.h / FULL.w);
+                view.x = p.x - (p.x - view.x) * (w / view.w);
+                view.y = p.y - (p.y - view.y) * (h / view.h);
+                view.w = w; view.h = h;
+                applySoon();
+            }, { passive: false });
+
+            let drag = null;
+            svg.addEventListener('pointerdown', ev => {
+                drag = { p: svgPoint(ev), id: ev.pointerId };
+                svg.setPointerCapture(ev.pointerId);
+                host.classList.add('dragging');
+            });
+            svg.addEventListener('pointermove', ev => {
+                if (!drag) return;
+                const p = svgPoint(ev);
+                view.x -= p.x - drag.p.x;
+                view.y -= p.y - drag.p.y;
+                applySoon();
+            });
+            ['pointerup', 'pointercancel'].forEach(t => svg.addEventListener(t, () => {
+                drag = null;
+                host.classList.remove('dragging');
+            }));
+
+            document.getElementById('md-reset').addEventListener('click', () => {
+                view = Object.assign({}, FULL);
+                applyView();
+            });
+
+            // Inquadra le province di un regno (con un margine attorno).
+            function fitTo(ids) {
+                let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+                ids.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    const b = el.getBBox();
+                    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y);
+                    x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height);
+                });
+                if (!isFinite(x0)) return;
+                const pad = Math.max((x1 - x0), (y1 - y0)) * 0.35 + 8;
+                let w = Math.min(FULL.w, (x1 - x0) + pad * 2);
+                let h = w * (FULL.h / FULL.w);
+                const need = (y1 - y0) + pad * 2;
+                if (h < need) { h = need; w = h * (FULL.w / FULL.h); }
+                view = { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w: w, h: h };
+                applyView();
+            }
+
+            // Vista di casa: il teatro della partita, non il mondo intero. I dieci
+            // regni stanno tutti fra Europa, Nord Africa e Arabia e a scala mondiale
+            // sono dieci macchioline; "Inquadra tutto" rimette il planisfero.
+            function homeView() { fitTo(Object.keys(MAP.provinces || {})); }
+
+            /* ---------- legenda ---------- */
+
+            const kingsBox = document.getElementById('md-kings');
+
+            (MAP.players || []).forEach(p => {
+                const b = document.createElement('button');
+                b.className = 'md-king';
+                b.type = 'button';
+                b.setAttribute('aria-pressed', 'false');
+                b.innerHTML = '<span class="md-swatch" style="background:' + p.color + '"></span>' +
+                    '<span class="md-name"></span><span class="md-count">' +
+                    (owned[p.name] || []).length + ' prov.</span>';
+                b.querySelector('.md-name').textContent = p.name;
+                b.addEventListener('click', () => {
+                    const gia = isolato === p.name;
+                    isolato = gia ? null : p.name;
+                    kingsBox.querySelectorAll('.md-king').forEach(el =>
+                        el.setAttribute('aria-pressed', 'false'));
+                    if (!gia) {
+                        b.setAttribute('aria-pressed', 'true');
+                        fitTo(owned[p.name] || []);
+                    } else {
+                        homeView();
+                    }
+                    paint();
+                });
+                kingsBox.appendChild(b);
+            });
+
+            document.getElementById('md-saved').textContent =
+                'posizione di partenza salvata il ' + (MAP.salvata || '—');
+
+            document.getElementById('md-tot').textContent =
+                (MAP.players || []).length + ' regni · ' +
+                Object.keys(MAP.provinces || {}).length + ' province assegnate su ' + paths.length +
+                ' · ' + Object.keys(MAP.resources || {}).length + ' risorse';
+
+            /* ---------- tooltip ---------- */
+
+            const tip = document.getElementById('md-tip');
+
+            svg.addEventListener('mousemove', ev => {
+                const el = ev.target.closest ? ev.target.closest('path.state') : null;
+                if (!el || !el.id) { tip.style.display = 'none'; return; }
+                const nome = (typeof ID_MAP !== 'undefined' && ID_MAP[el.id]) || el.id.replace(/_/g, ' ');
+                const king = MAP.provinces[el.id];
+                const res = MAP.resources[el.id];
+                const citta = (typeof CITY_NAMES !== 'undefined' && CITY_NAMES[nome]) || null;
+                const sub = [
+                    king || 'terra di nessuno',
+                    res ? RESOURCES[res].nome.toLowerCase() : null,
+                    citta && citta !== nome ? citta : null
+                ].filter(Boolean).join(' · ');
+                tip.innerHTML = '';
+                tip.appendChild(document.createTextNode(nome));
+                const s = document.createElement('span');
+                s.className = 'md-tip-sub';
+                s.textContent = sub;
+                tip.appendChild(s);
+                tip.style.display = 'block';
+                tip.style.left = Math.min(ev.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px';
+                tip.style.top = (ev.clientY + 16) + 'px';
+            });
+            svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+            /* ---------- avvio ---------- */
+
+            paint();
+            drawRoads();
+            drawResources();
+            drawPieces();
+            homeView();
+
+            const resBtn = document.getElementById('md-res');
+            resBtn.addEventListener('click', () => {
+                const on = resBtn.getAttribute('aria-pressed') !== 'true';
+                resBtn.setAttribute('aria-pressed', String(on));
+                svg.querySelectorAll('.md-res-marker').forEach(m => {
+                    m.style.display = on ? '' : 'none';
+                });
+            });
+        })();
+    </script>
+</body>
+
+</html>

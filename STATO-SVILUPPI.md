@@ -4,7 +4,7 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-08-13 (nomi latini di oceani e mari sulla carta)
+- **Ultimo aggiornamento:** 2026-08-14 (mappa definitiva in cassaforte: `src/mappe/`)
 - **Branch corrente:** `feat/partita-giocabile`
 - **Ultimo commit:** vedi `git log` — Pedine scontornate e ancoraggi (niente truppe in mare, navi in acqua aperta)
 
@@ -119,6 +119,17 @@ e in particolare al momento del commit.
   "partita non avviata" al turno 1 e comincia da `⚔️ Gioca con l'IA (mappa attuale)`.
   Il salvataggio è **un click**: `scripts/serve.ps1` risponde a `POST /_start-map` e
   scrive lui il file in `src/data/` (fuori dal server locale si ripiega sul download).
+- **Mappa definitiva in cassaforte (nuovo)** — cartella `src/mappe/`.
+  `mappa-definitiva.js` è la copia **congelata** di `data/start_map.json` (10 regni, 30
+  province assegnate, 198 risorse, salvata il 2026-08-08): `start_map.json` è viva e il 📌
+  la riscrive, questa cambia solo quando lo si decide. `mappa-definitiva.html` è il
+  visualizzatore di sola lettura — carta antica con ornamenti, zoom/pan propri, clic su un
+  regno nella legenda per isolarlo e volarci sopra, gettoni-risorsa spegnibili, tooltip con
+  provincia/regno/risorsa/città storica. Si apre da server
+  (`/mappe/mappa-definitiva.html`) **o col doppio clic**: la copia è un `.js` e non un
+  `.json` proprio perché da `file://` un `fetch` sarebbe bloccato. Il gioco non carica
+  niente da lì; la pagina riusa i moduli esistenti e non duplica dati. Istruzioni per
+  rigenerarla in `src/mappe/README.md`.
 - **Partita contro l'IA (nuovo)** — `js/bot.js` + `js/setup.js`.
   - **Avvio normale** (bottone ⚔️ nell'editor): si gioca **la mappa che c'è**, con i regni
     già dipinti e i loro confini. A chi non ha una Capitale viene data nella provincia più

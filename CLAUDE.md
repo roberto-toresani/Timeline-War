@@ -46,6 +46,9 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ province_terrain.js TERRENO di tutte e 628 le province: chiuso | aperto
 │  ├─ start_map.json     la mappa iniziale salvata (nasce al primo 📌 dell'editor)
 │  └─ id_mapping.js      mappatura id SVG ↔ nomi province
+├─ mappe/                CASSAFORTE: la mappa definitiva congelata + il suo visualizzatore
+│  ├─ mappa-definitiva.js   copia congelata di data/start_map.json (non si aggiorna da sola)
+│  └─ mappa-definitiva.html pagina di sola lettura: zoom, regni isolabili, risorse
 ├─ _diag-anchors.html    pagina di lavoro: disegna gli ancoraggi di tutte le province
 └─ assets/               mappe SVG (world_map*.svg)
 firebase/firestore.rules regole di sicurezza Firestore (da pubblicare nella console Firebase)
@@ -163,6 +166,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   POST fallisce e si ripiega sul download del browser: il file va copiato a mano in
   `src/data/`. **Se il server era già acceso quando serve.ps1 è cambiato, va
   riavviato**, altrimenti il salvataggio ripiega sul download.
+- **`src/mappe/` è un'altra cosa**: lì sta la copia **congelata** della mappa definitiva
+  (`mappa-definitiva.js`) con la sua pagina di sola lettura
+  (`mappa-definitiva.html`: zoom/pan propri, regni isolabili dalla legenda, risorse,
+  tooltip con provincia/regno/risorsa/città). `data/start_map.json` è **viva** e il 📌 la
+  riscrive a ogni salvataggio; la copia in `mappe/` cambia solo quando lo si decide, ed è
+  il punto zero a cui tornare. Il gioco non carica niente da quella cartella — la pagina
+  riusa i moduli esistenti (`embedded_map`, `map-anchors`, `map-decor`, icone) e non
+  duplica dati. La copia è un `.js` (`window.MAPPA_DEFINITIVA`) e non un `.json` apposta:
+  così la pagina si apre anche col doppio clic, dove un `fetch` da `file://` sarebbe
+  bloccato. Come rigenerarla: `src/mappe/README.md`.
 - **Partita contro l'IA — due avvii diversi.** Quello NORMALE (`⚔️ Gioca con l'IA`,
   `GameSetup.newGame()`) **tiene la mappa dipinta nell'editor**: i regni sono quelli
   che ci sono, con i loro confini; chi non ha una Capitale la riceve nella sua
@@ -303,6 +316,11 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   successiva si misura da lì; persa, è già sulla spiaggia del difensore e diventa suo
   senza codice apposta, perché le navi appartengono a chi possiede la provincia. Non
   esiste modo di annullare uno sbarco a metà, ed è voluto.
+  **Lo sbarco è totale**: dopo uno sbarco vinto `player.conquista` NON si apre — la
+  ripartizione fra chi occupa e chi rientra vale solo per le conquiste via terra. Chi
+  scende dalla nave resta a terra; per riportare indietro degli uomini c'è lo spostamento
+  di fine turno. Chi tocca `attack()` non rimetta la conquista sugli sbarchi "per
+  uniformità": è una regola, non una dimenticanza.
 - **Nebbia leggera (§9.2)**: `computeVisibleProvinces` non torna più un Set ma
   `{visible, haze}`. `haze` è quel che raggiungono le nostre navi: la provincia si vede
   **col colore del proprietario** ma le sue pedine no — dal mare si riconosce la bandiera,

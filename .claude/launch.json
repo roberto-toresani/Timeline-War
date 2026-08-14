@@ -24,6 +24,18 @@
         "-Port", "5599"
       ],
       "port": 5599
+    },
+    {
+      "name": "risiko-3",
+      "runtimeExecutable": "powershell.exe",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/serve.ps1",
+        "-Root", "src",
+        "-Port", "5601"
+      ],
+      "port": 5601
     }
   ]
 }

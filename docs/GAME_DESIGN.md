@@ -493,6 +493,10 @@ provincia, si porta dietro il carico e combatte nella provincia bersaglio, col t
 quella provincia (§9.1).
 - **Vinta** → nave e superstiti occupano la provincia presa. La nave è ora ancorata lì e la
   portata successiva si misura da quella costa: **la flotta avanza con la conquista**.
+  **Lo sbarco è totale**: chi scende resta a terra, non esiste la ripartizione fra chi
+  occupa e chi rientra che invece si fa dopo una conquista via terra. Per riportare
+  indietro degli uomini c'è lo **spostamento di fine turno**, con la nave come mezzo di
+  trasporto — una scelta successiva e visibile, non un ripensamento dentro l'assalto.
 - **Persa** → l'attaccante perde tutte le truppe impegnate **e la nave, che passa al difensore**.
 
 Sbarco solo su provincia **costiera**. Il carico è il tetto **per scafo**: un'invasione vera si
