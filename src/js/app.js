@@ -123,6 +123,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Chi le ha mandate le ritrova scorrendo gli altri regni (tradeOutbox in
         // game-actions.js): una proposta esiste in un posto solo.
         if (!Array.isArray(p.offerte)) p.offerte = [];
+        // EDITTI (GameActions.decree): gli interventi dell'admin che riguardano
+        // questo regno. Restano qui finché il giocatore non apre il suo turno e
+        // se li vede srotolare — un editto non deve poter passare inosservato.
+        if (!Array.isArray(p.editti)) p.editti = [];
+        // SPIE (§9.3): [{prov, turno}] — dove sta ciascuna e da che turno.
+        // La scadenza non si salva: si calcola (js/spies.js), così una spia non
+        // può sopravvivere a un salvataggio riaperto tre decenni dopo.
+        if (!Array.isArray(p.spie)) p.spie = [];
         return p;
     }
 
@@ -426,13 +434,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (next) path.setAttribute('data-resource', next);
                     else path.removeAttribute('data-resource');
                     renderMarkerForPath(svg, path);
+                    renderRoads(svg);   // l'icona e' cambiata: le strade la rischivano
                     showResourceInfo(next);
                     saveAutoSave();
                     return;
                 }
 
                 // Pennello STRADA: collega due province cliccandole in sequenza.
-                // Il selciato compare a cavallo del confine tra le due (adiacenti).
+                // Il cancello compare a cavallo del confine tra le due (adiacenti).
                 if (isAdminMode && selectedPiece === 'strada') {
                     if (pendingRoad === null) {
                         pendingRoad = path.id;
@@ -714,6 +723,9 @@ document.addEventListener('DOMContentLoaded', () => {
         injectResourceDefs(svg);
         svg.querySelectorAll('.resource-marker').forEach(m => m.remove());
         provincePaths(svg).forEach(path => renderMarkerForPath(svg, path));
+        // Le strade schivano le icone-risorsa (vedi freeRoadIndex): se le icone
+        // cambiano, le strade vanno rifatte o resterebbero sotto quelle nuove.
+        renderRoads(svg);
     }
 
     // Snapshot { provinceId: risorsa } delle sole province con risorsa assegnata.
@@ -899,6 +911,30 @@ document.addEventListener('DOMContentLoaded', () => {
         setShips(path, arr);
     }
 
+    // ====================== MERCENARI (docs/GAME_DESIGN.md §5.3) ======================
+    // Quanti dei soldati di una provincia sono di ventura: data-merc="3".
+    // Vive sul PATH e non sul record del giocatore perche' le truppe appartengono
+    // a chi possiede la provincia (esattamente come le navi, §9.2): cosi' la quota
+    // viaggia negli snapshot, sopravvive a un editto e non serve un secondo libro
+    // mastro da tenere allineato.
+    //
+    // INVARIANTE: data-merc <= soldati presenti. La impone `setMerc`, e
+    // `changePiece` la riapplica ogni volta che i soldati calano — nessun percorso
+    // (pennello dell'editor compreso) puo' lasciare piu' mercenari che uomini.
+    // Le funzioni sono dichiarate `function` apposta: `applyPieceState` gira in
+    // cima alla closure, dove un `const` sarebbe ancora nella sua zona morta
+    // (stessa ragione degli alias di MapAnchors, vedi CLAUDE.md).
+    function mercOf(path) {
+        const n = parseInt(path.getAttribute('data-merc'), 10);
+        return n > 0 ? n : 0;
+    }
+
+    function setMerc(path, n) {
+        const v = Math.max(0, Math.min(Math.floor(n || 0), countPiece(path, 'soldato')));
+        if (v > 0) path.setAttribute('data-merc', String(v));
+        else path.removeAttribute('data-merc');
+    }
+
     // Elenco (validato, con quantita') delle figure di una provincia: [{type,count}].
     // Le navi non stanno in data-pieces: si sintetizzano dagli scafi, così chi
     // conta non deve sapere nulla di carichi e chiglie.
@@ -946,6 +982,7 @@ document.addEventListener('DOMContentLoaded', () => {
             path.removeAttribute('data-pieces');
             path.removeAttribute('data-ships');
             path.removeAttribute('data-pc-color');
+            path.removeAttribute('data-merc');
             return;
         }
         if (typeof PIECES === 'undefined' || !PIECES[type]) return;
@@ -959,6 +996,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!e) { if (delta > 0) arr.push({ type, count: Math.min(delta, max) }); }
         else { e.count = Math.max(0, Math.min(e.count + delta, max)); }
         setPieces(path, arr);
+        // Rete di sicurezza dell'invariante dei mercenari: se i soldati calano, la
+        // ventura non puo' restare piu' numerosa di loro. Chi vuole decidere QUALI
+        // uomini se ne vanno (partenze proporzionali, perdite alla ventura per
+        // prima) lo fa esplicitamente in game-actions.js: qui si tappa e basta.
+        if (type === 'soldato' && delta < 0) setMerc(path, mercOf(path));
     }
 
     function ownerColorHex(path) {
@@ -1084,6 +1126,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const entry = {};
             if (t) entry.t = t;
             if (s) entry.s = s;
+            const m = p.getAttribute('data-merc');   // mercenari, §5.3
+            if (m) entry.m = m;
             const c = p.getAttribute('data-pc-color');
             if (c) entry.c = c;
             out[p.id] = entry;
@@ -1098,9 +1142,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => {
             const v = map[p.id];
-            let str = '', ships = '', color = '';
+            let str = '', ships = '', color = '', merc = 0;
             if (v && typeof v === 'object' && !Array.isArray(v)) {
                 str = v.t || ''; ships = v.s || ''; color = v.c || '';
+                merc = parseInt(v.m, 10) || 0;
             }
             else if (typeof v === 'string') str = v;
             else if (Array.isArray(v)) str = v.join(',');
@@ -1127,6 +1172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const land = serializePieces(arr);   // filtra da sé le voci-nave
             if (land) p.setAttribute('data-pieces', land); else p.removeAttribute('data-pieces');
             setShips(p, hulls);
+            setMerc(p, merc);   // si clampa da sé sui soldati appena applicati (§5.3)
             if ((land || hulls.length) && color) p.setAttribute('data-pc-color', color);
             else p.removeAttribute('data-pc-color');
         });
@@ -1152,40 +1198,137 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'added';
     }
 
-    // Punto a meta' del confine condiviso tra due province (media dei punti-bordo
-    // di A vicini al bordo di B). Fallback: meta' tra i due centri.
-    function sharedBorderMidpoint(A, B) {
-        const pa = boundaryPoints(A), pb = boundaryPoints(B);
-        if (pa.length && pb.length) {
-            const thr2 = 4 * 4;
-            let sx = 0, sy = 0, n = 0;
-            for (const p of pa) {
-                for (const q of pb) {
-                    const dx = p.x - q.x, dy = p.y - q.y;
-                    if (dx * dx + dy * dy < thr2) { sx += (p.x + q.x) / 2; sy += (p.y + q.y) / 2; n++; break; }
-                }
-            }
-            if (n) return { x: sx / n, y: sy / n };
-        }
-        const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
-        if (ba && bb) return { x: (ba.x + ba.w / 2 + bb.x + bb.w / 2) / 2, y: (ba.y + ba.h / 2 + bb.y + bb.h / 2) / 2 };
-        return null;
+    // Quanto e' lunga una strada, cioe' quanto sporge di traverso al confine.
+    // Unica fonte della misura: chi la vuole diversa tocca solo questa riga.
+    // Piccola apposta (poco piu' di due unita' su province da dieci): sono decine
+    // di segni sparsi su una mappa gia' piena, e il primo difetto di questa roba
+    // e' l'affollamento, non l'invisibilita'.
+    function roadSpan(ref) { return Math.max(1.5, Math.min(ref * 0.085, 2.4)); }
+
+    // Quanto confine si percorre, per lato, per misurarne la direzione. NON e' la
+    // lunghezza della strada: e' una misura della geografia e resta fissa anche se
+    // la strada si rimpicciolisce. Corto prende la frastagliatura del bordo, lungo
+    // da' la corda di tutto il confine e la strada esce storta.
+    // `function` e non `const`: renderRoads gira da initMap (in cima alla closure),
+    // quindi un `const` qui sarebbe ancora in zona morta — vedi la nota sugli alias
+    // di MapAnchors. L'errore finiva nel try/catch di loadAutoSave e la partita
+    // salvata non si caricava piu': "Partita non avviata" a turno in corso.
+    function roadTangentR() { return 1.6; }
+
+    // DOVE sta una strada e COM'E' GIRATA. Il punto di mezzo non basta: serve
+    // l'inclinazione del CONFINE, perche' la strada lo taglia di traverso —
+    // verticale su un confine orizzontale e viceversa. La direzione NON puo'
+    // venire dai centri delle due province: su un confine a L, o fra province
+    // di forma strana, punta altrove e la strada finisce di sbieco o dentro una
+    // provincia. Si misura sui punti dove i due bordi si TOCCANO davvero.
+    // La geografia non cambia mai: il risultato si memoizza sull'elemento.
+    function roadPlacement(A, B) {
+        const cache = A.__roadGeom || (A.__roadGeom = {});
+        if (!(B.id in cache)) cache[B.id] = computeRoadPlacement(A, B);
+        return cache[B.id];
     }
 
-    // Estremi (coordinate SVG) di una strada: un tratto CORTO centrato sul confine
-    // e orientato A->B. Non deve attraversare le province: basta far capire che le
-    // due hanno un confine collegato, quindi resta piccolo e non ingombrante.
-    function roadEndpoints(A, B) {
-        const mid = sharedBorderMidpoint(A, B); if (!mid) return null;
+    function computeRoadPlacement(A, B) {
         const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
         if (!ba || !bb) return null;
-        let dx = (bb.x + bb.w / 2) - (ba.x + ba.w / 2);
-        let dy = (bb.y + bb.h / 2) - (ba.y + ba.h / 2);
-        const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
         const ref = Math.min(Math.min(ba.w, ba.h), Math.min(bb.w, bb.h));
-        const half = Math.max(3.5, Math.min(ref * 0.3, 7));   // meta' lunghezza: corta
-        return [{ x: mid.x - dx * half, y: mid.y - dy * half },
-                { x: mid.x + dx * half, y: mid.y + dy * half }];
+        // Il confine condiviso puo' stare solo dove i due riquadri si sovrappongono:
+        // scartare subito il resto del bordo fa la differenza fra 120 ms e 5 ms per
+        // strada (Russia e Canada hanno migliaia di punti di bordo). Se il ritaglio
+        // lascia troppo poco (province a isole, il cui riquadro principale non copre
+        // tutto) si ricade sui punti interi: meglio lento che sbagliato.
+        const pad = 3;
+        const box = { x0: Math.max(ba.x, bb.x) - pad, y0: Math.max(ba.y, bb.y) - pad,
+                      x1: Math.min(ba.x + ba.w, bb.x + bb.w) + pad, y1: Math.min(ba.y + ba.h, bb.y + bb.h) + pad };
+        const clip = pts => {
+            const out = pts.filter(p => p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1);
+            return out.length >= 3 ? out : pts;
+        };
+        const pa = clip(boundaryPoints(A)), pb = clip(boundaryPoints(B));
+        // Punti di contatto fra i due bordi. Hash spaziale su B: il confronto
+        // tutti-contro-tutti costerebbe centinaia di migliaia di distanze.
+        const hits = [];
+        if (pa.length && pb.length) {
+            const CELL = 1.2, grid = new Map();
+            for (const p of pb) {
+                const k = Math.round(p.x / CELL) + ',' + Math.round(p.y / CELL);
+                const cell = grid.get(k);
+                if (cell) cell.push(p); else grid.set(k, [p]);
+            }
+            const thr2 = CELL * CELL;
+            for (const p of pa) {
+                const gx = Math.round(p.x / CELL), gy = Math.round(p.y / CELL);
+                let done = false;
+                for (let dx = -1; dx <= 1 && !done; dx++) for (let dy = -1; dy <= 1 && !done; dy++) {
+                    const cell = grid.get((gx + dx) + ',' + (gy + dy)); if (!cell) continue;
+                    for (const q of cell) {
+                        const ex = p.x - q.x, ey = p.y - q.y;
+                        if (ex * ex + ey * ey < thr2) {
+                            hits.push({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
+                            done = true; break;
+                        }
+                    }
+                }
+            }
+        }
+        const vx = (bb.x + bb.w / 2) - (ba.x + ba.w / 2), vy = (bb.y + bb.h / 2) - (ba.y + ba.h / 2);
+        // Ripiego: confine non trovato (bordi mal ritagliati). Meglio una strada
+        // storta che nessuna strada — si torna al vecchio criterio dei centri.
+        if (hits.length < 3) {
+            return { ref, fissa: { x: (ba.x + ba.w / 2 + bb.x + bb.w / 2) / 2,
+                                   y: (ba.y + ba.h / 2 + bb.y + bb.h / 2) / 2,
+                                   ang: Math.atan2(vy, vx) * 180 / Math.PI } };
+        }
+        // Il mezzo del confine: il punto di contatto piu' vicino al baricentro dei
+        // contatti. Il baricentro da solo, su un confine curvo, cade fuori dal confine.
+        let cx = 0, cy = 0;
+        for (const h of hits) { cx += h.x; cy += h.y; }
+        cx /= hits.length; cy /= hits.length;
+        let midIdx = 0, best = Infinity;
+        for (let i = 0; i < hits.length; i++) {
+            const d = (hits[i].x - cx) * (hits[i].x - cx) + (hits[i].y - cy) * (hits[i].y - cy);
+            if (d < best) { best = d; midIdx = i; }
+        }
+        // PCA sull'intero confine: serve solo come ripiego quando il tratto sotto la
+        // strada e' troppo corto per dare una direzione (vedi roadPoseAt).
+        let sxx = 0, syy = 0, sxy = 0;
+        for (const h of hits) { const dx = h.x - cx, dy = h.y - cy; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+        const thAll = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+        return { ref, hits, midIdx, vx, vy, tAllX: Math.cos(thAll), tAllY: Math.sin(thAll) };
+    }
+
+    // Posa della strada su UN punto del confine (indice nell'elenco dei contatti):
+    // dove sta e di quanto e' ruotata. E' separata da roadPlacement perche' il punto
+    // non e' sempre il mezzo del confine — se li' c'e' un'icona, la strada scivola
+    // lungo il confine (vedi freeRoadIndex) e da qui si ricava la posa nuova.
+    // Direzione in cui CORRE il confine: non si STIMA con una nuvola di punti, si
+    // CAMMINA sul confine. I contatti nascono nell'ordine in cui si percorre il bordo
+    // di A, quindi camminare e' scorrere l'array — avanti e indietro dal punto di posa
+    // finche' non si e' percorso roadTangentR(). La corda fra i due estremi e' la
+    // tangente, e non risente della frastagliatura del bordo come farebbe una PCA su
+    // un raggio piccolo. Si interrompe se due contatti consecutivi distano troppo: li'
+    // il confine e' in due tronconi e saltare dall'uno all'altro darebbe una direzione
+    // inventata.
+    function roadPoseAt(geom, idx) {
+        const hits = geom.hits, R = roadTangentR();
+        const walk = dir => {
+            let i = idx, acc = 0;
+            while (acc < R) {
+                const j = i + dir;
+                if (j < 0 || j >= hits.length) break;
+                const d = Math.hypot(hits[j].x - hits[i].x, hits[j].y - hits[i].y);
+                if (d > 1.5) break;
+                acc += d; i = j;
+            }
+            return hits[i];
+        };
+        const e0 = walk(-1), e1 = walk(1);
+        let tx = e1.x - e0.x, ty = e1.y - e0.y;
+        if (Math.hypot(tx, ty) < 0.3) { tx = geom.tAllX; ty = geom.tAllY; }
+        let nx = -ty, ny = tx;            // la strada e' perpendicolare al confine
+        // Orienta la normale da A verso B (conta solo per il verso, il disegno e' simmetrico).
+        if (nx * geom.vx + ny * geom.vy < 0) { nx = -nx; ny = -ny; }
+        return { x: hits[idx].x, y: hits[idx].y, ang: Math.atan2(ny, nx) * 180 / Math.PI };
     }
 
     // Le strade vivono in un LORO strato, subito sopra le terre (#map-group) e
@@ -1204,61 +1347,100 @@ document.addEventListener('DOMContentLoaded', () => {
         return layer;
     }
 
-    // Una strada e' un piccolo SELCIATO (stile Catan) a cavallo del confine: corto,
-    // giusto per far capire che le due province sono collegate. E' fatto di SASSI
-    // veri — file di ciottoli arrotondati posati a mattoni (righe sfalsate) nel
-    // colore del regno, su un fondo scuro che fa da malta e da bordo. Il gruppo e'
-    // ruotato lungo la strada, cosi' i ciottoli si disegnano in coordinate locali
-    // (x = lungo la strada, y = di traverso).
+    // Una strada e' un CANCELLO APERTO: due trattini scuri che tagliano il confine
+    // di traverso, col varco in mezzo — il confine passa fra i due. E' un GANCIO,
+    // non una carreggiata: deve dire "queste due province sono collegate" e sparire
+    // dalla vista, perche' sulla mappa comandano pedine, citta' e risorse.
+    // Il gruppo e' ruotato lungo la NORMALE al confine (vedi roadPlacement), quindi
+    // i trattini si disegnano in coordinate locali: x = di traverso al confine,
+    // y = lungo il confine. Cosi' l'orientamento segue il TIPO di confine da se':
+    // trattini verticali su un confine orizzontale, orizzontali su uno verticale.
+    // Indice provincia -> riquadri delle sue ICONE-RISORSA, in UNA passata. Non si
+    // interroga l'SVG dentro il ciclo delle strade: e' lo stesso errore che faceva
+    // costare un secondo a refreshMapDisplay (vedi markerIndex).
+    // Le PEDINE non entrano qui apposta: si muovono a ogni turno, e una strada che
+    // le schivasse salterebbe di posto a ogni mossa — deve restare un punto fermo
+    // della mappa. Le risorse invece si assegnano nell'editor e poi stanno ferme.
+    function resourceBoxIndex(svg) {
+        const idx = new Map();
+        svg.querySelectorAll('.resource-marker').forEach(u => {
+            const id = u.getAttribute('data-prov'); if (!id) return;
+            const x = parseFloat(u.getAttribute('x')), y = parseFloat(u.getAttribute('y'));
+            const w = parseFloat(u.getAttribute('width')), h = parseFloat(u.getAttribute('height'));
+            if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) return;
+            let arr = idx.get(id); if (!arr) { arr = []; idx.set(id, arr); }
+            arr.push({ x, y, w, h });
+        });
+        return idx;
+    }
+
+    // Il punto del confine su cui posare la strada: il mezzo, se e' libero. Se li'
+    // c'e' un'icona-risorsa la strada SCIVOLA lungo il confine — un punto vale
+    // l'altro, purche' sia sul confine giusto — fino al primo libero, cercando
+    // alternativamente da una parte e dall'altra per restare il piu' vicino
+    // possibile al mezzo. Se e' tutto occupato (province piccole, confine corto)
+    // si tiene il mezzo: meglio una strada coperta che una spostata a caso.
+    function freeRoadIndex(geom, boxes, L) {
+        if (!boxes.length) return geom.midIdx;
+        const half = L / 2 + 0.3;   // l'ingombro del segno, non solo il suo centro
+        const libero = i => {
+            const p = geom.hits[i];
+            return !boxes.some(b => p.x + half > b.x && p.x - half < b.x + b.w &&
+                                    p.y + half > b.y && p.y - half < b.y + b.h);
+        };
+        if (libero(geom.midIdx)) return geom.midIdx;
+        const MAX = 40;             // quanti contatti al massimo si scorre per lato
+        for (let d = 1; d <= MAX; d++) {
+            const su = geom.midIdx + d, giu = geom.midIdx - d;
+            if (su < geom.hits.length && libero(su)) return su;
+            if (giu >= 0 && libero(giu)) return giu;
+        }
+        return geom.midIdx;
+    }
+
     function renderRoads(svg) {
         svg.querySelectorAll('.road-marker').forEach(m => m.remove());
         const layer = roadsLayer(svg);
-        const ROAD_INK = '#14100b';   // const locale: renderRoads gira da initMap
-        const rect = (parent, x, y, w, h, rx, fill, stroke, sw) => {
-            const el = document.createElementNS(SVG_NS, 'rect');
-            el.setAttribute('x', x.toFixed(2)); el.setAttribute('y', y.toFixed(2));
-            el.setAttribute('width', w.toFixed(2)); el.setAttribute('height', h.toFixed(2));
-            el.setAttribute('rx', rx.toFixed(2));
-            el.setAttribute('fill', fill);
-            if (stroke) { el.setAttribute('stroke', stroke); el.setAttribute('stroke-width', sw.toFixed(2)); }
-            parent.appendChild(el);
-        };
+        const resIdx = ROADS.length ? resourceBoxIndex(svg) : null;
         ROADS.forEach(r => {
             const A = document.getElementById(r.a), B = document.getElementById(r.b);
             if (!A || !B) return;
-            const ends = roadEndpoints(A, B); if (!ends) return;
-            const [p1, p2] = ends;
-            const ba = mainBodyBBox(A), bb = mainBodyBBox(B);
-            const ref = Math.min(ba ? Math.min(ba.w, ba.h) : 12, bb ? Math.min(bb.w, bb.h) : 12);
-            const W = Math.max(3, Math.min(ref * 0.13, 5));            // larghezza strada
-            const L = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-            const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
-            const color = r.c || PIECE_NEUTRAL;
+            const geom = roadPlacement(A, B); if (!geom) return;
+            const L = roadSpan(geom.ref);         // quanto sporgono di traverso al confine
+            const boxes = (resIdx.get(r.a) || []).concat(resIdx.get(r.b) || []);
+            const pos = geom.fissa || roadPoseAt(geom, freeRoadIndex(geom, boxes, L));
+            const gap = L * 0.38;                 // il varco, lungo il confine
+            const w = Math.max(0.34, L * 0.19);   // piu' grossi del tratto di confine
             const g = document.createElementNS(SVG_NS, 'g');
             g.setAttribute('class', 'road-marker');
             g.setAttribute('data-road', roadKey(r.a, r.b));
             g.setAttribute('pointer-events', 'none');
-            g.setAttribute('transform', `translate(${p1.x.toFixed(1)} ${p1.y.toFixed(1)}) rotate(${ang.toFixed(1)})`);
-            // fondo scuro (malta + bordo), estremi arrotondati
-            const e = W * 0.12;
-            rect(g, -e, -W / 2, L + 2 * e, W, W * 0.5, ROAD_INK, null, 0);
-            // ciottoli: righe sfalsate a mattoni
-            const rows = W >= 4 ? 3 : 2;
-            const rowH = W / rows;
-            const stoneH = rowH * 0.82;
-            const pitch = rowH * 1.12;
-            const stoneL = pitch * 0.82;
-            const rx = Math.min(stoneL, stoneH) * 0.38;
-            const sw = Math.max(0.3, W * 0.07);
-            for (let row = 0; row < rows; row++) {
-                const cy = -W / 2 + rowH * (row + 0.5);
-                const off = (row % 2) * (pitch / 2);
-                for (let x = pitch * 0.55 + off; x <= L - pitch * 0.15; x += pitch) {
-                    rect(g, x - stoneL / 2, cy - stoneH / 2, stoneL, stoneH, rx, color, ROAD_INK, sw);
-                }
-            }
+            g.setAttribute('transform', `translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)}) rotate(${pos.ang.toFixed(1)})`);
+            // Scuri, ma non neri: il colore del regno resta riconoscibile da vicino.
+            const ink = inkShade(r.c || PIECE_NEUTRAL, 0.62);
+            [-gap, gap].forEach(y => {
+                const el = document.createElementNS(SVG_NS, 'line');
+                el.setAttribute('x1', (-L / 2).toFixed(2)); el.setAttribute('y1', y.toFixed(2));
+                el.setAttribute('x2', (L / 2).toFixed(2)); el.setAttribute('y2', y.toFixed(2));
+                el.setAttribute('stroke', ink);
+                el.setAttribute('stroke-width', w.toFixed(2));
+                el.setAttribute('stroke-linecap', 'round');
+                g.appendChild(el);
+            });
             layer.appendChild(g);
         });
+    }
+
+    // Scurisce un colore verso l'inchiostro della mappa: k=0 lo lascia com'e',
+    // k=1 lo annerisce. Serve alle strade, che devono essere scure ma restare
+    // attribuibili a un regno.
+    function inkShade(color, k) {
+        const m = /^#([0-9a-fA-F]{6})$/.exec(String(color).trim());
+        if (!m) return '#14100b';
+        const n = parseInt(m[1], 16);
+        const mix = (c, ink) => Math.round(c * (1 - k) + ink * k);
+        const r = mix(n >> 16 & 255, 0x14), g = mix(n >> 8 & 255, 0x10), b = mix(n & 255, 0x0b);
+        return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
     }
 
     function collectRoads() { return ROADS.map(r => ({ a: r.a, b: r.b, c: r.c })); }
@@ -2125,12 +2307,95 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- EDITTO (admin) ---
+    // Il pannello è solo un modulo da compilare: chi muta lo stato resta
+    // GameActions.decree, come per ogni altra azione. Qui si riempiono le tendine
+    // (regni, province, risorse), si mostrano i campi che servono all'editto
+    // scelto e si passa tutto al motore.
+    function renderDecreeControls() {
+        const box = document.getElementById('decree-controls');
+        if (!box) return;
+        box.style.display = isAdminMode ? 'block' : 'none';
+        if (!isAdminMode) return;
+
+        const sel = document.getElementById('decree-player');
+        if (sel) {
+            const prima = sel.value;
+            sel.innerHTML = '<option value="">— nessun regno (terra di nessuno) —</option>' +
+                PLAYERS.map(p => '<option value="' + p.id + '">' + p.name + '</option>').join('');
+            if (prima) sel.value = prima;
+        }
+
+        const res = document.getElementById('decree-res');
+        if (res && !res.options.length) {
+            res.innerHTML = GameRules.RES
+                .map(k => '<option value="' + k + '">' + GameRules.RES_LABEL[k] + '</option>').join('');
+        }
+
+        // L'elenco delle province si costruisce una volta sola: la geografia non
+        // cambia, e sono 628 <option>.
+        const list = document.getElementById('decree-provinces');
+        if (list && !list.options.length) {
+            const svg = document.querySelector('svg');
+            if (svg) {
+                list.innerHTML = provincePaths(svg)
+                    .map(p => '<option value="' + p.id + '">' + provinceLabel(p) + '</option>').join('');
+            }
+        }
+        syncDecreeFields();
+    }
+
+    function syncDecreeFields() {
+        const azione = (document.getElementById('decree-action') || {}).value;
+        const show = (id, on) => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = on ? '' : 'none';
+        };
+        show('decree-from', azione === 'truppe');
+        show('decree-to', azione === 'truppe' || azione === 'provincia');
+        show('decree-n', azione !== 'provincia');
+        show('decree-res', azione === 'scorte');
+        show('decree-mode', azione === 'truppe');
+    }
+
+    const decreeAction = document.getElementById('decree-action');
+    if (decreeAction) decreeAction.addEventListener('change', syncDecreeFields);
+
+    const decreeBtn = document.getElementById('decree-btn');
+    if (decreeBtn) {
+        decreeBtn.addEventListener('click', () => {
+            if (!isAdminMode) return;
+            const val = id => (document.getElementById(id) || {}).value;
+            const playerId = val('decree-player');
+            const r = GameActions.decree({
+                azione: val('decree-action'),
+                playerId: playerId === '' ? null : playerId,
+                fromId: (val('decree-from') || '').trim() || null,
+                toId: (val('decree-to') || '').trim() || null,
+                n: parseInt(val('decree-n'), 10) || 0,
+                risorsa: val('decree-res'),
+                modo: val('decree-mode'),
+                titolo: (val('decree-title') || '').trim(),
+                testo: (val('decree-text') || '').trim()
+            });
+            const out = document.getElementById('decree-result');
+            if (out) {
+                out.textContent = r.msg;
+                out.style.color = r.ok ? '#8fc98f' : '#ff9d9d';
+            }
+            showPieceNotice(r.msg);
+            if (r.ok) renderGameControls();
+        });
+    }
+
     // --- PARTITA CONTRO L'IA (admin) ---
-    // Due strade, e la differenza è tutta qui: la prima TIENE i regni disegnati
+    // Tre strade, e la differenza è tutta qui: la prima TIENE i regni disegnati
     // sulla mappa (è il modo normale di cominciare), la seconda li butta e ne
-    // sorteggia di nuovi. "🏁 Avvia partita" resta quello di prima: azzera
-    // l'economia e basta, senza IA.
-    function avviaPartitaIA(mantieniMappa) {
+    // sorteggia di nuovi, la terza tiene la mappa ma NON dà nessun regno all'IA —
+    // li muove tutti il giocatore (partita in solitaria, vedi finalize in
+    // setup.js). "🏁 Avvia partita" resta quello di prima: azzera l'economia e
+    // basta, senza IA.
+    function avviaPartitaIA(mantieniMappa, tuttiUmani) {
         if (!isAdminMode) return;
         if (!window.GameSetup) { showPieceNotice('setup.js non caricato.'); return; }
         if (!neighborsReady) {
@@ -2139,7 +2404,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const neutrali = 'Le terre di nessuno partono con ' + GameRules.NEUTRAL_START +
             ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' + GameRules.NEUTRAL_EVERY + ' turni).';
-        const opts = mantieniMappa
+        const opts = tuttiUmani
+            ? {
+                title: 'Giocare tu tutti i regni?',
+                text: 'Nessuna IA: i regni sulla mappa li muovi tu, uno alla volta, ' +
+                    'nell\'ordine dei turni. La plancia passa da sé al regno di turno, e ' +
+                    'ognuno vede solo quel che vede lui. Mappa, Capitali ed economia partono ' +
+                    'come nella partita normale. ' + neutrali,
+                ok: '👥 Comincia'
+            }
+            : mantieniMappa
             ? {
                 title: 'Giocare con i regni che sono sulla mappa?',
                 text: 'I territori restano esattamente come li hai dipinti. Ogni regno che non ha ' +
@@ -2158,7 +2432,10 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
         askConfirm(opts, () => {
-            const res = window.GameSetup.newGame({ mantieniMappa: !!mantieniMappa });
+            const res = window.GameSetup.newGame({
+                mantieniMappa: !!mantieniMappa,
+                tuttiUmani: !!tuttiUmani
+            });
             showPieceNotice(res.msg);
             renderGameControls();
             renderNewGameResult(res);
@@ -2178,6 +2455,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const drawGameBtn = document.getElementById('draw-game-btn');
     if (drawGameBtn) drawGameBtn.addEventListener('click', () => avviaPartitaIA(false));
 
+    const soloGameBtn = document.getElementById('solo-game-btn');
+    if (soloGameBtn) soloGameBtn.addEventListener('click', () => avviaPartitaIA(true, true));
+
     // Esito del sorteggio: chi sei, con che link entri nella tua plancia, e con
     // che testa giocano gli altri nove.
     function renderNewGameResult(res) {
@@ -2193,10 +2473,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<span class="ng-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
                 '</div>';
         }).join('');
-        const link = umano ? inviteUrlFor(umano) : null;
+        // In solitaria non c'è UN regno tuo: la plancia si apre senza codice
+        // d'invito (play.html liscio) e da lì segue il turno di regno in regno.
+        // Aprirla col link di uno dei dieci la incollerebbe a quel regno anche
+        // dopo un ricaricamento (vedi resolvePlayer in player-board.js).
+        const dir = location.href.split('?')[0].replace(/[^/]*$/, '');
+        const link = res.tuttiUmani ? dir + 'play.html' : (umano ? inviteUrlFor(umano) : null);
+        const testa = res.tuttiUmani
+            ? 'Giochi tutti i ' + res.regni.length + ' regni'
+            : (umano ? 'Giochi ' + umano.name : 'Nessun regno umano');
         box.innerHTML =
-            '<div class="ng-head">' + (umano ? 'Giochi ' + umano.name : 'Nessun regno umano') + '</div>' +
-            (link ? '<a class="ng-link" href="' + link + '">▶ Apri la tua plancia</a>' : '') +
+            '<div class="ng-head">' + testa + '</div>' +
+            (link ? '<a class="ng-link" href="' + link + '">▶ Apri la plancia</a>' : '') +
             righe;
     }
 
@@ -2384,6 +2672,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // `hazed`   = si vede la provincia ma NON le sue pedine (§9.2).
         const visible = seen ? new Set([...seen.visible, ...seen.haze]) : null;
         const hazed = seen ? seen.haze : null;
+        // Dove stanno i nostri uomini (§9.3): un segno sulla provincia, non un
+        // grado di visibilità — quel che la spia mostra è già in `hazed`.
+        const spied = seen ? seen.spie : null;
 
         visibleSet = visible;   // memorizzato per Risiko.isVisible (nebbia, §fog)
 
@@ -2418,6 +2709,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // sue pedine no — dal mare si riconosce la bandiera, non la guarnigione.
             const isHazed = !!(hazed && hazed.has(path.id));
             path.classList.toggle('haze', isHazed);
+            path.classList.toggle('spied', !!(spied && spied.has(path.id)));
 
             // L'icona-risorsa segue la visibilita' della sua provincia (sparisce in nebbia).
             const marker = res.get(path.id);
@@ -2445,6 +2737,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         renderPopularityPanel();
         renderGameControls();
+        renderDecreeControls();
         notifyBoard();
     }
 
@@ -2457,13 +2750,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Due gradi di visibilità (§9.2):
     //   visible → si vede tutto, pedine comprese;
-    //   haze    → NEBBIA LEGGERA: quel che raggiunge una nostra nave. Si vede di
-    //             chi è la provincia (o che è neutrale) ma NON quanti uomini ci
-    //             sono. È quel che si scorge dal mare: bandiera sì, guarnigione no.
+    //   haze    → NEBBIA LEGGERA: quel che raggiunge una nostra nave, o dove
+    //             guarda una nostra spia (§9.3). Si vede di chi è la provincia
+    //             (o che è neutrale) ma NON quanti uomini ci sono. È quel che si
+    //             scorge dal mare: bandiera sì, guarnigione no.
+    // `spie` è solo il POSTO dove stanno i nostri uomini: serve a disegnarcelo
+    // sopra un segno, non aggiunge visibilità (è già dentro haze).
     function computeVisibleProvinces(playerName) {
         const svg = document.querySelector('svg');
-        const visible = new Set(), haze = new Set();
-        if (!svg) return { visible, haze };
+        const visible = new Set(), haze = new Set(), spie = new Set();
+        if (!svg) return { visible, haze, spie };
         svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
             visible.add(path.id);
             // Nebbia di default: si vedono le province confinanti via TERRA...
@@ -2478,8 +2774,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (r > 0) SeaRoutes.reachCached(svg, path.id, r).forEach(id => haze.add(id));
             });
         });
+
+        // SPIE (§9.3): la provincia dove sta l'uomo e le sue limitrofe. Stesso
+        // grado di nebbia della nave, e per la stessa ragione: riconosce le
+        // bandiere (e le risorse), non conta le guarnigioni.
+        // Si guardano SOLO le spie di questo regno, ed è la regola dell'utente:
+        // una spia nemica sul proprio suolo non si vede e non si può scoprire.
+        // Da qui esce anche il set `spie`, quindi il segno sulla mappa lo vede
+        // solo chi l'ha pagata — e in vista generale (nessun focus) nessuno.
+        const me = PLAYERS.find(p => p.name === playerName);
+        if (me && typeof Spies !== 'undefined') {
+            Spies.active(me.spie, currentTurn).forEach(s => {
+                spie.add(s.prov);
+                Spies.watch(s.prov, id => NEIGHBORS_LAND[id]).forEach(id => haze.add(id));
+            });
+        }
+
         haze.forEach(id => { if (visible.has(id)) haze.delete(id); });
-        return { visible, haze };
+        return { visible, haze, spie };
     }
 
     function internalApplyMapData(saveData) {
@@ -2614,21 +2926,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Formula (docs/GAME_DESIGN.md §8): Popolarità = round((Sicurezza+Benessere+Tassa)/3).
     // ============================================================
 
-    const TAX_LEVELS = {
-        leggera: { label: 'Leggera', score: 5 },
-        normale: { label: 'Normale', score: 3 },
-        dura:    { label: 'Dura',    score: 1 }
-    };
+    const TAX_LEVELS = Popularity.TAX_LEVELS;
 
-    function clamp05(n) { return Math.max(0, Math.min(5, n)); }
-
-    // Arrotondamento del regolamento (§8): per difetto, salvo parte decimale > 0,8.
-    // Es. 2,83 → 3 · 2,5 → 2 · 4,8 → 4. Diverso da Math.round, che darebbe 3 · 3 · 5.
-    function roundRule(x) {
-        if (typeof KingdomStats !== 'undefined') return KingdomStats.roundRule(x);
-        const f = Math.floor(x);
-        return (x - f > 0.8) ? f + 1 : f;
-    }
+    // Cibo (§8): le risorse che sfamano. Grano e Bestiame, niente altro.
+    const FOOD_RES = ['grano', 'bestiame'];
 
     // Provincia-Capitale del giocatore (match sul colore-esercito della pedina).
     function getCapitalPathFor(player) {
@@ -2649,37 +2950,56 @@ document.addEventListener('DOMContentLoaded', () => {
         return e ? e.count : 0;
     }
 
-    // Calcola i tre componenti + il totale della Popolarità per un giocatore.
-    function computePopularity(player, capitalPath) {
+    // MISURA i fattori della Popolarità (§8) sulla mappa. La FORMULA non è qui:
+    // sta in `js/popularity.js`, che è puro e non conosce il DOM — così la stessa
+    // formula che mostra il pannello risponde anche all'IA quando chiede "quanto
+    // farei SE abbassassi le tasse?" (Popularity.plan). Qui si legge e basta.
+    // `connectedSet` (facoltativo) è la rete di province collegate: chi ce l'ha già
+    // in mano la passa, così non si rifà la stessa BFS due volte per render.
+    function popularityFactors(player, capitalPath, connectedSet) {
         // --- Sicurezza (Difesa) ---
         // Province nemiche confinanti con la Capitale: e = quante → P_conf = 5 − e.
+        // Nemica = tutto ciò che non è nostro, TERRE DI NESSUNO COMPRESE (regola
+        // dell'utente): sono presidiate (GameRules.neutralGarrison) e razziano i
+        // vicini di fede diversa, quindi minacciano la Capitale come un regno.
         const neigh = Array.from(NEIGHBORS_LAND[capitalPath.id] || []);
         let enemyBorders = 0;
         neigh.forEach(id => {
             const np = document.getElementById(id);
-            const owner = np && np.getAttribute('data-owner');
-            if (owner && owner !== player.name) enemyBorders++;
+            if (!np) return;
+            if ((np.getAttribute('data-owner') || '') !== player.name) enemyBorders++;
         });
-        const pConf = clamp05(5 - enemyBorders);
-        const soldiers = countPiece(capitalPath, 'soldato');   // guardia cittadina: soldati oltre i 5
-        const pGuardia = clamp05(Math.max(0, soldiers - 5));
-        const hasGeneral = countPiece(capitalPath, 'generale') > 0;
-        const sicurezza = clamp05(roundRule((pConf + pGuardia) / 2) + (hasGeneral ? 1 : 0));
 
-        // --- Benessere --- (Risorse+Cibo+Sanità+Felicità)/4: economia non ancora
-        // tracciata → baseline neutra 3, sotto-fattori "in arrivo".
-        const benessere = 3;
+        // --- Benessere --- conta solo ciò che è COLLEGATO alla rete della Capitale
+        // (§4): una provincia scollegata non manda in tavola niente. La rete è la
+        // stessa della raccolta (GameActions.connectedOf), non una copia locale.
+        const connSet = connectedSet ||
+            ((typeof GameActions !== 'undefined' && GameActions.connectedOf)
+                ? GameActions.connectedOf(player)
+                : new Set());
+        const kinds = {};
+        let foodProv = 0;
+        ownedPaths(player.name).forEach(p => {
+            if (!connSet.has(p.id)) return;
+            const k = resourceKeyOf(p);
+            if (!k) return;
+            kinds[k] = true;
+            if (FOOD_RES.indexOf(k) >= 0) foodProv++;
+        });
 
-        // --- Tassa --- dal livello di tassazione scelto dal regno.
-        const tax = player.tassazione || 'normale';
-        const tassa = (TAX_LEVELS[tax] || TAX_LEVELS.normale).score;
-
-        // Il totale e' clampato 1–5 (§8): il livello 0 non esiste nella tabella effetti.
-        const totale = Math.max(1, clamp05(roundRule((sicurezza + benessere + tassa) / 3)));
         return {
-            totale, sicurezza, benessere, tassa,
-            detail: { enemyBorders, pConf, soldiers, pGuardia, hasGeneral, tax }
+            enemyBorders,
+            soldiers: countPiece(capitalPath, 'soldato'),   // guardia: i soldati oltre i 5
+            hasGeneral: countPiece(capitalPath, 'generale') > 0,
+            varieta: Object.keys(kinds).length,             // TIPI distinti collegati
+            foodProv,                                       // province di Grano/Bestiame
+            tax: player.tassazione || 'normale'
         };
+    }
+
+    // Calcola i tre componenti + il totale della Popolarità per un giocatore.
+    function computePopularity(player, capitalPath, connectedSet) {
+        return Popularity.score(popularityFactors(player, capitalPath, connectedSet));
     }
 
     function circlesHtml(value, mini) {
@@ -2729,7 +3049,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="pop-sub-body">
                     ${circlesHtml(pop.sicurezza, true)}
-                    <div class="pop-factor"><span class="pop-factor-label">Province nemiche al confine</span><span class="pop-factor-val">${d.enemyBorders} → ${d.pConf}/5</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Province nemiche al confine (neutrali incluse)</span><span class="pop-factor-val">${d.enemyBorders} → ${d.pConf}/5</span></div>
                     <div class="pop-factor"><span class="pop-factor-label">Guardia cittadina (soldati &gt; 5)</span><span class="pop-factor-val">${d.soldiers} → ${d.pGuardia}/5</span></div>
                     <div class="pop-factor"><span class="pop-factor-label">Generale in Capitale</span><span class="pop-factor-val">${d.hasGeneral ? '+1' : '—'}</span></div>
                 </div>
@@ -2743,10 +3063,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="pop-sub-body">
                     ${circlesHtml(pop.benessere, true)}
-                    <div class="pop-factor"><span class="pop-factor-label">Diversità risorse</span><span class="pop-factor-val muted">in arrivo</span></div>
-                    <div class="pop-factor"><span class="pop-factor-label">Cibo collegato</span><span class="pop-factor-val muted">in arrivo</span></div>
-                    <div class="pop-factor"><span class="pop-factor-label">Sanità</span><span class="pop-factor-val muted">in arrivo</span></div>
-                    <div class="pop-factor"><span class="pop-factor-label">Felicità</span><span class="pop-factor-val muted">in arrivo</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Tipi di risorsa collegati</span><span class="pop-factor-val">${d.varieta}/5</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Cibo collegato (Grano/Bestiame)</span><span class="pop-factor-val">${d.foodProv} → ${d.cibo}/5</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Sanità</span><span class="pop-factor-val muted">in arrivo · ${d.sanita}/5</span></div>
+                    <div class="pop-factor"><span class="pop-factor-label">Felicità</span><span class="pop-factor-val muted">in arrivo · ${d.felicita}/5</span></div>
                 </div>
             </div>
             <div class="pop-sub${popOpenState.tassazione ? ' open' : ''}" data-sub="tassazione">
@@ -2780,10 +3100,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.stopPropagation();
                 // Nella plancia e' il giocatore stesso a decidere la propria tassazione.
                 if (!isAdminMode && !BOARD_MODE) return;
-                player.tassazione = opt.getAttribute('data-tax');
+                // Passa da GameActions come ogni altra mutazione di stato: da lì
+                // arrivano il salvataggio e il rifiuto fuori turno.
+                const res = GameActions.setTax(player, opt.getAttribute('data-tax'));
+                if (!res.ok) { showPieceNotice(res.msg); return; }
                 renderPopularityPanel();
                 notifyBoard();   // entrate e rinforzi dipendono dalla tassa
-                if (typeof saveAutoSave === 'function') saveAutoSave();
             });
         });
     }
@@ -2851,7 +3173,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const FOUNDATION_EYEBROW = {
         battaglia: 'Cronaca — accadde davvero in questi anni',
         capitale: 'Cronaca del regno',
-        scisma: 'Cronaca della fede'
+        scisma: 'Cronaca della fede',
+        editto: 'Editto — accaduto mentre non eri al potere'
     };
 
     // ---------- scismi (js/religions.js) ----------
@@ -3028,7 +3351,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (g) g.remove();
     }
 
-    function showAttackArrows(fromId, targetIds) {
+    // kind: 'attacca' (rosse, il caso normale) o 'sposta' (oro): la freccia dice
+    // anche CHE COSA succede se si clicca là, non solo dove si può andare.
+    function showAttackArrows(fromId, targetIds, kind) {
         clearAttackArrows();
         const svg = document.querySelector('svg');
         if (!svg || !fromId || !targetIds || !targetIds.length) return;
@@ -3037,6 +3362,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const g = document.createElementNS(SVG_NS, 'g');
         g.setAttribute('id', 'attack-arrows');
+        if (kind === 'sposta') g.setAttribute('class', 'atk-move');
         g.setAttribute('pointer-events', 'none');
         svg.appendChild(g);
 
@@ -3082,6 +3408,45 @@ document.addEventListener('DOMContentLoaded', () => {
             ].join(' '));
             head.style.animationDelay = delay;
             g.appendChild(head);
+        });
+    }
+
+    // ============================================================
+    // BERSAGLI CLICCABILI SULLA MAPPA — è la mappa a dire dove si può andare.
+    // Le frecce dicono la direzione, questo dice CHE COSA SI PUÒ CLICCARE: le
+    // province valide prendono la classe `order-target` (più `order-attack` o
+    // `order-move`) e la provincia di partenza `order-origin`. Da lì in poi
+    // comanda la plancia, che sul clic apre il suo cursore d'ordine.
+    // Si tiene l'elenco degli elementi toccati invece di rifare una query su
+    // tutto l'SVG a ogni pulizia: markTargets gira a ogni render, anche dopo
+    // ogni mossa dei bot (vedi refreshMapDisplay, ~20 ms di budget).
+    // ============================================================
+
+    let markedTargets = [];
+
+    function clearTargets() {
+        markedTargets.forEach(p =>
+            p.classList.remove('order-target', 'order-attack', 'order-move', 'order-spy',
+                'order-start', 'order-origin'));
+        markedTargets = [];
+    }
+
+    function markTargets(fromId, ids, kind) {
+        clearTargets();
+        // 'spia' (§9.3) non ha una provincia di partenza: si sceglie solo la meta.
+        // 'partenza' è il primo dei due clic dello spostamento: non sono mete ma
+        // province DA CUI si può muovere, e infatti non aprono nessun cursore.
+        const cls = kind === 'sposta' ? 'order-move'
+            : kind === 'spia' ? 'order-spy'
+            : kind === 'partenza' ? 'order-start'
+            : 'order-attack';
+        const from = fromId && document.getElementById(fromId);
+        if (from) { from.classList.add('order-origin'); markedTargets.push(from); }
+        (ids || []).forEach(id => {
+            const p = document.getElementById(id);
+            if (!p || p === from) return;
+            p.classList.add('order-target', cls);
+            markedTargets.push(p);
         });
     }
 
@@ -3234,12 +3599,18 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBattleFx,
         showAttackArrows,
         clearAttackArrows,
+        markTargets,
+        clearTargets,
         provinceScreenPos,
         confirm: askConfirm,
         showFoundation,
         resourceKeyOf,
         getCapitalPathFor,
         computePopularity,
+        // I fattori misurati (nemiche al confine, guardia, varietà, cibo, tassa):
+        // è quel che serve a Popularity.plan per rispondere "quanto costa il
+        // livello che voglio?". Lo usa l'IA (js/bot.js) prima di ogni turno.
+        popularityFactors,
         save: saveAutoSave,
 
         // --- religione (js/religions.js) ---
@@ -3298,6 +3669,11 @@ document.addEventListener('DOMContentLoaded', () => {
             canPlacePiece,
             addPiece(path, type, delta) { changePiece(path, type, delta); },
             erasePieces(path) { changePiece(path, '__erase__'); },
+            // MERCENARI (§5.3): quanti dei soldati della provincia sono di ventura.
+            // Deposito e nient'altro — CHI parte e CHI cade lo decide game-actions.
+            merc: mercOf,
+            setMerc,
+            addMerc(path, n) { setMerc(path, mercOf(path) + Math.floor(n || 0)); },
             // SCAFI (§9.2): ogni nave è una pedina a sé, col suo carico.
             ships: shipsOf,
             setShips,
@@ -3409,6 +3785,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // da dentro la nebbia è un'informazione che il giocatore non deve avere.
         visibleProvinces: () => visibleSet,
         isVisible: (id) => !visibleSet || visibleSet.has(id),
+        // Cosa vede UN REGNO, chiunque stia guardando adesso: {visible, haze,
+        // spie}. Non è la stessa domanda di `visibleProvinces` (che è "cosa vede
+        // chi ha il focus"): serve a chi deve ragionare sul regno di un altro —
+        // le spie (§9.3) si mandano solo dove quel regno NON vede già.
+        seenBy: (playerName) => computeVisibleProvinces(playerName),
         // Confini pronti? Finché è false le adiacenze sono vuote (vedi neighborsReady).
         neighborsReady: () => neighborsReady
     };

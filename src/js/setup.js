@@ -280,14 +280,23 @@
     // Coda comune ai due modi (mappa attuale o sorteggio): chi gioca l'umano, le
     // strategie dell'IA, l'avvio vero del motore e il salvataggio.
     function finalize(players, regni, o, rand) {
+        // PARTITA IN SOLITARIA (o.tuttiUmani): nessuna IA, i regni li muove tutti
+        // il giocatore, uno alla volta, nell'ordine dei turni. È il banco di prova
+        // delle regole — se chi le conosce riesce a sbloccare tutti e dieci i regni
+        // dalla trappola del turno 1 (§8), la trappola è dura ma non cieca.
+        const tuttiUmani = !!o.tuttiUmani;
         // Chi gioca l'umano: sorteggiato fra i regni CHE ESISTONO sulla mappa —
         // pescare un regno senza province vorrebbe dire dare al giocatore un seggio
         // già eliminato.
         const inGioco = regni.map(r => r.player);
-        const umano = (o.umano !== undefined && o.umano !== null)
-            ? players.find(p => p.id === o.umano)
-            : inGioco[Math.floor(rand() * inGioco.length)];
-        if (root.Bot) root.Bot.assignStrategies(players, umano ? umano.id : null, rand);
+        const umano = tuttiUmani ? null
+            : ((o.umano !== undefined && o.umano !== null)
+                ? players.find(p => p.id === o.umano)
+                : inGioco[Math.floor(rand() * inGioco.length)]);
+        if (root.Bot) {
+            if (tuttiUmani) players.forEach(pl => { pl.bot = null; });
+            else root.Bot.assignStrategies(players, umano ? umano.id : null, rand);
+        }
 
         // Il calendario riparte dall'anno 1000 (turno 1), ma la mappa resta com'è.
         if (R().resetHistory) R().resetHistory();
@@ -309,7 +318,7 @@
         E().refresh();
         E().save();
 
-        return { ok: true, umano, regni, avvio: avvio.msg };
+        return { ok: true, umano, tuttiUmani, regni, avvio: avvio.msg };
     }
 
     root.GameSetup = { newGame, clearMap, kingdomsOnMap, inRegion, REGIONS, DEFAULTS };

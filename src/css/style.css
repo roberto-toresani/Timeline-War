@@ -420,9 +420,16 @@ svg path.haze {
    cronista — quella battaglia non l'ha vinta nessuno dei giocatori. */
 #ui-foundation .uf-scroll.uf-battaglia { --kingdom: #7a2e1e; }
 
+/* Editto: l'intervento di chi governa il mondo, non del regno. Oro vecchio —
+   si distingue dalla propria cronaca senza gridare come l'inchiostro rosso. */
+#ui-foundation .uf-scroll.uf-editto { --kingdom: #8a6d1f; }
+
 #ui-foundation .uf-text {
     font-size: 1.05rem;
     line-height: 1.55;
+    /* Più editti nello stesso avviso arrivano separati da riga vuota: senza
+       questo il testo si appiattirebbe in un paragrafo solo. */
+    white-space: pre-line;
 }
 
 #ui-foundation .uf-note {

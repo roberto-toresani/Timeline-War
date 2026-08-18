@@ -385,62 +385,71 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
     padding: 0 18px 12px;
 }
 
-.bps-tiles {
+/* Una riga sola invece di tre riquadroni: gli stessi tre numeri (oro, esercito,
+   fede di stato) con la loro chiosa piccola sotto. Ogni tessera si stringe da
+   sé — i nomi delle capitali sono lunghi e non devono sfondare la riga. */
+.bps-strip {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr);
     gap: 6px;
+    align-items: center;
 }
 
-.bps-tile {
+.bps-item {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    flex-wrap: wrap;
+    min-width: 0;
     background: var(--bg-inset);
     border: 1px solid var(--rule-strong);
     border-radius: 7px;
-    padding: 7px 10px 8px;
-    min-width: 0;
+    padding: 5px 9px 6px;
 }
 
-.bps-n {
-    display: block;
-    font-size: 1.75rem;
-    line-height: 1.1;
+.bps-ico { font-size: .85rem; opacity: .75; flex: 0 0 auto; }
+
+.bps-item b {
+    font-weight: normal;
+    font-size: 1.3rem;
+    line-height: 1.15;
     color: var(--gold);
     font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
 }
 
-.bps-n.coin { color: var(--gold-coin); }
+.bps-item b.coin { color: var(--gold-coin); }
+
+.bps-item i {
+    flex: 1 1 100%;
+    min-width: 0;
+    font-style: normal;
+    font-size: .76rem;
+    line-height: 1.25;
+    color: var(--parchment-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bps-item i.good { color: var(--ok-soft); }
+.bps-item i.bad  { color: #e6a3a3; }
 
 .bps-faith {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 1.1rem;
-    line-height: 1.9;
+    gap: 5px;
+    font-size: 1.02rem;
+    line-height: 1.3;
     color: var(--gold);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 0 0 auto;
+    max-width: 100%;
 }
 
 .bps-faith .p-faith-dot { flex: 0 0 auto; }
-
-.bps-l {
-    display: block;
-    color: var(--parchment-muted);
-    font-size: .8rem;
-    line-height: 1.3;
-    letter-spacing: .03em;
-}
-
-.bps-l em {
-    display: block;
-    font-style: normal;
-    color: var(--parchment-dim);
-    font-size: .95em;
-}
-
-.bps-l em.good { color: var(--ok-soft); }
-.bps-l em.bad  { color: #e6a3a3; }
-
 .bps-faith-t { overflow: hidden; text-overflow: ellipsis; }
 
 /* modificatore della Popolarità sulle scorte: c'è solo quando morde */
@@ -481,43 +490,25 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 .bps-r-g { display: block; font-size: .72rem; color: var(--ok-soft); }
 .bps-r-g.zero { color: var(--parchment-muted); }
 
-/* ---------- intestazione della cartella aperta ---------- */
+/* ---------- riga di spiegazione ----------
+   Il nome della fase è già scritto grande sulla linguetta accesa: qui sotto
+   basta una riga che dica cosa ci si fa. Prima erano un pallino numerato, un
+   titolo maiuscolo e un paragrafo di tre righe. */
 
-.bp-folder-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
+.bp-hint {
+    color: var(--parchment-muted);
+    font-size: .86rem;
+    line-height: 1.4;
     margin-bottom: 10px;
 }
 
-.bp-folder-head::before {
-    content: attr(data-step);
-    flex: 0 0 auto;
-    width: 25px;
-    height: 25px;
-    border-radius: 50%;
-    background: var(--gold-edge);
-    color: var(--bg-panel-solid);
-    font-size: .9rem;
-    line-height: 25px;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-}
-
-.bp-folder-name {
-    flex: 0 0 auto;
-    color: var(--gold-bright);
-    font-size: 1.25rem;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-}
-
-.bp-folder-sub {
-    flex: 1 1 auto;
-    min-width: 0;
-    color: var(--parchment-muted);
-    font-size: .88rem;
-    line-height: 1.35;
+/* la riga che manda sulla mappa: è l'istruzione principale della fase, non
+   una nota a piè di pagina */
+.bp-hint.map-hint {
+    color: var(--gold);
+    border-left: 3px solid var(--gold-edge);
+    padding-left: 8px;
+    margin: 2px 0 9px;
 }
 
 /* avviso di sola lettura: cartella aperta ≠ fase in corso */
@@ -612,9 +603,9 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 /* ---------- componenti dei pannelli ---------- */
 
 /* ---------- titoli ----------
-   Un livello solo: le macro-sezioni numerate sono diventate le cartelle
-   (.bp-folder-head per quella aperta, .bp-fold per le richiudibili), quindi
-   qui resta il titolo di capitolo dentro un blocco. */
+   Un livello solo: le macro-sezioni numerate sono diventate le linguette delle
+   fasi (.bp-phase-chip) e le cartelline richiudibili (.bp-fold), quindi qui
+   resta il titolo di capitolo dentro un blocco. */
 
 .bp-title {
     color: var(--gold);
@@ -1001,9 +992,194 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 .mdh-n em { color: var(--ok-soft); font-style: normal; font-size: .9rem; margin-left: 2px; }
 .mdh-note { color: var(--parchment-muted); font-size: .76rem; margin-top: 4px; }
 
+/* ============================================================
+   COMANDARE DALLA MAPPA — bersagli accesi e cursore d'ordine.
+   Le province dove si può andare portano .order-target (Risiko.markTargets);
+   la provincia di partenza .order-origin.
+
+   Due cose da sapere prima di toccare queste regole:
+   1. Si dipinge solo il TRATTO, mai il fill: refreshMapDisplay riscrive `fill`
+      inline su tutte le province a ogni render, e qualunque colore messo qui
+      verrebbe cancellato al primo respiro.
+   2. `!important` NON è pigrizia. Buona parte dei path dell'SVG si porta dietro
+      dalla sorgente uno `style="stroke: rgb(0,0,0); shape-rendering: auto"`
+      (con `data-originalStrokeWidth`, residuo di una vecchia gestione dello
+      zoom): è uno stile in linea, e senza `!important` vince lui — il bersaglio
+      resterebbe col contorno nero come tutti gli altri, cioè invisibile.
+   ============================================================ */
+
+svg path.state.order-origin {
+    stroke: var(--gold-bright) !important;
+    stroke-width: 1.5 !important;
+    stroke-linejoin: round;
+}
+
+svg path.state.order-target {
+    cursor: pointer;
+    stroke-width: 1.5 !important;
+    stroke-linejoin: round;
+    animation: order-blink 1.6s ease-in-out infinite;
+}
+
+svg path.state.order-attack { stroke: #ff7a45 !important; }
+svg path.state.order-move   { stroke: #ffd479 !important; }
+
+/* SPOSTAMENTO, primo clic: le province DA CUI si può partire. Non sono mete e
+   non devono gridare come un bersaglio — dicono "di qui puoi muovere". Tratto
+   fermo, verde, senza lampeggio: sono tutte le tue province con qualcuno che
+   possa lasciarle, e un lampeggio diffuso su mezzo regno è solo rumore. */
+svg path.state.order-start {
+    stroke: var(--ok-soft) !important;
+    stroke-width: 1.4 !important;
+    animation: none;
+}
+
+svg path.state.order-start:hover { stroke-width: 2.6 !important; }
+
+/* SPIE (§9.3): le mete possibili sono decine — è l'anello di mondo che non
+   vedi ma puoi raggiungere. Tratto sottile e tratteggiato apposta: deve dirsi
+   "qui si può guardare", non gridare come un bersaglio d'attacco. */
+svg path.state.order-spy {
+    stroke: #b58cff !important;
+    stroke-width: 1 !important;
+    stroke-dasharray: 2.4 1.8;
+    animation: none;
+}
+
+svg path.state.order-target:hover { stroke-width: 2.6 !important; animation: none; }
+svg path.state.order-spy:hover { stroke-width: 2.4 !important; stroke-dasharray: none; }
+
+/* Dove sta una NOSTRA spia adesso: un contorno fermo, non un bersaglio. La
+   provincia resta in nebbia leggera (.haze) — si vede la bandiera, non la
+   guarnigione — e questo dice soltanto che l'occhio è lì.
+   La classe la mette refreshMapDisplay solo per il regno che guarda: una spia
+   nemica sul proprio suolo non porta nessun segno (§9.3, regola dell'utente). */
+svg path.state.spied {
+    stroke: #b58cff !important;
+    stroke-width: 1.6 !important;
+    stroke-dasharray: none;
+}
+
+@keyframes order-blink {
+    0%, 100% { stroke-opacity: 1; }
+    50%      { stroke-opacity: .35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    svg path.state.order-target { animation: none; }
+}
+
+/* ---------- cursore d'ordine ----------
+   Ancorato alla provincia bersaglio, come il cursore di schieramento: quanti
+   uomini partono, che probabilità c'è, e via. È HTML e non SVG apposta — dentro
+   l'SVG scalerebbe con lo zoom fino a diventare impraticabile. */
+
+#map-order-hud {
+    position: absolute;
+    z-index: 520;
+    transform: translate(-50%, -50%);
+    width: 216px;
+    background: rgba(15, 12, 9, .95);
+    border: 2px solid var(--gold-edge);
+    border-radius: 10px;
+    padding: 9px 11px 10px;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .65);
+    pointer-events: auto;
+}
+
+#map-order-hud.atk { border-color: #ff7a45; }
+#map-order-hud.mov { border-color: var(--gold-bright); }
+
+.moh-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--gold-bright);
+    font-size: 1.02rem;
+    line-height: 1.2;
+}
+
+.moh-ico { flex: 0 0 auto; }
+.moh-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.moh-sub {
+    color: var(--parchment-muted);
+    font-size: .76rem;
+    line-height: 1.35;
+    margin: 3px 0 6px;
+}
+
+.moh-ctl { display: flex; align-items: center; justify-content: center; gap: 9px; }
+
+.moh-btn {
+    width: 28px;
+    height: 28px;
+    line-height: 1;
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--gold-edge);
+    border-radius: 6px;
+    color: var(--gold);
+    font-family: inherit;
+    font-size: 1.15rem;
+    cursor: pointer;
+    padding: 0;
+}
+
+.moh-btn:hover { background: var(--gold-edge); color: var(--bg-panel-solid); }
+
+.moh-n {
+    min-width: 40px;
+    text-align: center;
+    color: var(--gold-bright);
+    font-size: 1.45rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.moh-range { width: 100%; margin: 6px 0 4px; accent-color: var(--gold-bright); }
+
+.moh-odds {
+    text-align: center;
+    font-size: .88rem;
+    letter-spacing: .03em;
+    margin-bottom: 7px;
+}
+
+.moh-odds.good { color: var(--ok-soft); }
+.moh-odds.even { color: var(--gold); }
+.moh-odds.bad  { color: #e6a3a3; }
+
+.moh-acts { display: flex; gap: 6px; }
+
+.moh-acts button {
+    flex: 1 1 auto;
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    color: var(--parchment-dim);
+    font-family: inherit;
+    font-size: .86rem;
+    padding: 7px 4px;
+    cursor: pointer;
+}
+
+.moh-acts .moh-no { flex: 0 0 auto; padding: 7px 9px; }
+.moh-acts .moh-no:hover { color: var(--gold); border-color: var(--gold-edge); }
+
+.moh-acts .moh-go {
+    background: var(--gold-edge);
+    border-color: var(--gold);
+    color: var(--bg-panel-solid);
+    font-size: .95rem;
+}
+
+.moh-acts .moh-go:hover { background: var(--gold-bright); }
+
 /* ---------- frecce d'attacco (fase 3) ----------
    Disegnate da showAttackArrows in app.js dentro #attack-arrows. Il tratteggio
-   che scorre dà la direzione senza bisogno di leggere niente. */
+   che scorre dà la direzione senza bisogno di leggere niente.
+   In fase di spostamento le stesse frecce si vestono d'oro: la forma dice
+   "da qui a lì", il colore dice se è una carica o una marcia in casa. */
 
 #attack-arrows .atk-arrow {
     stroke: #ff9b6b;
@@ -1017,6 +1193,9 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
     fill: #ff9b6b;
     animation: atk-pulse 1.1s ease-in-out infinite, atk-in .35s ease-out both;
 }
+
+#attack-arrows.atk-move .atk-arrow { stroke: #ffd479; }
+#attack-arrows.atk-move .atk-arrow-head { fill: #ffd479; }
 
 @keyframes atk-march { to { stroke-dashoffset: -40; } }
 @keyframes atk-in { from { opacity: 0; } }
@@ -1033,8 +1212,106 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
     background: var(--bg-inset);
     border: 1px solid var(--rule-strong);
     border-radius: 7px;
-    padding: 13px 15px;
+    padding: 10px 12px 12px;
     margin-top: 8px;
+}
+
+/* La provincia selezionata in DUE righe invece che in cinque paragrafi:
+   nome + truppe sopra, e sotto le quattro tessere di anagrafica (chi la
+   governa, risorsa, fede, terreno). Il colore delle tessere fa il lavoro che
+   prima facevano le etichette "Proprietario:", "Risorsa:", "Fede:". */
+
+.bsel-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.bsel-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    align-self: center;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+
+.bsel-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--gold-bright);
+    font-size: 1.22rem;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bsel-troops {
+    flex: 0 0 auto;
+    color: var(--gold);
+    font-size: 1.15rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* c'è dell'altro oltre ai soldati (Capitale, Città, navi): un puntino lo dice,
+   il dettaglio sta nel title */
+.bsel-troops.extra::after {
+    content: '•';
+    color: var(--gold-edge);
+    margin-left: 3px;
+}
+
+.bsel-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 5px;
+    font-size: .85rem;
+    line-height: 1.3;
+}
+
+.bsel-tag { color: var(--parchment-dim); white-space: nowrap; }
+.bsel-tag.off { display: none; }
+
+/* ---------- reclute in mano: una riga ----------
+   Prima erano un riquadro col titolo, due celle grandi e una nota di tre
+   righe. Il numero che conta è uno solo, il resto è la sua ripartizione. */
+
+.bp-pool {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    background: var(--bg-inset);
+    border: 1px solid var(--rule-strong);
+    border-radius: 7px;
+    padding: 7px 11px 8px;
+    margin-bottom: 8px;
+}
+
+.bp-pool.empty { opacity: .5; }
+
+.bp-pool-n {
+    font-size: 1.55rem;
+    line-height: 1.1;
+    color: var(--gold-bright);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+
+.bp-pool-l { color: var(--parchment-muted); font-size: .85rem; line-height: 1.35; }
+.bp-pool-l em { font-style: normal; }
+.bp-pool-l em.free { color: var(--parchment-dim); }
+.bp-pool-l em.bound { color: var(--ok-soft); }
+
+/* ---------- coda del pannello: quel che si consulta ----------
+   Tutto chiuso di default. Separato dal corpo del turno da una riga, così si
+   vede a colpo d'occhio dove finiscono le azioni e comincia la lettura. */
+
+#bp-consult {
+    margin-top: 16px;
+    padding-top: 4px;
+    border-top: 1px solid var(--rule);
 }
 
 /* elenco delle province del regno: cliccabile, con truppe ed edifici */
@@ -1123,34 +1400,6 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 @media (prefers-reduced-motion: reduce) {
     .reinf-badge.hot { animation: none; }
 }
-
-/* riquadro schieramento nel pannello destro */
-.bp-deploy-split {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin: 4px 0 8px;
-}
-
-.bp-deploy-cell {
-    background: var(--bg-panel-solid);
-    border: 1px solid var(--rule-strong);
-    border-radius: 6px;
-    padding: 7px 9px;
-    text-align: center;
-}
-
-.bp-deploy-cell .n {
-    display: block;
-    font-size: 1.5rem;
-    line-height: 1.1;
-    color: var(--gold-bright);
-    font-variant-numeric: tabular-nums;
-}
-
-.bp-deploy-cell .l { display: block; font-size: .8rem; color: var(--parchment-muted); }
-.bp-deploy-cell.bound { border-color: var(--ok); }
-.bp-deploy-cell.bound .n { color: var(--ok-soft); }
 
 .bp-bound-head { color: var(--parchment-muted); font-size: .92rem; margin-bottom: 5px; }
 
@@ -1246,9 +1495,14 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
     border-style: dashed;
 }
 
-.bp-act-name { flex: 1 1 auto; }
-.bp-act-cost { color: var(--parchment-muted); font-size: .92rem; flex: 0 0 auto; }
-.bp-act-why { color: #e6a3a3; font-size: .92rem; flex: 0 0 auto; }
+/* Il bottone d'azione VA A CAPO invece di tagliare: il costo di una Fortezza è
+   "2000 monete + 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame" e su una riga
+   sola finiva mozzato a metà parola — cioè illeggibile proprio nel punto in cui
+   si decide se costruirla. */
+.bp-act { flex-wrap: wrap; }
+.bp-act-name { flex: 1 1 auto; min-width: 0; }
+.bp-act-cost { color: var(--parchment-muted); font-size: .92rem; flex: 0 1 auto; min-width: 0; }
+.bp-act-why { color: #e6a3a3; font-size: .92rem; flex: 0 1 auto; min-width: 0; }
 
 /* riga con campo numerico (schiera N, attacca con N) */
 .bp-act-row {
@@ -1382,6 +1636,12 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 @keyframes bb-bar-grow { from { width: 0 !important; } }
 
 .bb-odds-txt { color: var(--parchment-muted); font-size: .85rem; margin-top: 4px; }
+/* La fede segue la spada: la conquista cambia la fede della provincia presa.
+   È una riga a sé perché non c'entra con i numeri della battaglia. */
+.bb-faith { margin-top: 6px; font-size: .85rem; color: var(--parchment-muted); font-style: italic; }
+/* Come ha reso la ventura: è la parte di esito che il giocatore non può dedurre
+   dai numeri mostrati sopra, quindi sta su una riga sua (§5.3). */
+.bb-merc { margin-top: 6px; font-size: .85rem; color: var(--parchment-muted); font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) {
     .bp-battle, .bb-bar span { animation: none; }
@@ -1670,6 +1930,34 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 
 .bp-trade-acts .bp-mini.ok { color: var(--ok-soft); }
 .bp-trade-acts .bp-mini.no { color: var(--danger-text); }
+
+/* ============================================================
+   SPIE (docs/GAME_DESIGN.md §9.3)
+   Il rapporto delle perlustrazioni in corso: dove sta l'uomo, di chi è quella
+   provincia adesso, quanto gli resta. Una riga per spia, mai più di tre.
+   ============================================================ */
+.bp-spy-list { margin-bottom: 8px; }
+
+.bp-spy-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin-top: 6px;
+    font-size: .98rem;
+}
+
+.bp-spy-ico { flex: 0 0 auto; }
+.bp-spy-name { color: var(--parchment-dim); }
+.bp-spy-owner { color: #c8a6ff; flex: 1 1 auto; font-size: .92rem; }
+.bp-spy-left {
+    flex: 0 0 auto;
+    color: var(--parchment-muted);
+    font-size: .88rem;
+    font-variant-numeric: tabular-nums;
+}
 
 /* ============================================================
    CON CHE COSA SI PARTE ALL'ATTACCO (docs/GAME_DESIGN.md §9.2)

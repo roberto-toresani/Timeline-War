@@ -8,10 +8,10 @@
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", "scripts/serve.ps1",
-        "-Root", "src",
-        "-Port", "5500"
+        "-Root", "src"
       ],
-      "port": 5500
+      "port": 5500,
+      "autoPort": true
     },
     {
       "name": "risiko-alt",
@@ -20,10 +20,10 @@
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", "scripts/serve.ps1",
-        "-Root", "src",
-        "-Port", "5599"
+        "-Root", "src"
       ],
-      "port": 5599
+      "port": 5599,
+      "autoPort": true
     },
     {
       "name": "risiko-3",
@@ -32,10 +32,10 @@
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", "scripts/serve.ps1",
-        "-Root", "src",
-        "-Port", "5601"
+        "-Root", "src"
       ],
-      "port": 5601
+      "port": 5601,
+      "autoPort": true
     }
   ]
 }

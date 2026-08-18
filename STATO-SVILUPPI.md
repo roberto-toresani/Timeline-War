@@ -152,6 +152,14 @@ e in particolare al momento del commit.
     (fasi, presidio minimo, costi, conquista). Giocano **a passi visibili** (600 ms, vedi
     `Bot.speed`), così la partita si può guardare. Li muove solo chi ha i permessi di
     scrittura (`Risiko.isAdmin()`).
+- **Partita in solitaria — tutti i regni tuoi (nuovo)** — bottone 👥 nell'editor
+  (`newGame({tuttiUmani:true})`): stessa mappa e stessa economia dell'avvio normale, ma
+  **nessun regno all'IA**. Serve a provare le regole di apertura giocando tutti e dieci i
+  regni a mano e vedere se ognuno riesce a uscire dalla trappola di Popolarità del turno 1
+  (§8). La plancia (`play.html`, senza codice d'invito) **segue il turno da sé**: chiuso un
+  turno si entra nel regno successivo, con la **sua** nebbia — dieci regni non vogliono dire
+  vedere tutta la mappa (per quello resta il 🌍). Un cambio regno a mano non viene rimbalzato
+  indietro: si riprende a seguire al turno dopo.
 - **Terre di nessuno presidiate (nuovo)** — ogni provincia neutrale ha **2 soldati** (turni
   1-5), e ogni **5 turni** la quota sale di 1 (`GameRules.neutralGarrison`, applicata da
   `GameActions.garrisonNeutrals` all'avvio e a ogni giro completo).
@@ -173,6 +181,18 @@ e in particolare al momento del commit.
   `querySelectorAll` per provincia (1256 query a refresh). Con l'indice dei marker in una
   passata sola è passato a **21 ms**: un'azione di bot sulla plancia costa ora ~25 ms
   in tutto (13 dei quali sono il render dei pannelli).
+- **Spie (nuovo, §9.3)** — la terza strada per vedere il mondo, e l'unica che si compra:
+  **300 monete**, **3 turni**, **3 per regno**, bersaglio entro **5 confini** dal proprio
+  territorio e solo **dove non si vede già**. Mostra i **proprietari** della provincia e
+  delle sue limitrofe, mai le truppe: è la stessa **nebbia leggera** di una nave (§9.2).
+  Non è una pedina — vive in `player.spie` (`[{prov, turno}]`), non presidia e non si
+  cattura; la scadenza si **calcola** (`js/spies.js`, puro) invece di essere salvata. Il
+  bersaglio si sceglie **sulla mappa**: il bottone accende le province raggiungibili e il
+  clic conferma. Con una spia in campo, le mosse dell'IA in quella zona entrano nel
+  registro da sé — il racconto rispetta la nebbia, e la nebbia ora arriva più lontano.
+  **Una spia nemica sul proprio suolo è invisibile**: nessun segno, nessun avviso, nessun
+  controspionaggio (il contorno violetto lo vede solo chi l'ha pagata, e in vista generale
+  nessuno). L'unica difesa è che dura tre turni e rientra da sé.
 - **Vista generale nella plancia (nuovo)** — bottone 🌍 nella barra: toglie la nebbia e
   mostra tutta la mappa per guardare giocare l'IA; 👑 riporta al proprio regno. Non cambia
   i permessi, solo cosa si vede.

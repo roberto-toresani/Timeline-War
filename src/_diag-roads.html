@@ -23,7 +23,11 @@
   <button data-s="1">1 · fibbia</button>
   <button data-s="2">2 · sentiero antico</button>
   <button data-s="3">3 · maglia di catena</button>
+  <button data-s="4">4 · cancello aperto</button>
   <button id="zoomtoggle">zoom: Europa</button>
+  <label style="display:flex;gap:6px;align-items:center">misura
+    <input id="size" type="range" min="0.5" max="2" step="0.05" value="1" style="width:120px">
+    <span id="sizeval" style="font-family:monospace">1.00×</span></label>
   <span class="sp" id="info">…</span>
 </div>
 <div id="map"></div>
@@ -38,6 +42,7 @@ document.getElementById('map').innerHTML = RAW_SVG_CONTENT;
 const svg = document.querySelector('svg');
 const NS = 'http://www.w3.org/2000/svg';
 const INK = '#14100b';
+const TANGENT_R = 1.6;   // quanto confine si percorre per lato (= ROAD_TANGENT_R in app.js)
 const PAL = ['#c0392b', '#1f6f8b', '#2e7d32', '#8e44ad', '#d68910'];
 
 // ---------- geometria del confine ----------
@@ -68,34 +73,71 @@ function sharedBorder(A, B) {
     }
   }
   if (hits.length < 3) return null;
-  // centro del tratto condiviso
+  const ba = MapAnchors.mainBodyBBox(A), bb = MapAnchors.mainBodyBBox(B);
+  const ref = Math.min(ba ? Math.min(ba.w, ba.h) : 12, bb ? Math.min(bb.w, bb.h) : 12);
+  // il punto del confine più vicino al centro del tratto (il mezzo vero, non la media
+  // che su un confine a L cade fuori dal confine)
   let cx = 0, cy = 0;
   for (const h of hits) { cx += h.x; cy += h.y; }
   cx /= hits.length; cy /= hits.length;
-  // asse principale (PCA) = tangente del confine
-  let sxx = 0, syy = 0, sxy = 0;
-  for (const h of hits) { const dx = h.x - cx, dy = h.y - cy; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
-  const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-  let tx = Math.cos(th), ty = Math.sin(th);
+  let midIdx = 0, best = Infinity;
+  for (let i = 0; i < hits.length; i++) {
+    const d = (hits[i].x - cx) ** 2 + (hits[i].y - cy) ** 2;
+    if (d < best) { best = d; midIdx = i; }
+  }
+  const mid = hits[midIdx];
+  // Direzione del confine dove si posa la strada: non si STIMA con una nuvola di
+  // punti, si CAMMINA sul confine. I contatti nascono nell'ordine in cui si percorre
+  // il bordo di A, quindi camminare è scorrere l'array. Stessa logica di app.js.
+  const walk = dir => {
+    let i = midIdx, acc = 0;
+    while (acc < TANGENT_R) {
+      const j = i + dir;
+      if (j < 0 || j >= hits.length) break;
+      const d = Math.hypot(hits[j].x - hits[i].x, hits[j].y - hits[i].y);
+      if (d > 1.5) break;                      // confine in due tronconi: non si salta
+      acc += d; i = j;
+    }
+    return hits[i];
+  };
+  const e0 = walk(-1), e1 = walk(1);
+  let tx = e1.x - e0.x, ty = e1.y - e0.y;
+  if (Math.hypot(tx, ty) < 0.3) {              // tratto troppo corto: PCA sull'intero confine
+    let sxx = 0, syy = 0, sxy = 0;
+    for (const h of hits) { const dx = h.x - cx, dy = h.y - cy; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+    const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    tx = Math.cos(th); ty = Math.sin(th);
+  }
   let nx = -ty, ny = tx;                       // normale = perpendicolare
-  // lunghezza del confine lungo la tangente (per non fare strade più lunghe del confine)
-  let lo = Infinity, hi = -Infinity;
-  for (const h of hits) { const t = (h.x - cx) * tx + (h.y - cy) * ty; if (t < lo) lo = t; if (t > hi) hi = t; }
-  // il punto del confine più vicino al centro del tratto (il mezzo vero, non la media
-  // che su un confine a L cade fuori dal confine)
-  let mid = hits[0], best = Infinity;
-  for (const h of hits) { const d = (h.x - cx) ** 2 + (h.y - cy) ** 2; if (d < best) { best = d; mid = h; } }
   // orienta la normale da A verso B
-  const ba = MapAnchors.mainBodyBBox(A), bb = MapAnchors.mainBodyBBox(B);
   if (ba && bb) {
     const vx = (bb.x + bb.w / 2) - (ba.x + ba.w / 2), vy = (bb.y + bb.h / 2) - (ba.y + ba.h / 2);
     if (nx * vx + ny * vy < 0) { nx = -nx; ny = -ny; }
   }
-  const ref = Math.min(ba ? Math.min(ba.w, ba.h) : 12, bb ? Math.min(bb.w, bb.h) : 12);
-  return { x: mid.x, y: mid.y, nx, ny, tx, ty, span: hi - lo, ref };
+  // Lunghezza del tratto di contatto: serve a scartare le coppie che si TOCCANO
+  // appena (angolo contro angolo, o province separate da una scheggia). Nel gioco
+  // non esistono — areLandAdjacent le rifiuta — e senza questo filtro la pagina
+  // mostrerebbe strade in mezzo a una provincia, facendo sembrare rotto il disegno.
+  let len = 0;
+  for (let i = 1; i < hits.length; i++) {
+    const d = Math.hypot(hits[i].x - hits[i - 1].x, hits[i].y - hits[i - 1].y);
+    if (d < 1.5) len += d;
+  }
+  return { x: mid.x, y: mid.y, nx, ny, tx, ty, ref, len, contatti: hits.length, hits };
 }
 
 // ---------- utilità di disegno ----------
+// Scurisce un colore verso l'inchiostro: k=0 lo lascia com'è, k=1 lo annerisce.
+function mixInk(color, k) {
+  const m = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!m) return INK;
+  const n = parseInt(m[1], 16), ir = 0x14, ig = 0x10, ib = 0x0b;
+  const r = Math.round((n >> 16 & 255) * (1 - k) + ir * k);
+  const g = Math.round((n >> 8 & 255) * (1 - k) + ig * k);
+  const b = Math.round((n & 255) * (1 - k) + ib * k);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
 function mk(parent, name, attrs) {
   const e = document.createElementNS(NS, name);
   for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -155,6 +197,21 @@ const STYLES = {
     });
   },
 
+  // 4 — CANCELLO APERTO: due trattini scuri che tagliano il confine di traverso,
+  //     col varco in mezzo. Il confine passa fra i due: si legge "qui si passa".
+  4: (g, s, color) => {
+    // stesse formule di roadSpan/renderRoads in app.js; SIZE è solo il cursore
+    // di questa pagina, per provare le misure prima di fissarle nel gioco.
+    const L = Math.max(1.5, Math.min(s.ref * .085, 2.4)) * SIZE; // quanto sporgono di traverso
+    const gap = L * .38;                                  // il varco, lungo il confine
+    const w = Math.max(.34 * SIZE, L * .19);              // piu' grossi del tratto di confine
+    const ink = mixInk(color, .62);                       // scuro, ma il regno si riconosce
+    [-gap, gap].forEach(y => {
+      mk(g, 'line', { x1: -L / 2, y1: y, x2: L / 2, y2: y, stroke: ink,
+                      'stroke-width': w, 'stroke-linecap': 'round' });
+    });
+  },
+
   // 3 — MAGLIA DI CATENA: due anelli agganciati a cavallo del confine.
   //     È letteralmente "un gancio tra due province".
   3: (g, s, color) => {
@@ -189,7 +246,7 @@ function buildPairs() {
     if (a.bb.x - gap > b.bb.x + b.bb.w || b.bb.x - gap > a.bb.x + a.bb.w) continue;
     if (a.bb.y - gap > b.bb.y + b.bb.h || b.bb.y - gap > a.bb.y + a.bb.h) continue;
     const s = sharedBorder(a.p, b.p);
-    if (s) out.push({ a: a.p.id, b: b.p.id, s });
+    if (s && s.contatti >= 8 && s.len >= 2) out.push({ a: a.p.id, b: b.p.id, s });
   }
   // In partita le strade sono poche e sparse: disegnarle TUTTE falsa il giudizio.
   // ?all=1 le mostra comunque (prova di affollamento).
@@ -202,9 +259,17 @@ function buildPairs() {
 }
 
 let style = +(q.get('style') || 1);
+let SIZE = +(q.get('size') || 1);   // moltiplicatore della misura (solo stile 4)
 function draw() {
   layer.innerHTML = '';
   PAIRS.forEach((pr, i) => {
+    // ?debug=1 mostra i punti di confine trovati dal calcolo (magenta) e il punto
+    // di posa (ciano): serve a vedere se la strada sta DAVVERO sul confine, invece
+    // di doverlo dedurre guardando un tratto di bordo spesso mezzo pixel.
+    if (q.get('debug')) {
+      pr.s.hits.forEach(h => mk(layer, 'circle', { cx: h.x, cy: h.y, r: .18, fill: '#e10098', opacity: .9 }));
+      mk(layer, 'circle', { cx: pr.s.x, cy: pr.s.y, r: .35, fill: 'none', stroke: '#00c8ff', 'stroke-width': .16 });
+    }
     const g = mk(layer, 'g', {});
     const ang = Math.atan2(pr.s.ny, pr.s.nx) * 180 / Math.PI;
     g.setAttribute('transform', `translate(${pr.s.x.toFixed(2)} ${pr.s.y.toFixed(2)}) rotate(${ang.toFixed(1)})`);
@@ -234,7 +299,15 @@ function setView(i) {
 document.querySelectorAll('#hud button[data-s]').forEach(b =>
   b.addEventListener('click', () => { style = +b.dataset.s; draw(); }));
 document.getElementById('zoomtoggle').addEventListener('click', () => setView(vi + 1));
-addEventListener('keydown', e => { if ('0123'.includes(e.key)) { style = +e.key; draw(); } });
+const sizeEl = document.getElementById('size');
+sizeEl.value = SIZE;
+sizeEl.addEventListener('input', () => {
+  SIZE = +sizeEl.value;
+  document.getElementById('sizeval').textContent = SIZE.toFixed(2) + '×';
+  draw();
+});
+document.getElementById('sizeval').textContent = SIZE.toFixed(2) + '×';
+addEventListener('keydown', e => { if ('01234'.includes(e.key)) { style = +e.key; draw(); } });
 
 if (q.get('vb')) { VIEWS.unshift({ name: 'custom', vb: q.get('vb').split(',').map(Number) }); }
 setView(0);

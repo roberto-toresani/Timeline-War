@@ -27,6 +27,17 @@ document.addEventListener('DOMContentLoaded', () => {
     let attackVessel = null;
     let attackVesselProv = null;
 
+    // SPOSTAMENTO IN DUE CLIC (regola dell'utente): un clic sceglie la PARTENZA,
+    // uno l'ARRIVO. Prima la partenza era semplicemente la provincia selezionata,
+    // che entrando nella fase è quella dove si era chiuso l'attacco: siccome
+    // ogni provincia propria collegata è anche una meta, cliccarne un'altra
+    // apriva un ordine invece di cambiare partenza, e per liberarsi bisognava
+    // passare da una provincia altrui. Ora la partenza va ARMATA apposta: finché
+    // `moveArmed` è falso sulla mappa si accendono le province da cui si può
+    // muovere, e la selezione ereditata dalla fase precedente non comanda nulla.
+    // Ricliccare la partenza la libera (torna al primo passo).
+    let moveArmed = false;
+
     // Stato dei moduli di commercio (§7): si tiene qui perché render() ricostruisce
     // l'HTML a ogni azione (anche dei bot) e i menù a tendina perderebbero la scelta.
     const tradeUI = { dai: null, prendi: null, n: 1, verso: null, offroT: null, offroN: 3, chiedoT: null, chiedoN: 2 };
@@ -70,12 +81,46 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.addEventListener('click', () => {
             panel.classList.toggle('collapsed');
             syncPanelTab(panel, tab, side);
+            // Aperto o chiuso a mano durante la vista generale: è quello che si
+            // ritrova rientrando nel regno, non lo stato di prima.
+            if (panelsBeforeSpectate) panelsBeforeSpectate[side] = !panel.classList.contains('collapsed');
             // La mappa ha appena cambiato larghezza: si reinquadra dopo che il
             // layout si è assestato, altrimenti misura la colonna vecchia.
             requestAnimationFrame(syncViewInsets);
         });
         if (!isWide()) panel.classList.add('collapsed');
         syncPanelTab(panel, tab, side);
+    }
+
+    // VISTA GENERALE = SOLO LA MAPPA (richiesta dell'utente): entrando in
+    // spettatore i due pannelloni si chiudono e la mappa si prende tutta la
+    // larghezza; la barra in alto resta (turno, viste, velocità dell'IA).
+    // Lo stato di partenza si ricorda, perché chiudere un pannello è anche un
+    // gesto manuale: rientrando nel regno non si deve riaprire quello che il
+    // giocatore aveva chiuso lui.
+    let panelsBeforeSpectate = null;
+
+    function setPanelOpen(panel, side, open) {
+        if (!panel) return;
+        panel.classList.toggle('collapsed', !open);
+        syncPanelTab(panel, $('board-' + side + '-tab'), side);
+    }
+
+    function syncPanelsForSpectate(on) {
+        if (on) {
+            if (!panelsBeforeSpectate) panelsBeforeSpectate = {
+                left: !leftPanel.classList.contains('collapsed'),
+                right: !rightPanel.classList.contains('collapsed')
+            };
+            setPanelOpen(leftPanel, 'left', false);
+            setPanelOpen(rightPanel, 'right', false);
+        } else {
+            const was = panelsBeforeSpectate || { left: isWide(), right: isWide() };
+            panelsBeforeSpectate = null;
+            setPanelOpen(leftPanel, 'left', was.left);
+            setPanelOpen(rightPanel, 'right', was.right);
+        }
+        requestAnimationFrame(syncViewInsets);
     }
 
     wirePanelToggle(leftPanel, $('board-left-tab'), 'left');
@@ -87,6 +132,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // appiccicata e le linguette raccontano il contrario di quel che si vede.
     const onWideChange = () => {
         const wide = isWide();
+        // In vista generale si resta con la sola mappa, larga o stretta che sia.
+        if (spectating) { syncPanelsForSpectate(true); return; }
         leftPanel.classList.toggle('collapsed', !wide);
         rightPanel.classList.toggle('collapsed', !wide);
         syncPanelTab(leftPanel, $('board-left-tab'), 'left');
@@ -110,15 +157,57 @@ document.addEventListener('DOMContentLoaded', () => {
     function enterKingdom(player) {
         if (!player) return;
         currentPlayerId = player.id;
+        // Solitaria: si segna il turno per cui si è entrati qui. Vale sia per il
+        // passaggio automatico sia per una scelta col cambio regno — così, se si
+        // va a guardare un altro regno a metà turno, la plancia non ci rimbalza
+        // subito indietro; ricomincerà a seguire al turno successivo.
+        lastFollowed = R.turnoDi();
         hasFitted = false;
         selectedProvId = null;
+        moveArmed = false;
         lastBattle = null;
         R.clearAttackArrows();
+        R.clearTargets();
+        closeOrder();
         try { sessionStorage.setItem('risiko_board_player', String(player.id)); } catch (e) { /* privato */ }
         $('board-picker').style.display = 'none';
         R.focusPlayer(player.id);
         syncViewInsets();
         render();
+    }
+
+    // ---------- partita in solitaria (tutti i regni tuoi) ----------
+    // Se NESSUN regno è governato dall'IA, la plancia segue il turno da sé: chiuso
+    // il turno di un regno si entra in quello dopo, invece di doverlo cercare col
+    // cambio regno. Non è una modalità a parte — è la stessa plancia, con lo stesso
+    // motore: si passa da enterKingdom come un giocatore qualunque, quindi la
+    // NEBBIA resta quella del regno in cui si entra. Giocare dieci regni non vuol
+    // dire vedere tutta la mappa in una volta: per quello c'è il 🌍.
+    function soloGame() {
+        const players = R.players();
+        if (!players.length || !window.Bot) return false;
+        return !players.some(p => window.Bot.isBot(p));
+    }
+
+    // Chiamata in testa a render(): torna true se ha cambiato regno (e allora il
+    // render in corso è già stato rifatto da enterKingdom). Non può ricorrere —
+    // dopo il cambio currentPlayerId è quello di turno e la funzione esce subito.
+    let lastFollowed = null;   // turno per cui si è entrati nel regno corrente
+
+    function followTurn() {
+        const t = R.turnoDi();
+        if (t === null || t === undefined || t === currentPlayerId) return false;
+        if (t === lastFollowed) return false;   // si sta guardando un altro regno apposta
+        if (!soloGame()) return false;
+        const next = R.players().find(p => p.id === t);
+        if (!next) return false;
+        if (spectating) setSpectate(false);
+        enterKingdom(next);
+        // L'avviso va in coda apposta: il cambio di regno avviene dentro il refresh
+        // di endTurn, cioè PRIMA che run() mostri il messaggio di fine turno. Senza
+        // l'attesa, il passaggio di consegne verrebbe coperto un istante dopo.
+        setTimeout(() => showNotice('Passa il comando: ora giochi ' + next.name), 0);
+        return true;
     }
 
     function showPicker() {
@@ -173,6 +262,25 @@ document.addEventListener('DOMContentLoaded', () => {
     // Tutti i massimi mostrati qui devono essere questi, non il totale presente:
     // un massimo che il motore poi rifiuta è peggio di un bottone spento.
     function spareOf(path) { return GR().spendableTroops(R.countPiece(path, 'soldato')); }
+
+    // La provincia di PARTENZA dello spostamento, o null se non è ancora stata
+    // scelta. Non è "la provincia selezionata": dev'essere stata armata con un
+    // clic apposta in questa fase, essere tua e avere qualcuno che possa
+    // partire. Un solo posto la decide — mappa, pannello e cursore d'ordine
+    // leggono tutti da qui, o direbbero cose diverse.
+    function moveOriginPath(player) {
+        if (!moveArmed || !selectedProvId) return null;
+        const path = R.engine.path(selectedProvId);
+        if (!path || R.engine.owner(path) !== player.name || !spareOf(path)) return null;
+        return path;
+    }
+
+    // Questa provincia può essere una partenza? (stesso metro di moveOrigins in
+    // game-actions.js, che è quello che accende la mappa.)
+    function canBeMoveOrigin(player, path) {
+        if (!path || R.engine.owner(path) !== player.name || !spareOf(path)) return false;
+        return GA().ownReachable(player, path.id).size > 0;
+    }
 
     // Esegue un'azione e ridisegna. Le azioni chiamano gia' Risiko.save() e
     // refresh(), che riporta qui via onRefresh: basta mostrare il messaggio.
@@ -273,6 +381,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const player = currentPlayer();
         if (!player) return;
         spectating = !!on;
+        // Prima i pannelli, poi l'inquadratura: resetView deve misurare la
+        // mappa già larga, altrimenti inquadra la colonna vecchia.
+        syncPanelsForSpectate(spectating);
         if (spectating) {
             R.focusPlayer(null);          // nessun focus = nessuna nebbia
             R.resetView();
@@ -537,7 +648,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function viewPhase(player) {
         const cur = phase(player);
-        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; }
+        // Cambiata la fase vera si riparte puliti: cartella chiusa e partenza
+        // dello spostamento da riscegliere (entrando in `sposta` la selezione è
+        // quella dell'attacco appena chiuso, e non deve comandare).
+        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; moveArmed = false; }
         return (openFolder && GA().PHASES.indexOf(openFolder) >= 0) ? openFolder : cur;
     }
 
@@ -572,8 +686,8 @@ document.addEventListener('DOMContentLoaded', () => {
             box.appendChild(chip);
         });
 
-        $('bp-phase-head').setAttribute('data-step', String(GA().PHASES.indexOf(view) + 1));
-        setText('bp-phase-name', GA().PHASE_LABEL[view]);
+        // Una riga sola: il nome della fase è già scritto grande sulla linguetta
+        // accesa, qui serve solo cosa ci si fa.
         setText('bp-phase-sub', GA().PHASE_HINT[view]);
 
         // Perché i comandi sono spenti: detto qui una volta, invece che
@@ -601,6 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Blocchi che esistono solo in una cartella.
         $('fase-schiera').style.display = view === 'schiera' ? '' : 'none';
         $('fase-commerci').style.display = view === 'costruisci' ? '' : 'none';
+        $('fase-spie').style.display = view === 'costruisci' ? '' : 'none';
         $('fase-sposta').style.display = view === 'sposta' ? '' : 'none';
 
         const next = $('bp-next-phase');
@@ -631,9 +746,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const myTurn = inPhase(player, 'schiera');
 
         setText('bp-pool', tot);
-        setText('bp-pool-free', free);
-        setText('bp-pool-bound', boundTot);
         setText('board-reinf-num', tot);
+        // Una riga, e in italiano: "1 reclute" si legge come un errore e distrae
+        // da quello che il numero sta dicendo.
+        $('bp-pool-note').innerHTML =
+            (tot === 1 ? 'recluta in mano' : 'reclute in mano') +
+            ' · <em class="free">' + free + (free === 1 ? ' libera' : ' libere') + '</em>' +
+            ' · <em class="bound">⚑ ' + boundTot +
+            (boundTot === 1 ? ' obbligatoria' : ' obbligatorie') + '</em>';
 
         const badge = $('board-reinforce');
         badge.className = 'reinf-badge' + (!tot ? ' empty' : myTurn ? ' hot' : ' pending');
@@ -682,8 +802,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const note = $('bp-deploy-note');
         if (!tot) note.textContent = 'Nessuna recluta in attesa: arrivano a inizio turno.';
         else if (!myTurn) note.textContent = 'Le schiererai quando tocca a te.';
-        else note.textContent = 'Usa + e − sulla mappa (sulla provincia selezionata) o nell\'elenco delle province: ' +
-            'finché non chiudi la fase puoi spostarle a piacere.';
+        else note.textContent = 'Clicca una provincia sulla mappa e usa + e −. Finché non chiudi la fase puoi spostarle a piacere.';
+
+        // Il riquadro sparisce del tutto quando non c'è niente da schierare: una
+        // fila di zeri è rumore, e in fase 1 senza reclute non c'è altro da fare
+        // che passare avanti.
+        $('bp-recruit-pool').classList.toggle('empty', !tot);
     }
 
     // ---------- cursore di schieramento sulla mappa ----------
@@ -858,7 +982,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderArmy(owned, units, pop, capitalPath, connectedSet) {
         setText('bp-prov-owned', owned.length);
         setText('bp-prov-connected', connectedSet.size);
-        setText('bp-capital', capitalPath ? 'Capitale: ' + R.provinceLabel(capitalPath) : 'nessuna Capitale');
+        // Nel cruscotto lo spazio è una riga sola: il nome della Capitale basta,
+        // "Capitale:" davanti lo mangerebbe tutto (le capitali hanno nomi lunghi).
+        const capEl = $('bp-capital');
+        capEl.textContent = capitalPath ? '⌂ ' + R.provinceLabel(capitalPath) : 'nessuna Capitale';
+        capEl.title = capitalPath
+            ? 'La Capitale è in ' + R.provinceLabel(capitalPath) + ': è lei a dare la fede di stato'
+            : 'Senza Capitale non c\'è religione di stato, e il regno non raccoglie nulla';
         setText('bp-soldiers', units.soldato);
         const inCap = capitalPath ? R.countPiece(capitalPath, 'soldato') : 0;
         // Sotto i 6 la Popolarità cade a 2 (§8): il numero da solo non lo dice.
@@ -959,6 +1089,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function selectProvince(id, center) {
+        closeOrder();
         selectedProvId = id;
         if (center) R.fitToProvinces([id]);
         render();
@@ -969,26 +1100,43 @@ document.addEventListener('DOMContentLoaded', () => {
     // La fede della provincia, come promemoria nel pannello. Sotto nebbia non si
     // svela (come il proprietario, §3); altrimenti pallino colorato + nome.
     function renderFaith(path, fogged) {
-        const el = $('p-faith');
+        const el = $('bsel-faith');
         if (!el) return;
         const Rel = window.Religions;
-        if (!path || fogged || !Rel) { el.textContent = fogged ? 'Sconosciuta' : '—'; return; }
-        const f = R.faithOf(path.id);
-        if (!f) { el.textContent = '—'; return; }
+        const f = (path && !fogged && Rel) ? R.faithOf(path.id) : '';
+        el.classList.toggle('off', !f);
+        if (!f) { el.textContent = ''; return; }
         el.innerHTML = '<span class="p-faith-dot" style="background:' + Rel.color(f) + '"></span>' +
             Rel.label(f);
+    }
+
+    // Una tessera della riga di anagrafica: testo + colore, o "spenta" se non
+    // c'è niente da dire. Prima erano cinque paragrafi "Chiave: valore" alti
+    // 170px; qui sono quattro parole su una riga.
+    function metaTag(id, txt, color, title) {
+        const el = $(id);
+        if (!el) return;
+        el.textContent = txt || '—';
+        el.style.color = color || '';
+        el.title = title || '';
+        el.classList.toggle('off', !txt);
     }
 
     function renderSelected(player, connectedSet) {
         const nameEl = $('bp-province-name');
         const actions = $('bp-actions');
+        const dot = $('bp-province-dot');
         const path = selectedProvId ? R.engine.path(selectedProvId) : null;
 
         if (!path) {
             nameEl.textContent = 'Nessuna provincia selezionata';
-            setText('bp-province-troops', '—');
+            setText('bp-province-troops', '');
+            dot.style.background = 'transparent';
             renderFaith(null, false);
-            actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa, o aprila dalla cartellina "Le mie province" qui sotto.</div>';
+            metaTag('bsel-owner', '', '');
+            metaTag('bsel-res', '', '');
+            metaTag('bsel-terrain', '', '');
+            actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa.</div>';
             return;
         }
 
@@ -997,23 +1145,42 @@ document.addEventListener('DOMContentLoaded', () => {
         nameEl.textContent = R.provinceLabel(path);
         renderFaith(path, fogged);
 
-        // Anagrafica della provincia. La riempie anche app.js quando si clicca
-        // sulla mappa, ma selezionando dall'elenco quel click non c'è: senza
-        // questo le righe restavano quelle della provincia di prima.
+        // Anagrafica della provincia, su una riga. Le tessere sono NOSTRE
+        // (bsel-*): gli id di app.js si aggiornano a ogni clic sulla mappa,
+        // anche quando quel clic è un ordine su un bersaglio, e finirebbero per
+        // raccontare la provincia sbagliata.
         setText('p-name', R.provinceLabel(path));
-        const owner = fogged ? 'Sconosciuto' : (R.engine.owner(path) || 'Nessuno');
+        const owner = fogged ? 'Sconosciuto' : (R.engine.owner(path) || 'Terra di nessuno');
         const ownerPlayer = R.players().find(p => p.name === owner);
-        setText('p-owner', owner);
-        $('p-owner').style.color = ownerPlayer ? ownerPlayer.color : '#888';
+        metaTag('bsel-owner', owner, ownerPlayer ? ownerPlayer.color : '#9c8f7a', 'Chi la governa');
+        dot.style.background = ownerPlayer ? ownerPlayer.color : (fogged ? '#555' : '#9c8f7a');
+
         const resKey = fogged ? '' : (R.resourceKeyOf(path) || '');
         const res = resKey && typeof RESOURCES !== 'undefined' ? RESOURCES[resKey] : null;
-        setText('p-resource', fogged ? '—' : (res ? res.nome : 'Nessuna'));
-        $('p-resource').style.color = res ? res.colore : '#888';
+        metaTag('bsel-res', fogged ? '' : (res ? res.nome : 'Nessuna risorsa'),
+            res ? res.colore : '', 'Risorsa della provincia');
 
+        // Il terreno decide quanto conta il numero in battaglia (§9): sta qui
+        // perché è la cosa che si vuole sapere PRIMA di scegliere dove colpire.
+        const terr = fogged ? '' : terrainTag(R.terrainOf ? R.terrainOf(path.id) : '');
+        metaTag('bsel-terrain', terr, '',
+            terr ? 'Terreno: cambia il peso del numero in battaglia (§9)' : '');
+
+        // Le truppe sono il numero che conta: grande, accanto al nome. Il resto
+        // della guarnigione (edifici, navi) sta nel titolo del riquadro.
         const pieces = R.piecesOf(path);
-        setText('bp-province-troops', fogged ? '—' : (pieces.length
-            ? pieces.map(x => pieceName(x.type) + (x.count > 1 ? ' ×' + x.count : '')).join(', ')
-            : 'Nessuna'));
+        const soldati = R.countPiece(path, 'soldato');
+        const altro = pieces.filter(x => x.type !== 'soldato')
+            .map(x => pieceName(x.type) + (x.count > 1 ? ' ×' + x.count : ''));
+        // La VENTURA sta accanto alle truppe e non in una tessera a parte: è un
+        // pezzo di quel numero, non un'altra proprietà della provincia (§5.3).
+        const merc = fogged ? 0 : R.engine.merc(path);
+        const troopsEl = $('bp-province-troops');
+        troopsEl.textContent = fogged ? '?' : '⚔ ' + soldati + (merc ? ' · ' + merc + '⚑' : '');
+        troopsEl.title = fogged ? 'Territorio in nebbia'
+            : (soldati + ' soldati' + (merc ? ', di cui ' + merc + ' di ventura (rendono meno in battaglia)' : '') +
+               (altro.length ? ' · ' + altro.join(', ') : ''));
+        troopsEl.classList.toggle('extra', !fogged && (altro.length > 0 || merc > 0));
 
         if (fogged) {
             actions.innerHTML = '<div class="bp-empty-hint">Territorio sconosciuto.</div>';
@@ -1050,10 +1217,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 actions.appendChild(attackGroup(player, path));
                 break;
             case 'sposta':
-                actions.innerHTML = '<div class="bp-empty-hint">Fase di spostamento: ' +
-                    (player.spostamentoFatto
-                        ? 'lo spostamento del turno è già stato fatto.'
-                        : 'questa è la provincia di partenza, scegli l\'arrivo qui sotto.') + '</div>';
+                // Niente testo: la provincia di partenza è già evidente (è
+                // questa) e la strada da seguire la dice renderMove qui sotto,
+                // una volta sola. Ripeterlo qui era rumore.
+                if (player.spostamentoFatto) {
+                    actions.innerHTML = '<div class="bp-empty-hint">Lo spostamento del turno è già stato fatto.</div>';
+                }
                 break;
         }
     }
@@ -1154,11 +1323,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 () => run(GA().build(player, path.id, type))));
         });
 
-        // Unità temporanee: valgono solo questo turno.
-        GR().TEMPORARY.forEach(type => {
+        // Reclutamento: la Guarnigione dura un turno, il Mercenario resta ma è di
+        // ventura. L'etichetta lo dice, perché sono due acquisti opposti (§5.3).
+        GR().RECRUITABLE.forEach(type => {
             const cost = GR().COSTS[type];
             const afford = GR().canAfford(player, cost, soldiersHere);
-            g.appendChild(actionButton(pieceName(type) + ' (1 turno)', GR().formatCost(cost),
+            const temporanea = GR().TEMPORARY.indexOf(type) >= 0;
+            g.appendChild(actionButton(pieceName(type) + (temporanea ? ' (1 turno)' : ' (resta, ma è ventura)'),
+                GR().formatCost(cost),
                 afford.ok ? null : shorten(GR().missingText(afford.missing)),
                 () => run(GA().recruit(player, path.id, type))));
         });
@@ -1196,18 +1368,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function attackGroup(player, path) {
-        const g = group('Attacca da ' + R.provinceLabel(path));
+        const g = document.createElement('div');
+        g.className = 'bp-act-group';
         const available = R.countPiece(path, 'soldato');
         const partenti = spareOf(path);      // tutti meno il presidio (§5)
         let targets = GA().attackTargets(player, path.id);
 
-        // L'esercito a disposizione va detto prima dei bersagli: è il vincolo che
-        // decide tutto il resto (uno resta sempre a casa).
+        // Il vincolo che decide tutto il resto (uno resta sempre a casa) e
+        // l'istruzione: si comanda dalla mappa. Il riquadrone col numero
+        // gigante non serve più — quel numero è già nel cursore d'ordine.
         g.insertAdjacentHTML('beforeend',
-            '<div class="bp-army">' +
-            '<span class="bp-army-n">' + partenti + '</span>' +
-            '<span class="bp-army-l">possono partire · su ' + available +
-            ' nella provincia, uno resta sempre a presidiare</span></div>');
+            '<div class="bp-hint map-hint">Le province attaccabili sono <b>accese sulla mappa</b>: ' +
+            'cliccane una e decidi lì quanti uomini partono. Da ' + R.provinceLabel(path) +
+            ' possono partire <b>' + partenti + '</b> soldati su ' + available + '.</div>');
 
         // ---- CON CHE COSA SI PARTE (§9.2) ----
         // Prima la nave, poi quanti uomini, poi dove: la nave non si sceglie da
@@ -1260,6 +1433,23 @@ document.addEventListener('DOMContentLoaded', () => {
             return g;
         }
 
+        // ---- L'ELENCO È LA STRADA LUNGA ----
+        // Da quando si comanda dalla mappa, l'elenco dei bersagli serve in due
+        // casi: gli SBARCHI (un Veliero tocca coste dall'altra parte del mondo,
+        // sulla mappa non le trovi) e chi preferisce leggere tutte le
+        // percentuali una sotto l'altra. Quindi sta in una cartellina, e si apre
+        // da sé solo quando la mappa non può mostrarli tutti.
+        const fold = document.createElement('details');
+        fold.className = 'bp-fold';
+        fold.open = targets.length > ORDER_MAX_MARKS;
+        fold.innerHTML = '<summary>Tutti i bersagli <span class="bp-fold-hint">' +
+            targets.length + (targets.length === 1 ? ' raggiungibile' : ' raggiungibili') +
+            ' · con la probabilità di vittoria</span></summary>';
+        const body = document.createElement('div');
+        body.className = 'bp-fold-body';
+        fold.appendChild(body);
+        g.appendChild(fold);
+
         // Quanti uomini: con una nave il tetto è il suo carico, non l'esercito.
         const tetto = attackVessel
             ? Math.min(partenti, R.engine.shipCapacity(attackVessel))
@@ -1279,7 +1469,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? 'a bordo · la nave ne porta ' + R.engine.shipCapacity(attackVessel) +
               ', in provincia ne possono partire ' + partenti
             : 'di ' + partenti + ' che possono partire') + '</span>');
-        g.appendChild(row);
+        body.appendChild(row);
 
         // Pronostico prima di lanciare la carica: è la stessa formula della
         // battaglia (§9, P_A = A² / (A² + Deff²)), così il giocatore sa cosa
@@ -1294,45 +1484,22 @@ document.addEventListener('DOMContentLoaded', () => {
         targets.forEach(t => {
             const bonus = t.fort ? ' +' + t.fort : '';
             const terr = terrainTag(t.terreno);
+            // La ventura del difensore si vede come si vedono le sue truppe: è
+            // parte di quel che si sa guardando il confine (§5.3).
+            const vent = t.merc ? ' · ' + t.merc + '⚑' : '';
             const btn = actionButton((t.viaMare ? '⚓ ' : '⚔ ') + t.label,
-                t.owner + ' · ' + t.troops + bonus + (terr ? ' · ' + terr : ''), null,
-                () => {
-                    const n = engagedFor();
-                    const p = winChance(n, t);
-                    // Il terreno è la cosa che il giocatore rischia di non vedere:
-                    // va detta prima della carica, non nel rapporto dopo.
-                    const nota = (typeof Terrain !== 'undefined' && Terrain.exists(t.terreno))
-                        ? ' ' + Terrain.label(t.terreno) + ' (' + Terrain.get(t.terreno).breve + '): ' +
-                          Terrain.get(t.terreno).testo
-                        : '';
-                    // Uno sbarco si paga di più di un attacco: parte anche la nave,
-                    // e non c'è modo di richiamarla indietro (§9.2). Va detto qui,
-                    // prima della carica, non scoperto nel rapporto dopo.
-                    const testoSbarco = t.viaMare
-                        ? ' Parte anche la ' + (attackVessel === 'vascello' ? 'nave da guerra' : 'nave') +
-                          ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
-                          'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ' +
-                          'Uno sbarco non si può fermare a metà.'
-                        : ' Le truppe impegnate lasciano ' + R.provinceLabel(path) +
-                          ' comunque vada: se vinci deciderai quante restano nella provincia presa ' +
-                          'e quante rientrano; se perdi non torna nessuno.';
-                    R.confirm({
-                        title: (t.viaMare ? 'Sbarcare a ' : 'Attaccare ') + t.label + '?',
-                        text: n + (n === 1 ? ' truppa imbarcata' : ' truppe') + ' contro ' +
-                            t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
-                            ' · probabilità di vittoria ' + p + '%.' + nota + testoSbarco,
-                        ok: t.viaMare ? '⚓ Sbarca' : '⚔ Carica', tone: 'war'
-                    }, () => run(GA().attack(player, path.id, t.id, n, undefined, attackVessel)));
-                });
+                t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : ''), null,
+                () => askAttack(player, path, t, engagedFor()));
             const chip = document.createElement('span');
             chip.className = 'bp-odds';
             btn.appendChild(chip);
             odds.push(() => {
-                const p = winChance(engagedFor(), t);
-                chip.textContent = p + '%';
-                chip.className = 'bp-odds ' + (p >= 60 ? 'good' : p >= 40 ? 'even' : 'bad');
+                const f = forecast(path, engagedFor(), t);
+                chip.textContent = oddsText(f);
+                chip.title = mercNote(f);
+                chip.className = 'bp-odds ' + (f.p >= 60 ? 'good' : f.p >= 40 ? 'even' : 'bad');
             });
-            g.appendChild(btn);
+            body.appendChild(btn);
         });
 
         const refreshOdds = () => odds.forEach(f => f());
@@ -1341,13 +1508,73 @@ document.addEventListener('DOMContentLoaded', () => {
         return g;
     }
 
+    // La conferma dell'attacco (o dello sbarco) sta QUI e non dentro l'elenco:
+    // la chiamano sia i bottoni del pannello sia il cursore d'ordine sulla
+    // mappa, e il giocatore deve leggere le stesse parole comunque ci arrivi.
+    function askAttack(player, path, t, n) {
+        const f = forecast(path, n, t);
+        // Il terreno è la cosa che il giocatore rischia di non vedere: va detta
+        // prima della carica, non nel rapporto dopo.
+        const nota = (typeof Terrain !== 'undefined' && Terrain.exists(t.terreno))
+            ? ' ' + Terrain.label(t.terreno) + ' (' + Terrain.get(t.terreno).breve + '): ' +
+              Terrain.get(t.terreno).testo
+            : '';
+        // Uno sbarco si paga di più di un attacco: parte anche la nave, e non
+        // c'è modo di richiamarla indietro (§9.2). Va detto qui, prima della
+        // carica, non scoperto nel rapporto dopo.
+        const testoSbarco = t.viaMare
+            ? ' Parte anche la ' + (attackVessel === 'vascello' ? 'nave da guerra' : 'nave') +
+              ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
+              'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ' +
+              'Uno sbarco non si può fermare a metà.'
+            : ' Le truppe impegnate lasciano ' + R.provinceLabel(path) +
+              ' comunque vada: se vinci deciderai quante restano nella provincia presa ' +
+              'e quante rientrano; se perdi non torna nessuno.';
+        // La ventura è l'altra cosa che non si vede: se c'è, il numero mostrato è
+        // una media e va detto qui, prima della carica (§5.3).
+        const testoVentura = f.banda ? ' ' + mercNote(f) : '';
+        R.confirm({
+            title: (t.viaMare ? 'Sbarcare a ' : 'Attaccare ') + t.label + '?',
+            text: n + (n === 1 ? ' truppa imbarcata' : ' truppe') + ' contro ' +
+                t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
+                ' · probabilità di vittoria ' + (f.banda ? 'intorno al ' : '') + f.p + '%.' +
+                testoVentura + nota + testoSbarco,
+            ok: t.viaMare ? '⚓ Sbarca' : '⚔ Carica', tone: 'war'
+        }, () => { closeOrder(); run(GA().attack(player, path.id, t.id, n, undefined, attackVessel)); });
+    }
+
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
     // La formula NON si riscrive qui: chiama battle.js, così il pronostico e la
     // battaglia vera non possono divergere (mura + terreno del bersaglio, §9).
-    function winChance(n, target) {
+    //
+    // Con dei MERCENARI in campo (§5.3) la risposta onesta non è un numero ma una
+    // banda: `p` è la media, `min`/`max` gli estremi. La plancia mostra la media e
+    // dice la banda — promettere una precisione che la battaglia non ha sarebbe
+    // esattamente la bugia che questa funzione esiste per evitare.
+    function forecast(from, n, target) {
         const a = Math.max(0, Math.floor(n || 0));
-        if (!a) return 0;
-        return Math.round(100 * RisikoBattle.winChance(a, target.troops + target.fort, target.esponente));
+        if (!a) return { p: 0, min: 0, max: 0, banda: 0, mercA: 0, mercD: 0 };
+        const mercA = from ? GA().mercEngaged(from.id, a) : 0;
+        const f = RisikoBattle.winForecast(a, (target.troops || 0) + (target.fort || 0),
+            target.esponente, mercA, target.merc || 0);
+        return {
+            p: Math.round(100 * f.p), min: Math.round(100 * f.min), max: Math.round(100 * f.max),
+            banda: Math.round(100 * f.banda), mercA, mercD: target.merc || 0
+        };
+    }
+
+    // "62%" oppure "~62%" quando la ventura rende il numero incerto.
+    function oddsText(f) { return (f.banda ? '~' : '') + f.p + '%'; }
+
+    // Che cosa c'è dietro quel numero, in una riga: serve al `title` del chip e al
+    // testo della conferma. Vuoto quando non ci sono mercenari.
+    function mercNote(f) {
+        if (!f.banda) return '';
+        const chi = [];
+        if (f.mercA) chi.push(f.mercA + ' dei tuoi');
+        if (f.mercD) chi.push(f.mercD + ' dei suoi');
+        return 'Ventura in campo (' + chi.join(', ') + '): la battaglia sta fra ' +
+            f.min + '% e ' + f.max + '%.';
     }
 
     // Etichetta del terreno di un bersaglio: '⛰ chiuso' / '≈ aperto'.
@@ -1409,19 +1636,20 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const path = selectedProvId ? R.engine.path(selectedProvId) : null;
-        if (!path || R.engine.owner(path) !== player.name) {
-            box.innerHTML = '<div class="bp-empty-hint">Scegli sulla mappa (o nell\'elenco) la provincia da cui far partire i soldati.</div>';
+        // Primo clic: la partenza. Finché non è scelta il pannello non racconta
+        // nessuna provincia — quella selezionata è l'eredità della fase
+        // precedente e non c'entra più (vedi moveOriginPath).
+        const path = moveOriginPath(player);
+        if (!path) {
+            const quante = GA().moveOrigins(player).length;
+            box.innerHTML = '<div class="bp-empty-hint">Due clic: prima la provincia <b>da cui</b> partono i ' +
+                'soldati, poi quella <b>dove</b> arrivano. Sulla mappa sono accese le ' + quante +
+                ' province da cui puoi muovere' + (quante ? ': cliccane una' : '') + '.</div>';
             return;
         }
 
         const available = R.countPiece(path, 'soldato');
         const mobili = spareOf(path);
-        if (!mobili) {
-            box.innerHTML = '<div class="bp-empty-hint">In ' + R.provinceLabel(path) +
-                ' c\'è un solo soldato: deve restare a presidiare.</div>';
-            return;
-        }
 
         const targets = GA().moveTargets(player, path.id);
         if (!targets.length) {
@@ -1431,9 +1659,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         box.insertAdjacentHTML('beforeend',
-            '<div class="bp-army"><span class="bp-army-n">' + mobili + '</span>' +
-            '<span class="bp-army-l">muovibili da ' + R.provinceLabel(path) + ' · su ' + available +
-            ', uno resta a presidiare</span></div>');
+            '<div class="bp-hint map-hint">Parti da <b>' + R.provinceLabel(path) + '</b>: se ne muovono <b>' +
+            mobili + '</b> su ' + available + '. Le province dove possono arrivare sono ' +
+            '<b>accese sulla mappa</b>: cliccane una e decidi lì quanti partono.</div>');
+
+        // Cambiare partenza dev'essere un gesto, non un rompicapo: sulla mappa
+        // basta ricliccare la provincia di partenza, ma quella è una scorciatoia
+        // che nessuno indovina — qui c'è scritta.
+        box.appendChild(actionButton('↩ Cambia partenza', 'scegli un\'altra provincia', null, () => {
+            moveArmed = false;
+            closeOrder();
+            render();
+        }));
+
+        // Come per l'attacco, l'elenco resta la strada lunga: un regno grande ha
+        // decine di province collegate e la lista le scorrerebbe tutte.
+        const fold = document.createElement('details');
+        fold.className = 'bp-fold';
+        fold.open = targets.length > ORDER_MAX_MARKS;
+        fold.innerHTML = '<summary>Tutte le destinazioni <span class="bp-fold-hint">' +
+            targets.length + ' province collegate</span></summary>';
+        const body = document.createElement('div');
+        body.className = 'bp-fold-body';
+        fold.appendChild(body);
+        box.appendChild(fold);
 
         const row = document.createElement('div');
         row.className = 'bp-act-row';
@@ -1445,10 +1694,10 @@ document.addEventListener('DOMContentLoaded', () => {
         input.title = 'Soldati da spostare (ne resta almeno 1)';
         row.appendChild(input);
         row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">di ' + mobili + '</span>');
-        box.appendChild(row);
+        body.appendChild(row);
 
         targets.forEach(t => {
-            box.appendChild(actionButton('→ ' + t.label, t.troops + ' già lì', null, () => {
+            body.appendChild(actionButton('→ ' + t.label, t.troops + ' già lì', null, () => {
                 const n = parseInt(input.value, 10);
                 R.confirm({
                     title: 'Spostare a ' + t.label + '?',
@@ -1539,6 +1788,101 @@ document.addEventListener('DOMContentLoaded', () => {
             if (leg === 'offro') tradeUI.chiedoT = altGood(tipo);
             else tradeUI.offroT = altGood(tipo);
         }
+    }
+
+    // ---------- spie (§9.3) ----------
+    // Si comprano OCCHI: 300 monete, 3 turni, una provincia lontana e le sue
+    // limitrofe viste in nebbia leggera — le bandiere, non le guarnigioni.
+    // Due scelte da tenere ferme:
+    //  1. Il bersaglio si sceglie SULLA MAPPA, come l'attacco e lo spostamento
+    //     (regola dell'utente). Il bottone qui non manda nessuno: accende le
+    //     province dove la spia può arrivare, e il clic sulla mappa chiude
+    //     l'affare. Un elenco di cento nomi di terre mai viste non si legge.
+    //  2. Qui NON si scrive chi governa i bersagli: è quello che la spia va a
+    //     comprare (per questo `GA().spyTargets` non lo restituisce nemmeno).
+    //     Delle spie già partite invece si dice eccome — è il loro rapporto.
+
+    let spyPicking = false;      // sto scegliendo dove mandarla?
+    let spyChoices = [];         // bersagli di QUESTO render (li usa anche la mappa)
+
+    function renderSpies(player) {
+        const box = $('bp-spies');
+        if (!box) return;
+        const S = window.Spies;
+        if (!S) { box.innerHTML = '<div class="bp-empty-hint">Spie non disponibili.</div>'; return; }
+
+        const turno = R.turn();
+        const attive = S.active(player.spie, turno);
+        const myTurn = inPhase(player, 'costruisci');
+        box.innerHTML = '';
+
+        // --- il rapporto: dove sono i nostri uomini e cosa hanno visto ---
+        if (attive.length) {
+            const list = document.createElement('div');
+            list.className = 'bp-spy-list';
+            attive.forEach(s => {
+                const path = R.engine.path(s.prov);
+                const resta = S.remaining(s, turno);
+                const owner = path ? R.engine.owner(path) : null;
+                const row = document.createElement('div');
+                row.className = 'bp-spy-row';
+                row.innerHTML = '<span class="bp-spy-ico">🕵</span>' +
+                    '<span class="bp-spy-name"></span>' +
+                    '<span class="bp-spy-owner"></span>' +
+                    '<span class="bp-spy-left">' + resta + (resta === 1 ? ' turno' : ' turni') + '</span>';
+                row.querySelector('.bp-spy-name').textContent = path ? R.provinceLabel(path) : s.prov;
+                row.querySelector('.bp-spy-owner').textContent = owner || 'terra di nessuno';
+                list.appendChild(row);
+            });
+            box.appendChild(list);
+        }
+
+        // --- mandarne un'altra ---
+        const costo = GR().COSTS.spia;
+        let why = null;
+        if (!myTurn) why = 'Solo nel tuo turno, in fase costruzioni.';
+        else if (attive.length >= S.MAX) why = 'Ne hai già ' + S.MAX + ' in perlustrazione.';
+        else {
+            const afford = GR().canAfford(player, costo, 0);
+            if (!afford.ok) why = GR().missingText(afford.missing);
+        }
+
+        if (spyPicking) {
+            box.appendChild(actionButton('✕ Lascia stare', null, null,
+                () => { spyPicking = false; render(); }));
+            box.insertAdjacentHTML('beforeend',
+                '<div class="bp-hint map-hint">Le province dove la spia può arrivare sono ' +
+                '<b>accese sulla mappa</b> (' + spyChoices.length + '): cliccane una. ' +
+                'Sono quelle che non vedi già, entro ' + S.RAGGIO + ' confini dal tuo territorio.</div>');
+            if (!spyChoices.length) {
+                box.insertAdjacentHTML('beforeend',
+                    '<div class="bp-empty-hint">Nessuna meta: da qui non si esce dalla propria vista ' +
+                    'in ' + S.RAGGIO + ' confini. Conquista o naviga più lontano, poi riprova.</div>');
+            }
+        } else {
+            box.appendChild(actionButton('🕵 Manda una spia', GR().formatCost(costo),
+                why ? shorten(why) : null, () => { spyPicking = true; render(); }));
+        }
+
+        box.insertAdjacentHTML('beforeend',
+            '<div class="bp-empty-hint">' + S.DURATA + ' turni di perlustrazione, al massimo ' +
+            S.MAX + ' insieme. Vedrai di chi sono la provincia e le sue limitrofe, ' +
+            'mai quante truppe ci stanno.</div>');
+    }
+
+    // La conferma è una sola, come per l'attacco: chi arriva dalla mappa e chi
+    // dal pannello deve leggere le stesse parole. Di chi sia la provincia non si
+    // dice: si sta pagando per saperlo.
+    function askSpy(player, t) {
+        const S = window.Spies;
+        R.confirm({
+            title: 'Mandare una spia a ' + t.label + '?',
+            text: GR().formatCost(GR().COSTS.spia) + '. Dista ' + t.dist +
+                (t.dist === 1 ? ' confine' : ' confini') + ' dal tuo territorio. Per ' + S.DURATA +
+                ' turni vedrai di chi sono ' + t.label + ' e le province che la circondano — ' +
+                'le bandiere, non le guarnigioni.',
+            ok: '🕵 Manda la spia'
+        }, () => { spyPicking = false; run(GA().sendSpy(player, t.id)); });
     }
 
     function renderTrade(player) {
@@ -1760,31 +2104,288 @@ document.addEventListener('DOMContentLoaded', () => {
         return card;
     }
 
-    // ---------- frecce d'attacco sulla mappa ----------
-    // Si ridisegnano a ogni render perché i bersagli cambiano dopo ogni conquista.
+    // ============================================================
+    // COMANDARE DALLA MAPPA (richiesta dell'utente)
+    // Attacco e spostamento non si scelgono più da un elenco nel pannello: si
+    // fanno sulla mappa. Selezionata una provincia propria, le province dove si
+    // può andare si ACCENDONO (Risiko.markTargets) e le frecce dicono la
+    // direzione; cliccandone una si apre lì sopra il CURSORE D'ORDINE
+    // (#map-order-hud): quanti uomini, che probabilità, e via.
+    //
+    // Tre regole imparate qui:
+    //  1. La verità sui bersagli resta di game-actions.js. `orderTargets` è solo
+    //     l'indice id→bersaglio dell'ULTIMO render: serve al clic per capire in
+    //     un colpo se quella provincia è un ordine o una nuova selezione.
+    //  2. Il cursore si costruisce UNA VOLTA all'apertura e poi si aggiorna:
+    //     ricostruirlo a ogni render (e i render arrivano anche dai bot)
+    //     azzererebbe il cursore mentre lo si trascina.
+    //  3. Il pannello resta la strada lunga e non sparisce: gli sbarchi di un
+    //     Veliero toccano cento province lontane, e sulla mappa non si trovano.
+    // ============================================================
 
-    function syncAttackArrows(player) {
+    let orderTargets = new Map();     // id → bersaglio, aggiornato a ogni render
+    let order = null;                 // ordine aperto: {kind, fromId, target, n, max}
+    let orderKey = '';                // firma dell'ordine disegnato adesso
+    const ORDER_MAX_MARKS = 24;       // oltre, la mappa si illumina tutta e non dice più niente
+
+    const orderHud = $('map-order-hud');
+    let orderRaf = null;
+
+    function closeOrder() {
+        order = null;
+        orderKey = '';
+        if (orderHud) orderHud.style.display = 'none';
+        if (orderRaf) { cancelAnimationFrame(orderRaf); orderRaf = null; }
+    }
+
+    // Quanti uomini possono partire per questo ordine. Il presidio minimo (§5)
+    // vale sempre; con una nave c'è il secondo tetto del carico (§9.2).
+    function orderMax(kind, path, target) {
+        const partenti = spareOf(path);
+        if (kind === 'attacca' && target.viaMare && attackVessel) {
+            return Math.min(partenti, R.engine.shipCapacity(attackVessel));
+        }
+        return partenti;
+    }
+
+    function openOrder(toId) {
+        const player = currentPlayer();
+        const target = orderTargets.get(toId);
+        if (!player || !target) return;
+        // La spia (§9.3) non parte da una provincia: non ha uomini da contare né
+        // probabilità da mostrare, quindi niente cursore d'ordine — si conferma
+        // e si parte.
+        if (target.kind === 'spia') { askSpy(player, target); return; }
         const path = selectedProvId ? R.engine.path(selectedProvId) : null;
-        if (!path || !inPhase(player, 'attacca') || R.engine.owner(path) !== player.name) {
-            R.clearAttackArrows();
+        if (!path) return;
+        const kind = phase(player);
+        const max = orderMax(kind, path, target);
+        if (max < 1) {
+            showNotice('In ' + R.provinceLabel(path) + ' non c\'è nessuno che possa partire: ' +
+                'un soldato resta sempre a presidiare.', false);
             return;
         }
-        const targets = GA().attackTargets(player, path.id);
-        if (R.countPiece(path, 'soldato') < 2 || !targets.length) { R.clearAttackArrows(); return; }
-        // Le frecce seguono la nave scelta: via terra i confinanti, con uno scafo
-        // quel che quello scafo raggiunge. Un Veliero però tocca oltre cento
-        // province e disegnarle tutte nasconderebbe proprio quel che si vuole
-        // vedere, quindi il mare entra solo se resta leggibile — l'elenco del
-        // pannello le mostra comunque tutte.
-        const scelti = attackVessel
-            ? targets.filter(t => t.viaMare && t.scafi.indexOf(attackVessel) >= 0)
-            : targets.filter(t => !t.viaMare);
-        R.showAttackArrows(path.id, (scelti.length <= 12 ? scelti : []).map(t => t.id));
+        order = { kind, fromId: path.id, target, max, n: max };
+        render();
+    }
+
+    // Il cursore d'ordine: si posa SOPRA la provincia bersaglio (non addosso —
+    // coprirebbe proprio la guarnigione che si sta valutando) e insegue la mappa
+    // come il cursore di schieramento, perché pan e zoom non emettono eventi.
+    // Resta comunque dentro la cornice: un bersaglio sul bordo della mappa
+    // manderebbe metà cursore fuori, coi bottoni intagliati.
+    const mapWrap = $('map-wrapper');
+
+    function placeOrderHud() {
+        const pos = order && R.provinceScreenPos(order.target.id);
+        if (!pos || !pos.visible) { orderHud.style.visibility = 'hidden'; return; }
+        orderHud.style.visibility = 'visible';
+        const W = mapWrap.clientWidth, H = mapWrap.clientHeight;
+        const w = orderHud.offsetWidth || 216, h = orderHud.offsetHeight || 160;
+        const m = 8;                       // margine dal bordo della cornice
+        const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+        const x = clamp(pos.x, w / 2 + m, W - w / 2 - m);
+        const y = clamp(pos.y - h / 2 - 24, h / 2 + m, H - h / 2 - m);
+        orderHud.style.left = x + 'px';
+        orderHud.style.top = y + 'px';
+    }
+
+    function trackOrderHud() {
+        if (!order) { orderRaf = null; return; }
+        placeOrderHud();
+        orderRaf = requestAnimationFrame(trackOrderHud);
+    }
+
+    function renderOrderHud(player) {
+        if (!orderHud) return;
+        // L'ordine vale solo per la provincia, la fase e il turno in cui è nato.
+        if (order && (!isPlaying(player) || player.conquista ||
+            phase(player) !== order.kind || selectedProvId !== order.fromId ||
+            !orderTargets.has(order.target.id))) {
+            closeOrder();
+        }
+        if (!order) { orderHud.style.display = 'none'; return; }
+
+        const path = R.engine.path(order.fromId);
+        order.target = orderTargets.get(order.target.id);      // dati freschi
+        order.max = orderMax(order.kind, path, order.target);
+        order.n = Math.max(1, Math.min(order.n, order.max));
+
+        const t = order.target;
+        const chiave = [order.kind, order.fromId, t.id, order.max, attackVessel].join('|');
+        if (chiave !== orderKey) { buildOrderHud(player, path); orderKey = chiave; }
+        syncOrderHud();
+
+        orderHud.style.display = 'block';
+        placeOrderHud();
+        if (!orderRaf) orderRaf = requestAnimationFrame(trackOrderHud);
+    }
+
+    function buildOrderHud(player, path) {
+        const t = order.target;
+        const attacco = order.kind === 'attacca';
+        const sbarco = attacco && t.viaMare;
+        const terr = terrainTag(t.terreno);
+
+        orderHud.className = 'moh ' + (attacco ? 'atk' : 'mov');
+        orderHud.innerHTML =
+            '<div class="moh-head"><span class="moh-ico">' +
+                (sbarco ? '⚓' : attacco ? '⚔' : '➜') + '</span>' +
+                '<span class="moh-name"></span></div>' +
+            '<div class="moh-sub"></div>' +
+            '<div class="moh-ctl">' +
+                '<button type="button" class="moh-btn" data-d="-1">−</button>' +
+                '<span class="moh-n"></span>' +
+                '<button type="button" class="moh-btn" data-d="1">+</button>' +
+            '</div>' +
+            '<input type="range" class="moh-range" min="1" max="' + order.max + '" value="' + order.n + '">' +
+            (attacco ? '<div class="moh-odds"></div>' : '') +
+            '<div class="moh-acts">' +
+                '<button type="button" class="moh-no">✕ Lascia stare</button>' +
+                '<button type="button" class="moh-go">' +
+                    (sbarco ? '⚓ Sbarca' : attacco ? '⚔ Carica' : '➜ Sposta') + '</button>' +
+            '</div>';
+
+        orderHud.querySelector('.moh-name').textContent = t.label;
+        orderHud.querySelector('.moh-sub').textContent = attacco
+            ? t.owner + ' · ' + t.troops + ' a difesa' + (t.fort ? ' +' + t.fort + ' mura' : '') +
+              (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '')
+            : t.troops + ' già lì · da ' + R.provinceLabel(path);
+
+        const range = orderHud.querySelector('.moh-range');
+        range.addEventListener('input', () => {
+            order.n = Math.max(1, Math.min(parseInt(range.value, 10) || 1, order.max));
+            syncOrderHud();
+        });
+        orderHud.querySelectorAll('.moh-btn').forEach(b => {
+            b.addEventListener('click', () => {
+                order.n = Math.max(1, Math.min(order.n + parseInt(b.dataset.d, 10), order.max));
+                syncOrderHud();
+            });
+        });
+        orderHud.querySelector('.moh-no').addEventListener('click', () => { closeOrder(); render(); });
+        orderHud.querySelector('.moh-go').addEventListener('click', () => confirmOrder(player, path));
+    }
+
+    // Solo i numeri: si chiama a ogni tacca del cursore, non deve ricostruire nulla.
+    function syncOrderHud() {
+        const t = order.target;
+        orderHud.querySelector('.moh-n').textContent = order.n;
+        const range = orderHud.querySelector('.moh-range');
+        if (range.value !== String(order.n)) range.value = String(order.n);
+        const odds = orderHud.querySelector('.moh-odds');
+        if (!odds) return;
+        const f = forecast(R.engine.path(order.fromId), order.n, t);
+        // Con la ventura in campo il cursore mostra la banda: è lì che il
+        // giocatore decide quanti uomini mandare, ed è lì che deve vedere che
+        // quel numero è meno saldo del solito (§5.3).
+        odds.textContent = f.banda
+            ? '~' + f.p + '% di vittoria (' + f.min + '–' + f.max + '%)'
+            : f.p + '% di vittoria';
+        odds.title = mercNote(f);
+        odds.className = 'moh-odds ' + (f.p >= 60 ? 'good' : f.p >= 40 ? 'even' : 'bad');
+    }
+
+    // La conferma resta: attacco e spostamento non si annullano. Il testo è lo
+    // stesso dell'elenco nel pannello — la regola sta in un posto solo, la
+    // strada per arrivarci sono due.
+    function confirmOrder(player, path) {
+        const t = order.target;
+        const n = order.n;
+        if (order.kind === 'sposta') {
+            const to = t.id;
+            R.confirm({
+                title: 'Spostare a ' + t.label + '?',
+                text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
+                    ' per ' + t.label + '. È l\'unico spostamento del turno: dopo non se ne fanno altri.',
+                ok: '➜ Sposta'
+            }, () => { closeOrder(); run(GA().finalMove(player, path.id, to, n)); });
+            return;
+        }
+        askAttack(player, path, t, n);
+    }
+
+    // Bersagli della fase in corso: accende le province sulla mappa, disegna le
+    // frecce e tiene l'indice per il clic. Gira a ogni render — i bersagli
+    // cambiano dopo ogni conquista.
+    function syncMapOrders(player) {
+        orderTargets = new Map();
+        const path = selectedProvId ? R.engine.path(selectedProvId) : null;
+        const mio = path && R.engine.owner(path) === player.name;
+        const f = phase(player);
+        const inFase = isPlaying(player) && !player.conquista && viewPhase(player) === f;
+        const attivo = mio && inFase;
+
+        // SPIE (§9.3): l'unico ordine che non parte da una provincia propria —
+        // si sceglie solo la meta. Accendono la mappa mentre si sta scegliendo,
+        // e sono tante apposta: quel che si illumina è esattamente l'anello di
+        // mondo che non si vede ma si può raggiungere.
+        if (inFase && f === 'costruisci' && spyPicking && spyChoices.length) {
+            spyChoices.forEach(t => orderTargets.set(t.id, {
+                id: t.id, label: t.label, dist: t.dist, kind: 'spia'
+            }));
+            R.clearAttackArrows();
+            R.markTargets(null, spyChoices.map(t => t.id), 'spia');
+            return;
+        }
+
+        // SPOSTAMENTO, primo clic: finché la partenza non è scelta si accendono
+        // le province DA CUI si può muovere. Non entrano in `orderTargets` —
+        // sono selezioni, non ordini — quindi il clic segue la strada normale e
+        // le arma. È l'unico modo perché il primo clic della fase sia già
+        // quello buono invece dell'eredità dell'attacco appena chiuso.
+        if (inFase && f === 'sposta' && !player.spostamentoFatto && !moveOriginPath(player)) {
+            const origini = GA().moveOrigins(player);
+            R.clearAttackArrows();
+            R.markTargets(null, origini.map(t => t.id), 'partenza');
+            return;
+        }
+
+        if (!attivo || (f !== 'attacca' && f !== 'sposta')) {
+            R.clearAttackArrows();
+            R.clearTargets();
+            return;
+        }
+
+        let scelti = [];
+        if (f === 'attacca' && spareOf(path)) {
+            // I bersagli seguono la nave scelta: via terra i confinanti, con uno
+            // scafo quel che QUELLO scafo raggiunge (§9.2).
+            const targets = GA().attackTargets(player, path.id);
+            scelti = attackVessel
+                ? targets.filter(t => t.viaMare && t.scafi.indexOf(attackVessel) >= 0)
+                : targets.filter(t => !t.viaMare);
+        } else if (f === 'sposta' && !player.spostamentoFatto && spareOf(path)) {
+            scelti = GA().moveTargets(player, path.id);
+        }
+
+        scelti.forEach(t => orderTargets.set(t.id, t));
+
+        // Un Veliero tocca oltre cento province: accenderle tutte nasconderebbe
+        // proprio quel che si vuole vedere. Sopra la soglia si rinuncia al
+        // disegno (l'elenco del pannello le mostra comunque tutte), ma il clic
+        // resta valido — se una si trova, funziona.
+        const disegnabili = scelti.length <= ORDER_MAX_MARKS ? scelti : [];
+        R.markTargets(path.id, disegnabili.map(t => t.id), f);
+        R.showAttackArrows(path.id, disegnabili.slice(0, 12).map(t => t.id), f);
     }
 
     // ---------- esito battaglia ----------
 
     function caduti(n) { return n ? '−' + n + ' caduti' : 'nessun caduto'; }
+
+    // COME HA RESO LA VENTURA (§5.3). È la sola parte dell'esito che il giocatore
+    // non può dedurre da quel che vede: il tiro di tenuta è già stato fatto, e
+    // spiega perché una battaglia data per vinta è andata storta (o viceversa).
+    function mercLine(L) {
+        const b = L.battle;
+        if (!b || (!b.mercA && !b.mercD)) return '';
+        const resa = (rho) => Math.round(rho * 100) + '%';
+        const voci = [];
+        if (b.mercA) voci.push(b.mercA + ' dei tuoi hanno reso il ' + resa(b.rhoA));
+        if (b.mercD) voci.push(b.mercD + ' dei suoi hanno reso il ' + resa(b.rhoD));
+        return '<div class="bb-merc">⚑ Ventura in campo: ' + voci.join(' · ') + '.</div>';
+    }
 
     // Rapporto di battaglia: i due schieramenti a confronto, con quanti sono
     // partiti, quanti sono caduti e quanti sono rimasti in piedi. È il posto dove
@@ -1832,7 +2433,10 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="bb-odds">
                 <div class="bb-bar"><span style="width:${odds}%"></span></div>
                 <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}${terreno}</div>
-            </div>`;
+            </div>
+            ${mercLine(L)}
+            ${L.conversione ? '<div class="bb-faith">☩ La provincia si converte: ora è ' +
+                L.conversione.label + '</div>' : ''}`;
 
         box.querySelector('.bb-route').textContent = L.fromLabel + ' → ' + L.toLabel;
         box.querySelector('.bb-side.att .bb-who').textContent = L.attaccante;
@@ -1894,7 +2498,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
     }
 
+    // ---------- editti dell'admin (GameActions.decree) ----------
+    // L'admin interviene fuori dal turno del giocatore: truppe che partono per la
+    // crociata, province che cambiano padrone, carestie. Il giocatore lo scopre
+    // QUI, all'apertura del proprio turno, con la stessa pergamena delle
+    // fondazioni. Non appena l'ha vista si segna `letto` e si salva: un editto si
+    // srotola una volta sola, ma finché non lo si è visto resta in coda anche
+    // dopo un ricaricamento della pagina.
+    function showPendingEditti(player) {
+        const attesa = (player.editti || []).filter(e => !e.letto);
+        if (!attesa.length || !R.showFoundation) return;
+        // Solo nel proprio turno: mentre si guardano giocare gli altri l'editto
+        // interromperebbe la partita di qualcun altro.
+        if (!isPlaying(player)) return;
+
+        attesa.forEach(e => { e.letto = true; });
+        R.save();
+
+        // Più editti nello stesso intervallo si leggono in una pergamena sola,
+        // invece di farne comparire una dietro l'altra.
+        const primo = attesa[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(primo.turno || R.turn())
+            : (primo.turno || R.turn());
+        R.showFoundation({
+            tipo: 'editto',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: primo.titolo || 'Editto',
+            testo: attesa.map(e => e.testo).filter(Boolean).join('\n\n'),
+            nota: attesa.length > 1 ? attesa.length + ' editti ti attendevano.' : ''
+        });
+    }
+
     function render() {
+        // In solitaria la plancia segue il turno: se è cambiato regno, enterKingdom
+        // ha già rifatto il render e questo va lasciato cadere.
+        if (followTurn()) return;
         const player = currentPlayer();
         if (!player) return;
 
@@ -1902,8 +2543,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const snapshot = snapshotProvinces(player);
         const units = KingdomStats.countUnits(snapshot);
         const capitalPath = R.getCapitalPathFor(player);
-        const pop = capitalPath ? R.computePopularity(player, capitalPath) : null;
         const connectedSet = GA().connectedOf(player);
+        const pop = capitalPath ? R.computePopularity(player, capitalPath, connectedSet) : null;
 
         syncEditorLink();
         renderTopbar(player, paths);
@@ -1912,6 +2553,12 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPhases(player);
         renderDeployPanel(player);
         renderSelected(player, connectedSet);
+        // Spie (§9.3): i bersagli si calcolano UNA volta per render — li leggono
+        // sia il pannello sia la mappa (syncMapOrders), e il conto costa una
+        // visita del grafo dei confini.
+        if (!inPhase(player, 'costruisci')) spyPicking = false;
+        spyChoices = spyPicking ? GA().spyTargets(player) : [];
+        renderSpies(player);
         renderTrade(player);
         renderConquest(player);
         renderBattle();
@@ -1920,7 +2567,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderKingdoms(player);
         renderAiLog();
         renderMapHud(player);
-        syncAttackArrows(player);
+        // Prima si accendono i bersagli sulla mappa, poi si disegna il cursore
+        // d'ordine: renderOrderHud legge `orderTargets` per capire se l'ordine
+        // aperto è ancora valido.
+        syncMapOrders(player);
+        renderOrderHud(player);
         renderTreasury(player, units, snapshot, connectedSet, pop);
         renderArmy(paths, units, pop, capitalPath, connectedSet);
         renderLegend(player);
@@ -1930,19 +2581,38 @@ document.addEventListener('DOMContentLoaded', () => {
         // i suoi + e − esistono solo nella fase 1 vera, e da lì si seleziona
         // una provincia anche mentre si sbircia un'altra cartella.
         if (peeking(player)) {
-            ['fase-schiera', 'fase-commerci', 'fase-sposta', 'bp-actions'].forEach(id => freeze($(id)));
+            ['fase-schiera', 'fase-commerci', 'fase-spie', 'fase-sposta', 'bp-actions'].forEach(id => freeze($(id)));
         }
 
         if (!hasFitted && paths.length && R.mapReady()) {
             hasFitted = R.fitToProvinces(paths.map(p => p.id));
         }
+
+        // In coda al render: la pergamena non deve rubare il focus ai comandi
+        // mentre la plancia si sta ancora ridisegnando (stessa ragione per cui
+        // le fondazioni si srotolano dopo render() in run()).
+        showPendingEditti(player);
     }
 
     // ---------- selezione dalla mappa ----------
 
+    // Un clic sulla mappa è una SELEZIONE o un ORDINE, e a deciderlo è la
+    // provincia: se è accesa come bersaglio della fase in corso (orderTargets)
+    // il clic apre il cursore d'ordine invece di spostare la selezione. È il
+    // motivo per cui la selezione non si perde a metà di un attacco.
     document.addEventListener('click', (e) => {
         const path = e.target.closest && e.target.closest('path.state');
         if (!path) return;
+        if (orderTargets.has(path.id)) { openOrder(path.id); return; }
+        closeOrder();
+        // Fase di spostamento: questo clic è la PARTENZA (le mete sono già
+        // ordini, e sono state intercettate sopra). Ricliccare la partenza la
+        // libera, così cambiarla costa un clic e non serve passare da una
+        // provincia altrui per sbloccarsi.
+        const pl = currentPlayer();
+        if (pl && isPlaying(pl) && phase(pl) === 'sposta' && viewPhase(pl) === 'sposta') {
+            moveArmed = (selectedProvId !== path.id || !moveArmed) && canBeMoveOrigin(pl, path);
+        }
         selectedProvId = path.id;
         render();
     }, true);
@@ -1967,7 +2637,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function boot(attempt) {
-        const player = resolvePlayer();
+        let player = resolvePlayer();
+        // In solitaria non c'è un regno "tuo" e la plancia si apre senza codice
+        // d'invito: si entra in quello di turno, e da lì i turni si seguono da sé.
+        if (!player && soloGame()) {
+            const t = R.turnoDi();
+            player = R.players().find(p => p.id === t) || null;
+        }
         if (player) {
             enterKingdom(player);
             syncSpectateBtn();

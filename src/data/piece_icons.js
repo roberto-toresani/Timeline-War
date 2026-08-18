@@ -159,10 +159,11 @@ const PIECE_SYMBOLS = `
   <g fill="url(#pc-sh)" stroke="none"><path d="M18 44 L30 32 H70 L82 44 Z"/><ellipse cx="36" cy="53" rx="5" ry="6"/><ellipse cx="46" cy="53" rx="5" ry="6"/><circle cx="58" cy="54" r="5"/><circle cx="66" cy="54" r="4"/><rect x="26" y="58" width="48" height="6" rx="1"/><rect x="30" y="64" width="40" height="14"/><path d="M8 66 q6 -3 12 0 v12 q-6 3 -12 0 z"/></g>
 </symbol>
 
-<!-- Strada = solo l'ICONA della palette (sulla mappa e' un selciato disegnato da
-     renderRoads fra i due punti scelti dal giocatore, non questo simbolo). E' un
-     listello di sampietrini nel colore del regno: barretta col contorno
-     d'inchiostro e "malta" scura fra un sasso e l'altro. -->
+<!-- Strada = solo l'ICONA della palette (sulla mappa e' un cancello aperto — due
+     trattini scuri di traverso al confine — disegnato da renderRoads fra le due
+     province scelte dal giocatore, non questo simbolo). L'icona resta un listello
+     di sampietrini nel colore del regno: nella palette deve dirsi "strada" a
+     colpo d'occhio, sulla mappa deve solo agganciare due province. -->
 <g id="sh-strada" fill="currentColor" stroke-linejoin="round" stroke-linecap="round"><rect x="12" y="42" width="76" height="16" rx="6"/><rect x="26" y="42" width="2.6" height="16" fill="${PC_INK}" stroke="none"/><rect x="40" y="42" width="2.6" height="16" fill="${PC_INK}" stroke="none"/><rect x="54" y="42" width="2.6" height="16" fill="${PC_INK}" stroke="none"/><rect x="68" y="42" width="2.6" height="16" fill="${PC_INK}" stroke="none"/></g>
 <symbol id="pc-strada" viewBox="0 0 100 100">
   <use href="#sh-strada" xlink:href="#sh-strada" stroke="${PC_INK}" stroke-width="${PC_OUT}"/>

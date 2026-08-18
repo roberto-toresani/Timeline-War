@@ -1,4 +1,14 @@
-param([string]$Root = ".", [int]$Port = 5500)
+param([string]$Root = ".", [int]$Port = 0)
+
+# LA PORTA, in ordine di precedenza: -Port se passato a mano (avvia.bat, riga di
+# comando), altrimenti la variabile d'ambiente PORT, altrimenti 5500.
+# PORT serve al pannello d'anteprima, che assegna lui una porta libera: senza
+# questo ripiego due sessioni diverse litigano sulla stessa porta e la seconda
+# non parte. Chi vuole una porta precisa continua a passarla con -Port.
+if (-not $Port) {
+    if ($env:PORT -and [int]::TryParse($env:PORT, [ref]$null)) { $Port = [int]$env:PORT }
+    else { $Port = 5500 }
+}
 
 # Server statico locale dependency-free per l'app in src/.
 # Robusto: ogni richiesta e' gestita in try/catch, cosi' un errore di scrittura

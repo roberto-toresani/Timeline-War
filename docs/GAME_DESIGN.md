@@ -45,12 +45,12 @@ raccoglie nulla, [REGOLA]).
 ### Fase 2 — Azioni del giocatore (manuali, admin)
 In qualsiasi ordine, finché ci sono risorse/monete/soldati:
 - **Costruire** strutture/unità (§6) — spende scorte, monete e soldati.
-- **Reclutare** unità temporanee (Mercenario, Guarnigione) valide solo questo turno.
+- **Reclutare** Mercenari (restano, ma sono di ventura: §5.3) e Guarnigioni (solo questo turno).
 - **Muovere** truppe nella propria rete collegata (§5.2).
 - **Attaccare** province adiacenti o raggiungibili via Nave/Vascello (§9).
 
 ### Fase 3 — Fine turno
-- Le unità **temporanee** (Mercenari, Guarnigioni) scadono.
+- Le unità **temporanee** (Guarnigioni) scadono. I Mercenari **no**: restano (§5.3).
 - Si passa al giocatore successivo. Completato il giro, avanza il numero di turno globale.
 
 ### 2.1 Ordine dei turni e "conquista + avanzata" nello stesso turno
@@ -144,6 +144,8 @@ giocatori, turno, storico). Salvato in localStorage/Firestore e in Save/Load.
   capitaleProvincia: id|null,  // provincia con la Capitale (chiave per la Popolarità, §8)
   popolarita: 1..5,            // calcolata (§8): totale + i 3 componenti Difesa/Benessere/Tassa
   scorte: { pietra, legno, grano, bestiame, argilla },  // risorse accumulate
+  spie: [ { prov, turno } ],   // perlustrazioni in corso (§9.3): dove e da quando.
+                               // La scadenza non si salva, si calcola dal turno
   salute:   { acquedotti, bestiariMedici, erboristerie, pozziNeri, capanniMedici },  // bool (§6.1)
   felicita: { terme, fiereBestiame, festaRaccolto, fornitureTaverne, palchiGiostre }, // bool (§6.1)
   obiettivi: {                 // obiettivi del ciclo di 10 turni corrente (§10)
@@ -222,7 +224,7 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 `+ 1 per ogni Città` **[REGOLA]**
 `+ 5 per ogni Fortezza` (oppure 1 Generale, a scelta) **[REGOLA]**
 `+ modificatore Popolarità` (−2…+2, §8) **[REGOLA]**
-`+ eventuali Mercenari/Guarnigioni reclutati (temporanei)` **[REGOLA]**
+`+ eventuali Mercenari (permanenti, §5.3) e Guarnigioni (temporanee) reclutati` **[REGOLA]**
 → Le reclute permanenti compaiono nella **Capitale** **[PROPOSTA]**.
 
 ### 5.2 Movimento **[PROPOSTA]**
@@ -237,8 +239,47 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 
 ### 5.3 Valori delle unità speciali
 - **Generale** = vale 2 soldati **[REGOLA]**, e conta per la Popolarità se nella Capitale.
-- **Mercenario** = 1 soldato temporaneo (1 turno) **[REGOLA]**.
+- **Mercenario** = 1 soldato **permanente** ma **di ventura** (150 monete) **[REGOLA]**.
 - **Guarnigione** = 2 soldati temporanei (1 turno) **[REGOLA]**.
+
+#### La ventura **[REGOLA]**
+Un mercenario è un soldato come gli altri **dappertutto**: presidio minimo (§5), spostamenti,
+costi in soldati delle costruzioni. Si distingue in un punto solo, la **battaglia**.
+
+Ogni provincia porta il conto di quanti dei suoi soldati sono di ventura. Quel numero **segue
+gli uomini**:
+- **Partenze** (attacco, spostamento, rientro dei superstiti, editto): parte la quota
+  **proporzionale**. Non si sceglie chi mandare — potersi tenere i sudditi a casa e spedire
+  sempre la ventura vorrebbe dire comprare truppe senza mai pagarne il difetto.
+- **Perdite**: cadono **per primi i mercenari**. È il contingente che si sfalda per primo, ed è
+  anche il modo in cui la quota si ripulisce da sé: nessun esercito resta inaffidabile per sempre.
+- **Conquista**: i contratti non passano di mano. La ventura del vinto muore con lui; nella
+  provincia presa resta solo quella arrivata con i vincitori.
+
+L'effetto sul combattimento è nel **§9**.
+
+### 5.4 Terre di nessuno: presidio e razzie **[REGOLA, utente]**
+Nessuna provincia neutrale è vuota, e nessuna è un avversario in più: sono un **attrito**.
+
+- **Presidio**: 2 soldati, **+1 ogni 10 turni** (`GameRules.neutralGarrison`). Il presidio si
+  alza soltanto, e una provincia conquistata esce dal conteggio perché non è più neutrale.
+  La crescita è lenta apposta: a un uomo ogni 5 turni le terre di nessuno diventavano
+  imprendibili a metà partita, e l'espansione si fermava per aritmetica invece che per guerra.
+- **Razzie**: a fine giro una neutrale può marciare contro un vicino, ma **solo** se
+  - il vicino è di **fede diversa** (§ religioni: la stessa fede non si tocca), **e**
+  - è in **schiacciante inferiorità: 3 attaccanti per ogni difensore**
+    (`GameRules.neutralCanRaid`). Il presidio minimo (§5) vale anche per le neutrali, quindi
+    il caso limite è **4 soldati neutrali contro 1 difensore**.
+
+  Prima bastava 1 soldato in più e le razzie erano continue: una neutrale da 3 uomini
+  strappava una provincia difesa da 2, e nessun confine reggeva. Ora la razzia è la punizione
+  per una **porta lasciata aperta**, non un secondo fronte.
+- Vinta la razzia, la provincia **torna neutrale** coi superstiti; le costruzioni restano e
+  cambiano colore, come in ogni conquista.
+- Il rovescio della regola — quanti uomini bastano perché quel confine sia chiuso — è
+  `GameRules.neutralSafeGarrison`, ed è quello che **l'IA usa per difendersi prima** che la
+  razzia accada: ci schiera fin lì, e non scende sotto quel pavimento né attaccando né
+  spostando.
 
 ---
 
@@ -257,8 +298,9 @@ dove indicato.
 | **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 4000 monete | Solo su provincia **costiera**. Portata di mare **170**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
 | **Mercato** | 4 soldati + 800 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
 | **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 500 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
-| **Mercenario** | 100 monete | +1 soldato temporaneo (1 turno). |
+| **Mercenario** | 150 monete | +1 soldato **permanente**, ma di ventura: in battaglia vale meno di un suddito e rende un numero incerto (§5.3, §9). |
 | **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +2 soldati temporanei (1 turno). |
+| **Spia** | 300 monete | Perlustra per **3 turni** una provincia lontana e le sue limitrofe: se ne vedono i **proprietari**, non le truppe (§9.3). |
 
 **Interpretazioni [PROPOSTA]:**
 - Città "+1 Pietra" = **[REGOLA]** bonus **una tantum** alla costruzione (+1 Pietra alle scorte),
@@ -313,6 +355,12 @@ ogni giocatore (§3).
 **Formula [REGOLA]:** `Popolarità = arrotonda( (Difesa + Benessere + Tassa) / 3 )` (clamp 1–5),
 dove ciascun componente ha il proprio calcolo.
 
+Implementata in `src/js/popularity.js` (funzione pura, come `battle.js` per il §9): `app.js`
+si limita a **misurare** i fattori sulla mappa e le passa i numeri. Lo stesso modulo risponde
+anche alla domanda inversa — `plan()`: quale **tassazione** e quanta **guardia** servono per
+arrivare a un dato livello, e quanto costano. È la funzione con cui i regni governati dall'IA
+decidono le tasse (`js/bot.js`), e potrà servire a un consiglio in plancia per il giocatore.
+
 **Arrotondamento [REGOLA]:** per **difetto**, salvo quando la parte decimale è **> 0,8**, allora
 per eccesso. `arrotonda(x) = (x − floor(x) > 0.8) ? ceil(x) : floor(x)`.
 Es.: 2,83 → 3 · 2,5 → 2 · 4,8 → 4 · 3,9 → 4.
@@ -320,6 +368,8 @@ Es.: 2,83 → 3 · 2,5 → 2 · 4,8 → 4 · 3,9 → 4.
 ### Livello Difesa — `(P_conf + P_guardia) / 2 + generale` **[REGOLA]**
 - **P_conf** (province nemiche confinanti con la Capitale, punti su 5): `5 − e`, con `e` = numero
   di province nemiche a contatto (max 5). → 0 nemiche = 5 · 1 = 4 · 2 = 3 · 3 = 2 · 4 = 1 · ≥5 = 0
+  **Nemica = ogni provincia che non è tua, terre di nessuno comprese** [REGOLA, utente]: le
+  neutrali sono presidiate (§5.4) e razziano, quindi minacciano come un regno.
 - **P_guardia** (guardia cittadina, punti su 5): `min(5, max(0, soldatiCapitale − 5))` — ogni
   soldato oltre i 5 nella Capitale vale 1, fino a 5. → 7 soldati = 2 · 10+ = 5
 - **Generale nella Capitale**: `+1` (ce l'hai o non ce l'hai)
@@ -328,9 +378,13 @@ Es.: 2,83 → 3 · 2,5 → 2 · 4,8 → 4 · 3,9 → 4.
 ### Livello Benessere — `(Risorse + Cibo + Sanità + Felicità) / 4` **[REGOLA]**
 - **Risorse** (diversità, su 5): numero di **tipi distinti** di risorsa collegati.
   *Es.: 5 province di solo Bestiame collegate → Risorse = 1 (un solo tipo), ma Cibo = 5.*
-- **Cibo** (su 5): province di **Grano/Bestiame** collegate, `min(5, conteggio)`.
+- **Cibo** (su 5): province di **Grano/Bestiame** collegate, `min(5, conteggio)`. Si contano le
+  **province**, non la raccolta: il ±N di risorse dato dalla Popolarità **non entra** qui
+  [REGOLA, utente] — altrimenti il Benessere si nutrirebbe di sé stesso.
 - **Sanità** (su 5): numero di **migliorie di salute** completate (una per tipo di risorsa, §6.1).
 - **Felicità** (su 5): numero di **migliorie di svago** completate (una per tipo di risorsa, §6.1).
+- Sanità e Felicità non sono ancora in gioco: finché non ci sono valgono **3** (baseline neutra),
+  così le due voci non affondano il Benessere prima di esistere.
 - `Benessere = (Risorse + Cibo + Sanità + Felicità) / 4` → intervallo **0–5**
 
 ### Livello Tassa **[REGOLA]**
@@ -368,7 +422,7 @@ un **pannello dedicato** che si **aggiorna automaticamente** ed evolve, mostrand
 
 Modello **probabilistico**: il più numeroso è favorito in modo **super-lineare** (l'esponente),
 ma il più debole ha **sempre** una probabilità non nulla. Implementato in `src/js/battle.js`
-(funzione pura `resolveBattle(A, D, fort, rng, esponente)`, testata).
+(funzione pura `resolveBattle(A, D, fort, rng, esponente, mercA, mercD)`, testata).
 
 **Bersagli validi:** provincia nemica/neutra **adiacente via terra**, oppure costiera dentro la
 **portata di mare** di una propria Nave/Veliero (§9.2) — che a tutti gli effetti la rende limitrofa.
@@ -381,9 +435,50 @@ ma il più debole ha **sempre** una probabilità non nulla. Implementato in `src
   `Deff = 0` → l'attaccante vince.
 - `k` = **esponente del terreno** della provincia **attaccata** (vedi sotto).
 
-**Probabilità di vittoria dell'attaccante:** `P_A = A^k / (A^k + Deff^k)`.
-Esempi (D=5, terreno neutro k=2): A5 → 50% · A8 → 72% · A10 → 80%; **Città (+1)** pareggio a **A6**;
-**Fortezza (+3)** pareggio a **A8** (A10 → 61%).
+**Probabilità di vittoria dell'attaccante:** `P_A = A_eff^k / (A_eff^k + Deff_eff^k)`, dove
+`A_eff` e `Deff_eff` sono le truppe **efficaci** dopo la ventura (§9.0; senza mercenari valgono
+`A` e `Deff` e la formula è quella di sempre).
+Esempi (D=5, terreno neutro k=2, nessun mercenario): A5 → 50% · A8 → 72% · A10 → 80%;
+**Città (+1)** pareggio a **A6**; **Fortezza (+3)** pareggio a **A8** (A10 → 61%).
+
+### 9.0 Ventura: quanto valgono i mercenari in battaglia **[REGOLA]**
+
+Un mercenario è pagato, non giurato. Vale **meno di un suddito in linea**, e — soprattutto —
+**quanto valga si sa solo sul campo**. Sono due effetti distinti, e la separazione è il punto:
+il primo è piccolo e certo, il secondo è il prezzo vero.
+
+| | | |
+|---|---|---|
+| **valore** | `ρ` medio **0,85** | un mercenario conta 0,85 soldati: sposta la **media** |
+| **tenuta** | `ρ` scarta di **±0,25** | quanto rende davvero: apre la **banda** |
+
+`ρ = 0,85 + 0,25·z`, `z ~ U(−1,1)` → resa fra **0,60 e 1,10**. Il tiro è **uno per
+schieramento**, non uno per uomo: tiene il contingente o si sfilaccia, non il singolo.
+
+`A_eff = (A − mA) + mA·ρ_A` e altrettanto per il difensore (`mD` sottratti da `Deff`; le mura
+non sono uomini di ventura e non ne vengono toccate). Vale **simmetrico anche in difesa**: se
+no, comprare ventura per presidiare sarebbe gratis.
+
+Le **perdite** restano sulle truppe reali: la ventura sposta la probabilità, non fa vittime
+extra — esattamente come le mura.
+
+**Cosa cambia davvero** (A=12 contro Deff=8, k=2):
+
+| mercenari fra i 12 | P_A media | banda reale |
+|---|---|---|
+| 0 | 69% | 69% (certa) |
+| 6 (metà) | 66% | 59–71% |
+| 12 (tutti) | 62% | 45–73% |
+
+La media scende di 7 punti, l'incertezza si apre di 28. Un'armata di ventura non è **più
+debole**: è **meno sicura**, ed è esattamente questo che si compra con 150 monete.
+
+**Il pronostico resta onesto.** Con dei mercenari in campo la plancia non può promettere un
+numero: mostra la **media** (`RisikoBattle.winForecast`) e dice la **banda**. La stessa
+funzione la chiama l'IA — se divergessero, il gioco mentirebbe a uno dei due.
+
+Manopole in `src/js/battle.js`: `MERC_VALUE` (0,85) e `MERC_SPREAD` (0,25). Sono lì e in
+nessun altro posto.
 
 ### 9.1 Terreno **[REGOLA]**
 
@@ -439,6 +534,15 @@ vittime extra):**
 - **Strade**: una strada appartiene al colore di chi l'ha costruita. La conquista di UNA delle
   due province che collega **non la distrugge**: sparisce solo quando **entrambe** le province
   sono passate a un colore diverso da quello della strada.
+- **[REGOLA] La fede segue la spada**: la provincia conquistata **cambia fede** e prende la
+  confessione **esatta** del conquistatore, cioè la sua religione di stato (quella della sua
+  Capitale: cattolica, ortodossa, sunnita, sciita…). Vale per **ogni** regno, sia contro un altro
+  regno sia sulle **terre di nessuno**, e vale per l'attacco via terra, per lo sbarco e per lo
+  sbarco d'editto (crociata). Nessuna conversione se il conquistatore non ha Capitale (niente
+  religione di stato) o se la provincia ha già quella fede. Conseguenze: le neutrali convertite
+  smettono di razziare un regno della stessa fede (§terre di nessuno), gli obiettivi di prestigio
+  per famiglia cambiano conto, e perdere la Capitale può ridipingere la fede di tutto l'impero
+  alla conquista successiva.
 
 ### 9.2 Mare: portata, carico, sbarco **[REGOLA]**
 
@@ -521,6 +625,59 @@ monete ti **apre** un continente, la Città da 1000 te lo fa diventare impero.
 **Aperto, da definire:** lo **scontro navale in mare aperto** — due velieri che si incontrano
 durante una rotta lunga si combattono. Rimandato di proposito: nel calendario compresso i
 velieri sono roba del 1500, cioè a molti turni dall'inizio, e tutto il resto funziona senza.
+
+---
+
+### 9.3 Spie: guardare lontano senza andarci **[REGOLA]**
+
+Fino a qui il mondo si scopre in due modi soltanto, e tutti e due **costano territorio**: si
+vede quel che confina con le proprie province e quel che raggiungono le proprie navi (§9.2).
+Chi non ha coste e non ha ancora conquistato niente gioca a occhi chiusi su tutto il resto
+della mappa. La **spia** è la terza strada, e l'unica che si compra con l'oro.
+
+| | valore |
+|---|---|
+| **Costo** | **300 monete** |
+| **Durata** | **3 turni** (quello dell'invio e i due successivi) |
+| **Quante insieme** | **3** per regno |
+| **Quanto lontano** | fino a **5 confini** di distanza dal proprio territorio |
+| **Che cosa vede** | la provincia e le sue **limitrofe**: di chi sono, non quante truppe hanno |
+| **Quando si manda** | fase **costruisci** del proprio turno |
+
+**Vede le bandiere, non le guarnigioni.** È esattamente la **nebbia leggera** del §9.2, quella
+che dà una nave: la provincia prende il colore del suo proprietario (o resta neutra), se ne
+vedono le **risorse**, e le sue pedine restano nascoste. Una spia riconosce di chi è un
+castello e che cosa produce quella terra, non conta gli uomini che ci stanno dentro — e questo
+tiene la spia dall'essere una scorciatoia all'attacco: dice **dove** guardare e **cosa c'è da
+prendere**, non **quanto** è difeso.
+
+**Una spia non si vede, e non si scopre. [REGOLA]** Chi la subisce non sa di averla: non c'è
+segno sulla mappa, non c'è avviso, non c'è controspionaggio. Il segno violetto sulla provincia
+perlustrata lo vede **soltanto il regno che ha pagato la spia** — nella vista generale (🌍) non
+compare per nessuno. Quindi non esiste il gesto "caccia la spia": l'unica difesa è che dura
+tre turni e poi rientra da sé. È voluto — una perlustrazione che si può scoprire diventerebbe
+una seconda guerra, con una sua economia e i suoi turni, e questo gioco non la vuole.
+
+**Si manda solo dove non si vede già.** Non è una restrizione di comodo: 300 monete per
+guardare la provincia che confina con la propria sarebbero monete buttate, e il gioco non deve
+permettere di buttarle per distrazione. Il vincolo vale anche verso il mare — se lì arriva già
+un Veliero, quella provincia non è una meta.
+
+**La distanza si conta in province, non in unità di mappa**: 5 confini percorsi via terra,
+attraversando le terre di chiunque (una spia passa, è il suo mestiere). È l'unica misura che il
+giocatore può verificare guardando la carta invece di doverla prendere per buona. Un regno
+interamente insulare non ha mete via terra: per lui il mondo si apre con le navi, non con le
+spie.
+
+**Vedere "cosa succede" viene da sé.** Il registro delle mosse dell'IA e la scena della
+battaglia mostrano solo ciò che tocca una provincia **visibile**: con una spia in campo, le
+conquiste e gli scontri di quella zona lontana cominciano ad apparire nel registro. Non serve
+un rapporto a parte — è il racconto normale della partita che si allarga fin dove arriva
+l'occhio comprato.
+
+**Non è una pedina.** Non sta sulla mappa, non presidia, non si sposta, non si può catturare:
+è una spesa che apre una finestra e la richiude da sé dopo tre decenni. Sulla mappa il suo
+padrone vede soltanto **dove** sta guardando (il contorno della provincia perlustrata).
 
 ---
 
@@ -607,6 +764,9 @@ il vero bilanciamento. → *in discussione.*
 **Confermate [REGOLA]:**
 - Combattimento **probabilistico** `P_A = A^k/(A^k+Deff^k)`, `k` dal terreno, con attrito anti-valanga (§9,
   `battle.js`), bonus difensivi **Città/Capitale +1, Fortezza +3** (in `Deff = D + bonus`).
+- **Mercenari permanenti ma di ventura** (150 monete): valgono 0,85 soldati in media, con uno
+  scarto di ±0,25 tirato a ogni battaglia (§9.0). Si tracciano per provincia, partono in quota
+  proporzionale e cadono per primi (§5.3).
 - Vittoria: **soglia di prestigio** (proposta 30) **oppure** eliminazione degli altri; si
   **perde** restando senza province. Nessuna scadenza a turni.
 - Tassazione: **solo le Città**, 50/100/150 (leggera/normale/dura).

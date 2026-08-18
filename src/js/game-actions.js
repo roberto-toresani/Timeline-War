@@ -121,6 +121,20 @@
         return GR().spendableTroops(E().countPiece(path, 'soldato'));
     }
 
+    // ---------- mercenari (§5.3) ----------
+    // Un mercenario è un soldato come gli altri dappertutto: presidio, costi in
+    // soldati, spostamenti. Si distingue in due soli momenti, e sono qui:
+    //   - PARTENZE (attacco, spostamento, rientro dei superstiti, editto): parte
+    //     la quota PROPORZIONALE, non se ne sceglie il colore (GameRules.mercShare).
+    //   - PERDITE: cadono per primi i mercenari. È il contingente che si sfalda
+    //     per primo, ed è anche il modo in cui la quota si ripulisce da sola —
+    //     nessun esercito resta inaffidabile per sempre.
+    // Quanti degli `n` che lasciano questa provincia sono di ventura. Si legge
+    // PRIMA di togliere i soldati (dopo, la quota è già cambiata).
+    function mercLeaving(path, n) {
+        return GR().mercShare(E().merc(path), E().countPiece(path, 'soldato'), n);
+    }
+
     function garrisonFail(path) {
         return fail('In ' + R().provinceLabel(path) + ' resta un solo soldato: una provincia ' +
             'non si lascia mai sguarnita.');
@@ -166,14 +180,16 @@
             if (!nf || attaccanti <= 0) return;
 
             // Bersagli: confinanti di un giocatore, di fede DIVERSA dalla neutrale, e
-            // che la neutrale SUPERA in numero. Regola dell'utente: una terra di
-            // nessuno marcia solo quando ha almeno 1 soldato più della provincia che
-            // vuole colpire (soldati neutrali > soldati del bersaglio).
+            // in schiacciante inferiorità. Regola dell'utente: la terra di nessuno
+            // marcia solo a 3 contro 1 (GameRules.neutralCanRaid) — con 4 soldati
+            // neutrali, che ne spendono 3, contro una provincia difesa da 1 solo.
+            // Non è una battaglia alla pari: è una razzia, e va tentata solo quando
+            // il confine è davvero sguarnito.
             const targets = E().landNeighbors(np.id)
                 .map(id => E().path(id))
                 .filter(tp => tp && E().owner(tp)
                     && !Religions.sameFaith(E().religion(tp), nf)
-                    && E().countPiece(tp, 'soldato') < truppeNeutrali);
+                    && GR().neutralCanRaid(truppeNeutrali, E().countPiece(tp, 'soldato')));
             if (!targets.length) return;
             targets.sort((a, b) => E().countPiece(a, 'soldato') - E().countPiece(b, 'soldato'));
             const tp = targets[0];
@@ -181,7 +197,11 @@
             const difOwner = E().owner(tp);
             const difTruppe = E().countPiece(tp, 'soldato');
             const fort = GR().defenceBonus(unitsOf([tp]));
-            const res = RisikoBattle.resolveBattle(attaccanti, difTruppe, fort, null, terrainExp(tp));
+            // Le terre di nessuno non assoldano nessuno: la ventura è solo di chi
+            // difende, e pesa anche qui (§5.3).
+            const mercDif = E().merc(tp);
+            const res = RisikoBattle.resolveBattle(attaccanti, difTruppe, fort, null, terrainExp(tp),
+                0, mercDif);
             if (!res) return;
 
             // Gli attaccanti lasciano comunque la provincia neutrale (resta il presidio).
@@ -196,12 +216,15 @@
                 if (difensore && difensore.temporanei) delete difensore.temporanei[tp.id];
                 E().setOwner(tp, null);
                 E().addPiece(tp, 'soldato', res.attackerSurvivors);
+                E().setMerc(tp, 0);           // i contratti sono morti col regno che li pagava
                 E().setArmyColor(tp, null);
                 pruneRoadsTouching(tp.id);
                 esito = 'riconquistata';
             } else {
                 // Respinta: il difensore perde solo i caduti, tiene la provincia.
-                E().addPiece(tp, 'soldato', -(difTruppe - res.defenderSurvivors));
+                const caduti = difTruppe - res.defenderSurvivors;
+                E().addPiece(tp, 'soldato', -caduti);
+                E().setMerc(tp, mercDif - caduti);   // cadono per primi i mercenari
                 esito = 'respinta';
             }
             E().redrawProvince(np);
@@ -322,6 +345,7 @@
             pl.puntiOro = 0;
             pl.temporanei = {};
             pl.offerte = [];
+            pl.spie = [];
             pl.fase = PHASES[0];
             pl.spostamentoFatto = false;
             pl.conquista = null;
@@ -357,8 +381,9 @@
         const paths = E().ownedPaths(player.name);
         const units = unitsOf(paths);
         const capital = R().getCapitalPathFor(player);
-        const pop = capital ? R().computePopularity(player, capital).totale : null;
-        const prod = GR().turnProduction(snapshotOf(player), connectedOf(player), units,
+        const collegate = connectedOf(player);
+        const pop = capital ? R().computePopularity(player, capital, collegate).totale : null;
+        const prod = GR().turnProduction(snapshotOf(player), collegate, units,
             player.tassazione, pop);
 
         player.monete += prod.monete;
@@ -374,6 +399,12 @@
             bound[id] = (bound[id] || 0) + prod.vincolate[id];
         });
         player.schierateTurno = {};
+
+        // Le spie rientrate (§9.3) si tolgono dalla lista. La scadenza vale
+        // comunque, anche senza questa riga — `Spies.active` la calcola a ogni
+        // lettura: qui si fa solo ordine, così lo stato salvato non si trascina
+        // dietro perlustrazioni di tre decenni fa.
+        if (root.Spies) player.spie = root.Spies.active(player.spie, R().turn());
 
         // Il turno riparte sempre dalla prima fase, con lo spostamento di nuovo
         // disponibile e nessuna conquista in sospeso.
@@ -445,7 +476,8 @@
               razzie: (razzie && razzie.razzie) || [], scismi: scismi || [] });
     }
 
-    // Mercenari e Guarnigioni valgono un turno solo (§5.3).
+    // La Guarnigione vale un turno solo (§5.3). Il Mercenario NO: si paga di più
+    // (150 monete) e resta, ma resta come ventura — vedi `data-merc`.
     function expireTemporaries(player) {
         const temp = player.temporanei || {};
         Object.keys(temp).forEach(provId => {
@@ -696,10 +728,14 @@
             (gratis ? ' (gratuita).' : '.'), { prov: aId, prov2: bId });
     }
 
-    // Unità temporanee: valgono questo turno soltanto (§5.3).
+    // Reclutamento (§5.3). Due unità, due nature opposte:
+    //   Guarnigione — 2 soldati che scadono a fine turno (expireTemporaries).
+    //   Mercenario  — 1 soldato che RESTA per sempre, ma è di ventura: entra in
+    //                 `data-merc` e da lì pesa su ogni battaglia della provincia
+    //                 finché non muore o non viene mandato altrove (§9).
     function recruit(player, provId, type) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
-        if (GR().TEMPORARY.indexOf(type) < 0) return fail('Non è un\'unità temporanea.');
+        if (GR().RECRUITABLE.indexOf(type) < 0) return fail('Non è un\'unità reclutabile.');
         const path = E().path(provId);
         if (!path) return fail('Provincia sconosciuta.');
         if (E().owner(path) !== player.name) return fail('Puoi reclutare solo nelle tue province.');
@@ -708,17 +744,141 @@
         const afford = GR().canAfford(player, cost, spare(path));
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
-        pay(player, cost, path);
         const n = (type === 'guarnigione') ? 2 : 1;
+        const room = roomFor(path);
+        if (n > room) return fail(R().provinceLabel(path) + ' non regge altri soldati.');
+
+        pay(player, cost, path);
         E().addPiece(path, 'soldato', n);
         E().setArmyColor(path, player.color);
-        player.temporanei[provId] = (player.temporanei[provId] || 0) + n;
+
+        const temporanea = GR().TEMPORARY.indexOf(type) >= 0;
+        if (temporanea) player.temporanei[provId] = (player.temporanei[provId] || 0) + n;
+        else E().addMerc(path, n);
 
         E().redrawProvince(path);
         E().refresh();
         E().save();
-        return done('+' + n + ' soldati temporanei in ' + R().provinceLabel(path) + ' (scadono a fine turno).',
-            { prov: provId });
+        if (temporanea) {
+            return done('+' + n + ' soldati temporanei in ' + R().provinceLabel(path) + ' (scadono a fine turno).',
+                { prov: provId });
+        }
+        // Il mercenario si paga due volte: una in monete, una in affidabilità. La
+        // seconda va detta subito, con la quota della provincia, o il giocatore
+        // scopre il conto solo quando perde una battaglia che dava per vinta.
+        const merc = E().merc(path), truppe = E().countPiece(path, 'soldato');
+        return done('+1 mercenario in ' + R().provinceLabel(path) + ': resta per sempre, ma qui ' +
+            merc + ' truppe su ' + truppe + ' sono ormai di ventura — in battaglia rendono meno, ' +
+            'e quanto meno si scopre sul campo.', { prov: provId });
+    }
+
+    // ---------- SPIE (§9.3) ----------
+    // Si comprano OCCHI, non truppe: 300 monete e per 3 turni si vede di chi
+    // sono una provincia lontana e le sue limitrofe. Nessuna pedina sulla mappa
+    // e nessun grado di visibilità nuovo — la spia versa nella nebbia leggera
+    // del §9.2, la stessa della portata di una nave: bandiere sì, guarnigioni no.
+    // Le regole (costo, durata, tetto, raggio) e il conto dei passi stanno in
+    // js/spies.js, che è puro; qui resta solo quel che tocca lo stato.
+    //
+    // Perché il bersaglio deve essere fuori dalla propria vista: la distanza non
+    // basta a rendere una spia sensata — la provincia a 5 confini può essere
+    // raggiunta anche dalla portata di un Veliero, e allora quelle 300 monete
+    // comprerebbero una cosa che si ha già.
+
+    function SP() { return root.Spies; }
+
+    function spiesOf(player) {
+        return SP() ? SP().active(player.spie, R().turn()) : [];
+    }
+
+    // Dove si può mandarne una adesso: [{id, dist, label}].
+    // NON dice di chi è la provincia, ed è il punto: quello è esattamente ciò
+    // che la spia deve andare a scoprire. Metterlo qui lo farebbe finire nel
+    // pannello, e il giocatore leggerebbe gratis la cosa che sta comprando.
+    // Vuoto finché i confini non sono pronti (app.js li costruisce all'avvio):
+    // meglio nessun bersaglio che un raggio misurato su un grafo a metà.
+    function spyTargets(player) {
+        if (!SP() || !R().neighborsReady || !R().neighborsReady()) return [];
+        const owned = E().ownedPaths(player.name).map(p => p.id);
+        if (!owned.length) return [];
+        const seen = R().seenBy(player.name);
+        const visti = new Set([...seen.visible, ...seen.haze]);
+        return SP().targets(owned, visti, id => E().landNeighbors(id))
+            .map(t => {
+                const path = E().path(t.id);
+                return { id: t.id, dist: t.dist, label: path ? R().provinceLabel(path) : t.id };
+            });
+    }
+
+    function sendSpy(player, provId) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        if (!SP()) return fail('Le spie non sono disponibili in questa partita.');
+
+        const attive = spiesOf(player);
+        if (attive.length >= SP().MAX) {
+            return fail('Hai già ' + attive.length + ' spie in perlustrazione: ' +
+                'aspetta che una rientri (il massimo è ' + SP().MAX + ').');
+        }
+
+        const path = E().path(provId);
+        if (!path) return fail('Provincia sconosciuta.');
+
+        // Il bersaglio si ricava dalla stessa funzione che accende la mappa: se
+        // non è in quell'elenco, il perché è uno dei due, e si dice quale.
+        const target = spyTargets(player).find(t => t.id === provId);
+        if (!target) {
+            if (!R().neighborsReady || !R().neighborsReady()) {
+                return fail('La mappa non ha ancora finito di calcolare i confini: riprova fra un istante.');
+            }
+            const seen = R().seenBy(player.name);
+            if (seen.visible.has(provId) || seen.haze.has(provId)) {
+                return fail(R().provinceLabel(path) + ' la vedi già: una spia si manda dove non arrivano ' +
+                    'né i tuoi confini né le tue navi.');
+            }
+            return fail(R().provinceLabel(path) + ' è troppo lontana: una spia percorre al più ' +
+                SP().RAGGIO + ' confini dal tuo territorio.');
+        }
+
+        const cost = GR().COSTS.spia;
+        const afford = GR().canAfford(player, cost, 0);
+        if (!afford.ok) return fail('Non puoi permettertela: ' + GR().missingText(afford.missing) + '.');
+
+        player.monete -= cost.monete;
+        if (!Array.isArray(player.spie)) player.spie = [];
+        player.spie.push({ prov: provId, turno: R().turn() });
+
+        E().refresh();
+        E().save();
+        return done('Una spia parte per ' + target.label + ' (' + target.dist +
+            (target.dist === 1 ? ' confine' : ' confini') + ' dal tuo territorio): per ' +
+            SP().DURATA + ' turni vedrai di chi sono quella provincia e le sue limitrofe, ' +
+            'non quante truppe ci stanno.', { prov: provId });
+    }
+
+    // ---------- TASSAZIONE (§7, §8) ----------
+    // Il livello di tassazione è una LEVA DI GOVERNO, non una costruzione: non
+    // costa niente e non consuma la fase, quindi si può cambiare in qualunque
+    // momento del proprio turno. Quello che cambia è il prossimo inizio turno —
+    // `beginTurn` legge `player.tassazione` sia per le monete (§7) sia per il
+    // componente Tassa della Popolarità (§8): più tasse, più oro, meno popolo.
+    // Passa da qui e non da un assegnamento nella UI perché questo resta l'unico
+    // punto che muta lo stato: da qui arrivano gratis il salvataggio, il `prov`
+    // per il registro che rispetta la nebbia, e il fatto che l'IA e il giocatore
+    // usino la stessa strada.
+    function setTax(player, livello) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const L = (typeof Popularity !== 'undefined') ? Popularity.TAX_LEVELS : null;
+        if (L && !L[livello]) return fail('Livello di tassazione sconosciuto.');
+        if (player.tassazione === livello) return fail('La tassazione è già ' + livello + '.');
+
+        player.tassazione = livello;
+        const cap = R().getCapitalPathFor(player);
+        const rate = GR().TAX_INCOME[livello];
+        E().refresh();
+        E().save();
+        return done('Tassazione ' + (L ? L[livello].label.toLowerCase() : livello) +
+            ': ' + rate + ' monete per città a turno.',
+            { prov: cap ? cap.id : null, tassazione: livello });
     }
 
     // ---------- COMMERCI (§7) ----------
@@ -959,6 +1119,10 @@
             label: R().provinceLabel(p),
             owner: E().owner(p) || 'Neutrale',
             troops: E().countPiece(p, 'soldato'),
+            // Quanti di quei difensori sono di ventura (§5.3): viaggia col
+            // bersaglio come il terreno, così plancia e bot pronosticano con lo
+            // stesso numero che userà la battaglia.
+            merc: E().merc(p),
             fort: GR().defenceBonus(unitsOf([p])),
             terreno: terrainOf(p),
             esponente: terrainExp(p),
@@ -1030,6 +1194,59 @@
     // Attacco (§9): risolve con battle.js e applica l'esito alla mappa.
     // `scafoVoluto` (facoltativo): con che nave si parte, quando è il giocatore a
     // sceglierlo dalla plancia. Senza, il motore prende quella che basta.
+    // L'esito di una battaglia applicato alla mappa. Lo chiamano sia l'attacco del
+    // giocatore sia lo SBARCO di un editto (decree): la regola di conquista del §9
+    // — il difensore perde le truppe, le COSTRUZIONI restano e cambiano soltanto
+    // colore — deve vivere in un posto solo, o le due strade divergono al primo
+    // ritocco. Non decide la ripartizione dei superstiti (`player.conquista`):
+    // quella è dell'attacco via terra, e la sceglie chi chiama.
+    // LA FEDE SEGUE LA SPADA (regola dell'utente): chi conquista converte. La
+    // provincia presa — nemica o terra di nessuno che sia — prende la confessione
+    // ESATTA del conquistatore, cioè la sua religione di stato (quella della sua
+    // Capitale, §religione). Vale per ogni regno, non solo per i cristiani: la
+    // mappa delle fedi si muove con i confini, in tutte le direzioni. Senza
+    // Capitale non c'è religione di stato, quindi non c'è conversione.
+    // Sta dentro la regola di conquista perché valga ovunque si conquisti:
+    // attacco via terra, sbarco, sbarco d'editto. Restituisce { da, a, label }
+    // per chi deve raccontarlo, null se non c'è stata conversione.
+    //
+    // La fede del conquistatore si legge PRIMA di applicare la conquista: se la
+    // provincia presa ospita la Capitale del difensore, quella resta in piedi
+    // (le costruzioni non si radono) e cambia colore — cioè da quel momento
+    // `stateReligionOf` potrebbe trovare LEI e leggere la fede del vinto.
+    function convertOnConquest(winner, to, fede) {
+        if (typeof Religions === 'undefined' || !fede) return null;
+        const prima = E().religion(to);
+        if (prima === fede) return null;
+        E().setReligion(to, fede);
+        return { da: prima || null, a: fede, label: Religions.label(fede) };
+    }
+
+    // `mercIn` = quanti dei superstiti che entrano nella provincia presa sono di
+    // ventura (§5.3). La ventura del difensore la si legge qui: se perde tutto
+    // sparisce con lui, se regge perde i suoi caduti per primi.
+    function applyBattleOutcome(winner, to, res, defTroops, mercIn) {
+        const fedeVincitore = R().stateReligionOf ? R().stateReligionOf(winner) : null;
+        const mercDif = E().merc(to);
+        if (res.attackerWins) {
+            E().addPiece(to, 'soldato', -defTroops);
+            const defender = R().players().find(p => p.name === E().owner(to));
+            if (defender && defender.temporanei) delete defender.temporanei[to.id];
+            E().setOwner(to, winner.name);
+            E().addPiece(to, 'soldato', res.attackerSurvivors);
+            // La ventura della provincia adesso è solo quella arrivata: quella del
+            // difensore è caduta con lui, e i suoi contratti non passano di mano.
+            E().setMerc(to, Math.max(0, mercIn || 0));
+            E().setArmyColor(to, winner.color);
+            pruneRoadsTouching(to.id);
+            return convertOnConquest(winner, to, fedeVincitore);
+        }
+        const caduti = defTroops - res.defenderSurvivors;
+        E().addPiece(to, 'soldato', -caduti);
+        E().setMerc(to, mercDif - caduti);   // i mercenari cadono per primi
+        return null;
+    }
+
     function attack(player, fromId, toId, engaged, rng, scafoVoluto) {
         const turnErr = requirePhase(player, 'attacca'); if (turnErr) return turnErr;
         const from = E().path(fromId), to = E().path(toId);
@@ -1082,12 +1299,24 @@
         const fromLabel = R().provinceLabel(from), toLabel = R().provinceLabel(to);
         // Si combatte in casa del difensore: il terreno è il suo (§9).
         const terreno = terrainOf(to);
-        const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng, terrainExp(to));
+        // VENTURA (§5.3): parte la quota proporzionale della provincia, e il
+        // difensore mette in campo la sua. Si contano PRIMA di muovere i soldati.
+        const mercPrima = E().merc(from);
+        const mercImp = mercLeaving(from, engaged);
+        const mercDif = E().merc(to);
+        const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng, terrainExp(to),
+            mercImp, mercDif);
         if (!res) return fail('Nessuna battaglia possibile.');
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
         E().addPiece(from, 'soldato', -engaged);
+        E().setMerc(from, mercPrima - mercImp);
         consumePlaced(player, fromId, engaged);
+
+        // Chi cade è di ventura per primo: dei mercenari partiti arrivano a
+        // destinazione solo quelli che avanzano dopo le perdite del vincitore.
+        // Se l'attacco fallisce non arriva nessuno — sono morti tutti con gli altri.
+        const mercArrivati = res.attackerWins ? Math.max(0, mercImp - res.losses) : 0;
 
         // LO SBARCO È LA NAVE STESSA (§9.2): lo scafo lascia la sua provincia e
         // approda in quella attaccata, comunque vada. Non si torna indietro —
@@ -1100,17 +1329,9 @@
         }
 
         let msg;
+        let conversione = null;
         if (res.attackerWins) {
-            // Il difensore perde tutte le sue truppe, ma le COSTRUZIONI restano
-            // (Capitale/Città/Fortezza/Mercato/Generale/navi): cambiano solo
-            // proprietario e colore, non vengono rase.
-            E().addPiece(to, 'soldato', -defTroops);
-            const defender = R().players().find(p => p.name === E().owner(to));
-            if (defender && defender.temporanei) delete defender.temporanei[toId];
-            E().setOwner(to, player.name);
-            E().addPiece(to, 'soldato', res.attackerSurvivors);
-            E().setArmyColor(to, player.color);
-            pruneRoadsTouching(toId);
+            conversione = applyBattleOutcome(player, to, res, defTroops, mercArrivati);
 
             // I superstiti entrano tutti nella provincia presa, ma la ripartizione
             // vera la decide il giocatore in fase di conquista (resolveConquest):
@@ -1129,9 +1350,10 @@
             msg = (viaMare ? 'Sbarco riuscito a ' : 'Conquistata ') + R().provinceLabel(to) + ': ' +
                 res.attackerSurvivors + (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
                 ' (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.' +
-                (viaMare ? ' La nave è ora ancorata lì: la prossima portata si misura da quella costa.' : '');
+                (viaMare ? ' La nave è ora ancorata lì: la prossima portata si misura da quella costa.' : '') +
+                (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
         } else {
-            E().addPiece(to, 'soldato', -(defTroops - res.defenderSurvivors));
+            applyBattleOutcome(player, to, res, defTroops, 0);
             msg = R().provinceLabel(to) + ' ha retto: perdi tutte le ' + engaged +
                 ' truppe impegnate, al difensore restano ' + res.defenderSurvivors + '.' +
                 (viaMare ? ' La ' + (scafo.tipo === 'vascello' ? 'nave da guerra' : 'nave') +
@@ -1161,7 +1383,10 @@
 
         return done(msg, {
             cronaca: eco,
+            conversione,
             battle: res, engaged, defTroops, fort, terreno,
+            // Ventura in campo (§5.3): quanti per parte e quanti ne sono arrivati.
+            mercImpegnati: mercImp, mercDifensore: mercDif, mercArrivati,
             viaMare, scafo: viaMare && scafo ? scafo.tipo : null,
             fromId, toId, fromLabel, toLabel,
             attaccante: player.name, difensore,
@@ -1216,8 +1441,13 @@
             const room = roomFor(from);
             const k = Math.min(indietro, room);
             if (k) {
+                // Chi torna indietro si porta la sua quota di ventura (§5.3).
+                const mercPrima = E().merc(to);
+                const mercTorna = mercLeaving(to, k);
                 E().addPiece(to, 'soldato', -k);
+                E().setMerc(to, mercPrima - mercTorna);
                 putSoldiers(player, from, k);
+                E().addMerc(from, mercTorna);
                 E().redrawProvince(to);
             }
             if (k < indietro) {
@@ -1266,6 +1496,23 @@
             .sort((a, b) => a.label.localeCompare(b.label));
     }
 
+    // Le province DA CUI si può partire: l'altra metà dello spostamento. Serve
+    // alla plancia per accenderle sulla mappa PRIMA che la partenza sia scelta
+    // (due clic: partenza, arrivo), così non si resta incollati alla provincia
+    // dove è finito l'attacco. Basta un vicino di terra proprio — se ce l'ha,
+    // ownReachable non è vuoto — e almeno un soldato oltre il presidio (§5).
+    function moveOrigins(player) {
+        const owned = E().ownedPaths(player.name);
+        const mie = new Set(owned.map(p => p.id));
+        return owned
+            .filter(p => spare(p) > 0 && E().landNeighbors(p.id).some(id => mie.has(id)))
+            .map(p => ({
+                id: p.id, label: R().provinceLabel(p),
+                troops: E().countPiece(p, 'soldato'), mobili: spare(p)
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
     function finalMove(player, fromId, toId, n) {
         const turnErr = requirePhase(player, 'sposta'); if (turnErr) return turnErr;
         if (player.spostamentoFatto) return fail('Lo spostamento di fine turno si fa una volta sola: l\'hai già fatto.');
@@ -1292,9 +1539,14 @@
         const room = roomFor(to);
         if (n > room) return fail(R().provinceLabel(to) + ' regge solo altri ' + room + ' soldati.');
 
+        // La ventura si sposta con la sua quota, come in un attacco (§5.3).
+        const mercPrima = E().merc(from);
+        const mercMossi = mercLeaving(from, n);
         E().addPiece(from, 'soldato', -n);
+        E().setMerc(from, mercPrima - mercMossi);
         consumePlaced(player, fromId, n);
         putSoldiers(player, to, n);
+        E().addMerc(to, mercMossi);
         E().redrawProvince(from);
         player.spostamentoFatto = true;
 
@@ -1319,18 +1571,221 @@
         });
     }
 
+    // ---------- EDITTO (intervento dell'admin) ----------
+    // L'admin non gioca: crea SITUAZIONI. Un editto sposta truppe, assegna
+    // province, versa o toglie oro e scorte — cose che nessuna regola concede a
+    // un giocatore — e passa comunque da qui, perché questo resta l'unico punto
+    // che muta lo stato. Da lì due cose vengono gratis: l'azione porta `prov` e
+    // quindi entra nel registro rispettando la nebbia come tutte le altre, e il
+    // regno colpito riceve un AVVISO che gli si srotola davanti all'apertura del
+    // suo turno. Il punto è proprio questo: la mappa non cambia di nascosto.
+    //
+    // Nata per le CROCIATE, che nessun regno cristiano può raggiungere via mare
+    // con le portate del §9.2: il giocatore raduna l'esercito, l'admin lo
+    // trasporta in Terra Santa "per conto del Papa".
+
+    const DECREE_MAX = 12;      // quanti avvisi si conservano per regno
+
+    function decreeNotice(player, info) {
+        if (!player) return;
+        if (!Array.isArray(player.editti)) player.editti = [];
+        player.editti.push(Object.assign({ letto: false, turno: R().turn() }, info));
+        // Non si accumulano all'infinito: un regno che non apre mai la plancia
+        // non deve trascinarsi dietro cinquanta pergamene.
+        while (player.editti.length > DECREE_MAX) player.editti.shift();
+    }
+
+    // Le truppe appartengono a chi possiede la PROVINCIA (come le navi, §9.2):
+    // `data-pc-color` è solo la bandiera che si vede. Perciò posare soldati su
+    // una provincia altrui non li consegna a nessuno — chi promulga un editto
+    // deve saperlo, e la funzione glielo dice invece di far finta di niente.
+    function decree(opts) {
+        if (!R().isAdmin || !R().isAdmin()) return fail('Solo l\'admin può promulgare un editto.');
+
+        const o = opts || {};
+        const players = R().players();
+        const target = (o.playerId !== null && o.playerId !== undefined)
+            ? players.find(p => p.id === +o.playerId) : null;
+        const n = Math.floor(o.n || 0);
+        const from = o.fromId ? E().path(o.fromId) : null;
+        const to = o.toId ? E().path(o.toId) : null;
+        if (o.fromId && !from) return fail('Provincia di partenza sconosciuta.');
+        if (o.toId && !to) return fail('Provincia d\'arrivo sconosciuta.');
+
+        const tocchi = [];          // province toccate: servono al registro e alla nebbia
+        const avvisati = new Set(); // regni a cui è arrivato l'avviso
+        let msg = '';
+        let esito = null;           // esito della battaglia, se l'editto è uno sbarco
+
+        if (o.azione === 'truppe') {
+            if (n <= 0) return fail('Indica quanti uomini.');
+            if (!from && !to) return fail('Indica almeno una provincia.');
+            let mossi = n;
+            let mercMossi = 0;      // ventura prelevata insieme agli uomini (§5.3)
+            if (from) {
+                // Anche un editto rispetta il presidio minimo (§5): una provincia
+                // non resta mai sguarnita, nemmeno per volere del Papa.
+                const disponibili = GR().spendableTroops(E().countPiece(from, 'soldato'));
+                mossi = Math.min(n, disponibili);
+                if (mossi <= 0) return fail('In ' + R().provinceLabel(from) + ' non ci sono uomini da prelevare (ne resta sempre 1 di presidio).');
+                // Nemmeno il Papa sceglie chi imbarcare: parte la quota che c'è.
+                const mercPrima = E().merc(from);
+                mercMossi = mercLeaving(from, mossi);
+                E().addPiece(from, 'soldato', -mossi);
+                E().setMerc(from, mercPrima - mercMossi);
+                E().redrawProvince(from);
+                tocchi.push(from.id);
+            }
+            const suaGia = to && target && E().owner(to) === target.name;
+            // SBARCO: le truppe non ricevono la provincia in regalo, se la
+            // PRENDONO. È la stessa battaglia dell'attacco normale — terreno del
+            // difensore e bonus delle sue costruzioni compresi (§9) — solo senza
+            // i vincoli di adiacenza e di carico, perché il trasporto lo fa il
+            // Papa. Vinta, la provincia è del regno e dal turno dopo la gestisce
+            // lui; persa, quegli uomini non tornano.
+            if (to && target && !suaGia && o.modo !== 'consegna') {
+                const defTroops = E().countPiece(to, 'soldato');
+                const fort = GR().defenceBonus(unitsOf([to]));
+                const difensore = E().owner(to) || 'Neutrale';
+                const mercDif = E().merc(to);
+                const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to),
+                    mercMossi, mercDif);
+                if (!res) return fail('Nessuna battaglia possibile.');
+                const mercArrivati = res.attackerWins ? Math.max(0, mercMossi - res.losses) : 0;
+                const conversione = applyBattleOutcome(target, to, res, defTroops, mercArrivati);
+                E().redrawProvince(to);
+                E().redrawRoads();
+                tocchi.push(to.id);
+
+                // Lo sbarco è TOTALE (§9.2): nessuna ripartizione dei superstiti,
+                // chi scende resta a terra. Vale per la crociata come per la nave.
+                esito = {
+                    battle: res, engaged: mossi, defTroops, fort,
+                    mercImpegnati: mercMossi, mercDifensore: mercDif, mercArrivati,
+                    terreno: terrainOf(to), viaMare: true, scafo: null,
+                    fromId: from ? from.id : null, toId: to.id,
+                    fromLabel: from ? R().provinceLabel(from) : null,
+                    toLabel: R().provinceLabel(to),
+                    attaccante: target.name, difensore,
+                    coloreAttaccante: target.color,
+                    coloreDifensore: (players.find(p => p.name === difensore) || {}).color || null,
+                    perditeAttaccante: res.attackerWins ? res.losses : mossi,
+                    perditeDifensore: res.attackerWins ? defTroops : (defTroops - res.defenderSurvivors),
+                    superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
+                    conquistata: res.attackerWins, richiedeConquista: false, conversione
+                };
+                msg = res.attackerWins
+                    ? 'Sbarco riuscito a ' + R().provinceLabel(to) + ': ' + res.attackerSurvivors +
+                      (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
+                      ' (' + res.losses + ' caduti). La provincia è di ' + target.name + '.' +
+                      (conversione ? ' La provincia si converte alla fede di ' + target.name + ': ' + conversione.label + '.' : '')
+                    : R().provinceLabel(to) + ' ha retto: ' +
+                      (mossi === 1 ? 'l\'unico uomo sbarcato è perduto' : 'i ' + mossi + ' uomini sbarcati sono perduti') +
+                      ', al difensore ne restano ' + res.defenderSurvivors + '.';
+
+            } else if (to) {
+                // CONSEGNA: le truppe si posano e basta. Serve quando la provincia
+                // è già del regno (rinforzo) o quando l'admin vuole regalarla.
+                if (o.modo === 'consegna' && target && !suaGia) {
+                    E().setOwner(to, target.name);
+                    E().setArmyColor(to, target.color);
+                    pruneRoadsTouching(to.id);
+                }
+                E().addPiece(to, 'soldato', mossi);
+                E().addMerc(to, mercMossi);   // la ventura arriva con gli uomini (§5.3)
+                if (target && E().owner(to) === target.name) E().setArmyColor(to, target.color);
+                E().redrawProvince(to);
+                tocchi.push(to.id);
+                msg = from
+                    ? mossi + (mossi === 1 ? ' uomo trasferito da ' : ' uomini trasferiti da ') +
+                      R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.'
+                    : mossi + ' uomini compaiono in ' + R().provinceLabel(to) + '.';
+                // L'avvertimento che conta: soldati su una provincia che non è del
+                // regno non sono suoi, e non ci potrà fare niente.
+                if (target && E().owner(to) !== target.name) {
+                    msg += ' Attenzione: ' + R().provinceLabel(to) + ' non è di ' + target.name +
+                           ', quindi quegli uomini non sono a sua disposizione.';
+                }
+            } else {
+                msg = mossi + ' uomini richiamati da ' + R().provinceLabel(from) + '.';
+            }
+
+        } else if (o.azione === 'provincia') {
+            if (!to) return fail('Indica la provincia da assegnare.');
+            const prima = E().owner(to);
+            E().setOwner(to, target ? target.name : null);
+            E().setArmyColor(to, target ? target.color : null);
+            pruneRoadsTouching(to.id);
+            E().redrawProvince(to);
+            tocchi.push(to.id);
+            msg = R().provinceLabel(to) + (target ? ' passa a ' + target.name + '.' : ' torna terra di nessuno.');
+            // Cambia padrone: lo deve sapere anche chi la perde.
+            const perdente = prima ? players.find(p => p.name === prima) : null;
+            if (perdente && (!target || perdente.id !== target.id)) {
+                decreeNotice(perdente, {
+                    titolo: o.titolo || 'Editto',
+                    testo: o.testo || (R().provinceLabel(to) + ' non è più sotto il tuo dominio.'),
+                    prov: to.id
+                });
+                avvisati.add(perdente.id);
+            }
+
+        } else if (o.azione === 'oro') {
+            if (!target) return fail('Indica il regno.');
+            if (!n) return fail('Indica quante monete (negative per toglierle).');
+            target.monete = Math.max(0, (target.monete || 0) + n);
+            msg = (n > 0 ? '+' : '') + n + ' monete a ' + target.name + '.';
+
+        } else if (o.azione === 'scorte') {
+            if (!target) return fail('Indica il regno.');
+            const res = o.risorsa;
+            if (GR().RES.indexOf(res) < 0) return fail('Risorsa sconosciuta.');
+            if (!n) return fail('Indica quante scorte (negative per toglierle).');
+            if (!target.scorte) target.scorte = GR().emptyScorte();
+            target.scorte[res] = Math.max(0, (target.scorte[res] || 0) + n);
+            msg = (n > 0 ? '+' : '') + n + ' ' + GR().RES_LABEL[res] + ' a ' + target.name + '.';
+
+        } else {
+            return fail('Editto sconosciuto.');
+        }
+
+        if (target && !avvisati.has(target.id)) {
+            // Il testo dell'admin racconta il PERCHÉ; l'esito della battaglia si
+            // aggiunge da sé, perché è la parte che il giocatore non può dedurre
+            // e che decide cosa si ritrova all'apertura del turno.
+            const racconto = [o.testo, esito ? msg : null].filter(Boolean).join('\n\n');
+            decreeNotice(target, {
+                titolo: o.titolo || 'Editto',
+                testo: racconto || msg,
+                prov: (esito && esito.toId) || tocchi[0] || null
+            });
+        }
+
+        E().refresh();
+        E().save();
+        return done('Editto promulgato. ' + msg,
+            Object.assign({ prov: tocchi[0] || null, provs: tocchi, editto: true }, esito || {}));
+    }
+
     root.GameActions = {
         startGame, beginTurn, endTurn,
+        decree,
         deploy, deployBound, deployAllBound, undeploy,
         build, buildRoad, recruit, attack, attackTargets,
-        hasMarket, marketPath, tradeWithBank,
+        sendSpy, spyTargets, spiesOf,
+        hasMarket, marketPath, tradeWithBank, setTax,
         proposeTrade, acceptTrade, refuseTrade, cancelTrade,
         tradeInbox, tradeOutbox, expireTrades,
         conquestPending, resolveConquest,
-        moveTargets, finalMove, ownReachable, garrisonNeutrals, neutralRaids,
+        moveTargets, moveOrigins, finalMove, ownReachable, garrisonNeutrals, neutralRaids,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
-        boundPool, boundTotal, placedPool
+        boundPool, boundTotal, placedPool,
+        // VENTURA (§5.3): quanti mercenari ci sono in una provincia e quanti ne
+        // partirebbero mandandone via `n`. Plancia e IA pronosticano da qui, così
+        // il numero che si legge prima dell'attacco è quello che poi combatte.
+        mercOf: (provId) => { const p = E().path(provId); return p ? E().merc(p) : 0; },
+        mercEngaged: (provId, n) => { const p = E().path(provId); return p ? mercLeaving(p, n) : 0; }
     };
 
 })(typeof window !== 'undefined' ? window : globalThis);

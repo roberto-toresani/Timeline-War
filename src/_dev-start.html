@@ -8,8 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=73">
-    <link rel="stylesheet" href="css/style.css?v=73">
+    <link rel="stylesheet" href="css/tokens.css?v=72">
+    <link rel="stylesheet" href="css/style.css?v=72">
 </head>
 
 <body>
@@ -131,12 +131,6 @@
                         <div style="display:flex; gap:5px; margin-top:5px;">
                             <button id="draw-game-btn" style="flex:1;">🎲 Sorteggia una mappa nuova</button>
                         </div>
-                        <!-- PARTITA IN SOLITARIA: stessa mappa, ma nessun regno
-                             all'IA — li muove tutti il giocatore, uno alla volta.
-                             È il banco di prova delle regole di apertura (§8). -->
-                        <div style="display:flex; gap:5px; margin-top:5px;">
-                            <button id="solo-game-btn" style="flex:1;">👥 Gioca tu tutti i regni</button>
-                        </div>
                         <div id="new-game-result"></div>
                         <!-- Reclute in attesa, regno per regno: si vede a colpo d'occhio
                              chi deve ancora schierare (iniettato da app.js). -->
@@ -212,37 +206,59 @@
     <script src="js/sync.js"></script>
 
     <!-- Scripts -->
-    <script src="data/map_data.js?v=73"></script>
-    <script src="data/id_mapping.js?v=73"></script>
-    <script src="data/embedded_map.js?v=73"></script>
-    <script src="data/resource_icons.js?v=73"></script>
-    <script src="data/piece_icons.js?v=73"></script>
-    <script src="data/default_state.js?v=73"></script>
-    <script src="data/city_names.js?v=73"></script>
-    <script src="data/historic_battles.js?v=73"></script>
-    <script src="data/start_religions.js?v=73"></script>
-    <script src="data/province_terrain.js?v=73"></script>
-    <script src="js/chronicle.js?v=73"></script>
-    <script src="js/religions.js?v=73"></script>
-    <script src="js/terrain.js?v=73"></script>
-    <script src="js/map-decor.js?v=73"></script>
-    <script src="js/battle.js?v=73"></script>
-    <script src="js/kingdom-stats.js?v=73"></script>
-    <script src="js/popularity.js?v=73"></script>
-    <script src="js/game-rules.js?v=73"></script>
-    <!-- PRIMA di app.js: `const TAX_LEVELS = Popularity.TAX_LEVELS` sta in cima
-         alla closure di app.js e non è protetto da guardia — se questo file non
-         c'è, app.js muore e con lui tutto il gioco. -->
-    <script src="js/popularity.js?v=73"></script>
-    <script src="js/map-anchors.js?v=73"></script>
-    <script src="js/sea-routes.js?v=73"></script>
-    <!-- Spie (§9.3): puro, e serve ad app.js per la nebbia. Prima di app.js. -->
-    <script src="js/spies.js?v=73"></script>
-    <script src="js/app.js?v=73"></script>
-    <script src="js/game-actions.js?v=73"></script>
-    <script src="js/bot.js?v=73"></script>
-    <script src="js/setup.js?v=73"></script>
-    <script src="js/start-map.js?v=73"></script>
+    <script src="data/map_data.js?v=72"></script>
+    <script src="data/id_mapping.js?v=72"></script>
+    <script src="data/embedded_map.js?v=72"></script>
+    <script src="data/resource_icons.js?v=72"></script>
+    <script src="data/piece_icons.js?v=72"></script>
+    <script src="data/default_state.js?v=72"></script>
+    <script src="data/city_names.js?v=72"></script>
+    <script src="data/historic_battles.js?v=72"></script>
+    <script src="data/start_religions.js?v=72"></script>
+    <script src="data/province_terrain.js?v=72"></script>
+    <script src="js/chronicle.js?v=72"></script>
+    <script src="js/religions.js?v=72"></script>
+    <script src="js/terrain.js?v=72"></script>
+    <script src="js/map-decor.js?v=72"></script>
+    <script src="js/battle.js?v=72"></script>
+    <script src="js/kingdom-stats.js?v=72"></script>
+    <script src="js/popularity.js?v=72"></script>
+    <script src="js/game-rules.js?v=72"></script>
+    <script src="js/map-anchors.js?v=72"></script>
+    <script src="js/sea-routes.js?v=72"></script>
+    <script src="js/spies.js?v=72"></script>
+    <script src="js/app.js?v=72"></script>
+    <script src="js/game-actions.js?v=72"></script>
+    <script src="js/bot.js?v=72"></script>
+    <script src="js/setup.js?v=72"></script>
+    <script src="js/start-map.js?v=72"></script>
+<!-- PAGINA DI LAVORO (non fa parte del gioco): carica la mappa iniziale, avvia
+     una partita contro l'IA e da' al regno umano il codice d'invito "dev".
+     Serve a guardare play.html in uno screenshot headless, dove non si clicca. -->
+<script>
+(function () {
+    function pronto() {
+        return window.Risiko && window.Risiko.mapReady && window.Risiko.mapReady() &&
+            window.Risiko.neighborsReady() && window.GameSetup && window.StartMap;
+    }
+    function via() {
+        if (!pronto()) { setTimeout(via, 150); return; }
+        window.StartMap.read().then(function (data) {
+            var suMappa = !!(data && data.provinces && Object.keys(data.provinces).length);
+            if (suMappa) window.Risiko.scenario.apply(data);
+            setTimeout(function () {
+                var res = window.GameSetup.newGame({ mantieniMappa: suMappa });
+                if (res && res.umano) { res.umano.invite = 'dev'; window.Risiko.save(); }
+                var d = document.createElement('div');
+                d.style.cssText = 'position:fixed;inset:0;background:#111;color:#0f0;font:28px monospace;z-index:99999;padding:40px;';
+                d.textContent = 'DEV START: ' + (res && res.msg) + ' | umano=' + (res && res.umano && res.umano.name);
+                document.body.appendChild(d);
+            }, 400);
+        });
+    }
+    via();
+})();
+</script>
 </body>
 
 </html>

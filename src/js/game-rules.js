@@ -31,8 +31,9 @@
         vascello:    { monete: 4000, legno: 10, argilla: 2, bestiame: 4, grano: 4 },
         mercato:     { monete: 800, soldati: 4 },
         generale:    { monete: 500, bestiame: 3, grano: 3, argilla: 1 },
-        mercenario:  { monete: 100 },
-        guarnigione: { bestiame: 2, grano: 2, argilla: 1 }
+        mercenario:  { monete: 150 },
+        guarnigione: { bestiame: 2, grano: 2, argilla: 1 },
+        spia:        { monete: 300 }
     };
 
     // Descrizione dell'effetto, per la legenda (§6).
@@ -45,13 +46,30 @@
         vascello:    'Movimento globale, senza limiti geografici. Solo su costa.',
         mercato:     'Apre i commerci: scambio con l\'estero al rapporto 2:1 e trattative con gli altri regni.',
         generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
-        mercenario:  '+1 soldato temporaneo: scade a fine turno.',
-        guarnigione: '+2 soldati temporanei: scadono a fine turno.'
+        mercenario:  '+1 soldato che resta per sempre, ma è di ventura: in battaglia vale meno di un suddito e quanto renda si sa solo sul campo (§9).',
+        guarnigione: '+2 soldati temporanei: scadono a fine turno.',
+        spia:        'Perlustra un territorio lontano: per 3 turni vedi di chi sono quella provincia e le sue limitrofe — le bandiere, non le guarnigioni (§9.3).'
     };
 
     // Cosa si costruisce su UNA provincia (la Strada ne collega due).
     const BUILDABLE_ON_PROVINCE = ['capitale', 'citta', 'fortezza', 'mercato', 'barca', 'vascello', 'generale'];
-    const TEMPORARY = ['mercenario', 'guarnigione'];
+    // Si reclutano (non si costruiscono): il Mercenario RESTA, la Guarnigione no.
+    // Due elenchi e non uno con un flag, perché a `expireTemporaries` serve
+    // esattamente il secondo e a nient'altro serve il primo.
+    const RECRUITABLE = ['mercenario', 'guarnigione'];
+    const TEMPORARY = ['guarnigione'];
+
+    // MERCENARI (§5.3): quanti dei `partenti` sono di ventura. PROPORZIONALE alla
+    // quota della provincia, e non è un dettaglio di comodo: lasciar scegliere
+    // quali uomini mandare vorrebbe dire tenere i sudditi a casa e spedire sempre
+    // la ventura, cioè comprare truppe senza mai pagarne il difetto.
+    function mercShare(merc, troops, leaving) {
+        merc = Math.max(0, Math.floor(merc || 0));
+        troops = Math.max(0, Math.floor(troops || 0));
+        leaving = Math.max(0, Math.floor(leaving || 0));
+        if (!merc || !troops || !leaving) return 0;
+        return Math.min(merc, leaving, Math.round(leaving * merc / troops));
+    }
 
     // Monete incassate da ogni Città per turno (§7). La Capitale conta come Città.
     const TAX_INCOME = { leggera: 50, normale: 100, dura: 150 };
@@ -69,18 +87,43 @@
     }
 
     // PRESIDIO DELLE PROVINCE NEUTRALI (regola dell'utente, non nel design doc).
-    // Le terre di nessuno non sono vuote: partono con 2 soldati e ogni 5 turni ne
+    // Le terre di nessuno non sono vuote: partono con 2 soldati e ogni 10 turni ne
     // guadagnano 1, così l'espansione facile dei primi decenni si chiude da sola.
+    // La crescita è LENTA apposta: le neutrali sono un attrito, non un avversario
+    // in più — a un uomo ogni 5 turni diventavano imprendibili a metà partita.
     // Il presidio si ALZA soltanto (chi conquista non "eredita" il conto: la
     // provincia smette di essere neutrale). Unica fonte: game-actions.garrisonNeutrals.
     const NEUTRAL_START = 2;
-    const NEUTRAL_EVERY = 5;    // turni
+    const NEUTRAL_EVERY = 10;   // turni
     const NEUTRAL_STEP = 1;
 
-    // I turni partono da 1 (js/chronicle.js): turni 1-5 → 2 soldati, 6-10 → 3, ecc.
+    // I turni partono da 1 (js/chronicle.js): turni 1-10 → 2 soldati, 11-20 → 3, ecc.
     function neutralGarrison(turn) {
         const t = Math.max(1, Math.floor(turn || 1));
         return NEUTRAL_START + Math.floor((t - 1) / NEUTRAL_EVERY) * NEUTRAL_STEP;
+    }
+
+    // RAZZIE DELLE TERRE DI NESSUNO (regola dell'utente). Una neutrale marcia
+    // contro un vicino di fede diversa SOLO in schiacciante superiorità: tre
+    // attaccanti per ogni difensore. Il presidio minimo (§5) vale anche per loro,
+    // quindi il caso limite è 4 soldati neutrali (3 spendibili) contro 1 solo
+    // difensore; sotto quella soglia le terre di nessuno restano ferme.
+    // Prima bastava 1 soldato in più e le razzie erano continue: una neutrale da
+    // 3 uomini poteva strappare una provincia da 2, e a metà partita nessun
+    // confine reggeva. Unica fonte della regola: la usano game-actions.neutralRaids
+    // (che le esegue) e bot.js (che ci si difende PRIMA che accadano).
+    const NEUTRAL_RAID_RATIO = 3;
+
+    function neutralCanRaid(neutralTroops, defenderTroops) {
+        return spendableTroops(neutralTroops) >= NEUTRAL_RAID_RATIO * Math.max(0, defenderTroops || 0);
+    }
+
+    // Il rovescio della regola: quanti soldati bastano in una provincia perché
+    // quella neutrale NON possa marciarci contro. È quello che serve al bot (e a
+    // chiunque voglia mostrarlo al giocatore) per presidiare il confine giusto.
+    function neutralSafeGarrison(neutralTroops) {
+        const attaccanti = spendableTroops(neutralTroops);
+        return Math.max(MIN_GARRISON, Math.floor(attaccanti / NEUTRAL_RAID_RATIO) + 1);
     }
 
     // COMMERCI (§7). Il Mercato apre due canali, e sono due cose diverse:
@@ -162,12 +205,13 @@
         return s;
     }
 
-    // Nome delle voci costruibili. Mercenario e Guarnigione non sono pedine
-    // (non stanno in PIECES), quindi il nome deve arrivare da qui.
+    // Nome delle voci costruibili. Mercenario, Guarnigione e Spia non sono
+    // pedine (non stanno in PIECES), quindi il nome deve arrivare da qui.
     const ITEM_LABEL = {
         strada: 'Strada', barca: 'Nave', capitale: 'Capitale', citta: 'Città',
         fortezza: 'Fortezza', vascello: 'Vascello', mercato: 'Mercato',
-        generale: 'Generale', mercenario: 'Mercenario', guarnigione: 'Guarnigione'
+        generale: 'Generale', mercenario: 'Mercenario', guarnigione: 'Guarnigione',
+        spia: 'Spia'
     };
 
     // Testo leggibile di un costo: "500 monete + 5 soldati", "1 Pietra + 1 soldato".
@@ -331,8 +375,9 @@
 
     const api = {
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
-        BUILDABLE_ON_PROVINCE, TEMPORARY, MIN_GARRISON,
+        BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
         NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, neutralGarrison, PRESTIGE_ENABLED,
+        NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,
         GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,
         bankTradeCost, canBankTrade, goodsText,
