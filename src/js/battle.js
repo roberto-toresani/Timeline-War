@@ -36,22 +36,29 @@
 //   Le PERDITE restano sulle truppe reali: la ventura sposta la probabilita', non
 //   fa vittime extra — esattamente come le mura.
 //
-//   Perdite MEDIE del vincitore (W = truppe del vincitore, L = del perdente):
-//     mu_base   = 0.8 * L / (W + L)          cresce se le forze sono simili
-//     mu_attrito = 0.03 * ln(1 + A/10)       solo se vince l'attaccante
-//                = 0                          se vince il difensore
-//     mu = mu_base + mu_attrito              (attrito anti-snowball)
-//   Variabilita':  z ~ U(-1,1)
-//     mu_f = clamp( mu * (1 + 0.2 * I * z), 0, 0.95 )
-//   z sposta solo l'entita' delle perdite, non il vincitore. Con battaglia
-//   equilibrata (I alto) le perdite oscillano di piu'; sbilanciata (I basso)
-//   restano vicine alla media.
+//   PERDITE — tutto ruota attorno all'EQUILIBRIO I = 4 P_A (1 - P_A) (0 = esito
+//   scontato, 1 = perfetto 50/50): uno scontro serrato e' un bagno di sangue per
+//   TUTTI, uno squilibrato costa poco a chi vince e polverizza chi perde. Ogni
+//   media porta un tiro casuale (z ~ U(-1,1)) che garantisce imprevedibilita'
+//   SEMPRE, anche in battaglia squilibrata; z sposta l'entita', non il vincitore.
 //
-//   Truppe perse dal vincitore:  C = min(W - 1, round(W * mu_f))
-//   (il "-1" garantisce che al vincitore resti almeno 1 truppa).
-//   Vince l'attaccante -> il difensore perde tutte le truppe, l'attaccante
-//   conserva A - C. Vince il difensore -> l'attaccante perde tutte le truppe
-//   impegnate, il difensore conserva D - C.
+//   Perdite del VINCITORE (W = sue truppe):
+//     loss_W = WIN_LOSS_MIN + (WIN_LOSS_MAX - WIN_LOSS_MIN) * I
+//     mu_f   = clamp( loss_W * (1 + CASUALTY_SPREAD * z), 0, 0.95 )
+//     C = min(W - 1, round(W * mu_f))        (al vincitore resta sempre >= 1)
+//   20-contro-13 (I alto) dissangua chi vince; 20-contro-5 (I basso) no.
+//
+//   Vince l'attaccante -> CONQUISTA: il difensore perde tutte le truppe,
+//   l'attaccante conserva A - C ed entra nella provincia.
+//   Vince il difensore -> l'attaccante RIPIEGA (non piu' annientato): torna a
+//   casa una FRAZIONE delle truppe impegnate, tanto piu' grande quanto piu' la
+//   battaglia era pari (scala quindi con la taglia dell'armata):
+//     surv_L = ROUT_SURV_MIN + (ROUT_SURV_MAX - ROUT_SURV_MIN) * I
+//     surv   = clamp( round( A * surv_L * (1 + CASUALTY_SPREAD * zr) ), 0, A - 1 )
+//   Disfatta netta -> pochi sbandati; scontro pari perso -> un manipolo. Il tetto
+//   A-1 impone almeno un caduto; la rotta totale (0 superstiti) esce solo nella
+//   coda bassa, quindi di rado. Il difensore conserva D - C. (Lo sbarco §9.2 resta
+//   totale: la ritirata la applica game-actions, solo all'attacco di terra.)
 
 (function (root) {
     'use strict';
@@ -82,6 +89,28 @@
     const MERC_SPREAD = 0.25;   // di quanto quel valore puo' scartare, sul campo
     const MERC_MIN = MERC_VALUE - MERC_SPREAD;
     const MERC_MAX = MERC_VALUE + MERC_SPREAD;
+
+    // ====================== PERDITE E RITIRATA (§9) ======================
+    // Le manopole delle perdite, tutte qui. Tutto ruota attorno all'EQUILIBRIO
+    // della battaglia I = 4*P_A*P_D (0 = esito scontato, 1 = perfetto 50/50):
+    // uno scontro serrato e' un bagno di sangue per TUTTI, uno squilibrato costa
+    // poco a chi vince e polverizza chi perde.
+    //
+    // 1) Perdite del VINCITORE: frazione media persa, cresce con I. Lopsided
+    //    (I->0) la porta a casa quasi intatta; battaglia pari (I->1) resta con
+    //    un pugno di uomini. Cosi' 20-contro-13 dissangua chi vince, 20-contro-5 no.
+    const WIN_LOSS_MIN = 0.10;  // frazione persa dal vincitore in uno scontro scontato
+    const WIN_LOSS_MAX = 0.80;  // ...e in un perfetto 50/50
+    // 2) Superstiti dell'attaccante SCONFITTO (ripiega, non e' annientato): frazione
+    //    media che torna a casa, anch'essa piu' alta in una battaglia equilibrata.
+    //    Disfatta netta (I basso) -> tornano in pochi; scontro pari perso ->
+    //    ripiega un manipolo. E' una FRAZIONE, cosi' scala con la taglia dell'armata
+    //    (8 persi -> 1-2 sbandati; 20 persi in uno scontro pari -> 3-7).
+    const ROUT_SURV_MIN = 0.10; // frazione che ripiega da una disfatta netta
+    const ROUT_SURV_MAX = 0.30; // ...e da uno scontro equilibrato perso
+    // 3) Ampiezza casuale attorno a OGNI media (z ~ U(-1,1)): garantisce
+    //    imprevedibilita' SEMPRE, anche in una battaglia squilibrata.
+    const CASUALTY_SPREAD = 0.35;
 
     // Resa del contingente di ventura per un tiro z ~ U(-1,1).
     function mercYield(z) { return clamp(MERC_VALUE + MERC_SPREAD * z, 0, 2); }
@@ -166,25 +195,44 @@
         const u = rng();
         const attackerWins = u < P_A;
 
-        // Vincitore / perdente in termini di truppe iniziali.
+        // Vincitore in termini di truppe iniziali.
         const W = attackerWins ? A : D;
-        const L = attackerWins ? D : A;
 
-        const muBase = 0.8 * (L / (W + L));                 // W+L = A+D > 0
-        const muAttrito = attackerWins ? 0.03 * Math.log(1 + A / 10) : 0;
-        const mu = muBase + muAttrito;
-
+        // Perdite del VINCITORE: frazione media legata all'EQUILIBRIO I, piu' un
+        // tiro casuale che garantisce imprevedibilita' anche in uno scontro
+        // squilibrato. Piu' la battaglia e' pari, piu' anche chi vince si dissangua.
         const z = rng() * 2 - 1;                             // U(-1,1)
-        const muF = clamp(mu * (1 + 0.2 * I * z), 0, 0.95);
-
+        const lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX - WIN_LOSS_MIN) * I;
+        const muF = clamp(lossW * (1 + CASUALTY_SPREAD * z), 0, 0.95);
         const C = Math.min(W - 1, Math.round(W * muF));      // vincitore tiene >= 1
-        const survivors = W - C;
+        const winnerSurvivors = W - C;
+
+        // ESITO PER I DUE SCHIERAMENTI.
+        //   Vince l'attaccante -> CONQUISTA: il difensore e' spazzato via (la
+        //   provincia cambia mano, non puo' restare presidiata dal vinto).
+        //   Vince il difensore -> l'attaccante RIPIEGA, non e' piu' annientato:
+        //   torna a casa una FRAZIONE delle truppe impegnate, tanto piu' grande
+        //   quanto piu' la battaglia era equilibrata (disfatta netta -> pochi
+        //   sbandati; scontro pari perso -> un manipolo). Il tetto A-1 garantisce
+        //   almeno un caduto; la rotta totale (0 superstiti) esce solo nella coda
+        //   bassa, quindi di rado. E' game-actions a riportare i superstiti alla
+        //   provincia di partenza; lo sbarco resta totale (§9.2).
+        let attackerSurvivors, defenderSurvivors, zr = 0;
+        if (attackerWins) {
+            attackerSurvivors = winnerSurvivors;
+            defenderSurvivors = 0;
+        } else {
+            defenderSurvivors = winnerSurvivors;
+            zr = rng() * 2 - 1;                              // U(-1,1), tiro della ritirata
+            const survL = ROUT_SURV_MIN + (ROUT_SURV_MAX - ROUT_SURV_MIN) * I;
+            attackerSurvivors = clamp(Math.round(A * survL * (1 + CASUALTY_SPREAD * zr)), 0, A - 1);
+        }
 
         return {
             attackerWins: attackerWins,
             winner: attackerWins ? 'attacker' : 'defender',
-            attackerSurvivors: attackerWins ? survivors : 0,
-            defenderSurvivors: attackerWins ? 0 : survivors,
+            attackerSurvivors: attackerSurvivors,
+            defenderSurvivors: defenderSurvivors,
             losses: C,                 // truppe perse dal vincitore
             // Valori diagnostici (utili per log/animazioni/bilanciamento):
             fort: fort, Deff: Deff, esponente: k,
@@ -194,8 +242,8 @@
             mercA: mercA, mercD: mercD, rhoA: rhoA, rhoD: rhoD,
             Aeff: Aeff, DeffMerc: DeffM,
             P_A: P_A, P_D: P_D, I: I,
-            u: u, z: z,
-            muBase: muBase, muAttrito: muAttrito, mu: mu, muF: muF
+            u: u, z: z, zr: zr,
+            lossW: lossW, muF: muF
         };
     }
 

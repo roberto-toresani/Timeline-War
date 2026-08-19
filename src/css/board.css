@@ -993,52 +993,31 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 .mdh-note { color: var(--parchment-muted); font-size: .76rem; margin-top: 4px; }
 
 /* ============================================================
-   COMANDARE DALLA MAPPA — bersagli accesi e cursore d'ordine.
-   Le province dove si può andare portano .order-target (Risiko.markTargets);
-   la provincia di partenza .order-origin.
+   COMANDARE DALLA MAPPA — bersagli segnati col RETINO e cursore d'ordine.
+   Le province su cui si può agire (attacco/spostamento) le dipinge a RETINO
+   Risiko.markTargets, su uno strato SVG a parte (#order-marks): righe diagonali
+   ritagliate DENTRO il poligono, come una zona segnata su una carta militare.
+   Il perché e il come stanno in app.js (markTargets); qui restano solo il
+   cursore a manina e i due casi leggeri che NON usano il retino.
 
-   Due cose da sapere prima di toccare queste regole:
-   1. Si dipinge solo il TRATTO, mai il fill: refreshMapDisplay riscrive `fill`
-      inline su tutte le province a ogni render, e qualunque colore messo qui
-      verrebbe cancellato al primo respiro.
-   2. `!important` NON è pigrizia. Buona parte dei path dell'SVG si porta dietro
-      dalla sorgente uno `style="stroke: rgb(0,0,0); shape-rendering: auto"`
-      (con `data-originalStrokeWidth`, residuo di una vecchia gestione dello
-      zoom): è uno stile in linea, e senza `!important` vince lui — il bersaglio
-      resterebbe col contorno nero come tutti gli altri, cioè invisibile.
-   ============================================================ */
+   Perché non più il tratto sui path? Il vecchio contorno spesso (1,5 su bordi
+   da 0,25) fra due bersagli confinanti si saldava in una banda doppia che non
+   era di nessuno dei due — confusionario (scelta dell'utente di passare al
+   retino). Il retino sta dentro e non sconfina mai nel vicino.
 
-svg path.state.order-origin {
-    stroke: var(--gold-bright) !important;
-    stroke-width: 1.5 !important;
-    stroke-linejoin: round;
-}
+   `!important` sotto NON è pigrizia: buona parte dei path dell'SVG si porta
+   dietro dalla sorgente uno `style="stroke: rgb(0,0,0)"` in linea, e senza
+   `!important` vince lui. */
 
-svg path.state.order-target {
-    cursor: pointer;
-    stroke-width: 1.5 !important;
-    stroke-linejoin: round;
-    animation: order-blink 1.6s ease-in-out infinite;
-}
-
-svg path.state.order-attack { stroke: #ff7a45 !important; }
-svg path.state.order-move   { stroke: #ffd479 !important; }
-
-/* SPOSTAMENTO, primo clic: le province DA CUI si può partire. Non sono mete e
-   non devono gridare come un bersaglio — dicono "di qui puoi muovere". Tratto
-   fermo, verde, senza lampeggio: sono tutte le tue province con qualcuno che
-   possa lasciarle, e un lampeggio diffuso su mezzo regno è solo rumore. */
-svg path.state.order-start {
-    stroke: var(--ok-soft) !important;
-    stroke-width: 1.4 !important;
-    animation: none;
-}
-
-svg path.state.order-start:hover { stroke-width: 2.6 !important; }
+/* Il cursore a manina sulle province cliccabili (bersagli, mete, partenze,
+   spie). Il segno vero lo fa il retino sullo strato #order-marks; qui basta
+   dire che il clic serve a qualcosa. */
+svg path.state.order-clickable { cursor: pointer; }
 
 /* SPIE (§9.3): le mete possibili sono decine — è l'anello di mondo che non
    vedi ma puoi raggiungere. Tratto sottile e tratteggiato apposta: deve dirsi
-   "qui si può guardare", non gridare come un bersaglio d'attacco. */
+   "qui si può guardare", non gridare come un bersaglio d'attacco. Restano un
+   tratto (non un retino) perché sono troppe per accenderle tutte a pieno. */
 svg path.state.order-spy {
     stroke: #b58cff !important;
     stroke-width: 1 !important;
@@ -1046,7 +1025,6 @@ svg path.state.order-spy {
     animation: none;
 }
 
-svg path.state.order-target:hover { stroke-width: 2.6 !important; animation: none; }
 svg path.state.order-spy:hover { stroke-width: 2.4 !important; stroke-dasharray: none; }
 
 /* Dove sta una NOSTRA spia adesso: un contorno fermo, non un bersaglio. La
@@ -1058,15 +1036,6 @@ svg path.state.spied {
     stroke: #b58cff !important;
     stroke-width: 1.6 !important;
     stroke-dasharray: none;
-}
-
-@keyframes order-blink {
-    0%, 100% { stroke-opacity: 1; }
-    50%      { stroke-opacity: .35; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    svg path.state.order-target { animation: none; }
 }
 
 /* ---------- cursore d'ordine ----------
@@ -1312,6 +1281,14 @@ svg path.state.spied {
     margin-top: 16px;
     padding-top: 4px;
     border-top: 1px solid var(--rule);
+}
+
+/* Legenda dei costi: staccata dalla fisarmonica, in fondo, sempre consultabile
+   (richiesta dell'utente). La riga più marcata la separa dalle sezioni sopra. */
+#bp-reference {
+    margin-top: 12px;
+    padding-top: 4px;
+    border-top: 2px solid var(--rule);
 }
 
 /* elenco delle province del regno: cliccabile, con truppe ed edifici */
@@ -1999,3 +1976,45 @@ svg path.state.spied {
 
 .bp-vessel .bv-name { font-size: .98rem; }
 .bp-vessel .bv-sub { font-size: .78rem; opacity: .78; }
+
+/* ============================================================
+   CAROVANE DEL COMMERCIO (richiesta dell'utente)
+   Una carovana attraversa la mappa quando parte una proposta o si chiude uno
+   scambio. Gli elementi .trade-fx sono SVG appesi in coda alla mappa da
+   Risiko.playTradeFx; qui c'è solo il movimento. Il sentiero tratteggiato
+   compare e svanisce, il glifo ci scorre sopra (translate via --dx/--dy, come
+   la lama della battaglia). Spento da prefers-reduced-motion.
+   ============================================================ */
+.trade-trail {
+    fill: none;
+    opacity: 0;
+    animation: trade-track 1.6s ease-out forwards;
+}
+
+@keyframes trade-track {
+    0%   { opacity: 0; }
+    18%  { opacity: .8; }
+    70%  { opacity: .5; }
+    100% { opacity: 0; }
+}
+
+.trade-car {
+    opacity: 0;
+    paint-order: stroke;
+    stroke: rgba(28, 18, 6, .5);
+    stroke-width: .35px;
+    transform: translate(0, 0);
+    animation: trade-move 1.5s cubic-bezier(.45, .05, .3, 1) forwards;
+}
+
+@keyframes trade-move {
+    0%   { opacity: 0; transform: translate(0, 0); }
+    12%  { opacity: 1; }
+    86%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--dx), var(--dy)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .trade-car { animation: none; opacity: 0; }
+    .trade-trail { animation: none; opacity: .35; }
+}

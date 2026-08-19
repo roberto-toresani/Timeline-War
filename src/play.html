@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=73">
-    <link rel="stylesheet" href="css/style.css?v=73">
-    <link rel="stylesheet" href="css/board.css?v=73">
+    <link rel="stylesheet" href="css/tokens.css?v=77">
+    <link rel="stylesheet" href="css/style.css?v=77">
+    <link rel="stylesheet" href="css/board.css?v=77">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -92,8 +92,8 @@
                 </div>
                 <!-- CURSORE D'ORDINE: si comanda dalla mappa.
                      In fase "attacca" e in fase "sposta" le province valide si
-                     accendono sulla mappa (classe .order-target, messa da
-                     Risiko.markTargets): cliccandone una si apre qui sopra un
+                     si segnano a retino sulla mappa (Risiko.markTargets, strato
+                     #order-marks): cliccandone una si apre qui sopra un
                      cursore ancorato alla provincia — quanti uomini, che
                      probabilità, e via. Il pannello resta la strada lunga (e
                      l'unica per gli sbarchi lontani), questa è quella corta.
@@ -180,10 +180,13 @@
                       azioni della fase aperta. Nient'altro.
                    4. FONDO fisso (#bp-next-phase) — l'avanzamento di fase.
 
-                 In coda al corpo c'è #bp-consult: le tre cartelline che si
-                 leggono e basta (province, regno, costi), tutte CHIUSE di
-                 default. Chi aggiunge un blocco che si consulta lo mette lì;
-                 chi aggiunge un'azione la mette nella fase a cui appartiene. -->
+                 In coda al corpo c'è #bp-consult (province, regno) e, staccata,
+                 la legenda #bp-reference: tutte CHIUSE di default. Le sezioni si
+                 aprono a FISARMONICA — aprendone una le altre si chiudono — ma
+                 la legenda dei costi resta FUORI dal gruppo, sempre consultabile
+                 (wireAccordion in player-board.js). Chi aggiunge un blocco che si
+                 consulta lo mette in #bp-consult; chi aggiunge un'azione la mette
+                 nella fase a cui appartiene. -->
             <div id="board-right" class="board-panel">
 
                 <!-- ---------- 1 · CRUSCOTTO SEMPRE VISIBILE ---------- -->
@@ -286,6 +289,9 @@
                     <!-- ---------- FASE 3b · CONQUISTA (solo a battaglia vinta) ---------- -->
                     <div id="bp-conquest" class="bp-conquest" style="display:none;"></div>
 
+                    <!-- Capitale nemica presa: promuovila o lasciala Città -->
+                    <div id="bp-capital-choice" class="bp-conquest" style="display:none;"></div>
+
                     <!-- titolo e riquadro compaiono insieme: li accende renderBattle() -->
                     <div class="bp-title" id="bp-battle-title" style="display:none;">Ultima battaglia</div>
                     <div id="bp-battle" class="bp-battle" style="display:none;"></div>
@@ -296,9 +302,13 @@
                     </div>
 
                     <!-- ---------- consultazione: si apre quando serve ----------
-                         Tutte chiuse di default. Non sono azioni: sono i numeri
-                         che si vanno a cercare, e andarli a cercare è un gesto
-                         apposta. -->
+                         Tutte chiuse di default e a FISARMONICA (richiesta
+                         dell'utente): aprendone una — qui o fra le sezioni della
+                         fase (Commerci, Spie) — le altre si chiudono, così il
+                         pannello mostra una cosa per volta. Il gruppo è ogni
+                         details.bp-fold del pannello destro tranne la legenda:
+                         wireAccordion() in player-board.js lo governa. Non sono
+                         azioni: sono i numeri che si vanno a cercare. -->
                     <div id="bp-consult">
                         <details class="bp-fold" id="fold-provinces">
                             <summary>Le mie province <span class="bp-fold-hint">clicca per selezionare · in fase 1 anche + e −</span></summary>
@@ -321,9 +331,17 @@
                                 </div>
                             </div>
                         </details>
+                    </div>
 
+                    <!-- ---------- legenda: FUORI dalla fisarmonica ----------
+                         La legenda dei costi sta a parte, in fondo, e si consulta
+                         in QUALUNQUE momento (richiesta dell'utente): aprirla non
+                         chiude le altre sezioni, e aprire un'altra sezione non
+                         chiude lei. Per questo non è dentro #bp-consult e
+                         wireAccordion() la esclude per id. -->
+                    <div id="bp-reference">
                         <details class="bp-fold" id="fold-legend">
-                            <summary>Costi ed effetti <span class="bp-fold-hint">di ogni costruzione</span></summary>
+                            <summary>Costi ed effetti <span class="bp-fold-hint">di ogni costruzione · sempre consultabile</span></summary>
                             <div class="bp-fold-body">
                                 <div id="bp-legend"></div>
                             </div>
@@ -362,34 +380,34 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/sync.js"></script>
 
-    <script src="data/map_data.js?v=73"></script>
-    <script src="data/id_mapping.js?v=73"></script>
-    <script src="data/embedded_map.js?v=73"></script>
-    <script src="data/resource_icons.js?v=73"></script>
-    <script src="data/piece_icons.js?v=73"></script>
-    <script src="data/default_state.js?v=73"></script>
-    <script src="data/city_names.js?v=73"></script>
-    <script src="data/historic_battles.js?v=73"></script>
-    <script src="data/start_religions.js?v=73"></script>
-    <script src="data/province_terrain.js?v=73"></script>
-    <script src="js/chronicle.js?v=73"></script>
-    <script src="js/religions.js?v=73"></script>
-    <script src="js/terrain.js?v=73"></script>
-    <script src="js/map-decor.js?v=73"></script>
-    <script src="js/battle.js?v=73"></script>
-    <script src="js/kingdom-stats.js?v=73"></script>
-    <script src="js/popularity.js?v=73"></script>
-    <script src="js/game-rules.js?v=73"></script>
+    <script src="data/map_data.js?v=77"></script>
+    <script src="data/id_mapping.js?v=77"></script>
+    <script src="data/embedded_map.js?v=77"></script>
+    <script src="data/resource_icons.js?v=77"></script>
+    <script src="data/piece_icons.js?v=77"></script>
+    <script src="data/default_state.js?v=77"></script>
+    <script src="data/city_names.js?v=77"></script>
+    <script src="data/historic_battles.js?v=77"></script>
+    <script src="data/start_religions.js?v=77"></script>
+    <script src="data/province_terrain.js?v=77"></script>
+    <script src="js/chronicle.js?v=77"></script>
+    <script src="js/religions.js?v=77"></script>
+    <script src="js/terrain.js?v=77"></script>
+    <script src="js/map-decor.js?v=77"></script>
+    <script src="js/battle.js?v=77"></script>
+    <script src="js/kingdom-stats.js?v=77"></script>
+    <script src="js/popularity.js?v=77"></script>
+    <script src="js/game-rules.js?v=77"></script>
     <!-- PRIMA di app.js: vedi la nota in index.html. -->
-    <script src="js/popularity.js?v=73"></script>
-    <script src="js/map-anchors.js?v=73"></script>
-    <script src="js/sea-routes.js?v=73"></script>
+    <script src="js/popularity.js?v=77"></script>
+    <script src="js/map-anchors.js?v=77"></script>
+    <script src="js/sea-routes.js?v=77"></script>
     <!-- Spie (§9.3): puro, e serve ad app.js per la nebbia. Prima di app.js. -->
-    <script src="js/spies.js?v=73"></script>
-    <script src="js/app.js?v=73"></script>
-    <script src="js/game-actions.js?v=73"></script>
-    <script src="js/bot.js?v=73"></script>
-    <script src="js/player-board.js?v=73"></script>
+    <script src="js/spies.js?v=77"></script>
+    <script src="js/app.js?v=77"></script>
+    <script src="js/game-actions.js?v=77"></script>
+    <script src="js/bot.js?v=77"></script>
+    <script src="js/player-board.js?v=77"></script>
 </body>
 
 </html>

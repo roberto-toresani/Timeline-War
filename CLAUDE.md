@@ -85,11 +85,27 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - **Presidio minimo (§5)**: una provincia **non resta mai sguarnita**. `GameRules.MIN_GARRISON`
   (=1) e `GameRules.spendableTroops(n)` sono l'unica fonte della regola: qualunque cosa porti
   soldati fuori da una provincia lavora sugli **spendibili**, non sui presenti — attacco,
-  spostamento finale, costi in soldati delle costruzioni (Capitale 5, Mercato 4, Nave 3,
-  Strada 1) e persino il ritiro di una recluta appena schierata. Anche la conquista la
+  spostamento finale, costi in soldati delle costruzioni (Mercato 4, Nave 3,
+  Strada 1 — la Capitale non costa soldati) e persino il ritiro di una recluta appena schierata. Anche la conquista la
   rispetta dall'altra parte: almeno 1 superstite resta nella provincia presa. Se aggiungi
   un'azione che sottrae soldati, passa da `spare(path)` in `game-actions.js` e da `spareOf(path)`
   in `player-board.js`, così il massimo mostrato e quello accettato non divergono.
+- **Capitale: si costruisce, si sposta, si conquista (regola dell'utente)**. I regni
+  **non partono** con una Capitale (setup non ne regala più): la prima si costruisce al
+  turno 1 per **500 monete e 0 uomini** (`GameRules.COSTS.capitale = { monete: 500 }`),
+  scegliendo la provincia. Con le 1000 monete d'avvio è alla portata di tutti (i bot hanno
+  `capitale` in testa a `build:[...]` e la costruiscono da soli se manca). La strada
+  gratuita nasce **dalla costruzione** della Capitale, non più dall'avvio (setup non setta
+  più `stradeGratis`). Costruita una Capitale, la voce **sparisce** dalle costruzioni
+  (`buildGroup` la salta) e al suo posto compare `GameActions.moveCapital` — **spostare** il
+  seggio su una provincia propria per altre **500 monete**, con la vecchia sede che diventa
+  **Città**. Conquistando una **Capitale nemica**: se non ne hai una è adozione automatica;
+  se ne hai già una la presa è declassata a Città di default (così `getCapitalPathFor` ne
+  trova sempre **una sola**) e `player.capitalePresa` offre all'umano la **promozione**
+  opzionale (`GameActions.resolveCapital`, la vecchia → Città). I bot non promuovono
+  (`capitalePresa` non si imposta per `winner.bot`). Il trasloco fisico del seggio vive in
+  **un posto solo**, `seatCapital` in `game-actions.js`, chiamato sia da `moveCapital` sia
+  da `resolveCapital`; la regola di conquista sta dentro `applyBattleOutcome`.
 - **Il turno è a fasi, in quest'ordine**: `schiera → costruisci → attacca → sposta`
   (`GameActions.PHASES`, campo `player.fase`). Si avanza con `GameActions.nextPhase()`
   e non si torna indietro. Il vincolo vive in `game-actions.js` (ogni azione chiama
@@ -112,8 +128,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     decide quanti restano nella provincia presa e quanti rientrano in quella di partenza
     (almeno 1 deve occupare). A fine turno si chiude d'ufficio lasciandoli tutti lì.
   - `sposta`: **un solo** spostamento per turno (`player.spostamentoFatto`), fra due
-    province proprie unite da una catena ininterrotta di province proprie
-    (`moveTargets`), lasciando almeno 1 soldato alla partenza.
+    province proprie **confinanti** (regola dell'utente: un solo confine di terra, non
+    più una catena — `GameActions.ownAdjacent`), lasciando almeno 1 soldato alla
+    partenza. **In più, il rinforzo via nave** (regola dell'utente, il caso tipico è
+    dopo uno sbarco): se la partenza ha una nave ancorata, lo spostamento del turno può
+    andare **via mare** verso una **propria** costa entro la portata dello scafo (§9.2).
+    È un rinforzo, non un attacco — la meta dev'essere già tua — e il carico è un tetto
+    oltre al presidio (`moveTargets` restituisce `viaMare`/`scafo`/`carico` come
+    `attackTargets`; `finalMove` rileva il mare da `areLandAdjacent`, sceglie lo scafo
+    con `hullForLanding`, e la nave **viaggia con gli uomini** e resta ancorata
+    all'arrivo, come nello sbarco). Consuma comunque l'unico spostamento del turno.
     **Due clic: la partenza e l'arrivo** (regola dell'utente). La partenza NON è più
     la provincia selezionata — entrando nella fase quella è dove si è chiuso
     l'attacco, e siccome ogni provincia propria collegata è anche una meta,
@@ -131,18 +155,33 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   scelgono da un elenco**, si fanno sulla mappa. Selezionata una provincia propria,
   le province dove si può andare si **accendono** e cliccandone una si apre lì sopra
   il **cursore d'ordine** (`#map-order-hud`): quanti uomini, che probabilità, e via.
-  - Chi accende cosa: `Risiko.markTargets(fromId, ids, kind)` mette `order-target`
-    (+ `order-attack` / `order-move` / `order-spy` / `order-start`) sui bersagli e
-    `order-origin` sulla partenza; `Risiko.clearTargets()` spegne. `kind` vale
-    `attacca` | `sposta` | `spia` | `partenza`, e gli ultimi due non hanno provincia
-    di partenza (`fromId` null). Si tiene l'elenco degli elementi toccati invece
-    di rifare una query sull'SVG: gira a ogni render, anche dopo ogni mossa dei bot.
-  - **Nel CSS serve `!important`** (`board.css`, sezione "Comandare dalla mappa"):
-    metà dei path dell'SVG si porta dietro dalla sorgente uno
-    `style="stroke: rgb(0,0,0); shape-rendering: auto"` — è uno stile in linea, e
-    senza `!important` il bersaglio resta col contorno nero come tutti gli altri.
-    Si dipinge solo il **tratto**, mai il fill: `refreshMapDisplay` riscrive `fill`
-    inline su tutte le province a ogni render.
+  - **Il segno è un RETINO, non un contorno** (scelta dell'utente): i bersagli
+    d'attacco e le mete di spostamento si segnano con righe diagonali nel colore
+    della fase (arancio/oro) **ritagliate dentro** il poligono — una zona segnata
+    come su una carta militare. Il vecchio contorno spesso (1,5 su bordi da 0,25)
+    fra due bersagli confinanti si saldava in una banda doppia che non era di
+    nessuno dei due: confusionario. Il retino sta **dentro** e non sconfina.
+  - Chi accende cosa: `Risiko.markTargets(fromId, ids, kind)` dipinge sullo strato
+    **`#order-marks`** (un `<g>` sopra `#map-group` e sotto i marker appesi in coda,
+    così pedine e risorse restano davanti); `Risiko.clearTargets()` svuota lo strato.
+    `kind` vale `attacca` | `sposta` | `spia` | `partenza`:
+    - `attacca`/`sposta`: **retino** sui bersagli (pattern `#order-hatch-*` +
+      un filo di bordo interno) e un filo d'oro sull'**origine** (`fromId`).
+    - `spia` e `partenza` **non** prendono il retino (sono decine di province): un
+      **tratto** leggero — spie tratteggiate viola (classe CSS `order-spy`),
+      partenze un filo verde sullo strato. `fromId` è null per entrambe.
+    Il clic resta della plancia: lo strato è `pointer-events:none`, quindi passa al
+    path della provincia sotto; la classe `order-clickable` serve solo al cursore.
+  - **I clipPath e i pattern si creano UNA volta** (`orderClip`/`orderHatch`, per id
+    di provincia e per fase) e si riusano: la geometria non cambia mai e markTargets
+    gira a ogni render, anche dopo ogni mossa dei bot (~20 ms di budget in
+    `refreshMapDisplay`). Il pattern è `userSpaceOnUse`, quindi le righe scalano da
+    sé con lo zoom. **Mai dipingere il fill dei path delle province** qui:
+    `refreshMapDisplay` lo riscrive inline a ogni render — per questo il retino vive
+    su uno strato a parte.
+  - **`!important` sui tratti CSS residui** (`board.css`, `order-spy`): metà dei path
+    dell'SVG si porta dietro dalla sorgente uno `style="stroke: rgb(0,0,0)"` in linea,
+    e senza `!important` vince lui.
   - Il clic sulla mappa è una **selezione** o un **ordine**, e a deciderlo è
     `orderTargets` (player-board.js), l'indice id→bersaglio dell'ultimo render: se
     la provincia è accesa il clic apre il cursore, altrimenti sposta la selezione.
@@ -267,15 +306,15 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     "tuo", e un link `?p=` incollerebbe la pagina a quel regno anche dopo un
     ricaricamento (`resolvePlayer`). Senza codice, `boot` entra nel regno di turno.
 - **Sorteggio della mappa (solo `mantieniMappa:false`)**: `js/setup.js` —
-  sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) e la
-  **Capitale in regalo** — i regni nascono tutti in **Europa, Nord Africa e Arabia**
+  sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) — i regni
+  nascono tutti in **Europa, Nord Africa e Arabia**
   (`GameSetup.REGIONS.europa`: rettangoli sulle coordinate dell'SVG, misurati sulla mappa
   vera per lasciare fuori Persia, Sudan e Sahel; le province che scavalcano il bordo
   mappa, tipo Alaska, hanno un bounding box largo quanto il mondo e si scartano dalla
-  larghezza). Senza Capitale non si raccoglie nulla e costruirla vorrebbe 5
-  soldati spendibili che all'inizio non ci sono: senza il regalo la partita non parte),
-  più una strada gratuita e un feudo che confina con una provincia di **pietra** (la
-  prima strada la collega e dà la materia prima per le successive). Poi estrae a sorte il
+  larghezza). La Capitale **non** è più regalata: la si costruisce al turno 1 (500 monete,
+  0 uomini), e con essa arriva la prima strada gratuita. Il feudo iniziale confina con una
+  provincia di **pietra** (la prima strada la collega e dà la materia prima per le
+  successive). Poi estrae a sorte il
   regno **umano** e assegna a tutti gli altri una strategia di `js/bot.js`.
   I bot **non hanno scorciatoie**: chiamano le stesse funzioni di `game-actions.js` del
   giocatore, quindi qualsiasi regola nuova vale anche per loro. Il turno di un bot è un
@@ -288,6 +327,21 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - **Quello che un bot deve saper fare per non incepparsi** (tutte regole dell'utente,
   nate guardandoli giocare). Un bot che non sa queste cose non gioca male: **si blocca**,
   perché a Popolarità 1 non ha più né reclute né risorse con cui rimediare.
+  0. **Dove piantare la Capitale** (`capitalScore`, usata da `siteFor`). Non è una
+     costruzione come le altre: decide due terzi della Popolarità. La Sicurezza si
+     misura sui **suoi** confini (`P_conf = 5 − e`) e il Benessere sulla rete di strade
+     che parte da **lei** (§4), quindi una Capitale in un angolo lascia mezzo regno
+     scollegato per sempre. Il punteggio somma la **protezione** che avrebbe (vale
+     doppio — è l'unica cosa che non si può comprare — con una penalità a sé quando
+     `P_conf` sarebbe **zero**, perché lì la Sicurezza resta dimezzata per sempre), le
+     **risorse raggiungibili attraverso il proprio territorio** scontate per distanza
+     (ogni passo è una strada da costruire; un tipo nuovo e il cibo pesano di più) e in
+     coda gli uomini già presenti meno la pressione nemica. Prima si sceglieva la
+     provincia **con più soldati**, che è quasi sempre quella di frontiera.
+     Il seggio si **trasloca** anche (`capitalPlan` → `GameActions.moveCapital`, 500
+     monete): un regno cresce da una parte sola e la vecchia sede si ritrova sul
+     confine. La soglia è alta apposta (+3 punti pieni) — traslocare per mezzo punto è
+     il modo migliore di non costruire mai nient'altro.
   1. **La Popolarità prima di tutto.** `popState` in `bot.js` misura i fattori veri
      (`Risiko.popularityFactors`) e chiede il piano a `Popularity.plan`. Da lì escono
      tre decisioni: **quanto tassare** (si abbassa quando il popolo mugugna e **risale
@@ -315,12 +369,68 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
      toccano. E il conto lo fa `winProbMerc` con la quota che la provincia **avrebbe dopo**
      l'acquisto — pronosticare coi mercenari contati come sudditi vorrebbe dire comprare
      per una soglia che poi non si raggiunge.
-  5. **Il Mercato serve a comprare PIETRA.** Senza pietra niente strade, senza strade
-     niente province collegate, e senza collegamenti Benessere e raccolto restano a zero.
-     `wantsBuild` lo fa costruire **solo quando serve**: se la pietra la produce già o ne
-     ha in scorta è denaro buttato, e se non raccoglie niente la banca non ha nulla da
-     prendere in cambio. Poi `bankPlan` compra 1 pietra ogni 2 unità di ciò che avanza
-     (§7), tenendo sempre un margine.
+  5. **Il Mercato è il modo di non restare bloccati.** Senza pietra niente strade, senza
+     strade niente province collegate, e senza collegamenti Benessere e raccolto restano
+     a zero. `wantsBuild` lo fa costruire quando manca più di un tipo di risorsa e c'è
+     già merce in magazzino da dare in cambio (comprarlo al turno 1 con le scorte a zero
+     è buttare 800 monete). Da lì partono due canali, e i bot li usano tutti e due:
+     - **L'ESTERO** (`bankPlan`, 2:1): il canale sicuro, perché la banca non rifiuta.
+       Cosa comprare lo dice `resourceNeed`, non la scorta più bassa — avere zero Legno
+       non è un problema se il Legno non serve a niente di quel che si vuole costruire,
+       mentre l'Argilla a 1 blocca una Città da mille monete.
+     - **GLI ALTRI REGNI** (`tradePlan`, fino a `TRADE_MAX_PENDING` carovane a turno):
+       si compra da **chi ce l'ha davvero** (il magazzino altrui si legge, non si tira a
+       sorte fra tre magazzini vuoti), pagando con le eccedenze o, se non ce ne sono,
+       in **oro** a prezzo di mercato più un sovrapprezzo — chi vende deve guadagnarci,
+       se no rifiuta. E si **vende** l'eccedenza quando le casse sono vuote. Non si manda
+       una seconda carovana a chi non ha ancora risposto alla prima: la merce offerta è
+       un pegno che parte subito, e un regno umano può lasciarla lì per sempre.
+     - **Il prezzo dipende dal bisogno** (`resourceNeed` → `goodValue`), in tutte e due
+       le direzioni: ricevere l'unica Argilla che manca vale molto, darla via costa
+       altrettanto. Con un prezzo unico per tutto, un mercato non serve a niente.
+  6. **La riserva di monete guarda alla prossima costruzione RAGGIUNGIBILE**
+     (`coinReserve`): quella di cui si hanno già le risorse. Tenere da parte 2000 monete
+     per una Fortezza che non si potrà costruire per venti turni significa non spendere
+     mai niente.
+- **Istinto di sopravvivenza: difendere prima di espandere** (regola dell'utente).
+  Un bot con un invasore alle porte deve mettere al sicuro Capitale e confini PRIMA di
+  andare a conquistare altrove — e allo stesso tempo non deve ammassare uomini inutili
+  in Capitale a marcire. Due leve in `bot.js`, entrambe nate guardandoli perdere:
+  - **`defenseFloor` è il fratello di `raidFloor`**: dove `raidFloor` chiude la porta
+    alle terre di nessuno, questo la chiude a un VICINO-regno in armi. `enemyThreat`
+    misura l'esercito nemico più forte al confine (il massimo degli spendibili §5 dei
+    vicini di un altro regno; le neutrali le conta già `raidFloor`), e `defenseFloor` ne
+    tiene circa i tre quarti (`DEFEND_RATIO = 0.7`) con un tetto (`DEFENSE_CAP = 12`) —
+    perché un pavimento troppo alto è l'altro modo di perdere: tutti a presidiare,
+    nessuno a conquistare. `holdFloor(player, id, salvo)` è il **max** dei due, ed è
+    l'unico numero che `survey` (→ `presidio`/`mobili`/`scoperta`), gli attacchi e gli
+    spostamenti usano come "quanti restano comunque qui". Da lì, gratis: le reclute vanno
+    prima a tappare i confini minacciati, e attacchi/spostamenti non li lasciano scoperti.
+    Il `salvo` è lo stesso di `raidFloor` — il nemico che si sta per attaccare da qui non
+    si conta, se no il regno non contrattaccherebbe mai.
+  - **La guardia della Capitale respira** (`capitalGuard`): in pace resta al livello che
+    ottimizza la Popolarità (`guardWanted`, cioè il piano §8) e gli uomini in più escono
+    a conquistare invece di marcire; con l'invasore al confine sale a `holdFloor` della
+    Capitale. La usano `deployPlan` (la riempie per prima), `bestAttack` (non ne fa mai
+    partire la guardia) e `movePlan` (l'ultimo spostamento del turno rinforza un seggio
+    sotto assedio). È la traduzione diretta di "prima difendere, poi non sprecare".
+- **La vendetta dell'IA (`rancore`, regola dell'utente)**: un regno non dimentica chi gli
+  ha strappato una provincia che CONTAVA. Il torto si registra nell'**unico** punto di
+  conquista — `applyBattleOutcome` in `game-actions.js` (`recordGrudge`) — sul record del
+  regno derubato, e **solo per province preziose**: `grudgeWorth` dà peso 3 a una
+  Capitale, 2 a Città/Fortezza, 1 a una risorsa, **0 a una provincia spoglia** (che quindi
+  non entra nel rancore — la vendetta è per il prezioso o lo strategico). Vive in
+  `player.rancore` come `[{prov, chi, peso, turno}]`, persiste nei salvataggi
+  (`normalizePlayer` lo inizializza) come le spie: serve ai bot, un umano lo ignora.
+  - Si legge la provincia com'era del difensore, PRIMA di cambiarle padrone e costruzioni
+    (una Capitale è ancora Capitale, non già declassata a Città).
+  - `clearGrudge` lo spegne quando la provincia torna al derubato: riprendersela salda il
+    torto. Un solo rancore per provincia (si aggiorna, non si accumula), tetto `GRUDGE_MAX`.
+  - Il bot lo legge con `grudgeAgainst` (`bot.js`): premio d'attacco maggiorato
+    (`× peso × 1.5` in `bestAttack`) per riprendersi ciò che gli è stato tolto, e in
+    schieramento "punta" la lancia si ammassa sul confine adiacente al torto — così la
+    vendetta si vede sulla mappa, non resta un numero. Il rancore **tace** se chi l'ha
+    preso non la tiene più (l'ha persa a sua volta): la vendetta ha smarrito il colpevole.
 - **Terre di nessuno presidiate** (regola dell'utente): ogni provincia neutrale ha
   `GameRules.neutralGarrison(turno)` soldati — 2 nei turni 1-10, 3 nei 11-20, e così via
   (`NEUTRAL_EVERY = 10`). `GameActions.garrisonNeutrals()` è l'unico posto che li mette:
@@ -403,6 +513,11 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     ogni difensore** — 4 soldati neutrali (3 spendibili) contro 1 solo difensore è il caso
     limite. Se non schiaccia nessun confinante di fede diversa, resta ferma. È una razzia
     su una porta aperta, non un secondo fronte.
+    **Una Capitale razziata si declassa a Città**, come una Capitale nemica conquistata:
+    in terra di nessuno non governa più nessuno. Senza questo il regno restava senza
+    seggio ma con la pedina ancora piantata su una provincia neutrale —
+    `getCapitalPathFor` non trovava niente e il regno perdeva Popolarità, raccolto e
+    reclute **per sempre**, senza che nulla lo dicesse. Era il blocco definitivo.
   - **Scismi su calendario compresso** (`Religions.SCHISMS`, applicati da
     `Risiko.applySchisms` in `endTurn`): a scala storica la Riforma cadrebbe al turno 52 e
     nessuna partita la vedrebbe, quindi i turni sono compressi (Grande Scisma 5, Riforma

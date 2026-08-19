@@ -161,6 +161,47 @@
         }, min);
     }
 
+    // ---------- L'ISTINTO DI SOPRAVVIVENZA: la difesa contro un REGNO ----------
+    // `raidFloor` chiude la porta alle terre di nessuno; questo chiude la porta a
+    // un VICINO in armi. Un esercito ammassato al confine è la minaccia vera: se
+    // la provincia è troppo sguarnita cade al primo assalto, e se quella provincia
+    // è la Capitale cade la partita (§8). Prima il bot vedeva la minaccia solo
+    // come un "peso" morbido nello schieramento e spediva comunque tutti gli
+    // uomini all'attacco dall'altra parte: nessun istinto di conservazione.
+    //
+    // `enemyThreat` è l'esercito nemico più forte che potrebbe piombare qui: il
+    // MASSIMO degli SPENDIBILI (§5) dei vicini di un altro regno (le neutrali le
+    // conta già raidFloor). `defenseFloor` lo traduce in un presidio: abbastanza
+    // uomini perché il confine non sia preda a colpo sicuro — sul proprio terreno
+    // (§9) tenerne circa i tre quarti è già una difesa seria — ma MAI oltre un
+    // tetto, perché un pavimento troppo alto è l'altro modo di perdere: tutti a
+    // presidiare, nessuno a conquistare. `salvo` = il nemico che si sta per
+    // attaccare proprio da qui: prenderlo TOGLIE la minaccia, quindi non si conta
+    // (come il `salvo` di raidFloor), se no il regno non contrattaccherebbe mai.
+    const DEFEND_RATIO = 0.7;   // quanta parte dell'esercito nemico si eguaglia
+    const DEFENSE_CAP = 12;     // nessuna provincia pretende più uomini di così
+    function enemyThreat(player, id, salvo) {
+        return E().landNeighbors(id).reduce((max, n) => {
+            if (n === salvo) return max;
+            const np = pathOf(n);
+            if (!np) return max;
+            const chi = E().owner(np);
+            if (!chi || chi === player.name) return max;   // libero o mio: non è un invasore
+            return Math.max(max, GR().spendableTroops(E().countPiece(np, 'soldato')));
+        }, 0);
+    }
+    function defenseFloor(player, id, salvo) {
+        const minaccia = enemyThreat(player, id, salvo);
+        if (minaccia < 2) return 0;                        // un uomo solo non è un'invasione
+        return Math.min(DEFENSE_CAP, Math.ceil(minaccia * DEFEND_RATIO));
+    }
+    // Il pavimento COMPLESSIVO di una provincia: né una razzia né un vicino in
+    // armi devono trovarla sguarnita. È l'unico numero che survey, gli attacchi e
+    // gli spostamenti usano come "quanti restano comunque qui".
+    function holdFloor(player, id, salvo) {
+        return Math.max(raidFloor(id, salvo), defenseFloor(player, id, salvo));
+    }
+
     // Ritratto di una provincia del regno: quanto vale come base di partenza e
     // quanto è esposta. Tutto quello che decide il bot esce da qui.
     function survey(player) {
@@ -172,7 +213,10 @@
                 return s + troopsAt(n) * (chi ? 1.5 : 0.6);   // un regno vicino pesa più di una terra neutra
             }, 0);
             const debolezza = vicini.reduce((m, n) => Math.max(m, 1 / (1 + troopsAt(n))), 0);
-            const presidio = raidFloor(id);
+            // Il presidio tiene conto ANCHE del vicino in armi, non solo delle
+            // razzie: così le reclute vanno a rinforzare i confini minacciati e gli
+            // attacchi/spostamenti non li lasciano scoperti (istinto di difesa).
+            const presidio = holdFloor(player, id);
             return {
                 id, path,
                 truppe: troopsAt(id),
@@ -218,8 +262,7 @@
         // quando se ne possono avere 7 è chiedere un piano che non si eseguirà.
         const reclute = (player.recluteDaSchierare || 0) + (GA().boundPool(player)[cap.id] || 0);
         let trasferibili = 0;
-        GA().ownReachable(player, cap.id).forEach(id => {
-            if (id === cap.id) return;
+        GA().ownAdjacent(player, cap.id).forEach(id => {
             trasferibili = Math.max(trasferibili, GR().spendableTroops(troopsAt(id)));
         });
         const maxSoldiers = Math.min(m.soldiers + reclute + trasferibili,
@@ -258,6 +301,16 @@
     function guardWanted(st, s) {
         return Math.max(GUARD_FLOOR, st ? st.piano.soldiers : (s.guardiaCapitale || 6));
     }
+    // La guardia che la Capitale vuole DAVVERO: quella che ottimizza la Popolarità
+    // (guardWanted) in tempo di pace, ma ALZATA a difesa quando un regno le è
+    // arrivato alle porte (holdFloor). Senza minaccia resta al livello del piano e
+    // gli uomini in più escono a conquistare — non marciscono in Capitale (regola
+    // dell'utente); con l'invasore al confine, invece, la si rinforza per prima.
+    function capitalGuard(player, s, st, cap) {
+        const c = cap || (st ? st.cap : R().getCapitalPathFor(player));
+        const base = guardWanted(st, s);
+        return c ? Math.max(base, holdFloor(player, c.id)) : base;
+    }
 
     // Quanto vale, in Popolarità, mettere le mani su questa provincia. Due voci:
     // una nemica in meno al confine della Capitale (Sicurezza) e una risorsa che
@@ -277,6 +330,27 @@
         }
         if (!Object.keys(delta).length) return 0;
         return root.Popularity.gainIf(st.m, delta);
+    }
+
+    // ---------- LA VENDETTA (lettura del rancore) ----------
+    // Il torto lo scrive la conquista (game-actions.applyBattleOutcome, unico
+    // punto): `player.rancore` elenca le province PREZIOSE strappate al regno e chi
+    // le ha prese, col `peso` di quanto bruciano (Capitale 3, Città/Fortezza 2,
+    // risorsa 1). Qui lo si legge: quanto vale, IN PIÙ, riprendersi questa
+    // provincia. Il rancore ha effetto solo finché il bersaglio ha senso — se chi
+    // l'ha presa non la tiene più (l'ha persa a sua volta) la vendetta ha smarrito
+    // il colpevole e tace. Quando la provincia torna nostra il rancore si spegne
+    // da sé (clearGrudge in game-actions), quindi qui non serve potarlo.
+    function grudgeAgainst(player, provId) {
+        const lista = player && player.rancore;
+        if (!Array.isArray(lista) || !lista.length) return 0;
+        const chi = ownerAt(provId);
+        if (!chi || chi === player.name) return 0;
+        return lista.reduce((peso, g) => {
+            if (g.prov !== provId) return peso;
+            if (g.chi && g.chi !== chi) return peso;      // colpevole diverso: non è la stessa offesa
+            return Math.max(peso, g.peso || 1);
+        }, 0);
     }
 
     // ---------- FASE 1 · schieramento ----------
@@ -312,7 +386,9 @@
         // parcheggiarne 7 significa spendere metà leva e 12 buttarne due.
         const cap = st ? st.cap : R().getCapitalPathFor(player);
         if (cap) {
-            const manca = guardWanted(st, s) - troopsAt(cap.id);
+            // Con un invasore alle porte la guardia richiesta sale (capitalGuard):
+            // difendere il seggio viene prima di qualsiasi provincia in più.
+            const manca = capitalGuard(player, s, st, cap) - troopsAt(cap.id);
             const n = Math.min(Math.max(0, manca), pool, roomAt(cap.id));
             if (n > 0) { piano.push({ id: cap.id, n }); pool -= n; }
         }
@@ -336,9 +412,15 @@
         const base = fronte.length ? fronte : prov;
 
         // "punta": due terzi delle reclute nella provincia da cui conviene
-        // attaccare (il bersaglio più debole), il resto sul fronte.
+        // attaccare, il resto sul fronte. Se c'è un torto da vendicare (una
+        // provincia preziosa persa) e la si può riprendere da un confine, la
+        // punta si ammassa LÌ: è così che la vendetta si vede sulla mappa invece
+        // di restare un numero. Altrimenti si sceglie il bersaglio più debole.
         if (s.dispiegamento === 'punta' && fronte.length) {
-            const lancia = base.slice().sort((a, b) => b.debolezza - a.debolezza)[0];
+            const vendetta = base.filter(p =>
+                p.vicini.some(n => grudgeAgainst(player, n) > 0));
+            const lancia = (vendetta.length ? vendetta : base)
+                .slice().sort((a, b) => b.debolezza - a.debolezza)[0];
             const grosso = Math.min(Math.max(1, Math.round(pool * 0.66)), roomAt(lancia.id));
             piano.push({ id: lancia.id, n: grosso });
             const resto = pool - grosso;
@@ -413,8 +495,66 @@
         return candidate[0];
     }
 
-    // Dove mettere una costruzione: la Capitale nella provincia più popolata
-    // (deve pagare 5 soldati), gli altri edifici dove servono davvero.
+    // ---------- DOVE SIEDE LA CAPITALE ----------
+    // Non è una costruzione come le altre: la Capitale DECIDE due terzi della
+    // Popolarità (§8). La Sicurezza si misura sui suoi confini (`P_conf = 5 − e`,
+    // e = province non tue che la toccano, terre di nessuno comprese), e il
+    // Benessere si misura sulla rete di strade che parte da lei (§4) — una
+    // Capitale in un angolo del regno lascia metà province scollegate per sempre.
+    // Sbagliare questa scelta al turno 1 costa l'intera partita, ed è il motivo
+    // per cui i regni dell'IA si bloccavano: sceglievano la provincia con più
+    // soldati, che è quasi sempre quella di frontiera.
+    //
+    // Il punteggio pesa quel che conta davvero, nell'ordine:
+    //   PROTEZIONE  — `P_conf` che avrebbe se sedesse lì. Vale doppio: è la metà
+    //                 della Sicurezza e l'unico fattore che non si può comprare.
+    //   RISORSE     — quante ne raggiunge attraverso il PROPRIO territorio, con
+    //                 uno sconto per ogni passo di distanza (ogni passo è una
+    //                 strada da costruire: 1 Pietra e 1 soldato). Un tipo mai
+    //                 visto e il cibo pesano di più, perché sono due delle
+    //                 quattro voci del Benessere.
+    //   PRESENZA    — dove ci sono già uomini, e lontano da dove il nemico preme.
+    const CAPITAL_REACH = 3;        // passi di territorio proprio che si guardano
+
+    function capitalScore(player, p) {
+        const mie = new Set(E().ownedPaths(player.name).map(x => x.id));
+        const stranieri = E().landNeighbors(p.id).filter(n => !mie.has(n)).length;
+        const pConf = Math.max(0, Math.min(5, 5 - stranieri));
+
+        // Le risorse a portata di strada, scontate per distanza.
+        const tipi = new Set();
+        let risorse = 0;
+        let onda = [p.id];
+        const visti = new Set(onda);
+        for (let dist = 0; dist <= CAPITAL_REACH && onda.length; dist++) {
+            const prossima = [];
+            onda.forEach(id => {
+                const k = R().resourceKeyOf(pathOf(id));
+                if (k) {
+                    let peso = 1;
+                    if (!tipi.has(k)) { peso += 1; tipi.add(k); }
+                    if (FOOD_RES.indexOf(k) >= 0) peso += 1;
+                    risorse += peso / (1 + dist);
+                }
+                E().landNeighbors(id).forEach(n => {
+                    if (visti.has(n) || !mie.has(n)) return;
+                    visti.add(n);
+                    prossima.push(n);
+                });
+            });
+            onda = prossima;
+        }
+
+        // Il salto da 1 a 0 non è un punto come gli altri: a `P_conf = 0` la
+        // Sicurezza dipende solo dalla guardia, cioè si dimezza per sempre. È la
+        // trappola del turno 1 (§8) resa permanente da una scelta di sito, e vale
+        // una penalità a sé — se no un campo di grano basta a farci sedere sopra
+        // una Capitale con sei confini nemici.
+        const protezione = pConf * 2 - (pConf === 0 ? 2 : 0);
+        return protezione + risorse + (p.truppe || 0) * 0.1 - (p.minaccia || 0) * 0.15;
+    }
+
+    // Dove mettere una costruzione.
     // Il costo in soldati si paga SULLA PROVINCIA (§6) e sopra il presidio minimo
     // (§5): un sito che non può pagarlo non è un sito, e sceglierlo lo stesso
     // significa rinunciare alla costruzione anche quando un'altra provincia del
@@ -435,7 +575,12 @@
         }
         if (!prov.length) return null;
         if (type === 'capitale') {
-            return prov.slice().sort((a, b) => b.spare - a.spare)[0] || null;
+            // Il punteggio si calcola UNA volta per provincia: dentro il
+            // comparatore verrebbe rifatto a ogni confronto, e ognuno costa una
+            // visita del territorio.
+            const pesate = prov.map(p => ({ p, punti: capitalScore(player, p) }));
+            pesate.sort((a, b) => b.punti - a.punti);
+            return pesate.length ? pesate[0].p : null;
         }
         if (type === 'fortezza') {
             return prov.slice().sort((a, b) => b.minaccia - a.minaccia)[0] || null;
@@ -453,6 +598,36 @@
         const cost = GR().COSTS[type];
         if (!cost) return false;
         return GR().canAfford(player, cost, GR().spendableTroops(troopsAt(provId))).ok;
+    }
+
+    // TRASLOCARE il seggio (GameActions.moveCapital, 500 monete). Una Capitale
+    // scelta bene al turno 1 può diventare pessima al turno 10: il regno cresce da
+    // una parte sola e la vecchia sede si ritrova sul confine, con `P_conf` a zero
+    // e mezza Sicurezza persa per sempre. Muoverla è caro, quindi si fa solo
+    // quando il guadagno è netto e i soldi non servono ad altro.
+    // La vecchia sede diventa Città — non si perde niente, anzi si guadagna un
+    // secondo esattore (§7).
+    function capitalPlan(player, s, st) {
+        if (!st || !GA().moveCapital) return null;
+        const costo = (GR().COSTS.capitale || {}).monete || 500;
+        if ((player.monete || 0) < costo + coinReserve(player, s)) return null;
+
+        const prov = survey(player);
+        const sede = prov.find(p => p.id === st.cap.id);
+        if (!sede) return null;
+        const attuale = capitalScore(player, sede);
+        let meglio = null;
+        prov.forEach(p => {
+            if (p.id === st.cap.id) return;
+            const u = unitsAt(p.id);
+            if (!u || u.citta || u.fortezza || u.capitale) return;   // insediamenti esclusivi
+            const punti = capitalScore(player, p);
+            if (!meglio || punti > meglio.punti) meglio = { id: p.id, punti };
+        });
+        // Soglia alta apposta: 500 monete sono metà Città, e un trasloco per mezzo
+        // punto è il modo migliore di non costruire mai niente.
+        if (!meglio || meglio.punti < attuale + 3) return null;
+        return { provId: meglio.id, guadagno: meglio.punti - attuale };
     }
 
     // Vale la pena costruirlo, adesso? Non basta potersi permettere una cosa per
@@ -487,24 +662,29 @@
         return tipi.size < GR().RES.length - 1;           // gli manca più di un tipo
     }
 
-    // La banca (§7): 2 unità di quel che avanza → 1 di quel che manca.
-    // Prima la PIETRA, perché è quella che fa le strade e quindi collega le
-    // province; poi il tipo più scarso, che è sempre quello che blocca la
-    // prossima costruzione (una Città vuole Pietra, Argilla e Bestiame insieme).
-    // Si tiene sempre un margine su ciò che si dà via: svuotare una scorta per
-    // riempirne un'altra sposta soltanto il problema.
-    function bankPlan(player) {
+    // La banca, cioè L'ESTERO (§7): 2 unità di quel che avanza → 1 di quel che
+    // manca, subito e senza contrattare con nessuno. È il canale più affidabile
+    // che un regno abbia — l'altro regno può rifiutare, la banca no — e quindi è
+    // quello che sblocca davvero una costruzione ferma.
+    // Cosa comprare lo dice il BISOGNO (`resourceNeed`), non la scorta più bassa:
+    // avere zero Legno non è un problema se il Legno non serve a niente di quel
+    // che si vuole costruire, mentre l'Argilla a 1 può bloccare una Città da mille
+    // monete. Si tiene sempre un margine su ciò che si dà via: svuotare una scorta
+    // per riempirne un'altra sposta soltanto il problema.
+    function bankPlan(player, s, st) {
         if (!GA().hasMarket(player)) return null;
         const scorte = player.scorte || {};
-        const dai = GR().RES.slice().sort((a, b) => (scorte[b] || 0) - (scorte[a] || 0))[0];
+        const need = resourceNeed(player, s, st);
+
+        const dai = GR().RES.slice()
+            .sort((a, b) => ((scorte[b] || 0) - need[b] * 4) - ((scorte[a] || 0) - need[a] * 4))[0];
         if (!dai) return null;
         const avanzo = (scorte[dai] || 0) - 2;            // due non si toccano
         if (avanzo < GR().TRADE_RATE) return null;
 
-        const scarso = GR().RES.filter(k => k !== dai)
-            .sort((a, b) => (scorte[a] || 0) - (scorte[b] || 0))[0];
-        const prendi = ((scorte.pietra || 0) < 2 && dai !== 'pietra') ? 'pietra' : scarso;
-        if (!prendi) return null;
+        const prendi = GR().RES.filter(k => k !== dai)
+            .sort((a, b) => need[b] - need[a])[0];
+        if (!prendi || need[prendi] <= 0) return null;
         // Non si baratta per pareggiare due scorte già simili: sarebbe solo attrito.
         if ((scorte[prendi] || 0) >= (scorte[dai] || 0) - GR().TRADE_RATE) return null;
 
@@ -520,9 +700,64 @@
     // risorsa vale COIN_PER_RES (le risorse sono più scarse del denaro, quindi
     // valgono più di 100). Serve a confrontare offerte in oro e in risorse.
     const COIN_PER_RES = 150;
-    function goodValue(g) {
+
+    // QUANTO SERVE ciascuna risorsa, adesso, a QUESTO regno. È il numero che
+    // mancava: senza, "2 Argilla" valeva come "2 Legno" anche per un regno che ha
+    // dieci Legno in magazzino e non può costruire la Città solo perché l'Argilla
+    // è zero. Un mercato che tratta tutto allo stesso prezzo non serve a niente,
+    // ed è per questo che i regni si bloccavano con le casse piene.
+    //
+    // Il bisogno esce dalle COSTRUZIONI IN PROGRAMMA (s.build, in ordine: le prime
+    // pesano di più) confrontate con le scorte, più una voce fissa per la Pietra —
+    // la Pietra è la strada, la strada è la provincia collegata, e la provincia
+    // collegata è il Benessere (§8) e il raccolto (§4). Quel che abbonda non si
+    // desidera più: da lì in poi è merce di scambio.
+    function resourceNeed(player, s, st) {
+        const scorte = (player && player.scorte) || {};
+        const need = {};
+        GR().RES.forEach(k => { need[k] = 0; });
+
+        ((s && s.build) || []).forEach((type, i) => {
+            const cost = GR().COSTS[type] || {};
+            const peso = 1 / (1 + i);
+            GR().RES.forEach(k => {
+                const serve = cost[k] || 0;
+                if (!serve) return;
+                const manca = serve - (scorte[k] || 0);
+                if (manca > 0) need[k] += peso * Math.min(1, manca / serve);
+            });
+        });
+
+        // La PIETRA non si conta come le altre: non è un ingrediente, è la STRADA
+        // (1 Pietra l'una), cioè la provincia collegata, cioè il raccolto (§4) e il
+        // Benessere (§8). Finché ci sono province scollegate ne serve, e tanta —
+        // senza questa riga i bot vendevano allegramente 4 Pietra per 300 monete
+        // avendo mezzo regno da collegare.
+        const rete = st ? st.collegate : GA().connectedOf(player);
+        const scollegate = E().ownedPaths(player.name).filter(p => !rete.has(p.id)).length;
+        if (scollegate > 0) {
+            need.pietra = Math.max(need.pietra, Math.min(1.2, scollegate / 3));
+        } else if ((scorte.pietra || 0) < 2) {
+            need.pietra += 0.4;
+        }
+
+        // L'abbondanza raffredda il desiderio, ma non cancella un fabbisogno già
+        // contato: dieci Pietra con dieci province da collegare restano poche.
+        GR().RES.forEach(k => {
+            if ((scorte[k] || 0) >= 8) need[k] = Math.max(0, need[k] - 0.6);
+        });
+        return need;
+    }
+
+    // Quanto vale una merce PER CHI GUARDA: l'oro vale il suo taglio, una risorsa
+    // vale il suo prezzo di base moltiplicato per quanto la si desidera. Vale in
+    // tutte e due le direzioni — dare via l'ultima Argilla costa caro tanto quanto
+    // riceverla vale, ed è giusto così.
+    function goodValue(g, need) {
         if (!g) return 0;
-        return g.tipo === 'monete' ? g.n : g.n * COIN_PER_RES;
+        if (g.tipo === 'monete') return g.n;
+        const voglia = need ? (need[g.tipo] || 0) : 0.4;
+        return g.n * COIN_PER_RES * (0.6 + voglia);
     }
     function haveGood(player, g) {
         return g.tipo === 'monete' ? (player.monete || 0) : ((player.scorte && player.scorte[g.tipo]) || 0);
@@ -536,40 +771,120 @@
     // L'oro e le risorse si confrontano solo passando da un valore comune
     // (goodValue): senza, "200 monete" e "2 pietra" non sono paragonabili, e la
     // merce chiesta in oro va cercata nel tesoro, non nelle scorte.
-    function tradeAnswers(player, s) {
+    function tradeAnswers(player, s, st) {
         const mosse = [];
         const soglia = (s && s.baratto) || 1.1;
+        const need = resourceNeed(player, s, st);
+        // Il magazzino si scala mano a mano: le risposte si decidono tutte insieme
+        // ma si eseguono una per una, e accettare la prima carovana può togliere
+        // proprio l'oro che serviva alla seconda. Senza questo conto il bot
+        // accettava e poi si sentiva rispondere "non hai 300 monete da consegnare".
+        const cassa = { monete: player.monete || 0 };
+        GR().RES.forEach(k => { cassa[k] = (player.scorte || {})[k] || 0; });
+
         GA().tradeInbox(player).forEach(o => {
-            const hai = haveGood(player, o.chiedo);
-            const conviene = goodValue(o.offro) >= goodValue(o.chiedo) * soglia;
-            if (conviene && hai >= o.chiedo.n) mosse.push({ kind: 'accept', id: o.id });
-            else mosse.push({ kind: 'refuse', id: o.id });
+            const conviene = goodValue(o.offro, need) >= goodValue(o.chiedo, need) * soglia;
+            const posso = (cassa[o.chiedo.tipo] || 0) >= o.chiedo.n;
+            if (conviene && posso) {
+                cassa[o.chiedo.tipo] -= o.chiedo.n;
+                cassa[o.offro.tipo] = (cassa[o.offro.tipo] || 0) + o.offro.n;
+                mosse.push({ kind: 'accept', id: o.id });
+            } else {
+                mosse.push({ kind: 'refuse', id: o.id });
+            }
         });
         return mosse;
     }
 
-    // PROPONE uno scambio quando ha un'eccedenza netta di una risorsa e gli manca
-    // un'altra: offre un po' di ciò che gli avanza per un po' di ciò che gli serve,
-    // a un altro regno ancora vivo. Una proposta per turno basta: non deve
-    // scommerciare, deve solo non star fermo se ha risorse ferme.
-    function tradePlan(player, s) {
-        if (!GA().hasMarket(player)) return null;
-        if (GA().tradeOutbox(player).length >= GR().TRADE_MAX_PENDING) return null;
+    // PROPONE carovane agli altri regni (§7). Prima ne partiva UNA sola, verso un
+    // regno TIRATO A SORTE, e solo se le scorte erano molto sbilanciate: quasi
+    // sempre finiva da qualcuno che quella merce non l'aveva, e il regno restava
+    // fermo con l'Argilla a zero e mille monete in cassa.
+    //
+    // Adesso il bot fa quello che farebbe un mercante:
+    //   COMPRA quel che gli manca (`resourceNeed`) da CHI CE L'HA DAVVERO — il
+    //     magazzino altrui si legge, non si indovina — pagando con quel che gli
+    //     avanza, oppure con ORO se non ha eccedenze (§7: oro→risorse è ammesso).
+    //   VENDE quel che gli avanza in cambio di oro quando le casse sono vuote:
+    //     una scorta ferma non costruisce niente.
+    // Manda fino a TRADE_MAX_PENDING proposte, tenendo il conto della merce già
+    // impegnata: l'offerta lascia SUBITO il magazzino come pegno, quindi promettere
+    // due volte la stessa Pietra vuol dire vedersi rifiutare la seconda carovana.
+    function tradePlan(player, s, st) {
+        if (!GA().hasMarket(player)) return [];
+        const spazio = GR().TRADE_MAX_PENDING - GA().tradeOutbox(player).length;
+        if (spazio < 1) return [];
 
-        const scorte = player.scorte || {};
-        const ordinate = GR().RES.slice().sort((a, b) => (scorte[b] || 0) - (scorte[a] || 0));
-        const abbondante = ordinate[0], scarso = ordinate[ordinate.length - 1];
-        if ((scorte[abbondante] || 0) < 6) return null;             // niente da svendere
-        if ((scorte[abbondante] || 0) - (scorte[scarso] || 0) < 4) return null;  // scorte piatte
-
+        // Chi ha già una nostra carovana ferma davanti alla porta non ne riceve
+        // un'altra: o non ha ancora risposto, o non risponderà (un regno umano
+        // può lasciarla lì per sempre). Senza questo filtro tutti i bot finivano
+        // per scaricare le eccedenze sullo stesso regno più ricco, che le teneva
+        // in casella mentre la merce restava impegnata come pegno.
+        const inAttesa = new Set(GA().tradeOutbox(player).map(o => o.a));
         const altri = R().players().filter(p =>
-            p.id !== player.id && E().ownedPaths(p.name).length);
-        if (!altri.length) return null;
-        const verso = altri[Math.floor(Math.random() * altri.length)];
+            p.id !== player.id && !inAttesa.has(p.id) && E().ownedPaths(p.name).length);
+        if (!altri.length) return [];
 
-        // Offre 3 dell'abbondante per 2 dello scarso: un affare per chi riceve,
-        // così la proposta ha davvero speranza di essere accettata.
-        return { toId: verso.id, offro: { tipo: abbondante, n: 3 }, chiedo: { tipo: scarso, n: 2 } };
+        const need = resourceNeed(player, s, st);
+        const cassa = { monete: player.monete || 0 };
+        GR().RES.forEach(k => { cassa[k] = (player.scorte || {})[k] || 0; });
+        const riserva = coinReserve(player, s);
+
+        const avanza = () => GR().RES
+            .filter(k => cassa[k] >= 5 && need[k] < 0.3)
+            .sort((a, b) => cassa[b] - cassa[a])[0] || null;
+
+        const proposte = [];
+        // --- comprare quel che manca ---
+        GR().RES
+            .filter(k => need[k] > 0.3 && cassa[k] < 3)
+            .sort((a, b) => need[b] - need[a])
+            .forEach(k => {
+                if (proposte.length >= spazio) return;
+                // Fra i tre magazzini più forniti si sceglie a caso: bussare ogni
+                // turno alla stessa porta che ha già detto no è il modo migliore
+                // di non comprare mai niente, e ogni regno ha una sua idea di
+                // quanto deve guadagnarci (`baratto`).
+                const forniti = altri.slice()
+                    .sort((a, b) => ((b.scorte || {})[k] || 0) - ((a.scorte || {})[k] || 0))
+                    .filter(p => ((p.scorte || {})[k] || 0) >= 2)
+                    .slice(0, 3);
+                if (!forniti.length) return;                            // non ce l'ha nessuno
+                const chi = forniti[Math.floor(Math.random() * forniti.length)];
+
+                const chiedo = { tipo: k, n: 2 };
+                const merce = avanza();
+                let offro = null;
+                if (merce) { offro = { tipo: merce, n: 3 }; cassa[merce] -= 3; }
+                else {
+                    // In oro si paga il PREZZO DI MERCATO più il sovrapprezzo di
+                    // chi ha fretta: chi vende deve guadagnarci, se no rifiuta e
+                    // la carovana torna indietro con le mani vuote.
+                    const prezzo = Math.ceil(chiedo.n * COIN_PER_RES * 1.4 / GR().GOLD_UNIT) * GR().GOLD_UNIT;
+                    if (cassa.monete - riserva >= prezzo) { offro = { tipo: 'monete', n: prezzo }; cassa.monete -= prezzo; }
+                }
+                if (offro) proposte.push({ toId: chi.id, offro, chiedo });
+            });
+
+        // --- vendere quel che avanza, se servono monete ---
+        if (proposte.length < spazio && (player.monete || 0) < 600) {
+            const merce = avanza();
+            if (merce && cassa[merce] >= 6) {
+                // Fra i tre più ricchi, uno a caso: bussare sempre alla porta del
+                // regno più facoltoso vuol dire fare la fila dietro le carovane di
+                // tutti gli altri.
+                const ricchi = altri.slice()
+                    .sort((a, b) => (b.monete || 0) - (a.monete || 0))
+                    .filter(p => (p.monete || 0) >= 400)
+                    .slice(0, 3);
+                if (ricchi.length) {
+                    const chi = ricchi[Math.floor(Math.random() * ricchi.length)];
+                    cassa[merce] -= 4;
+                    proposte.push({ toId: chi.id, offro: { tipo: merce, n: 4 }, chiedo: { tipo: 'monete', n: 300 } });
+                }
+            }
+        }
+        return proposte.slice(0, spazio);
     }
 
     // ---------- FASE 3 · attacchi ----------
@@ -582,23 +897,26 @@
     function bestAttack(player, s, st, extra) {
         let best = null;
         const cap = st ? st.cap : R().getCapitalPathFor(player);
-        const guardia = guardWanted(st, s);
+        const guardiaPiano = guardWanted(st, s);
         const rinforzo = Math.max(0, extra || 0);
         survey(player).forEach(p => {
             // Dalla Capitale non parte mai la guardia: quei soldati non sono
             // truppe di manovra, sono il livello di Popolarità del regno (§8).
             if (p.spare < 1) return;
             GA().attackTargets(player, p.id).forEach(t => {
-                // E da nessuna provincia parte il presidio anti-razzia: svuotare
-                // un confine per prendere una provincia, e perderne un'altra a
-                // fine giro per la porta lasciata aperta, non è un guadagno. Il
-                // pavimento si ricalcola per BERSAGLIO, saltando il bersaglio
-                // stesso: se la razzia la minaccia proprio la neutrale che si sta
-                // per attaccare, tenersi in casa gli uomini per difendersene
-                // vorrebbe dire non attaccarla mai.
+                // E da nessuna provincia parte il presidio: né quello anti-razzia
+                // né quello contro un vicino in armi (holdFloor). Svuotare un
+                // confine per prendere una provincia, e perderne un'altra per la
+                // porta lasciata aperta, non è un guadagno. Il pavimento si
+                // ricalcola per BERSAGLIO saltando il bersaglio stesso: se la
+                // minaccia è proprio la provincia che si sta per attaccare,
+                // tenersi in casa gli uomini per difendersene vorrebbe dire non
+                // attaccarla mai. La Capitale non scende comunque sotto la guardia
+                // che le chiede la Popolarità.
+                const salvo = t.viaMare ? null : t.id;
                 const suolo = (cap && cap.id === p.id)
-                    ? guardia
-                    : raidFloor(p.id, t.viaMare ? null : t.id);
+                    ? Math.max(guardiaPiano, holdFloor(player, p.id, salvo))
+                    : holdFloor(player, p.id, salvo);
                 const tetto = Math.max(0, Math.min(p.spare, p.truppe - suolo));
                 const disponibili = Math.max(0, tetto - s.riservaCasa) + rinforzo;
                 if (disponibili < 1) return;
@@ -617,8 +935,14 @@
                 // `popValueOf` lo misura sulla formula vera (§8) e spesso risponde
                 // ZERO — con 7 nemiche al confine le prime conquiste non muovono
                 // nulla, ed è giusto che l'IA lo sappia invece di illudersi.
+                // La VENDETTA (regola dell'utente): riprendersi una provincia
+                // preziosa che ci hanno strappato vale un premio a sé, tanto più
+                // grosso quanto più bruciava perderla (peso 1-3 dal rancore). A
+                // parità di bersagli il bot torna dov'è stato colpito invece di
+                // vagare.
                 const premio = 1 + (u.capitale ? 1.2 : 0) + (u.citta ? 0.6 : 0) + (u.fortezza ? 0.4 : 0)
-                    + popValueOf(st, t.id, t.viaMare) * 6;
+                    + popValueOf(st, t.id, t.viaMare) * 6
+                    + grudgeAgainst(player, t.id) * 1.5;
                 const peso = (t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori;
                 const score = (p100 - s.soglia + 0.1) * premio * peso;
                 if (!best || score > best.score) {
@@ -654,11 +978,23 @@
     // La riserva è l'altra metà della regola: le monete che servono alla prossima
     // costruzione in programma non si toccano. Un mercenario oggi non vale una
     // Città mai.
+    // Quanto oro NON si tocca: quello della prossima costruzione davvero a
+    // portata, cioè quella di cui si hanno già le risorse. Prima si teneva da
+    // parte il costo PIÙ ALTO della lista — 2000 monete per una Fortezza che non
+    // si potrà costruire per venti turni — e il risultato era un regno che non
+    // spendeva mai niente e intanto restava fermo. Se non c'è niente a portata la
+    // riserva è zero: i soldi servono a essere spesi.
     function coinReserve(player, s) {
+        const scorte = player.scorte || {};
         let riserva = 0;
         (s.build || []).forEach(type => {
-            const costo = (GR().COSTS[type] || {}).monete || 0;
-            if (costo > riserva) riserva = costo;
+            const cost = GR().COSTS[type] || {};
+            const monete = cost.monete || 0;
+            if (!monete) return;
+            if (type === 'capitale' && R().getCapitalPathFor(player)) return;
+            if (type === 'mercato' && GA().hasMarket(player)) return;
+            if (GR().RES.some(k => (cost[k] || 0) > (scorte[k] || 0))) return;
+            if (!riserva || monete < riserva) riserva = monete;
         });
         return riserva;
     }
@@ -710,7 +1046,10 @@
     function movePlan(player, s, st) {
         const prov = survey(player);
         const cap = st ? st.cap : R().getCapitalPathFor(player);
-        const guardia = guardWanted(st, s);
+        // Guardia che tiene conto dell'invasore: se preme sulla Capitale, l'ultimo
+        // spostamento del turno serve a rinforzarla, non a portare truppe al fronte
+        // offensivo.
+        const guardia = capitalGuard(player, s, st, cap);
 
         // Dalla CAPITALE non si sguarnisce: quel che eccede la guardia voluta è
         // tutto ciò che può partire. Senza questo la Capitale finiva scelta come
@@ -732,7 +1071,7 @@
         // le reclute sono zero (il malus se le mangia) e questo spostamento è
         // l'unico modo di riempire la guardia.
         if (cap && cap.id !== retro.id && troopsAt(cap.id) < guardia &&
-            GA().ownReachable(player, retro.id).has(cap.id)) {
+            GA().ownAdjacent(player, retro.id).has(cap.id)) {
             const n = Math.min(partenti(retro), guardia - troopsAt(cap.id), roomAt(cap.id));
             if (n > 0) return { fromId: retro.id, toId: cap.id, n };
         }
@@ -743,7 +1082,7 @@
         // la provincia di partenza con un uomo solo: è qui che si rimedia.
         const scoperta = prov.filter(p => p.scoperta > 0 && p.id !== retro.id)
             .sort((a, b) => b.scoperta - a.scoperta)[0];
-        if (scoperta && GA().ownReachable(player, retro.id).has(scoperta.id)) {
+        if (scoperta && GA().ownAdjacent(player, retro.id).has(scoperta.id)) {
             const n = Math.min(partenti(retro), scoperta.scoperta, roomAt(scoperta.id));
             if (n > 0) return { fromId: retro.id, toId: scoperta.id, n };
         }
@@ -751,7 +1090,7 @@
         const fronte = prov.filter(p => p.fronte)
             .sort((a, b) => (b.minaccia - b.truppe) - (a.minaccia - a.truppe))[0];
         if (!fronte || fronte.id === retro.id) return null;
-        if (!GA().ownReachable(player, retro.id).has(fronte.id)) return null;
+        if (!GA().ownAdjacent(player, retro.id).has(fronte.id)) return null;
         const n = Math.min(partenti(retro), roomAt(fronte.id));
         return n > 0 ? { fromId: retro.id, toId: fronte.id, n } : null;
     }
@@ -817,8 +1156,20 @@
         // strada resta in magazzino per un turno intero. Si fa la spesa, poi si
         // costruisce.
         if (GA().phaseOf(player) === 'costruisci') {
-            const banca = bankPlan(player);
+            const banca = bankPlan(player, s, st);
             if (banca) yield GA().tradeWithBank(player, banca.dai, banca.prendi, banca.n);
+        }
+
+        // Il seggio si è ritrovato sul confine? Si trasloca (500 monete). Va fatto
+        // PRIMA delle strade del turno: la rete di collegamenti parte dalla
+        // Capitale, e spostarla dopo aver costruito significa costruire dal punto
+        // sbagliato.
+        if (GA().phaseOf(player) === 'costruisci') {
+            const trasloco = capitalPlan(player, s, st);
+            if (trasloco) {
+                yield GA().moveCapital(player, trasloco.provId);
+                st = popState(player, s);
+            }
         }
 
         for (const type of s.build) {
@@ -850,14 +1201,16 @@
         }
 
         // Commerci (§7): prima si risponde alle carovane arrivate (il pegno di chi
-        // ha proposto non deve marcire), poi si prova a mandarne una se c'è
-        // un'eccedenza ferma. Tutto dentro la fase costruzioni, come per l'umano.
+        // ha proposto non deve marcire), poi si mandano le proprie — quel che
+        // manca si compra, quel che avanza si vende. Tutto dentro la fase
+        // costruzioni, come per l'umano.
         if (GA().phaseOf(player) === 'costruisci') {
-            for (const m of tradeAnswers(player, s)) {
+            for (const m of tradeAnswers(player, s, st)) {
                 yield m.kind === 'accept' ? GA().acceptTrade(player, m.id) : GA().refuseTrade(player, m.id);
             }
-            const prop = tradePlan(player, s);
-            if (prop) yield GA().proposeTrade(player, prop.toId, prop.offro, prop.chiedo);
+            for (const prop of tradePlan(player, s, st)) {
+                yield GA().proposeTrade(player, prop.toId, prop.offro, prop.chiedo);
+            }
         }
 
         // Mercenari: monete convertite in muscoli per questo turno soltanto, e
@@ -994,6 +1347,11 @@
     // Assegna una strategia a ogni regno tranne quello umano (usato da setup.js).
     function assignStrategies(players, humanId, rng) {
         const rand = rng || Math.random;
+        // `humanId` può essere un id singolo (com'era), oppure un Set/array di id:
+        // i regni umani sono più d'uno quando si seguono 2+ regni con l'IA sugli altri.
+        const umani = (humanId instanceof Set) ? humanId
+            : new Set((Array.isArray(humanId) ? humanId
+                : (humanId === null || humanId === undefined ? [] : [humanId])));
         const mazzo = [];
         while (mazzo.length < players.length) KEYS.forEach(k => mazzo.push(k));
         // mescolata: due regni vicini non devono per forza giocare allo stesso modo
@@ -1003,7 +1361,7 @@
         }
         let k = 0;
         players.forEach(p => {
-            p.bot = (p.id === humanId) ? null : mazzo[k++];
+            p.bot = umani.has(p.id) ? null : mazzo[k++];
         });
         return players;
     }

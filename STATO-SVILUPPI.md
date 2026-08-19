@@ -142,7 +142,8 @@ e in particolare al momento del commit.
     Ora sono `function` (hoistate).
   - **Sorteggio** (bottone 🎲, l'eccezione): sparecchia la mappa, sorteggia 10 feudi da
     3 province **in Europa, Nord Africa e Arabia** (`GameSetup.REGIONS`), il più distanti
-    possibile fra loro, regala a ognuno la **Capitale** e una strada gratuita, estrae a
+    possibile fra loro (nessuna Capitale regalata: la si costruisce al turno 1 per 500
+    monete, e con essa arriva la prima strada gratuita), estrae a
     sorte il regno **umano** e assegna una strategia a tutti gli altri. Il pannello mostra
     chi sei e il link diretto alla tua plancia; la mappa si inquadra sulla regione.
   - **Cinque strategie**: Espansione, Conservatore, Costruttore, Opportunista, Predone —
@@ -250,6 +251,30 @@ e in particolare al momento del commit.
   la mappa con `isPointInFill` (griglia terra/acqua), non indovinata: sotto il testo resta
   ≤3% di terra, e solo isolotti. Mar Rosso, Golfo Persico, Caspio, Mare del Nord e Baltico
   restano senza nome apposta: sono corridoi da 8-15 unità, illeggibili a quel corpo.
+
+- **Spostamento in due clic (nuovo)** — nella fase `sposta` si sceglie con un clic la
+  provincia di **partenza** e con un altro quella di **arrivo**. Prima la partenza era
+  d'ufficio la provincia selezionata, cioè quella dove si era chiuso l'attacco: siccome
+  ogni provincia propria collegata è anche una meta, cliccarne un'altra apriva un ordine
+  invece di cambiare partenza, e per liberarsi bisognava passare da una provincia altrui.
+  Ora la partenza va armata apposta (`moveArmed`/`moveOriginPath` in `js/player-board.js`);
+  finché non lo è, sulla mappa si accendono in verde le province da cui si può muovere
+  (`GameActions.moveOrigins`, classe CSS `order-start`, `markTargets(..., 'partenza')`).
+  Quelle non sono ordini: il clic le sceglie e basta. Ricliccare la partenza la libera, e
+  nel pannello c'è il bottone "↩ Cambia partenza". Entrando nella fase l'armamento è
+  sempre spento, quindi il primo clic è già quello buono.
+
+- **Bersagli a retino, non a contorno (nuovo)** — le province su cui si può agire
+  (attacco/spostamento) si segnano con un **retino** di righe diagonali nel colore
+  della fase (arancio attacco, oro spostamento), ritagliato **dentro** il poligono,
+  più un filo di bordo interno. Prima era un contorno spesso (`stroke-width 1,5` su
+  bordi da 0,25) col lampeggio: fra due bersagli confinanti i tratti si saldavano in
+  una banda doppia, confusionaria. Il retino sta dentro e non sconfina mai nel vicino.
+  Vive su uno strato SVG a parte (`#order-marks` in `js/app.js`, `markTargets`), sopra
+  le province e sotto pedine/risorse; pattern e clipPath si creano una volta e si
+  riusano. Spie e partenze dello spostamento restano un tratto leggero (sono decine di
+  province). C'è la pagina di confronto `src/_diag-highlight.html` (tasti 0-6) che ha
+  fatto scegliere fra le alternative. §9.
 
 ## In lavorazione (WIP)
 

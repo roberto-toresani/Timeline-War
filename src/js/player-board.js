@@ -126,6 +126,25 @@ document.addEventListener('DOMContentLoaded', () => {
     wirePanelToggle(leftPanel, $('board-left-tab'), 'left');
     wirePanelToggle(rightPanel, $('board-right-tab'), 'right');
 
+    // ---------- sezioni del pannello destro a fisarmonica ----------
+    // Richiesta dell'utente: le sezioni si aprono come un menù — aprendone una
+    // (Commerci, Spie, Le mie province, Il tuo regno) le altre si chiudono, così
+    // il pannello mostra una cosa per volta. La legenda dei costi (#fold-legend)
+    // resta FUORI dal gruppo: sta in fondo e si consulta in qualunque momento
+    // senza chiudere nulla.
+    // Ascolto in fase di CATTURA perché l'evento `toggle` non fa bubbling: così
+    // una sola delega copre anche le cartelle create a ogni render (i "Tutti i
+    // bersagli"/"Tutte le destinazioni" di attacco e spostamento).
+    const ACCORDION_SKIP = 'fold-legend';
+    rightPanel.addEventListener('toggle', (e) => {
+        const d = e.target;
+        if (!d || d.nodeName !== 'DETAILS' || !d.classList.contains('bp-fold')) return;
+        if (d.id === ACCORDION_SKIP || !d.open) return;
+        rightPanel.querySelectorAll('details.bp-fold[open]').forEach(other => {
+            if (other !== d && other.id !== ACCORDION_SKIP) other.open = false;
+        });
+    }, true);
+
     // Al cambio di modalità i pannelli si rimettono nello stato giusto: aperti
     // in griglia (dove non coprono nulla), chiusi come tendine (dove aperti
     // nasconderebbero tutta la mappa). Senza questo la classe "collapsed" resta
@@ -176,13 +195,27 @@ document.addEventListener('DOMContentLoaded', () => {
         render();
     }
 
-    // ---------- partita in solitaria (tutti i regni tuoi) ----------
-    // Se NESSUN regno è governato dall'IA, la plancia segue il turno da sé: chiuso
-    // il turno di un regno si entra in quello dopo, invece di doverlo cercare col
-    // cambio regno. Non è una modalità a parte — è la stessa plancia, con lo stesso
-    // motore: si passa da enterKingdom come un giocatore qualunque, quindi la
-    // NEBBIA resta quella del regno in cui si entra. Giocare dieci regni non vuol
-    // dire vedere tutta la mappa in una volta: per quello c'è il 🌍.
+    // ---------- più regni tuoi (solitaria o "seguo N regni, gli altri IA") --------
+    // Se il giocatore controlla PIÙ D'UN regno, la plancia segue il turno da sé:
+    // chiuso il turno di un regno umano si entra nel prossimo regno umano, invece di
+    // doverlo cercare col cambio regno. Vale sia per la solitaria (tutti i regni
+    // tuoi) sia per la partita mista (2+ regni tuoi, gli altri governati dall'IA):
+    // in quest'ultima i turni dei bot li gioca `Bot.run()` e la plancia li salta,
+    // riprendendo il comando appena tocca a un umano. Non è una modalità a parte —
+    // è la stessa plancia, con lo stesso motore: si passa da enterKingdom come un
+    // giocatore qualunque, quindi la NEBBIA resta quella del regno in cui si entra.
+    function humanPlayers() {
+        const players = R.players();
+        if (!players.length || !window.Bot) return [];
+        return players.filter(p => !window.Bot.isBot(p));
+    }
+
+    // La plancia segue i turni solo quando i regni umani sono più d'uno. Con un
+    // solo umano (partita normale) resta ferma sul suo regno, raggiunto col codice
+    // d'invito; con zero umani (editor) non c'è niente da seguire.
+    function followEnabled() {
+        return humanPlayers().length >= 2;
+    }
     function soloGame() {
         const players = R.players();
         if (!players.length || !window.Bot) return false;
@@ -198,9 +231,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = R.turnoDi();
         if (t === null || t === undefined || t === currentPlayerId) return false;
         if (t === lastFollowed) return false;   // si sta guardando un altro regno apposta
-        if (!soloGame()) return false;
+        if (!followEnabled()) return false;
         const next = R.players().find(p => p.id === t);
         if (!next) return false;
+        // Turno di un bot: lo gioca Bot.run(), la plancia non ci si sposta sopra
+        // (mostrerebbe un regno che non è tuo). Si resta dove si è finché il giro
+        // non riporta il comando a un regno umano.
+        if (window.Bot && window.Bot.isBot(next)) return false;
         if (spectating) setSpectate(false);
         enterKingdom(next);
         // L'avviso va in coda apposta: il cambio di regno avviene dentro il refresh
@@ -276,10 +313,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Questa provincia può essere una partenza? (stesso metro di moveOrigins in
-    // game-actions.js, che è quello che accende la mappa.)
+    // game-actions.js, che è quello che accende la mappa.) Vale una meta qualsiasi:
+    // confinante via terra o costa propria raggiunta da una nave ancorata qui.
     function canBeMoveOrigin(player, path) {
         if (!path || R.engine.owner(path) !== player.name || !spareOf(path)) return false;
-        return GA().ownReachable(player, path.id).size > 0;
+        return GA().moveTargets(player, path.id).length > 0;
     }
 
     // Esegue un'azione e ridisegna. Le azioni chiamano gia' Risiko.save() e
@@ -612,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function askEndTurn() {
         R.confirm({
             title: 'Chiudere il tuo turno?',
-            text: 'Le unità temporanee scadono, i rinforzi obbligatori rimasti vengono schierati d\'ufficio e si passa al regno successivo.',
+            text: 'I rinforzi obbligatori rimasti vengono schierati d\'ufficio e si passa al regno successivo.',
             ok: 'Chiudi il turno'
         }, () => {
             run(GA().endTurn());
@@ -1302,7 +1340,13 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div class="bp-army"><span class="bp-army-n">' + soldiersHere + '</span>' +
             '<span class="bp-army-l">soldati spendibili qui · uno resta sempre a presidiare</span></div>');
 
+        // La prima Capitale (500 monete, 0 uomini) si costruisce come tutto il
+        // resto; ma una volta che il regno ne ha una la voce SPARISCE dalle
+        // costruzioni (non se ne fa una seconda) e al suo posto si può spostare
+        // il seggio con un'azione a parte, qui sotto.
+        const capPath = R.getCapitalPathFor(player);
         GR().BUILDABLE_ON_PROVINCE.forEach(type => {
+            if (type === 'capitale' && capPath) return;   // ne ha già una → niente voce
             const cost = GR().COSTS[type];
             let why = null;
 
@@ -1311,7 +1355,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const max = (typeof PIECES !== 'undefined' && PIECES[type] && PIECES[type].max) || 1;
             if (!why && R.countPiece(path, type) >= max) why = 'già presente';
-            if (!why && type === 'capitale' && R.getCapitalPathFor(player)) why = 'ne hai già una';
 
             if (!why) {
                 const afford = GR().canAfford(player, cost, soldiersHere);
@@ -1323,13 +1366,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 () => run(GA().build(player, path.id, type))));
         });
 
-        // Reclutamento: la Guarnigione dura un turno, il Mercenario resta ma è di
-        // ventura. L'etichetta lo dice, perché sono due acquisti opposti (§5.3).
+        // Spostamento della Capitale (500 monete): la vecchia sede diventa Città.
+        // Compare solo se il regno ha una Capitale e la provincia scelta è propria
+        // e diversa dalla Capitale attuale.
+        if (capPath && R.engine.owner(path) === player.name && path.id !== capPath.id) {
+            let why = null;
+            if (R.countPiece(path, 'citta') > 0 || R.countPiece(path, 'fortezza') > 0) why = 'insediamento presente';
+            if (!why) {
+                const afford = GR().canAfford(player, GR().COSTS.capitale, soldiersHere);
+                if (!afford.ok) why = GR().missingText(afford.missing);
+            }
+            g.appendChild(actionButton('🏛 Sposta qui la Capitale', GR().formatCost(GR().COSTS.capitale),
+                why ? shorten(why) : null,
+                () => run(GA().moveCapital(player, path.id))));
+        }
+
+        // Reclutamento: entrambe restano, ma sono due acquisti opposti (§5.3) — la
+        // Guarnigione è rinforzo puro, il Mercenario resta ma è di ventura.
+        // L'etichetta lo dice.
         GR().RECRUITABLE.forEach(type => {
             const cost = GR().COSTS[type];
             const afford = GR().canAfford(player, cost, soldiersHere);
-            const temporanea = GR().TEMPORARY.indexOf(type) >= 0;
-            g.appendChild(actionButton(pieceName(type) + (temporanea ? ' (1 turno)' : ' (resta, ma è ventura)'),
+            const suffix = (type === 'mercenario') ? ' (resta, ma è ventura)' : ' (rinforzo, resta)';
+            g.appendChild(actionButton(pieceName(type) + suffix,
                 GR().formatCost(cost),
                 afford.ok ? null : shorten(GR().missingText(afford.missing)),
                 () => run(GA().recruit(player, path.id, type))));
@@ -1621,6 +1680,32 @@ document.addEventListener('DOMContentLoaded', () => {
             () => run(GA().resolveConquest(player, parseInt(range.value, 10))));
     }
 
+    // ---------- capitale nemica presa: promuovila o lasciala Città ----------
+    // Compare quando si conquista una Capitale nemica avendone già una propria.
+    // Di default la presa è già una Città (lo stato è consistente): qui si offre
+    // la promozione a Capitale ufficiale, che declassa la vecchia sede a Città.
+    // Non blocca il turno; si azzera alla scelta o d'ufficio a fine turno.
+    function renderCapitalChoice(player) {
+        const box = $('bp-capital-choice');
+        const c = player && player.capitalePresa;
+        const to = c ? R.engine.path(c.toId) : null;
+        if (!to) { box.style.display = 'none'; return; }
+
+        const cap = R.getCapitalPathFor(player);
+        box.style.display = 'block';
+        box.innerHTML = `
+            <div class="bc-head">👑 Hai preso la Capitale di ${R.provinceLabel(to)}</div>
+            <div class="bc-route">Renderla la Capitale ufficiale${cap ? ' declasserebbe ' + R.provinceLabel(cap) + ' a Città' : ''}. Nessun costo.</div>
+            <div class="bp-act-row">
+                <button type="button" class="bp-act cap-promote"><span class="bp-act-name">👑 Rendi Capitale ufficiale</span></button>
+                <button type="button" class="bp-act cap-keep"><span class="bp-act-name">🏰 Lasciala Città</span></button>
+            </div>`;
+        box.querySelector('.cap-promote').addEventListener('click',
+            () => run(GA().resolveCapital(player, true)));
+        box.querySelector('.cap-keep').addEventListener('click',
+            () => run(GA().resolveCapital(player, false)));
+    }
+
     // ---------- spostamento di fine turno (uno solo) ----------
 
     function renderMove(player) {
@@ -1642,9 +1727,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const path = moveOriginPath(player);
         if (!path) {
             const quante = GA().moveOrigins(player).length;
-            box.innerHTML = '<div class="bp-empty-hint">Due clic: prima la provincia <b>da cui</b> partono i ' +
-                'soldati, poi quella <b>dove</b> arrivano. Sulla mappa sono accese le ' + quante +
-                ' province da cui puoi muovere' + (quante ? ': cliccane una' : '') + '.</div>';
+            box.innerHTML = '<div class="bp-empty-hint">' + (quante
+                ? 'Due clic: prima la provincia <b>da cui</b> partono i soldati, poi quella ' +
+                  '<b>dove</b> arrivano. Sulla mappa sono accese le ' + quante +
+                  ' province da cui puoi muovere: cliccane una.'
+                : 'Nessuna provincia ha soldati da mandare a una tua confinante: uno resta ' +
+                  'sempre a presidiare. Puoi chiudere il turno.') + '</div>';
             return;
         }
 
@@ -1654,7 +1742,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const targets = GA().moveTargets(player, path.id);
         if (!targets.length) {
             box.innerHTML = '<div class="bp-empty-hint">Da ' + R.provinceLabel(path) +
-                ' non si raggiunge nessun\'altra tua provincia via terra.</div>';
+                ' non confina nessun\'altra tua provincia.</div>';
             return;
         }
 
@@ -1673,12 +1761,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
 
         // Come per l'attacco, l'elenco resta la strada lunga: un regno grande ha
-        // decine di province collegate e la lista le scorrerebbe tutte.
+        // decine di destinazioni e la lista le scorrerebbe tutte. Serve soprattutto
+        // ai rinforzi via nave, che sulla mappa possono cadere dall'altra parte.
+        const viaMareN = targets.filter(t => t.viaMare).length;
         const fold = document.createElement('details');
         fold.className = 'bp-fold';
         fold.open = targets.length > ORDER_MAX_MARKS;
         fold.innerHTML = '<summary>Tutte le destinazioni <span class="bp-fold-hint">' +
-            targets.length + ' province collegate</span></summary>';
+            targets.length + ' destinazioni' + (viaMareN ? ', ' + viaMareN + ' via nave' : '') +
+            '</span></summary>';
         const body = document.createElement('div');
         body.className = 'bp-fold-body';
         fold.appendChild(body);
@@ -1697,13 +1788,18 @@ document.addEventListener('DOMContentLoaded', () => {
         body.appendChild(row);
 
         targets.forEach(t => {
-            body.appendChild(actionButton('→ ' + t.label, t.troops + ' già lì', null, () => {
-                const n = parseInt(input.value, 10);
+            // Via nave il carico è un secondo tetto oltre al presidio (§9.2).
+            const tetto = t.viaMare ? Math.min(mobili, R.engine.shipCapacity(t.scafo)) : mobili;
+            const nota = t.troops + ' già lì' + (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '');
+            body.appendChild(actionButton((t.viaMare ? '⚓ ' : '→ ') + t.label, nota, null, () => {
+                const n = Math.min(parseInt(input.value, 10) || 0, tetto);
                 R.confirm({
-                    title: 'Spostare a ' + t.label + '?',
+                    title: (t.viaMare ? 'Rinforzare via nave ' : 'Spostare a ') + t.label + '?',
                     text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
-                        ' per ' + t.label + '. È l\'unico spostamento del turno: dopo non se ne fanno altri.',
-                    ok: 'Sposta'
+                        (t.viaMare ? ' e s\'imbarca' : '') + ' per ' + t.label + '. ' +
+                        (t.viaMare ? 'La nave li accompagna e resta ancorata lì. ' : '') +
+                        'È l\'unico spostamento del turno: dopo non se ne fanno altri.',
+                    ok: t.viaMare ? '⚓ Imbarca' : 'Sposta'
                 }, () => run(GA().finalMove(player, path.id, t.id, n)));
             }));
         });
@@ -1885,6 +1981,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }, () => { spyPicking = false; run(GA().sendSpy(player, t.id)); });
     }
 
+    // Anima una carovana quando parte una proposta o si chiude uno scambio
+    // (richiesta dell'utente). Il commercio è regno↔regno, senza una provincia
+    // sua: si parte dal Mercato del mittente e si punta alla Capitale del
+    // destinatario (o alla sua prima provincia). La nebbia la gestisce app.js.
+    function tradeAnchor(player, preferMarket) {
+        if (!player) return null;
+        if (preferMarket) { const m = GA().marketPath(player); if (m) return m.id; }
+        const cap = R.getCapitalPathFor(player);
+        if (cap) return cap.id;
+        const owned = R.ownedPaths(player.name);
+        return owned.length ? owned[0].id : null;
+    }
+
+    function tradeCaravan(fromPlayer, toPlayer, opts) {
+        if (!R.playTradeFx) return;
+        const fromId = tradeAnchor(fromPlayer, true);
+        const toId = tradeAnchor(toPlayer, false);
+        if (fromId && toId && fromId !== toId) R.playTradeFx(fromId, toId, opts);
+    }
+
+    // La bestia da soma dipende dalla regione della meta: mulo in Europa,
+    // cammello in Africa e Oriente (richiesta dell'utente). La regione la sa il
+    // gioco (isEuropeProvince); il giocatore vede solo l'animale e la direzione,
+    // mai la provincia d'arrivo.
+    function tradeBeast(provId) {
+        return (R.isEuropeProvince && R.isEuropeProvince(provId)) ? '🫏' : '🐫';
+    }
+
     function renderTrade(player) {
         const box = $('bp-trade');
         if (!box) return;
@@ -1949,7 +2073,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const why = myTurn ? (check.ok ? null : check.msg) : 'Solo nel tuo turno, in fase costruzioni.';
         card.appendChild(actionButton('Scambia', null, why ? shorten(why) : null,
-            () => run(GA().tradeWithBank(player, tradeUI.dai, tradeUI.prendi, tradeUI.n))));
+            () => {
+                const res = GA().tradeWithBank(player, tradeUI.dai, tradeUI.prendi, tradeUI.n);
+                run(res);
+                const mkt = GA().marketPath(player);
+                if (res && res.ok && mkt && R.playTradeFx) {
+                    // Estero: la bestia la sceglie la regione del proprio Mercato;
+                    // torna carica di merce (anfora, non un pacco moderno).
+                    R.playTradeFx(mkt.id, null, { abroad: true, glyph: tradeBeast(mkt.id), back: '🏺', color: player.color });
+                }
+            }));
         card._syncBank = () => { note.textContent = 'Costo: ' + GR().bankTradeCost(tradeUI.n) + ' ' +
             resName(tradeUI.dai) + ' (ne hai ' + (player.scorte[tradeUI.dai] || 0) + ')'; };
         function syncBank() { if (card._syncBank) card._syncBank(); }
@@ -2018,8 +2151,13 @@ document.addEventListener('DOMContentLoaded', () => {
         card.insertAdjacentHTML('beforeend',
             '<div class="bp-trade-cost">La merce offerta parte subito come pegno: torna se rifiutano o alla scadenza.</div>');
         card.appendChild(actionButton('Invia proposta', null, why ? shorten(why) : null,
-            () => run(GA().proposeTrade(player, tradeUI.verso,
-                { tipo: tradeUI.offroT, n: tradeUI.offroN }, { tipo: tradeUI.chiedoT, n: tradeUI.chiedoN }))));
+            () => {
+                const dest = R.players().find(p => p.id === tradeUI.verso);
+                const res = GA().proposeTrade(player, tradeUI.verso,
+                    { tipo: tradeUI.offroT, n: tradeUI.offroN }, { tipo: tradeUI.chiedoT, n: tradeUI.chiedoN });
+                run(res);
+                if (res && res.ok) tradeCaravan(player, dest, { glyph: '📜', color: player.color });
+            }));
         return card;
     }
 
@@ -2056,7 +2194,19 @@ document.addEventListener('DOMContentLoaded', () => {
             ok.type = 'button'; ok.className = 'bp-mini ok'; ok.textContent = '✓ Accetta';
             ok.disabled = !puoi;
             ok.title = puoi ? 'Consegni ' + GR().goodsText(o.chiedo) : 'Non hai ' + GR().goodsText(o.chiedo);
-            ok.addEventListener('click', () => run(GA().acceptTrade(player, o.id)));
+            ok.addEventListener('click', () => {
+                const res = GA().acceptTrade(player, o.id);
+                run(res);
+                // Scambio concluso: le carovane si incrociano nei due sensi. La
+                // bestia dipende dalla regione del partner (mulo in Europa,
+                // cammello in Africa/Oriente).
+                if (res && res.ok) {
+                    const beast = tradeBeast(tradeAnchor(from, false));
+                    tradeCaravan(player, from, {
+                        glyph: beast, color: player.color, back: beast, color2: (from && from.color)
+                    });
+                }
+            });
             const no = document.createElement('button');
             no.type = 'button'; no.className = 'bp-mini no'; no.textContent = '✕ Rifiuta';
             no.addEventListener('click', () => run(GA().refuseTrade(player, o.id)));
@@ -2145,6 +2295,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (kind === 'attacca' && target.viaMare && attackVessel) {
             return Math.min(partenti, R.engine.shipCapacity(attackVessel));
         }
+        // Rinforzo navale (§9.2): il carico della nave che ci arriva è il secondo
+        // tetto. Si usa lo scafo più capiente della meta, che è quello mostrato.
+        if (kind === 'sposta' && target.viaMare && target.scafo) {
+            return Math.min(partenti, R.engine.shipCapacity(target.scafo));
+        }
         return partenti;
     }
 
@@ -2225,12 +2380,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = order.target;
         const attacco = order.kind === 'attacca';
         const sbarco = attacco && t.viaMare;
+        const navale = !attacco && t.viaMare;      // rinforzo via nave (§9.2)
         const terr = terrainTag(t.terreno);
 
         orderHud.className = 'moh ' + (attacco ? 'atk' : 'mov');
         orderHud.innerHTML =
             '<div class="moh-head"><span class="moh-ico">' +
-                (sbarco ? '⚓' : attacco ? '⚔' : '➜') + '</span>' +
+                (sbarco || navale ? '⚓' : attacco ? '⚔' : '➜') + '</span>' +
                 '<span class="moh-name"></span></div>' +
             '<div class="moh-sub"></div>' +
             '<div class="moh-ctl">' +
@@ -2243,14 +2399,14 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div class="moh-acts">' +
                 '<button type="button" class="moh-no">✕ Lascia stare</button>' +
                 '<button type="button" class="moh-go">' +
-                    (sbarco ? '⚓ Sbarca' : attacco ? '⚔ Carica' : '➜ Sposta') + '</button>' +
+                    (sbarco ? '⚓ Sbarca' : attacco ? '⚔ Carica' : navale ? '⚓ Imbarca' : '➜ Sposta') + '</button>' +
             '</div>';
 
         orderHud.querySelector('.moh-name').textContent = t.label;
         orderHud.querySelector('.moh-sub').textContent = attacco
             ? t.owner + ' · ' + t.troops + ' a difesa' + (t.fort ? ' +' + t.fort + ' mura' : '') +
               (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '')
-            : t.troops + ' già lì · da ' + R.provinceLabel(path);
+            : t.troops + ' già lì · da ' + R.provinceLabel(path) + (navale ? ' · via nave' : '');
 
         const range = orderHud.querySelector('.moh-range');
         range.addEventListener('input', () => {
@@ -2294,11 +2450,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const n = order.n;
         if (order.kind === 'sposta') {
             const to = t.id;
+            const navale = t.viaMare;
             R.confirm({
-                title: 'Spostare a ' + t.label + '?',
+                title: (navale ? 'Rinforzare via nave ' : 'Spostare a ') + t.label + '?',
                 text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
-                    ' per ' + t.label + '. È l\'unico spostamento del turno: dopo non se ne fanno altri.',
-                ok: '➜ Sposta'
+                    (navale ? ' e s\'imbarca' : '') + ' per ' + t.label + '. ' +
+                    (navale ? 'La nave li accompagna e resta ancorata lì. ' : '') +
+                    'È l\'unico spostamento del turno: dopo non se ne fanno altri.',
+                ok: navale ? '⚓ Imbarca' : '➜ Sposta'
             }, () => { closeOrder(); run(GA().finalMove(player, path.id, to, n)); });
             return;
         }
@@ -2420,7 +2579,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="bb-who"></div>
                     <div class="bb-n">${L.engaged} <span>impegnati</span></div>
                     <div class="bb-loss${L.perditeAttaccante ? '' : ' none'}">${caduti(L.perditeAttaccante)}</div>
-                    <div class="bb-left">${vinta ? L.superstiti + ' in marcia' : 'nessun superstite'}</div>
+                    <div class="bb-left">${(() => { const s = L.engaged - L.perditeAttaccante; return vinta ? s + ' in marcia' : (s > 0 ? s + (s === 1 ? ' ripiega' : ' ripiegano') : 'nessun superstite'); })()}</div>
                 </div>
                 <div class="bb-mid">vs</div>
                 <div class="bb-side def">
@@ -2561,6 +2720,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSpies(player);
         renderTrade(player);
         renderConquest(player);
+        renderCapitalChoice(player);
         renderBattle();
         renderMove(player);
         renderProvinceList(player, paths, connectedSet);
@@ -2638,11 +2798,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function boot(attempt) {
         let player = resolvePlayer();
-        // In solitaria non c'è un regno "tuo" e la plancia si apre senza codice
-        // d'invito: si entra in quello di turno, e da lì i turni si seguono da sé.
-        if (!player && soloGame()) {
+        // Più regni tuoi (solitaria, o 2+ regni con l'IA sugli altri): la plancia si
+        // apre senza codice d'invito. Si entra nel regno umano di turno; se al
+        // caricamento tocca a un bot, si entra nel primo regno umano e Bot.run()
+        // porta il giro fino al prossimo turno umano, che followTurn seguirà.
+        if (!player && followEnabled()) {
             const t = R.turnoDi();
-            player = R.players().find(p => p.id === t) || null;
+            const tp = R.players().find(p => p.id === t) || null;
+            player = (tp && window.Bot && !window.Bot.isBot(tp))
+                ? tp
+                : humanPlayers()[0] || null;
         }
         if (player) {
             enterKingdom(player);

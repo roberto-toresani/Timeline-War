@@ -25,7 +25,7 @@
     const COSTS = {
         strada:      { pietra: 1, soldati: 1 },
         barca:       { legno: 1, soldati: 3 },
-        capitale:    { monete: 500, soldati: 5 },
+        capitale:    { monete: 500 },
         citta:       { monete: 1000, pietra: 3, argilla: 2, bestiame: 2 },
         fortezza:    { monete: 2000, pietra: 6, legno: 4, argilla: 4, bestiame: 2, grano: 2 },
         vascello:    { monete: 4000, legno: 10, argilla: 2, bestiame: 4, grano: 4 },
@@ -40,24 +40,25 @@
     const EFFECTS = {
         strada:      'Collega due province adiacenti che possiedi: serve alla raccolta.',
         barca:       'Collega o espande verso province marittime e isole. Solo su costa.',
-        capitale:    'Una sola per regno. Attiva raccolta e Popolarità, difesa +1, paga le tasse, +1 soldato/turno, dà una strada gratuita.',
+        capitale:    'La prima costa 500 monete e nessun uomo. Una sola per regno (spostabile per 500). Attiva raccolta e Popolarità, difesa +1, paga le tasse, +1 soldato/turno, dà una strada gratuita.',
         citta:       'Capitale secondaria: difesa +1, paga le tasse, +1 soldato/turno. Alla costruzione dà +1 Pietra.',
         fortezza:    'Difesa +3. Ogni turno +5 soldati. Non dove c\'è già Capitale o Città.',
         vascello:    'Movimento globale, senza limiti geografici. Solo su costa.',
         mercato:     'Apre i commerci: scambio con l\'estero al rapporto 2:1 e trattative con gli altri regni.',
         generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
         mercenario:  '+1 soldato che resta per sempre, ma è di ventura: in battaglia vale meno di un suddito e quanto renda si sa solo sul campo (§9).',
-        guarnigione: '+2 soldati temporanei: scadono a fine turno.',
+        guarnigione: '+3 soldati di rinforzo: restano per sempre, sono truppe normali.',
         spia:        'Perlustra un territorio lontano: per 3 turni vedi di chi sono quella provincia e le sue limitrofe — le bandiere, non le guarnigioni (§9.3).'
     };
 
     // Cosa si costruisce su UNA provincia (la Strada ne collega due).
     const BUILDABLE_ON_PROVINCE = ['capitale', 'citta', 'fortezza', 'mercato', 'barca', 'vascello', 'generale'];
-    // Si reclutano (non si costruiscono): il Mercenario RESTA, la Guarnigione no.
-    // Due elenchi e non uno con un flag, perché a `expireTemporaries` serve
-    // esattamente il secondo e a nient'altro serve il primo.
+    // Si reclutano (non si costruiscono). Entrambi RESTANO: il Mercenario è di
+    // ventura (§9), la Guarnigione è rinforzo puro (soldati normali). TEMPORARY è
+    // ormai vuoto — nessuna recluta scade più a fine turno — ma resta come elenco
+    // perché `expireTemporaries` lo consulta ancora per ripulire i salvataggi vecchi.
     const RECRUITABLE = ['mercenario', 'guarnigione'];
-    const TEMPORARY = ['guarnigione'];
+    const TEMPORARY = [];
 
     // MERCENARI (§5.3): quanti dei `partenti` sono di ventura. PROPORZIONALE alla
     // quota della provincia, e non è un dettaglio di comodo: lasciar scegliere

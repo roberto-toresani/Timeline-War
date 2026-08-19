@@ -27,40 +27,53 @@
     // obiettivi ("province cristiane" = tutta la famiglia cristiani). `da` è il
     // turno in cui la fede COMPARE (le figlie di uno scisma non esistono prima).
     // `colore` è la tinta della vista-mappa per fede.
+    // L'ELENCO DEFINITIVO (scelta dell'utente): poche confessioni, così gli
+    // sviluppi restano leggibili. Cattolici, protestanti, ortodossi; sunniti,
+    // sciiti; induisti, buddhisti; animisti e pagani nelle terre più remote; e i
+    // `nativi` per i popoli delle Americhe. Niente sotto-scismi (anglicani,
+    // calvinisti, vecchi credenti, wahhabiti) né fedi senza province in gioco
+    // (ebrei, shintoisti): chi le nominava confluisce in una di queste (vedi LEGACY).
     const FAITHS = {
         // ---- cristiani ----
         cristiani:     { label: 'Cristiani',      famiglia: 'cristiani', colore: '#c9a227', da: 1 },
         cattolici:     { label: 'Cattolici',      famiglia: 'cristiani', colore: '#d4b03a', da: 1 },
         ortodossi:     { label: 'Ortodossi',      famiglia: 'cristiani', colore: '#8e7cc3', da: 1 },
         protestanti:   { label: 'Protestanti',    famiglia: 'cristiani', colore: '#3f7fbf', da: 12 },
-        anglicani:     { label: 'Anglicani',      famiglia: 'cristiani', colore: '#5aa0d0', da: 13 },
-        calvinisti:    { label: 'Calvinisti',     famiglia: 'cristiani', colore: '#4a6fa5', da: 13 },
-        vecchicredenti:{ label: 'Vecchi Credenti',famiglia: 'cristiani', colore: '#6f5aa0', da: 18 },
         // ---- musulmani (già divisi al Mille) ----
         sunniti:       { label: 'Sunniti',        famiglia: 'musulmani', colore: '#2e8b57', da: 1 },
         sciiti:        { label: 'Sciiti',         famiglia: 'musulmani', colore: '#1f6f4a', da: 1 },
-        wahhabiti:     { label: 'Wahhabiti',      famiglia: 'musulmani', colore: '#145a3a', da: 16 },
         // ---- altre fedi del mondo (colore della mappa, mai religione di stato di un regno giocante) ----
-        ebrei:         { label: 'Ebrei',          famiglia: 'ebraismo',  colore: '#c05a8a', da: 1 },
-        pagani:        { label: 'Pagani',         famiglia: 'pagani',    colore: '#9c6b3f', da: 1 },
         indu:          { label: 'Induisti',       famiglia: 'dharmiche', colore: '#e08a2e', da: 1 },
         buddhisti:     { label: 'Buddhisti',      famiglia: 'dharmiche', colore: '#d0a050', da: 1 },
-        shintoisti:    { label: 'Shintoisti',     famiglia: 'dharmiche', colore: '#c26a6a', da: 1 },
         animisti:      { label: 'Animisti',       famiglia: 'animisti',  colore: '#7a8b3f', da: 1 },
-        nativi:        { label: 'Culti nativi',   famiglia: 'animisti',  colore: '#6b8b5a', da: 1 }
+        pagani:        { label: 'Pagani',         famiglia: 'pagani',    colore: '#9c6b3f', da: 1 },
+        nativi:        { label: 'Culti nativi',   famiglia: 'nativi',    colore: '#6b8b5a', da: 1 }
     };
+
+    // Confessioni RITIRATE: una vecchia mappa o un salvataggio che le nomina si
+    // legge come la fede in cui sono confluite (canonical). Nessuna partita nuova
+    // le produce più. app.js canonicalizza in lettura (religionKeyOf) e in
+    // applicazione (applyReligionState), così un dato d'archivio non svanisce.
+    const LEGACY = {
+        anglicani: 'protestanti',
+        calvinisti: 'protestanti',
+        vecchicredenti: 'ortodossi',
+        wahhabiti: 'sunniti',
+        shintoisti: 'buddhisti'
+    };
+    function canonical(id) { return (id && LEGACY[id]) || id; }
 
     const DEFAULT_FAITH = 'pagani';
 
-    function get(id) { return FAITHS[id] || null; }
-    function label(id) { const f = FAITHS[id]; return f ? f.label : ''; }
-    function color(id) { const f = FAITHS[id]; return f ? f.colore : '#888'; }
-    function familyOf(id) { const f = FAITHS[id]; return f ? f.famiglia : null; }
-    function exists(id) { return !!FAITHS[id]; }
+    function get(id) { return FAITHS[canonical(id)] || null; }
+    function label(id) { const f = FAITHS[canonical(id)]; return f ? f.label : ''; }
+    function color(id) { const f = FAITHS[canonical(id)]; return f ? f.colore : '#888'; }
+    function familyOf(id) { const f = FAITHS[canonical(id)]; return f ? f.famiglia : null; }
+    function exists(id) { return !!FAITHS[canonical(id)]; }
 
     // Stessa confessione esatta (sunniti === sunniti). Le neutrali "amiche" sono
     // quelle della TUA fede esatta.
-    function sameFaith(a, b) { return !!a && a === b; }
+    function sameFaith(a, b) { return !!a && canonical(a) === canonical(b); }
     // Stessa FAMIGLIA (cattolici e ortodossi sono entrambi cristiani): è il metro
     // degli obiettivi di prestigio.
     function sameFamily(a, b) {
@@ -107,8 +120,7 @@
         [470, 130, 815, 205, 'cristiani'],
         [812, 100, 950, 235, 'sunniti'],    // Turkestan / Asia centrale musulmana
         [830, 195, 965, 320, 'indu'],       // India
-        [1075,118, 1200,205, 'shintoisti'], // Giappone
-        [950, 90,  1200,340, 'buddhisti'],  // Cina e Sud-est asiatico
+        [950, 90,  1200,340, 'buddhisti'],  // Cina, Giappone e Sud-est asiatico
         [812, 0,   1200,110, 'pagani'],     // Siberia / Mongolia
         [500, 235, 812, 420, 'animisti'],   // Africa subsahariana
         [900, 300, 1200,575, 'animisti']    // Oceania / Australia
@@ -181,40 +193,17 @@
             testo: 'Dalla Germania la protesta contro Roma dilaga: nasce il Protestantesimo.',
             nota: 'Il Nord d\'Europa abbandona l\'obbedienza al Papa.',
             // Rettangoli misurati sui centri veri delle province (viewBox SVG).
-            // L'ordine conta: prima le anglicane, poi le calviniste, infine le
-            // protestanti — le zone non si sovrappongono (la Renania e la Baviera
-            // restano cattoliche, come nella storia).
+            // Una sola confessione risultante: anglicani e calvinisti sono stati
+            // accorpati nei protestanti (meno divisioni da seguire — scelta
+            // dell'utente). Renania e Baviera restano cattoliche, come nella storia.
             rules: [
-                // Isole britanniche: anglicani.
-                { from: 'cattolici', to: 'anglicani', rects: [ [568, 85, 605, 128] ] },
-                // Paesi Bassi e Svizzera: calvinisti.
-                { from: 'cattolici', to: 'calvinisti', rects: [
-                    [606, 108, 622, 130],   // Paesi Bassi
-                    [620, 133, 634, 146]    // Svizzera
-                ] },
-                // Germania settentrionale e Scandinavia: protestanti (luterani).
                 { from: 'cattolici', to: 'protestanti', rects: [
+                    [568, 85, 605, 128],    // Isole britanniche
+                    [606, 108, 622, 130],   // Paesi Bassi
+                    [620, 133, 634, 146],   // Svizzera
                     [622, 104, 660, 126],   // Nord Germania (non la Baviera, più a sud)
                     [620, 35,  670, 104]    // Danimarca, Norvegia, Svezia
                 ] }
-            ]
-        },
-        {
-            id: 'wahhabismo', turn: 16,
-            titolo: 'Il Wahhabismo',
-            testo: 'Nel cuore dell\'Arabia sorge una predicazione di ritorno alle origini.',
-            nota: 'La penisola sunnita si fa wahhabita.',
-            rules: [
-                { from: 'sunniti', to: 'wahhabiti', rects: [ [740, 210, 800, 270] ] }
-            ]
-        },
-        {
-            id: 'vecchi-credenti', turn: 18,
-            titolo: 'Lo scisma dei Vecchi Credenti',
-            testo: 'Le riforme del rito spaccano la Chiesa ortodossa di Russia.',
-            nota: 'Chi rifiuta i nuovi libri diventa Vecchio Credente.',
-            rules: [
-                { from: 'ortodossi', to: 'vecchicredenti', rects: [ [770, 0, 880, 130] ] }
             ]
         }
     ];
@@ -225,8 +214,8 @@
     }
 
     const api = {
-        FAITHS, DEFAULT_FAITH, SCHISMS,
-        get, label, color, familyOf, exists,
+        FAITHS, LEGACY, DEFAULT_FAITH, SCHISMS,
+        get, label, color, familyOf, exists, canonical,
         sameFaith, sameFamily, faithsAt,
         seedFaith, faithByRegion, schismsAt
     };

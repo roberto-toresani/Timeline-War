@@ -1,17 +1,17 @@
 // ============================================================
 // NUOVA PARTITA — sorteggio dei regni iniziali.
 // Sparecchia la mappa (proprietari, pedine, strade, cronologia), assegna a ogni
-// regno un piccolo feudo di partenza ben distanziato dagli altri, gli mette la
-// Capitale, decide chi gioca l'umano e chi è governato dall'IA (js/bot.js), poi
-// chiama GameActions.startGame() — che è ciò che fissa i valori del §11 e
-// presidia le terre di nessuno.
+// regno un piccolo feudo di partenza ben distanziato dagli altri, decide chi
+// gioca l'umano e chi è governato dall'IA (js/bot.js), poi chiama
+// GameActions.startGame() — che è ciò che fissa i valori del §11 e presidia le
+// terre di nessuno.
 //
-// Perché la Capitale è REGALATA: senza Capitale un regno non raccoglie nulla
-// (§2/§4) e non produce reclute, e per costruirla servono 5 soldati spendibili
-// in una sola provincia — che all'inizio (5 per provincia, 1 di presidio) non
-// si hanno. Senza questo regalo la partita non partirebbe proprio.
-// Per lo stesso motivo il feudo iniziale confina con una provincia di PIETRA:
-// la prima strada (quella gratuita della Capitale) la collega, e da lì in poi
+// La Capitale NON è più regalata (regola dell'utente): i regni partono SENZA
+// Capitale e la prima cosa da fare al turno 1 è costruirla — costa 500 monete e
+// NESSUN uomo (game-rules), quindi con le 1000 monete d'avvio è alla portata di
+// tutti, umano e bot (i bot hanno `capitale` in testa all'ordine di costruzione).
+// Il feudo iniziale confina con una provincia di PIETRA: la prima strada (quella
+// gratuita che nasce dalla costruzione della Capitale) la collega, e da lì in poi
 // il regno ha la materia prima per costruirne altre.
 // ============================================================
 
@@ -171,47 +171,20 @@
             .filter(k => k.province.length);
     }
 
-    // Dove mettere la Capitale di un regno che non ce l'ha: la provincia più
-    // "interna" (più confinanti dello stesso regno), a parità quella con una
-    // risorsa. È la scelta che un giocatore farebbe: la sede al riparo.
-    function capitalSiteFor(k) {
-        const mie = new Set(k.province);
-        let best = null, bestScore = -1;
-        k.province.forEach(id => {
-            const path = E().path(id);
-            if (!path) return;
-            // Capitale, Città e Fortezza si escludono: dove c'è già un insediamento
-            // non si può posare.
-            const occupata = ['capitale', 'citta', 'fortezza'].some(t => E().countPiece(path, t) > 0);
-            if (occupata) return;
-            const amici = E().landNeighbors(id).filter(n => mie.has(n)).length;
-            const score = amici * 2 + (resourceOf(id) ? 1 : 0);
-            if (score > bestScore) { bestScore = score; best = id; }
-        });
-        return best;
-    }
-
     function prepareExisting(players) {
         const regni = kingdomsOnMap(players);
         regni.forEach(k => {
             const pl = k.player;
-            // Il colore-esercito serve a riconoscere la Capitale del regno: se la
-            // mappa è stata dipinta senza pedine, va messo adesso.
+            // Il colore-esercito serve a riconoscere il regno (e la sua Capitale, se
+            // e quando la costruirà): se la mappa è stata dipinta senza pedine, va
+            // messo adesso. La Capitale NON si regala più — se sulla mappa dipinta
+            // ce n'è già una la si tiene, altrimenti il regno parte senza e la
+            // costruirà al turno 1.
             k.province.forEach(id => {
                 const path = E().path(id);
                 if (path) E().setArmyColor(path, pl.color);
             });
-            let cap = R().getCapitalPathFor(pl);
-            if (!cap) {
-                const sito = capitalSiteFor(k);
-                if (sito) {
-                    const path = E().path(sito);
-                    E().addPiece(path, 'capitale', 1);
-                    E().setArmyColor(path, pl.color);
-                    E().redrawProvince(path);
-                    cap = path;
-                }
-            }
+            const cap = R().getCapitalPathFor(pl);
             k.capitale = cap ? cap.id : null;
         });
         return regni;
@@ -261,12 +234,10 @@
                 E().setOwner(path, pl.name);
                 E().setArmyColor(path, pl.color);
             });
-            // La Capitale nel seme: è il regalo che fa partire la macchina.
-            const capitale = E().path(seed);
-            E().addPiece(capitale, 'capitale', 1);
-            E().setArmyColor(capitale, pl.color);
-            E().redrawProvince(capitale);
-            regni.push({ player: pl, capitale: seed, province: feudo });
+            // Niente Capitale nel seme: il regno parte senza e la costruisce al
+            // turno 1 (500 monete, 0 uomini). Il seme resta solo l'origine del feudo
+            // — e la provincia più naturale su cui posare la prima Capitale.
+            regni.push({ player: pl, capitale: null, province: feudo });
         });
 
         const esito = finalize(players, regni, o, rand);
@@ -287,15 +258,27 @@
         const tuttiUmani = !!o.tuttiUmani;
         // Chi gioca l'umano: sorteggiato fra i regni CHE ESISTONO sulla mappa —
         // pescare un regno senza province vorrebbe dire dare al giocatore un seggio
-        // già eliminato.
+        // già eliminato. I regni umani possono essere più d'uno (regola dell'utente:
+        // "seguo 2 regni, gli altri IA"): `o.umani` è un ELENCO di id espliciti,
+        // oppure un NUMERO di regni da sorteggiare. In mancanza si ricade su `o.umano`
+        // (un solo id) o su un regno estratto a sorte, come prima.
         const inGioco = regni.map(r => r.player);
-        const umano = tuttiUmani ? null
-            : ((o.umano !== undefined && o.umano !== null)
-                ? players.find(p => p.id === o.umano)
-                : inGioco[Math.floor(rand() * inGioco.length)]);
+        let umani;
+        if (tuttiUmani) {
+            umani = inGioco.slice();
+        } else if (Array.isArray(o.umani)) {
+            umani = o.umani.map(id => inGioco.find(p => p.id === id)).filter(Boolean);
+        } else if (o.umano !== undefined && o.umano !== null) {
+            const one = players.find(p => p.id === o.umano);
+            umani = one ? [one] : [];
+        } else {
+            const n = Math.max(1, Math.min((o.umani | 0) || 1, inGioco.length));
+            umani = shuffle(inGioco.slice(), rand).slice(0, n);
+        }
+        const umanoIds = new Set(umani.map(p => p.id));
         if (root.Bot) {
             if (tuttiUmani) players.forEach(pl => { pl.bot = null; });
-            else root.Bot.assignStrategies(players, umano ? umano.id : null, rand);
+            else root.Bot.assignStrategies(players, umanoIds, rand);
         }
 
         // Il calendario riparte dall'anno 1000 (turno 1), ma la mappa resta com'è.
@@ -305,10 +288,10 @@
         // scorte a zero, ordine di turno, terre di nessuno presidiate (§11).
         const avvio = root.GameActions.startGame();
 
-        // Una strada gratuita a testa, come se la Capitale fosse stata costruita.
-        // Valore assoluto e non incremento: due avvii di fila non regalano due strade.
-        // Tassazione al valore iniziale del §11.
-        players.forEach(pl => { pl.stradeGratis = 1; pl.tassazione = 'normale'; });
+        // Tassazione al valore iniziale del §11. La strada gratuita NON si regala
+        // più all'avvio: nasce dalla costruzione della Capitale (build() fa
+        // `stradeGratis += 1`), quindi darla anche qui ne regalerebbe due.
+        players.forEach(pl => { pl.stradeGratis = 0; pl.tassazione = 'normale'; });
 
         // Codice d'invito a tutti PRIMA del salvataggio: il link della plancia
         // deve funzionare subito. Generarlo dopo il save lo lascerebbe solo in
@@ -318,7 +301,11 @@
         E().refresh();
         E().save();
 
-        return { ok: true, umano, tuttiUmani, regni, avvio: avvio.msg };
+        // `umano` (singolo) resta per retrocompatibilità: vale solo quando c'è UN
+        // regno umano. Con più regni la plancia si apre senza codice d'invito e
+        // segue i turni da sé, come in solitaria — vedi renderNewGameResult.
+        const umano = umani.length === 1 ? umani[0] : null;
+        return { ok: true, umano, umani, tuttiUmani, regni, avvio: avvio.msg };
     }
 
     root.GameSetup = { newGame, clearMap, kingdomsOnMap, inRegion, REGIONS, DEFAULTS };

@@ -119,6 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p.fase) p.fase = 'schiera';
         if (typeof p.spostamentoFatto !== 'boolean') p.spostamentoFatto = false;
         if (p.conquista === undefined) p.conquista = null;
+        // Capitale nemica appena presa, in attesa che il giocatore decida se
+        // promuoverla a Capitale ufficiale o lasciarla Città (§Capitale). Di
+        // default è già una Città (game-actions), quindi lo stato è consistente
+        // anche se la scelta non arriva mai: si azzera a fine turno.
+        if (p.capitalePresa === undefined) p.capitalePresa = null;
         // Commerci (§7): le proposte RICEVUTE stanno sul record di chi le riceve.
         // Chi le ha mandate le ritrova scorrendo gli altri regni (tradeOutbox in
         // game-actions.js): una proposta esiste in un posto solo.
@@ -131,6 +136,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // La scadenza non si salva: si calcola (js/spies.js), così una spia non
         // può sopravvivere a un salvataggio riaperto tre decenni dopo.
         if (!Array.isArray(p.spie)) p.spie = [];
+        // RANCORE (la vendetta dell'IA): [{prov, chi, peso, turno}] — le province
+        // PREZIOSE strappate a questo regno e chi le ha prese. Lo scrive la
+        // conquista (game-actions.applyBattleOutcome, unico punto), lo legge il
+        // bot per tornare a riprendersele. Vive nello stato come le spie: serve ai
+        // regni IA, ma non fa male tenerlo per tutti (un umano semplicemente lo
+        // ignora).
+        if (!Array.isArray(p.rancore)) p.rancore = [];
         return p;
     }
 
@@ -756,8 +768,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // risorsa. È dato di mappa (parte della posizione di partenza), non di
     // partita: viaggia negli snapshot accanto a resources/pieces/roads.
     function religionKeyOf(path) {
-        const k = path && path.getAttribute('data-religione');
-        return (k && typeof Religions !== 'undefined' && Religions.exists(k)) ? k : '';
+        const raw = path && path.getAttribute('data-religione');
+        if (!raw || typeof Religions === 'undefined') return '';
+        // Canonicalizza: una fede ritirata (data d'archivio o mappa vecchia) si
+        // legge come quella in cui è confluita (Religions.LEGACY), così non svanisce.
+        const k = Religions.canonical(raw);
+        return Religions.exists(k) ? k : '';
     }
 
     // ====================== TERRENO ======================
@@ -773,25 +789,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Snapshot { provinceId: fede } delle sole province con religione assegnata.
+    // Il suffisso '*' marca la fede FISSATA dalla conquista (data-fede-conq): così
+    // viaggia nel salvataggio e uno scisma incontrato dopo un ricaricamento non la
+    // tocca (§la fede segue la spada).
     function collectReligions(svg) {
         const out = {};
         provincePaths(svg || document.querySelector('svg')).forEach(p => {
             const k = religionKeyOf(p);
-            if (k) out[p.id] = k;
+            if (!k) return;
+            out[p.id] = p.getAttribute('data-fede-conq') ? k + '*' : k;
         });
         return out;
     }
 
     // Applica uno snapshot religioni: le province presenti prendono la fede
     // indicata, le altre restano come stanno (uno snapshot vuoto non spoglia la
-    // mappa dei seed iniziali). Poi ridisegna, perché la vista-fede dipende da qui.
+    // mappa dei seed iniziali). Il '*' finale ripristina il vincolo di conquista.
+    // Poi ridisegna, perché la vista-fede dipende da qui.
     function applyReligionState(map) {
         const svg = document.querySelector('svg');
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => {
-            const k = map[p.id];
+            let v = map[p.id];
+            if (typeof v !== 'string' || !v) return;
+            const locked = v.charAt(v.length - 1) === '*';
+            if (locked) v = v.slice(0, -1);
+            const k = (typeof Religions !== 'undefined') ? Religions.canonical(v) : v;
             if (k && typeof Religions !== 'undefined' && Religions.exists(k)) {
                 p.setAttribute('data-religione', k);
+                if (locked) p.setAttribute('data-fede-conq', '1');
+                else p.removeAttribute('data-fede-conq');
             }
         });
         if (mapPaintMode === 'fede') refreshMapDisplay();
@@ -2395,7 +2422,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // li muove tutti il giocatore (partita in solitaria, vedi finalize in
     // setup.js). "🏁 Avvia partita" resta quello di prima: azzera l'economia e
     // basta, senza IA.
-    function avviaPartitaIA(mantieniMappa, tuttiUmani) {
+    function avviaPartitaIA(mantieniMappa, tuttiUmani, umani) {
         if (!isAdminMode) return;
         if (!window.GameSetup) { showPieceNotice('setup.js non caricato.'); return; }
         if (!neighborsReady) {
@@ -2404,29 +2431,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const neutrali = 'Le terre di nessuno partono con ' + GameRules.NEUTRAL_START +
             ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' + GameRules.NEUTRAL_EVERY + ' turni).';
-        const opts = tuttiUmani
+        // Numero di regni umani da sorteggiare (2+): partita mista, gli altri all'IA.
+        const nUmani = (umani | 0) >= 2 ? (umani | 0) : 0;
+        const opts = nUmani
+            ? {
+                title: 'Seguire ' + nUmani + ' regni tuoi?',
+                text: nUmani + ' regni sulla mappa saranno tuoi: li giochi a turno, uno alla ' +
+                    'volta, e la plancia passa da sé al tuo regno quando torna il suo turno. ' +
+                    'Tutti gli altri li governa l\'IA. Mappa ed economia partono come nella ' +
+                    'partita normale: nessun regno ha una Capitale, la prima cosa da fare al ' +
+                    'turno 1 è costruirla (500 monete). ' + neutrali,
+                ok: '🎭 Comincia'
+            }
+            : tuttiUmani
             ? {
                 title: 'Giocare tu tutti i regni?',
                 text: 'Nessuna IA: i regni sulla mappa li muovi tu, uno alla volta, ' +
                     'nell\'ordine dei turni. La plancia passa da sé al regno di turno, e ' +
-                    'ognuno vede solo quel che vede lui. Mappa, Capitali ed economia partono ' +
-                    'come nella partita normale. ' + neutrali,
+                    'ognuno vede solo quel che vede lui. Mappa ed economia partono come nella ' +
+                    'partita normale: nessun regno ha una Capitale, la prima cosa da fare al ' +
+                    'turno 1 è costruirla (500 monete). ' + neutrali,
                 ok: '👥 Comincia'
             }
             : mantieniMappa
             ? {
                 title: 'Giocare con i regni che sono sulla mappa?',
-                text: 'I territori restano esattamente come li hai dipinti. Ogni regno che non ha ' +
-                    'una Capitale la riceve nella sua provincia più interna, torna a 1000 monete e ' +
-                    '5 soldati per provincia, e il calendario riparte dal turno 1 (1000 AD). ' +
-                    'Uno dei regni sarà tuo, gli altri li governa l\'IA. ' + neutrali,
+                text: 'I territori restano esattamente come li hai dipinti. Ogni regno torna a ' +
+                    '1000 monete e 5 soldati per provincia, e il calendario riparte dal turno 1 ' +
+                    '(1000 AD). Nessun regno parte con una Capitale: la prima cosa da fare al ' +
+                    'turno 1 è costruirla (500 monete). Uno dei regni sarà tuo, gli altri li ' +
+                    'governa l\'IA. ' + neutrali,
                 ok: '⚔️ Comincia'
             }
             : {
                 title: 'Sorteggiare una mappa nuova?',
                 text: 'Attenzione: la mappa attuale viene sparecchiata — province, pedine, strade e ' +
                     'cronologia dei turni. I regni rinascono in ' + window.GameSetup.REGIONS.europa.nome +
-                    ' con 3 province e una Capitale a testa. ' + neutrali,
+                    ' con 3 province a testa, senza Capitale: la prima cosa da fare al turno 1 è ' +
+                    'costruirla (500 monete). ' + neutrali,
                 ok: '🎲 Sorteggia',
                 tone: 'danger'
             };
@@ -2434,7 +2476,8 @@ document.addEventListener('DOMContentLoaded', () => {
         askConfirm(opts, () => {
             const res = window.GameSetup.newGame({
                 mantieniMappa: !!mantieniMappa,
-                tuttiUmani: !!tuttiUmani
+                tuttiUmani: !!tuttiUmani,
+                umani: nUmani || undefined
             });
             showPieceNotice(res.msg);
             renderGameControls();
@@ -3205,6 +3248,9 @@ document.addEventListener('DOMContentLoaded', () => {
             (sc.rules || []).forEach(rule => {
                 const scoped = !!(rule.rects || rule.names);
                 paths.forEach(p => {
+                    // La fede fissata dalla conquista non si scisma (§la fede segue
+                    // la spada): resta quella del regno che ha preso la provincia.
+                    if (p.getAttribute('data-fede-conq')) return;
                     if (religionKeyOf(p) !== rule.from) return;
                     if (scoped) {
                         const c = center.get(p);
@@ -3384,7 +3430,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const x2 = B.x - ux * trimB, y2 = B.y - uy * trimB;
             // Spessore e punta scalano sulla freccia, non solo sulle province:
             // su un tratto corto una punta "giusta" diventerebbe una macchia.
-            const w = Math.max(0.6, Math.min(Math.min(A.r, B.r) * 0.16, shaft * 0.16));
+            // Lo SPOSTAMENTO le vuole più sottili (scelta dell'utente): è una
+            // marcia in casa, non una carica — un filo, non un dardo. La punta
+            // segue lo spessore (h dipende da w), quindi si rimpicciolisce da sé.
+            const wCap = Math.min(Math.min(A.r, B.r) * 0.16, shaft * 0.16);
+            const w = kind === 'sposta'
+                ? Math.max(0.32, wCap * 0.5)
+                : Math.max(0.6, wCap);
             const delay = (i * 120) + 'ms';
 
             const line = document.createElementNS(SVG_NS, 'line');
@@ -3412,40 +3464,199 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ============================================================
-    // BERSAGLI CLICCABILI SULLA MAPPA — è la mappa a dire dove si può andare.
-    // Le frecce dicono la direzione, questo dice CHE COSA SI PUÒ CLICCARE: le
-    // province valide prendono la classe `order-target` (più `order-attack` o
-    // `order-move`) e la provincia di partenza `order-origin`. Da lì in poi
-    // comanda la plancia, che sul clic apre il suo cursore d'ordine.
-    // Si tiene l'elenco degli elementi toccati invece di rifare una query su
-    // tutto l'SVG a ogni pulizia: markTargets gira a ogni render, anche dopo
-    // ogni mossa dei bot (vedi refreshMapDisplay, ~20 ms di budget).
+    // BERSAGLI CLICCABILI SULLA MAPPA — è la mappa a dire dove si può agire.
+    // Le frecce dicono la direzione; questo dice CHE COSA SI PUÒ CLICCARE
+    // dipingendo un RETINO (righe diagonali nel colore della fase) DENTRO la
+    // provincia, come una zona segnata su una carta militare. Scelta dell'utente:
+    // il vecchio contorno spesso (1,5 su bordi da 0,25) fra due bersagli
+    // confinanti si saldava in una banda che non era di nessuno dei due —
+    // confusionario. Il retino sta dentro ed è ritagliato sul poligono, quindi
+    // non sconfina mai nel vicino.
+    //
+    // Tre regole imparate qui:
+    //  1. Si dipinge su uno STRATO a parte (#order-marks), non sui path delle
+    //     province: refreshMapDisplay riscrive `fill` su ogni provincia a ogni
+    //     render e cancellerebbe qualunque cosa messa lì. Lo strato sta sopra le
+    //     terre e sotto pedine/risorse (appese in coda), così le guarnigioni
+    //     restano leggibili.
+    //  2. Il retino è ritagliato con un clipPath sul path della provincia. I
+    //     clip si creano UNA volta per id (la geometria non cambia mai) e si
+    //     riusano: markTargets gira a ogni render, anche dopo ogni mossa dei bot
+    //     (~20 ms di budget in refreshMapDisplay).
+    //  3. Il clic resta della plancia: lo strato è `pointer-events:none`, quindi
+    //     il clic attraversa e colpisce il path della provincia sotto. La classe
+    //     `order-clickable` serve solo al cursore a manina.
+    //
+    // SPIE (§9.3) e PARTENZE dello spostamento NON prendono il retino: sono
+    // decine di province e un retino ovunque farebbe luce dappertutto. Restano
+    // un tratto sottile (via classe CSS), leggero apposta.
     // ============================================================
 
-    let markedTargets = [];
+    // Colori di fase del retino: arancio attacco, oro spostamento, verde per la
+    // partenza (primo clic dello spostamento), oro chiaro per l'origine di un
+    // ordine. Un posto solo, così plancia e disegno non divergono.
+    const ORDER_HUE = {
+        attacca: { line: '#ff7a45', edge: '#ff7a45' },
+        sposta:  { line: '#ffd479', edge: '#e8b530' },
+    };
+
+    // Il retino (pattern di righe diagonali) si costruisce una volta per fase e
+    // vive nei defs. userSpaceOnUse: le righe sono in coordinate mappa, quindi
+    // scalano da sé con lo zoom, senza infittirsi o diradarsi.
+    const orderPatterns = {};
+    function orderHatch(kind) {
+        if (orderPatterns[kind]) return orderPatterns[kind];
+        const svg = document.querySelector('svg');
+        let defs = svg.querySelector('#order-defs');
+        if (!defs) {
+            defs = document.createElementNS(SVG_NS, 'defs');
+            defs.setAttribute('id', 'order-defs');
+            svg.insertBefore(defs, svg.firstChild);
+        }
+        const id = 'order-hatch-' + kind;
+        const col = (ORDER_HUE[kind] || ORDER_HUE.attacca).line;
+        const pat = document.createElementNS(SVG_NS, 'pattern');
+        pat.setAttribute('id', id);
+        pat.setAttribute('width', '1.6');
+        pat.setAttribute('height', '1.6');
+        pat.setAttribute('patternUnits', 'userSpaceOnUse');
+        pat.setAttribute('patternTransform', 'rotate(45)');
+        const bg = document.createElementNS(SVG_NS, 'rect');
+        bg.setAttribute('width', '1.6'); bg.setAttribute('height', '1.6');
+        bg.setAttribute('fill', col); bg.setAttribute('fill-opacity', '.12');
+        const ln = document.createElementNS(SVG_NS, 'line');
+        ln.setAttribute('x1', '0'); ln.setAttribute('y1', '0');
+        ln.setAttribute('x2', '0'); ln.setAttribute('y2', '1.6');
+        ln.setAttribute('stroke', col); ln.setAttribute('stroke-width', '.35');
+        ln.setAttribute('stroke-opacity', '.55');
+        pat.appendChild(bg); pat.appendChild(ln);
+        defs.appendChild(pat);
+        orderPatterns[kind] = id;
+        return id;
+    }
+
+    // Un clipPath sul poligono della provincia, così il retino resta dentro. La
+    // geometria non cambia mai: si crea una volta per id e si riusa.
+    const orderClips = new Set();
+    function orderClip(path) {
+        const id = 'order-clip-' + path.id;
+        if (orderClips.has(id)) return id;
+        const svg = document.querySelector('svg');
+        let defs = svg.querySelector('#order-clip-defs');
+        if (!defs) {
+            defs = document.createElementNS(SVG_NS, 'defs');
+            defs.setAttribute('id', 'order-clip-defs');
+            svg.insertBefore(defs, svg.firstChild);
+        }
+        const cp = document.createElementNS(SVG_NS, 'clipPath');
+        cp.setAttribute('id', id);
+        const clone = document.createElementNS(SVG_NS, 'path');
+        clone.setAttribute('d', path.getAttribute('d'));
+        cp.appendChild(clone);
+        defs.appendChild(cp);
+        orderClips.add(id);
+        return id;
+    }
+
+    // Lo strato dei marchi: sopra le terre (#map-group), sotto i marker appesi in
+    // coda. pointer-events:none, così il clic passa alla provincia sotto.
+    function orderLayer(svg) {
+        let layer = svg.querySelector('#order-marks');
+        if (!layer) {
+            layer = document.createElementNS(SVG_NS, 'g');
+            layer.setAttribute('id', 'order-marks');
+            layer.setAttribute('pointer-events', 'none');
+            const land = svg.querySelector('#map-group');
+            if (land && land.nextSibling) svg.insertBefore(layer, land.nextSibling);
+            else svg.appendChild(layer);
+        }
+        return layer;
+    }
+
+    // Il retino di un bersaglio: la velatura a righe + un filo di bordo interno
+    // che lo definisce. Tutto ritagliato dentro il poligono.
+    function paintHatch(layer, path, kind) {
+        const clip = 'url(#' + orderClip(path) + ')';
+        const hue = ORDER_HUE[kind] || ORDER_HUE.attacca;
+        const fill = document.createElementNS(SVG_NS, 'path');
+        fill.setAttribute('d', path.getAttribute('d'));
+        fill.setAttribute('fill', 'url(#' + orderHatch(kind) + ')');
+        fill.setAttribute('clip-path', clip);
+        layer.appendChild(fill);
+        const edge = document.createElementNS(SVG_NS, 'path');
+        edge.setAttribute('d', path.getAttribute('d'));
+        edge.setAttribute('fill', 'none');
+        edge.setAttribute('stroke', hue.edge);
+        edge.setAttribute('stroke-width', '0.9');
+        edge.setAttribute('stroke-linejoin', 'round');
+        edge.setAttribute('clip-path', clip);
+        layer.appendChild(edge);
+    }
+
+    // Un filo di bordo interno, senza retino: per l'origine di un ordine (oro) e
+    // per le partenze dello spostamento (verde). Leggeri apposta.
+    function paintEdge(layer, path, color, width) {
+        const edge = document.createElementNS(SVG_NS, 'path');
+        edge.setAttribute('d', path.getAttribute('d'));
+        edge.setAttribute('fill', 'none');
+        edge.setAttribute('stroke', color);
+        edge.setAttribute('stroke-width', String(width));
+        edge.setAttribute('stroke-linejoin', 'round');
+        edge.setAttribute('clip-path', 'url(#' + orderClip(path) + ')');
+        layer.appendChild(edge);
+    }
+
+    let markedTargets = [];     // province con classi CSS (cursore, spie): da ripulire
 
     function clearTargets() {
         markedTargets.forEach(p =>
-            p.classList.remove('order-target', 'order-attack', 'order-move', 'order-spy',
-                'order-start', 'order-origin'));
+            p.classList.remove('order-clickable', 'order-spy'));
         markedTargets = [];
+        const layer = document.querySelector('#order-marks');
+        if (layer) layer.textContent = '';
     }
 
     function markTargets(fromId, ids, kind) {
         clearTargets();
-        // 'spia' (§9.3) non ha una provincia di partenza: si sceglie solo la meta.
-        // 'partenza' è il primo dei due clic dello spostamento: non sono mete ma
-        // province DA CUI si può muovere, e infatti non aprono nessun cursore.
-        const cls = kind === 'sposta' ? 'order-move'
-            : kind === 'spia' ? 'order-spy'
-            : kind === 'partenza' ? 'order-start'
-            : 'order-attack';
+        const svg = document.querySelector('svg');
+        if (!svg) return;
+
+        // SPIE (§9.3): decine di mete, nessuna partenza. Restano un tratto
+        // tratteggiato leggero (classe CSS), non un retino che accenderebbe
+        // mezzo mondo.
+        if (kind === 'spia') {
+            (ids || []).forEach(id => {
+                const p = document.getElementById(id);
+                if (!p) return;
+                p.classList.add('order-spy', 'order-clickable');
+                markedTargets.push(p);
+            });
+            return;
+        }
+
+        const layer = orderLayer(svg);
+
+        // PARTENZE dello spostamento (primo clic): province DA CUI si può muovere,
+        // spesso molte. Filo verde sottile, niente retino — non sono mete.
+        if (kind === 'partenza') {
+            (ids || []).forEach(id => {
+                const p = document.getElementById(id);
+                if (!p) return;
+                paintEdge(layer, p, '#a8cf83', 0.7);
+                p.classList.add('order-clickable');
+                markedTargets.push(p);
+            });
+            return;
+        }
+
+        // ATTACCO / SPOSTAMENTO: il retino sui bersagli, un filo d'oro sull'origine.
         const from = fromId && document.getElementById(fromId);
-        if (from) { from.classList.add('order-origin'); markedTargets.push(from); }
+        if (from) paintEdge(layer, from, '#ffe9a8', 0.9);
         (ids || []).forEach(id => {
             const p = document.getElementById(id);
             if (!p || p === from) return;
-            p.classList.add('order-target', cls);
+            paintHatch(layer, p, kind === 'sposta' ? 'sposta' : 'attacca');
+            p.classList.add('order-clickable');
             markedTargets.push(p);
         });
     }
@@ -3560,6 +3771,123 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ============================================================
+    // CAROVANE DEL COMMERCIO (§7) — quando parte una proposta o si chiude uno
+    // scambio, una carovana parte dal Mercato del mittente verso il regno
+    // destinatario. Stessa filosofia della scena della battaglia: solo SVG +
+    // CSS, disegna dove le province già stanno e NON muove la telecamera.
+    // SOLO LA DIREZIONE (regola dell'utente): la carovana mostra da che parte
+    // va, MAI la provincia d'arrivo. Esce dal Mercato lungo la direzione della
+    // meta e svanisce per strada, in mare aperto — vale anche quando la meta
+    // sarebbe visibile: dove va una carovana diplomatica non è un'informazione
+    // che si regala guardando l'animazione. Con toId nullo (scambio con la
+    // banca) punta verso il largo. Gli elementi sono figli diretti dell'SVG e
+    // sopravvivono ai refresh, come le frecce d'attacco e la battaglia.
+    // ============================================================
+
+    // Europa vs resto del mondo (Africa/Oriente): sceglie la BESTIA DA SOMA del
+    // commercio — mulo in Europa, cammello altrove (richiesta dell'utente). I
+    // rettangoli sono in coordinate SVG, misurati sulla mappa: l'Europa
+    // continentale (dal Portogallo agli Urali) più la sponda nord del
+    // Mediterraneo (Iberia, Italia, Balcani, Grecia). Restano fuori — e quindi
+    // cammello — Nord Africa, Levante, Anatolia, Arabia, Persia e l'Oriente.
+    const EUROPE_RECTS = [
+        [515, 0, 815, 152],
+        [545, 152, 700, 200]
+    ];
+    // La sponda AFRICANA del Mediterraneo (Maghreb e Cirenaica) sta alla stessa
+    // latitudine di quella europea e finirebbe nel secondo rettangolo: la si
+    // toglie a mano, o le carovane del Nord Africa userebbero il mulo invece del
+    // cammello. La sponda europea (Andalusia, Sicilia, Peloponneso) resta più a
+    // nord di y≈183 e non è toccata; le isole greche a est stanno oltre x≈672.
+    const AFRICA_MED_RECTS = [
+        [560, 183, 672, 205]
+    ];
+    function isEuropeProvince(id) {
+        const p = document.getElementById(id);
+        const c = p && provinceCenter(p);
+        if (!c) return false;
+        if (AFRICA_MED_RECTS.some(r => c.x >= r[0] && c.x <= r[2] && c.y >= r[1] && c.y <= r[3])) return false;
+        return EUROPE_RECTS.some(r => c.x >= r[0] && c.x <= r[2] && c.y >= r[1] && c.y <= r[3]);
+    }
+
+    let tradeTimers = [];
+
+    function clearTradeFx() {
+        tradeTimers.forEach(clearTimeout);
+        tradeTimers = [];
+        const svg = document.querySelector('svg');
+        if (svg) svg.querySelectorAll('.trade-fx').forEach(el => el.remove());
+    }
+
+    function tradeLater(fn, ms) { tradeTimers.push(setTimeout(fn, ms)); }
+
+    // Una tratta: il sentiero tratteggiato che compare e il glifo che ci scorre
+    // sopra da A a B (il movimento è tutto nel CSS, via --dx/--dy come fx-blade).
+    function tradeCaravanLeg(svg, A, B, glyph, color, delay, size) {
+        const trail = document.createElementNS(SVG_NS, 'line');
+        trail.setAttribute('class', 'trade-fx trade-trail');
+        trail.setAttribute('x1', A.x); trail.setAttribute('y1', A.y);
+        trail.setAttribute('x2', B.x); trail.setAttribute('y2', B.y);
+        trail.setAttribute('stroke', color);
+        trail.setAttribute('stroke-width', Math.max(0.4, size * 0.1));
+        trail.setAttribute('stroke-linecap', 'round');
+        trail.setAttribute('stroke-dasharray', (size * 0.5) + ' ' + (size * 0.55));
+        trail.setAttribute('pointer-events', 'none');
+        trail.style.animationDelay = delay + 'ms';
+        svg.appendChild(trail);
+
+        const car = document.createElementNS(SVG_NS, 'text');
+        car.setAttribute('class', 'trade-fx trade-car');
+        car.setAttribute('x', A.x); car.setAttribute('y', A.y);
+        car.setAttribute('text-anchor', 'middle');
+        car.setAttribute('dominant-baseline', 'central');
+        car.setAttribute('font-size', size);
+        car.setAttribute('pointer-events', 'none');
+        car.style.animationDelay = delay + 'ms';
+        car.style.setProperty('--dx', (B.x - A.x) + 'px');
+        car.style.setProperty('--dy', (B.y - A.y) + 'px');
+        car.textContent = glyph;
+        svg.appendChild(car);
+    }
+
+    function playTradeFx(fromId, toId, opts) {
+        opts = opts || {};
+        const svg = document.querySelector('svg');
+        if (!svg || !fromId) return;
+        const from = document.getElementById(fromId);
+        if (!from) return;
+        const A = provinceCenter(from);
+        if (!A) return;
+
+        // La direzione verso cui parte la carovana: verso la meta, o verso il
+        // largo per lo scambio con la banca. La provincia d'arrivo NON si mostra:
+        // si prende solo il verso e si percorre un tratto di strada limitato,
+        // così la carovana svanisce prima di rivelare dove finisce.
+        let dir;
+        if (opts.abroad || !toId) {
+            dir = { x: 1, y: -0.4 };
+        } else {
+            const to = document.getElementById(toId);
+            const c = to && provinceCenter(to);
+            if (!c) return;
+            dir = { x: c.x - A.x, y: c.y - A.y };
+        }
+        const d = Math.max(1, Math.hypot(dir.x, dir.y));
+        const reach = Math.min(d * 0.5, A.r * 5);
+        const B = { x: A.x + dir.x / d * reach, y: A.y + dir.y / d * reach, r: A.r };
+
+        clearTradeFx();
+        const size = Math.max(4, Math.min(A.r * 1.4, reach * 0.7));
+        tradeCaravanLeg(svg, A, B, opts.glyph || '📜', opts.color || '#e8c56a', 0, size);
+        let dur = 1700;
+        if (opts.back) {
+            tradeCaravanLeg(svg, B, A, opts.back, opts.color2 || opts.color || '#cda24a', 320, size);
+            dur = 2200;
+        }
+        tradeLater(clearTradeFx, dur);
+    }
+
+    // ============================================================
     // Superficie pubblica per la plancia giocatore (src/js/player-board.js).
     // app.js resta una singola closure: invece di spezzarlo in moduli, esponiamo
     // qui le poche funzioni che servono da fuori.
@@ -3597,6 +3925,9 @@ document.addEventListener('DOMContentLoaded', () => {
         countPiece,
         playBattleFx,
         clearBattleFx,
+        playTradeFx,
+        clearTradeFx,
+        isEuropeProvince,
         showAttackArrows,
         clearAttackArrows,
         markTargets,
@@ -3701,8 +4032,16 @@ document.addEventListener('DOMContentLoaded', () => {
             religion: (path) => religionKeyOf(path),
             setReligion(path, faith) {
                 if (faith && typeof Religions !== 'undefined' && Religions.exists(faith)) {
-                    path.setAttribute('data-religione', faith);
+                    path.setAttribute('data-religione', Religions.canonical(faith));
                 }
+            },
+            // Vincolo di conquista (§la fede segue la spada): una provincia presa
+            // tiene la fede del conquistatore anche attraverso gli scismi futuri
+            // (applySchisms salta chi ha data-fede-conq). Viaggia nel salvataggio
+            // col suffisso '*' di collectReligions.
+            setReligionLock(path, on) {
+                if (on) path.setAttribute('data-fede-conq', '1');
+                else path.removeAttribute('data-fede-conq');
             },
             roads: () => ROADS.slice(),
             hasRoad: (a, b) => !!findRoad(a, b),

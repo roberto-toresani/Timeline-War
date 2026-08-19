@@ -50,7 +50,7 @@ In qualsiasi ordine, finché ci sono risorse/monete/soldati:
 - **Attaccare** province adiacenti o raggiungibili via Nave/Vascello (§9).
 
 ### Fase 3 — Fine turno
-- Le unità **temporanee** (Guarnigioni) scadono. I Mercenari **no**: restano (§5.3).
+- Guarnigioni e Mercenari **restano**: sono truppe permanenti (§5.3).
 - Si passa al giocatore successivo. Completato il giro, avanza il numero di turno globale.
 
 ### 2.1 Ordine dei turni e "conquista + avanzata" nello stesso turno
@@ -224,7 +224,7 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 `+ 1 per ogni Città` **[REGOLA]**
 `+ 5 per ogni Fortezza` (oppure 1 Generale, a scelta) **[REGOLA]**
 `+ modificatore Popolarità` (−2…+2, §8) **[REGOLA]**
-`+ eventuali Mercenari (permanenti, §5.3) e Guarnigioni (temporanee) reclutati` **[REGOLA]**
+`+ eventuali Mercenari e Guarnigioni (permanenti, §5.3) reclutati` **[REGOLA]**
 → Le reclute permanenti compaiono nella **Capitale** **[PROPOSTA]**.
 
 ### 5.2 Movimento **[PROPOSTA]**
@@ -240,7 +240,7 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 ### 5.3 Valori delle unità speciali
 - **Generale** = vale 2 soldati **[REGOLA]**, e conta per la Popolarità se nella Capitale.
 - **Mercenario** = 1 soldato **permanente** ma **di ventura** (150 monete) **[REGOLA]**.
-- **Guarnigione** = 2 soldati temporanei (1 turno) **[REGOLA]**.
+- **Guarnigione** = 3 soldati di rinforzo **permanenti** (truppe normali) **[REGOLA]**.
 
 #### La ventura **[REGOLA]**
 Un mercenario è un soldato come gli altri **dappertutto**: presidio minimo (§5), spostamenti,
@@ -292,14 +292,14 @@ dove indicato.
 |---|---|---|
 | **Strada** | 1 Pietra + 1 soldato | Collega due province controllate adiacenti. |
 | **Nave** | 2 Legno + 2 soldati | Solo su provincia **costiera**. Portata di mare **12**, carico **8** soldati (§9.2). |
-| **Capitale** | 5 soldati + 500 monete | **Conta come una Città a tutti gli effetti** (difesa **+1**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. |
+| **Capitale** | 500 monete (0 soldati) | I regni **non partono** con una Capitale: la prima si costruisce al turno 1. **Conta come una Città a tutti gli effetti** (difesa **+1**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. **Spostabile** su una provincia propria per altre **500 monete** (la vecchia sede → Città). Conquistando una Capitale nemica: se non ne hai una è tua; se ne hai già una scegli se promuoverla (la vecchia → Città) o lasciarla Città. |
 | **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 1000 monete | Capitale secondaria (collegamento locale). Difesa **+1**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
 | **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 2000 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+3**. Ogni turno: +5 soldati **oppure** +1 Generale. |
 | **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 4000 monete | Solo su provincia **costiera**. Portata di mare **170**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
 | **Mercato** | 4 soldati + 800 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
 | **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 500 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
 | **Mercenario** | 150 monete | +1 soldato **permanente**, ma di ventura: in battaglia vale meno di un suddito e rende un numero incerto (§5.3, §9). |
-| **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +2 soldati temporanei (1 turno). |
+| **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +3 soldati di rinforzo permanenti (truppe normali). |
 | **Spia** | 300 monete | Perlustra per **3 turni** una provincia lontana e le sue limitrofe: se ne vedono i **proprietari**, non le truppe (§9.3). |
 
 **Interpretazioni [PROPOSTA]:**
@@ -521,16 +521,27 @@ terreno — solo pittura, come la vista per fede. I **bot** leggono lo stesso ca
 essere in pianura.
 
 **Attrito (perdite), calcolato sulle TRUPPE REALI (le mura spostano la probabilità, non fanno
-vittime extra):**
-- `muBase = 0.8 · L/(W+L)` (W, L = truppe di vincitore/perdente) → più le forze sono simili, più
-  il vincitore perde.
-- `muAttrito = +0.03 · ln(1 + A/10)` se vince l'attaccante (freno anti-valanga); 0 se vince il difensore.
-- Variabilità legata all'incertezza `I = 4·P_A·P_D`. Perdite del vincitore
-  `C = min(W−1, round(W·muF))` → al vincitore resta sempre **≥ 1**.
+vittime extra).** Tutto ruota attorno all'**EQUILIBRIO** `I = 4·P_A·P_D` (0 = esito scontato,
+1 = perfetto 50/50): **uno scontro serrato è un bagno di sangue per tutti, uno squilibrato costa
+poco a chi vince e polverizza chi perde**. Ogni media porta un tiro casuale `z ~ U(−1,1)` che
+**garantisce imprevedibilità sempre**, anche in battaglia squilibrata (sposta l'entità, non il vincitore).
+- **[REGOLA] Perdite del VINCITORE** (`W` = sue truppe): `lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX −
+  WIN_LOSS_MIN)·I` → `muF = clamp(lossW·(1 + CASUALTY_SPREAD·z), 0, 0.95)` → `C = min(W−1,
+  round(W·muF))`, al vincitore resta sempre **≥ 1**. 20-contro-13 (I alto) dissangua chi vince e
+  lo lascia con un pugno di uomini; 20-contro-5 (I basso) lo lascia quasi intatto. 5-contro-2 non
+  dà più **sempre** "1 caduto".
 - **Attaccante vince** → difensore azzerato, entrano `A−C`. **[REGOLA] Le costruzioni NON
   vengono rase**: Capitale/Città/Fortezza/Mercato/Generale/navi restano sulla provincia e
-  cambiano semplicemente proprietario (e colore). **Difensore regge** → l'attaccante perde
-  **tutte** le impegnate, il difensore tiene `D−C`.
+  cambiano semplicemente proprietario (e colore).
+- **[REGOLA] Difensore regge → l'attaccante RIPIEGA, non è più annientato.** In una disfatta
+  di **terra** torna alla provincia di partenza una **frazione** delle truppe impegnate, tanto
+  più grande quanto più la battaglia era pari (quindi **scala con la taglia dell'armata**):
+  `survL = ROUT_SURV_MIN + (ROUT_SURV_MAX − ROUT_SURV_MIN)·I` → `surv = clamp(round(A·survL·(1 +
+  CASUALTY_SPREAD·z)), 0, A−1)`. Disfatta netta (8-contro-3 perso) → **1-2 sbandati**; scontro pari
+  perso (20-contro-13) → **3-7**. Rientrano coi mercenari (le perdite colpiscono prima la ventura).
+  Il tetto `A−1` impone almeno un caduto; la **rotta totale** (0 superstiti) esce solo nella coda
+  bassa, quindi **di rado**. Il difensore tiene `D−C`. Lo **sbarco** (§9.2) resta **totale**:
+  chi non conquista la spiaggia è perduto con la nave, senza ritirata.
 - **Strade**: una strada appartiene al colore di chi l'ha costruita. La conquista di UNA delle
   due province che collega **non la distrugge**: sparisce solo quando **entrambe** le province
   sono passate a un colore diverso da quello della strada.
@@ -539,10 +550,22 @@ vittime extra):**
   Capitale: cattolica, ortodossa, sunnita, sciita…). Vale per **ogni** regno, sia contro un altro
   regno sia sulle **terre di nessuno**, e vale per l'attacco via terra, per lo sbarco e per lo
   sbarco d'editto (crociata). Nessuna conversione se il conquistatore non ha Capitale (niente
-  religione di stato) o se la provincia ha già quella fede. Conseguenze: le neutrali convertite
+  religione di stato). Conseguenze: le neutrali convertite
   smettono di razziare un regno della stessa fede (§terre di nessuno), gli obiettivi di prestigio
   per famiglia cambiano conto, e perdere la Capitale può ridipingere la fede di tutto l'impero
   alla conquista successiva.
+- **[REGOLA] La conquista FISSA la fede**: una provincia presa tiene la fede del regno che l'ha
+  conquistata anche attraverso gli **scismi** futuri — la Riforma o il Grande Scisma non la
+  ridipingono più. Il vincolo si mette a **ogni** conquista (pure quando la fede non cambia perché
+  già dello stesso credo) e sopravvive al salvataggio; cade solo se un altro regno riconquista la
+  provincia, che allora prende la fede del nuovo padrone. Serve a non veder cambiare colore a una
+  provincia appena presa solo perché ricade nel rettangolo geografico di uno scisma.
+- **[REGOLA] Poche confessioni definitive** (leggibilità): cattolici, protestanti, ortodossi;
+  sunniti, sciiti; induisti, buddhisti; animisti e pagani nelle terre remote; culti nativi nelle
+  Americhe. I sotto-scismi storici (anglicani, calvinisti, vecchi credenti, wahhabiti) sono stati
+  accorpati e la Riforma produce **solo** i protestanti; le fedi senza province in gioco (ebrei,
+  shintoisti) sono state ritirate. Un dato d'archivio che le nomina si legge come la fede in cui
+  sono confluite (Religions.LEGACY).
 
 ### 9.2 Mare: portata, carico, sbarco **[REGOLA]**
 

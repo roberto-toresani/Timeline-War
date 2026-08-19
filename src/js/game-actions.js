@@ -146,11 +146,17 @@
     // e alla fine di ogni giro completo: alza il presidio di chi è sotto la quota
     // del decennio e non tocca nient'altro — una provincia conquistata non è più
     // neutrale, quindi esce da qui da sola.
-    function garrisonNeutrals() {
+    // `skip` = le province neutrali che hanno RAZZIATO in questo stesso giro
+    // (neutralRaids): NON si riforniscono, così la razzia costa i loro veri uomini
+    // e la sconfitta lascia il segno (regola dell'utente). Ripiano solo il decennio
+    // dopo, con la crescita lenta di sempre.
+    function garrisonNeutrals(skip) {
         const target = GR().neutralGarrison(R().turn());
+        const raided = skip instanceof Set ? skip : new Set(skip || []);
         let province = 0, soldati = 0;
         E().allPaths().forEach(path => {
             if (E().owner(path)) return;
+            if (raided.has(path.id)) return;
             const cur = E().countPiece(path, 'soldato');
             const delta = Math.min(target - cur, roomFor(path));
             if (delta <= 0) return;
@@ -170,8 +176,9 @@
     // neutrale coi superstiti. Se perde, il difensore incassa solo i caduti.
     // Restituisce l'elenco delle razzie (con le province, per la nebbia §3).
     function neutralRaids(turn) {
-        if (typeof Religions === 'undefined') return { razzie: [], perse: 0 };
+        if (typeof Religions === 'undefined') return { razzie: [], perse: 0, raided: [] };
         const razzie = [];
+        const raided = [];
         E().allPaths().forEach(np => {
             if (E().owner(np)) return;                       // solo terre di nessuno
             const nf = E().religion(np);
@@ -205,9 +212,16 @@
             if (!res) return;
 
             // Gli attaccanti lasciano comunque la provincia neutrale (resta il presidio).
+            // Sono uomini VERI (regola dell'utente): partiti, non tornano — né in
+            // vittoria (marciano sulla provincia presa) né in sconfitta (cadono in
+            // battaglia). La provincia va perciò segnata come `raided`, così il
+            // rifornimento neutrale di questo stesso giro NON la ripiana: la razzia
+            // le è costata i suoi soldati e resta scoperta fino al decennio dopo.
             E().addPiece(np, 'soldato', -attaccanti);
+            raided.push(np.id);
 
             let esito;
+            let conversione = null;
             if (res.attackerWins) {
                 // La provincia RITORNA NEUTRALE coi superstiti: le costruzioni
                 // restano (come in una conquista normale), cambia solo il colore.
@@ -215,9 +229,32 @@
                 const difensore = R().players().find(p => p.name === difOwner);
                 if (difensore && difensore.temporanei) delete difensore.temporanei[tp.id];
                 E().setOwner(tp, null);
+                // Una CAPITALE non sopravvive in terra di nessuno: lì non governa
+                // più nessuno. Si declassa a Città, esattamente come una Capitale
+                // nemica conquistata (vedi applyBattleOutcome) — così
+                // `getCapitalPathFor` non trova mai un seggio appeso a una
+                // provincia senza padrone. Senza questa riga il regno razziato
+                // restava senza Capitale MA con la pedina ancora sulla mappa:
+                // niente Popolarità, niente raccolto, niente reclute, e nessun
+                // modo di capire perché. È il blocco definitivo.
+                const seggio = E().countPiece(tp, 'capitale');
+                if (seggio > 0) {
+                    E().addPiece(tp, 'capitale', -seggio);
+                    E().addPiece(tp, 'citta', 1);
+                }
                 E().addPiece(tp, 'soldato', res.attackerSurvivors);
                 E().setMerc(tp, 0);           // i contratti sono morti col regno che li pagava
                 E().setArmyColor(tp, null);
+                // LA FEDE SEGUE LA SPADA anche per le terre di nessuno (regola
+                // dell'utente): la provincia presa prende la confessione della
+                // neutrale che l'ha razziata. Un presidio musulmano che sfonda un
+                // confine cattolico lascia dietro di sé una provincia musulmana.
+                // Nessun lock: torna neutrale e resta soggetta agli scismi come le
+                // altre terre di nessuno.
+                if (nf && E().religion(tp) !== nf) {
+                    conversione = { da: E().religion(tp) || null, a: nf, label: Religions.label(nf) };
+                    E().setReligion(tp, nf);
+                }
                 pruneRoadsTouching(tp.id);
                 esito = 'riconquistata';
             } else {
@@ -239,11 +276,12 @@
                 perditeDifensore: res.attackerWins ? difTruppe : (difTruppe - res.defenderSurvivors),
                 superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
                 battle: res,
+                conversione,
                 coloreDifensore: (R().players().find(p => p.name === difOwner) || {}).color || null
             });
         });
         if (razzie.length) E().redrawRoads();
-        return { razzie, perse: razzie.filter(r => r.esito === 'riconquistata').length };
+        return { razzie, perse: razzie.filter(r => r.esito === 'riconquistata').length, raided };
     }
 
     function isMyTurn(player) {
@@ -411,6 +449,7 @@
         player.fase = PHASES[0];
         player.spostamentoFatto = false;
         player.conquista = null;
+        player.capitalePresa = null;
 
         return done('Turno di ' + player.name, { produzione: prod });
     }
@@ -428,7 +467,7 @@
         const forzate = player ? forcePendingBound(player) : 0;
         // Conquista lasciata a metà: i superstiti restano tutti nella provincia
         // presa (è già la situazione sulla mappa), si chiude solo la pratica.
-        if (player) { player.conquista = null; expireTemporaries(player); }
+        if (player) { player.conquista = null; player.capitalePresa = null; expireTemporaries(player); }
 
         const idx = ordine.indexOf(R().turnoDi());
         const primo = R().primoDelGiro();
@@ -453,7 +492,9 @@
             razzie = neutralRaids(R().turn());
             // Nuovo decennio: le terre di nessuno si rinforzano se è scattata la
             // soglia dei 5 turni (garrisonNeutrals alza solo chi è sotto quota).
-            neutrali = garrisonNeutrals();
+            // Chi ha appena razziato è ESCLUSO: i suoi uomini sono partiti davvero e
+            // la provincia resta scoperta fino al prossimo giro (regola dell'utente).
+            neutrali = garrisonNeutrals(razzie.raided);
             const nuovoPrimo = (primo + 1) % ordine.length;
             R().setTurnState(ordine[nuovoPrimo], ordine, nuovoPrimo);
         } else {
@@ -698,6 +739,94 @@
             Object.assign({ prov: provId }, fondazione ? { fondazione } : null));
     }
 
+    // Trasloco fisico del seggio: la vecchia Capitale diventa Città (non si rade
+    // nulla — l'insediamento resta, cambia solo grado), la nuova provincia diventa
+    // Capitale. È l'UNICO punto che sposta il seggio: lo chiamano sia lo
+    // spostamento volontario (moveCapital) sia la promozione di una Capitale presa
+    // (resolveCapital), così le due strade non possono divergere. `oldPath` può
+    // essere null (adozione di una prima Capitale conquistata: non c'è vecchia
+    // sede da declassare).
+    function seatCapital(player, oldPath, newPath) {
+        if (oldPath && oldPath.id !== newPath.id) {
+            E().addPiece(oldPath, 'capitale', -E().countPiece(oldPath, 'capitale'));
+            E().addPiece(oldPath, 'citta', 1);
+            E().setArmyColor(oldPath, player.color);
+            E().redrawProvince(oldPath);
+        }
+        // La provincia presa poteva essere stata declassata a Città un attimo prima
+        // (default della conquista): tolgo la Città prima di posare la Capitale, così
+        // l'esclusività Capitale/Città/Fortezza resta rispettata.
+        E().addPiece(newPath, 'citta', -E().countPiece(newPath, 'citta'));
+        if (E().countPiece(newPath, 'capitale') === 0) E().addPiece(newPath, 'capitale', 1);
+        E().setArmyColor(newPath, player.color);
+        E().redrawProvince(newPath);
+    }
+
+    // Sposta la Capitale su una provincia propria (500 monete). La vecchia sede
+    // diventa Città. Non si ridà la strada gratuita — è un bonus di fondazione,
+    // non di trasloco.
+    function moveCapital(player, provId) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const cap = R().getCapitalPathFor(player);
+        if (!cap) return fail('Non hai ancora una Capitale: prima costruiscine una.');
+        const path = E().path(provId);
+        if (!path) return fail('Provincia sconosciuta.');
+        if (E().owner(path) !== player.name) return fail('Puoi spostare la Capitale solo su una tua provincia.');
+        if (path.id === cap.id) return fail('La Capitale è già qui.');
+        // Esclusività degli insediamenti (§): dove c'è già una Città o una Fortezza
+        // non si posa la Capitale.
+        if (E().countPiece(path, 'citta') > 0 || E().countPiece(path, 'fortezza') > 0) {
+            return fail('Qui c\'è già un insediamento: scegli una provincia libera.');
+        }
+        const cost = GR().COSTS.capitale;   // { monete: 500 }
+        const afford = GR().canAfford(player, cost, spare(path));
+        if (!afford.ok) return fail('Non puoi permetterti lo spostamento: ' + GR().missingText(afford.missing) + '.');
+
+        pay(player, cost, path);
+        seatCapital(player, cap, path);
+
+        let fondazione = null;
+        if (root.Chronicle) {
+            fondazione = root.Chronicle.foundCapital(R().provinceLabel(path), R().turn(), player.name);
+            fondazione.colore = player.color;
+            fondazione.id = path.id;
+        }
+        E().refresh();
+        E().save();
+        return done('La Capitale si sposta a ' + R().provinceLabel(path) + ': ' +
+            R().provinceLabel(cap) + ' resta come Città.',
+            Object.assign({ prov: provId, provs: [provId, cap.id] }, fondazione ? { fondazione } : null));
+    }
+
+    // Decide la sorte di una Capitale nemica appena conquistata (player.capitalePresa).
+    // Di default è già stata declassata a Città (applyBattleOutcome), quindi lo
+    // stato è consistente: qui `promuovi=true` la promuove a Capitale ufficiale del
+    // regno (e la vecchia diventa Città), senza costi. `promuovi=false` la lascia
+    // Città. In entrambi i casi si chiude la pratica.
+    function resolveCapital(player, promuovi) {
+        const c = player.capitalePresa;
+        if (!c) return fail('Non c\'è nessuna Capitale da decidere.');
+        const to = E().path(c.toId);
+        if (!to || E().owner(to) !== player.name) { player.capitalePresa = null; return done('Deciso.'); }
+        let msg = R().provinceLabel(to) + ' resta una Città.';
+        let fondazione = null;
+        if (promuovi) {
+            const old = R().getCapitalPathFor(player);   // la Capitale attuale (diversa da `to`, che ora è Città)
+            seatCapital(player, old, to);
+            msg = R().provinceLabel(to) + ' è ora la Capitale del regno' +
+                (old && old.id !== to.id ? ': ' + R().provinceLabel(old) + ' torna una Città.' : '.');
+            if (root.Chronicle) {
+                fondazione = root.Chronicle.foundCapital(R().provinceLabel(to), R().turn(), player.name);
+                fondazione.colore = player.color;
+                fondazione.id = to.id;
+            }
+        }
+        player.capitalePresa = null;
+        E().refresh();
+        E().save();
+        return done(msg, Object.assign({ prov: c.toId }, fondazione ? { fondazione } : null));
+    }
+
     // Strada fra due province proprie adiacenti via terra (§6).
     function buildRoad(player, aId, bId) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
@@ -728,8 +857,8 @@
             (gratis ? ' (gratuita).' : '.'), { prov: aId, prov2: bId });
     }
 
-    // Reclutamento (§5.3). Due unità, due nature opposte:
-    //   Guarnigione — 2 soldati che scadono a fine turno (expireTemporaries).
+    // Reclutamento (§5.3). Due unità, entrambe permanenti:
+    //   Guarnigione — 3 soldati di rinforzo, truppe normali che restano.
     //   Mercenario  — 1 soldato che RESTA per sempre, ma è di ventura: entra in
     //                 `data-merc` e da lì pesa su ogni battaglia della provincia
     //                 finché non muore o non viene mandato altrove (§9).
@@ -744,7 +873,7 @@
         const afford = GR().canAfford(player, cost, spare(path));
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
-        const n = (type === 'guarnigione') ? 2 : 1;
+        const n = (type === 'guarnigione') ? 3 : 1;
         const room = roomFor(path);
         if (n > room) return fail(R().provinceLabel(path) + ' non regge altri soldati.');
 
@@ -752,15 +881,15 @@
         E().addPiece(path, 'soldato', n);
         E().setArmyColor(path, player.color);
 
-        const temporanea = GR().TEMPORARY.indexOf(type) >= 0;
-        if (temporanea) player.temporanei[provId] = (player.temporanei[provId] || 0) + n;
-        else E().addMerc(path, n);
+        // Il Mercenario entra in `data-merc` (ventura, §9); la Guarnigione è
+        // rinforzo puro — soldati normali che restano, niente da segnare.
+        if (type === 'mercenario') E().addMerc(path, n);
 
         E().redrawProvince(path);
         E().refresh();
         E().save();
-        if (temporanea) {
-            return done('+' + n + ' soldati temporanei in ' + R().provinceLabel(path) + ' (scadono a fine turno).',
+        if (type === 'guarnigione') {
+            return done('+' + n + ' soldati di rinforzo in ' + R().provinceLabel(path) + '.',
                 { prov: provId });
         }
         // Il mercenario si paga due volte: una in monete, una in affidabilità. La
@@ -1222,15 +1351,56 @@
         return { da: prima || null, a: fede, label: Religions.label(fede) };
     }
 
+    // ---------- LA VENDETTA (rancore) ----------
+    // Un regno non dimentica chi gli ha strappato una provincia che CONTAVA. Il
+    // torto si registra qui — l'unico punto in cui una provincia cambia padrone —
+    // sul record del regno DERUBATO, e il bot lo rilegge per tornare a bussare
+    // dov'è stato colpito (js/bot.js, grudgeAgainst). Una provincia spoglia non
+    // entra nel rancore: la vendetta è per il prezioso o lo strategico (regola
+    // dell'utente), quindi il peso misura QUANTO brucia perderla.
+    const GRUDGE_MAX = 8;
+    function grudgeWorth(to) {
+        if (E().countPiece(to, 'capitale') > 0) return 3;          // il torto massimo
+        if (E().countPiece(to, 'citta') > 0 || E().countPiece(to, 'fortezza') > 0) return 2;
+        if (R().resourceKeyOf && R().resourceKeyOf(to)) return 1;  // una risorsa collegabile
+        return 0;
+    }
+    // Va chiamata PRIMA di cambiare proprietario/costruzioni: legge la provincia
+    // com'era del difensore (una Capitale ancora Capitale, non già declassata).
+    function recordGrudge(defender, to, aggressor) {
+        if (!defender) return;                                     // nessuno da vendicare (neutrale)
+        const peso = grudgeWorth(to);
+        if (!peso) return;
+        if (!Array.isArray(defender.rancore)) defender.rancore = [];
+        defender.rancore = defender.rancore.filter(g => g.prov !== to.id);   // un rancore per provincia
+        defender.rancore.push({ prov: to.id, chi: aggressor, peso, turno: R().turn() });
+        while (defender.rancore.length > GRUDGE_MAX) defender.rancore.shift();
+    }
+    function clearGrudge(winner, provId) {
+        if (winner && Array.isArray(winner.rancore) && winner.rancore.length) {
+            winner.rancore = winner.rancore.filter(g => g.prov !== provId);  // ripresa: torto saldato
+        }
+    }
+
     // `mercIn` = quanti dei superstiti che entrano nella provincia presa sono di
     // ventura (§5.3). La ventura del difensore la si legge qui: se perde tutto
     // sparisce con lui, se regge perde i suoi caduti per primi.
     function applyBattleOutcome(winner, to, res, defTroops, mercIn) {
         const fedeVincitore = R().stateReligionOf ? R().stateReligionOf(winner) : null;
         const mercDif = E().merc(to);
+        // CONQUISTA DI UNA CAPITALE NEMICA (§Capitale): si legge PRIMA delle
+        // mutazioni, quando `to` è ancora del difensore, se la provincia presa
+        // ospita una Capitale e se il vincitore ne ha già una propria altrove.
+        const hadEnemyCapital = res.attackerWins && E().countPiece(to, 'capitale') > 0;
+        const ownCapBefore = hadEnemyCapital ? R().getCapitalPathFor(winner) : null;
         if (res.attackerWins) {
             E().addPiece(to, 'soldato', -defTroops);
             const defender = R().players().find(p => p.name === E().owner(to));
+            // Il torto si segna col difensore ancora proprietario (la Capitale non
+            // è ancora declassata), e riprendendosi la provincia il vecchio
+            // rancore del vincitore per quella terra si spegne.
+            recordGrudge(defender, to, winner.name);
+            clearGrudge(winner, to.id);
             if (defender && defender.temporanei) delete defender.temporanei[to.id];
             E().setOwner(to, winner.name);
             E().addPiece(to, 'soldato', res.attackerSurvivors);
@@ -1239,7 +1409,25 @@
             E().setMerc(to, Math.max(0, mercIn || 0));
             E().setArmyColor(to, winner.color);
             pruneRoadsTouching(to.id);
-            return convertOnConquest(winner, to, fedeVincitore);
+            const conv = convertOnConquest(winner, to, fedeVincitore);
+            // La provincia è ora del vincitore: la sua fede resta quella del regno
+            // anche dopo gli scismi futuri (§la fede segue la spada). Vale su OGNI
+            // conquista, pure quando la fede non cambia (già dello stesso credo):
+            // il vincolo protegge comunque dallo scisma. Se il vincitore non ha
+            // religione di stato non c'è fede da fissare.
+            if (fedeVincitore) E().setReligionLock(to, true);
+            // Se il vincitore aveva già una Capitale, la presa NON può restare una
+            // seconda Capitale (getCapitalPathFor ne vuole una sola): default sicuro
+            // = declassata a Città, e si offre al giocatore (non ai bot) la
+            // promozione opzionale a Capitale ufficiale. Se il vincitore non ne
+            // aveva, la presa resta la sua prima Capitale: adozione automatica.
+            if (hadEnemyCapital && ownCapBefore) {
+                E().addPiece(to, 'capitale', -E().countPiece(to, 'capitale'));
+                E().addPiece(to, 'citta', 1);
+                E().redrawProvince(to);
+                if (!winner.bot) winner.capitalePresa = { toId: to.id };
+            }
+            return conv;
         }
         const caduti = defTroops - res.defenderSurvivors;
         E().addPiece(to, 'soldato', -caduti);
@@ -1330,6 +1518,13 @@
 
         let msg;
         let conversione = null;
+        // RITIRATA (§9): in una disfatta di TERRA i superstiti non muoiono più
+        // tutti — ripiegano sulla provincia di partenza, mercenari compresi (le
+        // perdite hanno colpito prima la ventura). Lo sbarco resta totale (§9.2):
+        // chi non conquista la spiaggia è perduto con la nave, niente ritorno.
+        const superstitiRitorno = (!res.attackerWins && !viaMare) ? res.attackerSurvivors : 0;
+        const mercRitorno = superstitiRitorno > 0
+            ? Math.max(0, mercImp - (engaged - superstitiRitorno)) : 0;
         if (res.attackerWins) {
             conversione = applyBattleOutcome(player, to, res, defTroops, mercArrivati);
 
@@ -1354,10 +1549,24 @@
                 (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
         } else {
             applyBattleOutcome(player, to, res, defTroops, 0);
-            msg = R().provinceLabel(to) + ' ha retto: perdi tutte le ' + engaged +
-                ' truppe impegnate, al difensore restano ' + res.defenderSurvivors + '.' +
-                (viaMare ? ' La ' + (scafo.tipo === 'vascello' ? 'nave da guerra' : 'nave') +
-                    ' è finita in mano al difensore.' : '');
+            if (superstitiRitorno > 0) {
+                E().addPiece(from, 'soldato', superstitiRitorno);
+                if (mercRitorno > 0) E().addMerc(from, mercRitorno);
+            }
+            const caduti = engaged - superstitiRitorno;
+            msg = superstitiRitorno > 0
+                ? R().provinceLabel(to) + ' ha retto: ' + superstitiRitorno +
+                  (superstitiRitorno === 1 ? ' superstite ripiega' : ' superstiti ripiegano') +
+                  ' su ' + R().provinceLabel(from) + ' (' + caduti +
+                  (caduti === 1 ? ' caduto' : ' caduti') + '), al difensore restano ' +
+                  res.defenderSurvivors + '.'
+                : R().provinceLabel(to) + ' ha retto: le ' + engaged +
+                  ' truppe impegnate sono perdute' + (viaMare ? ' con la nave' : '') +
+                  ', al difensore restano ' + res.defenderSurvivors + '.';
+            if (viaMare) {
+                msg += ' La ' + (scafo.tipo === 'vascello' ? 'nave da guerra' : 'nave') +
+                    ' è finita in mano al difensore.';
+            }
         }
 
         E().redrawProvince(from);
@@ -1369,7 +1578,7 @@
         // Il conto dei caduti in chiaro: la UI non deve ricavarlo da sé.
         // Vince l'attaccante → il difensore perde tutto; vince il difensore →
         // l'attaccante perde tutte le truppe impegnate (§9).
-        const perditeAttaccante = res.attackerWins ? res.losses : engaged;
+        const perditeAttaccante = res.attackerWins ? res.losses : (engaged - superstitiRitorno);
         const perditeDifensore = res.attackerWins ? defTroops : (defTroops - res.defenderSurvivors);
 
         // Eco storica: se in questa provincia, in questo decennio, si è davvero
@@ -1471,41 +1680,74 @@
     // province proprie: è il classico "riposizionamento" del Risiko, non un
     // teletrasporto. Almeno 1 soldato resta sempre a presidiare la partenza.
 
-    function ownReachable(player, fromId) {
+    // Lo spostamento avviene fra due province CONFINANTI (regola dell'utente):
+    // non più a catena attraverso le province proprie, ma un solo confine di
+    // terra. Qui le mete valide di `fromId`: i vicini di terra che sono tuoi.
+    function ownAdjacent(player, fromId) {
         const owned = new Set(E().ownedPaths(player.name).map(p => p.id));
         if (!owned.has(fromId)) return new Set();
-        const seen = new Set([fromId]);
-        const queue = [fromId];
-        while (queue.length) {
-            const cur = queue.shift();
-            E().landNeighbors(cur).forEach(id => {
-                if (seen.has(id) || !owned.has(id)) return;
-                seen.add(id);
-                queue.push(id);
-            });
-        }
-        seen.delete(fromId);
-        return seen;
+        return new Set(E().landNeighbors(fromId).filter(id => owned.has(id)));
     }
 
     function moveTargets(player, fromId) {
-        return Array.from(ownReachable(player, fromId))
-            .map(id => E().path(id))
-            .filter(Boolean)
-            .map(p => ({ id: p.id, label: R().provinceLabel(p), troops: E().countPiece(p, 'soldato') }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+        const seen = new Set();
+        const card = (p, viaMare, scafi) => ({
+            id: p.id, label: R().provinceLabel(p),
+            troops: E().countPiece(p, 'soldato'),
+            // Come per gli sbarchi (§9.2): via terra o via nave. Un rinforzo via
+            // mare porta al massimo il CARICO dello scafo, oltre al presidio (§5).
+            viaMare: !!viaMare,
+            scafi: viaMare ? scafi.slice() : [],
+            scafo: viaMare ? scafi[scafi.length - 1] : null,
+            carico: viaMare ? E().shipCapacity(scafi[scafi.length - 1]) : null
+        });
+
+        const out = [];
+        // Via terra: le CONFINANTI mie (requisito dell'utente: un solo confine).
+        ownAdjacent(player, fromId).forEach(id => {
+            const p = E().path(id);
+            if (p) { seen.add(id); out.push(card(p, false, null)); }
+        });
+
+        // Via mare: con una nave ancorata qui si rinforza una PROPRIA costiera
+        // entro portata (regola dell'utente, il caso tipico è dopo uno sbarco:
+        // la nave è ora sulla costa presa e riparte da lì). È un rinforzo, non
+        // un attacco — la meta dev'essere già tua. A parità di meta si tengono
+        // tutti gli scafi che ci arrivano, il più capiente fa da default.
+        const from = E().path(fromId);
+        if (from && E().owner(from) === player.name) {
+            const best = new Map();
+            E().ships(from).forEach(h => {
+                const r = E().shipRange(h.tipo);
+                if (!(r > 0)) return;
+                E().seaReach(fromId, r).forEach(id => {
+                    if (seen.has(id)) return;                       // già confinante via terra
+                    const p = E().path(id);
+                    if (!p || E().owner(p) !== player.name) return; // solo province MIE
+                    let list = best.get(id);
+                    if (!list) { list = []; best.set(id, list); }
+                    if (list.indexOf(h.tipo) < 0) {
+                        list.push(h.tipo);
+                        list.sort((a, b) => E().shipCapacity(a) - E().shipCapacity(b));
+                    }
+                });
+            });
+            best.forEach((tipi, id) => out.push(card(E().path(id), true, tipi)));
+        }
+
+        return out.sort((a, b) => a.label.localeCompare(b.label));
     }
 
     // Le province DA CUI si può partire: l'altra metà dello spostamento. Serve
     // alla plancia per accenderle sulla mappa PRIMA che la partenza sia scelta
     // (due clic: partenza, arrivo), così non si resta incollati alla provincia
-    // dove è finito l'attacco. Basta un vicino di terra proprio — se ce l'ha,
-    // ownReachable non è vuoto — e almeno un soldato oltre il presidio (§5).
+    // dove è finito l'attacco. Vale se ha uomini oltre il presidio (§5) e almeno
+    // una meta: una confinante propria via terra, OPPURE una propria costa che
+    // una nave ancorata qui raggiunge (una testa di ponte oltremare parte da qui
+    // anche se non confina con nulla di suo).
     function moveOrigins(player) {
-        const owned = E().ownedPaths(player.name);
-        const mie = new Set(owned.map(p => p.id));
-        return owned
-            .filter(p => spare(p) > 0 && E().landNeighbors(p.id).some(id => mie.has(id)))
+        return E().ownedPaths(player.name)
+            .filter(p => spare(p) > 0 && moveTargets(player, p.id).length > 0)
             .map(p => ({
                 id: p.id, label: R().provinceLabel(p),
                 troops: E().countPiece(p, 'soldato'), mobili: spare(p)
@@ -1513,7 +1755,7 @@
             .sort((a, b) => a.label.localeCompare(b.label));
     }
 
-    function finalMove(player, fromId, toId, n) {
+    function finalMove(player, fromId, toId, n, scafoVoluto) {
         const turnErr = requirePhase(player, 'sposta'); if (turnErr) return turnErr;
         if (player.spostamentoFatto) return fail('Lo spostamento di fine turno si fa una volta sola: l\'hai già fatto.');
 
@@ -1523,18 +1765,42 @@
             return fail('Lo spostamento avviene fra due province che possiedi.');
         }
         if (fromId === toId) return fail('Partenza e arrivo sono la stessa provincia.');
-        if (!ownReachable(player, fromId).has(toId)) {
-            return fail(R().provinceLabel(to) + ' non è raggiungibile da ' + R().provinceLabel(from) +
-                ' passando solo per province tue.');
-        }
+
+        // Confinano via terra? È uno spostamento normale. Se no, serve una nave
+        // ancorata alla partenza che copra la distanza (§9.2): il rinforzo
+        // navale dopo uno sbarco. Come per l'attacco, `scafoVoluto` fissa la nave
+        // quando è il giocatore a sceglierla; senza, si prende il meno capiente
+        // che basti (non si sciupa un Veliero dove arriva una Nave).
+        const viaMare = !E().areLandAdjacent(fromId, toId);
+        let scafo = null;
 
         const mobili = spare(from);
         n = Math.floor(n);
         if (!(n > 0)) return fail('Indica quanti soldati spostare.');
         if (!mobili) return garrisonFail(from);
-        if (n > mobili) {
-            return fail('Da ' + R().provinceLabel(from) + ' puoi muoverne al massimo ' + mobili +
-                ': uno resta sempre a presidiare.');
+
+        if (viaMare) {
+            scafo = hullForLanding(from, toId, n, scafoVoluto);
+            if (!scafo) {
+                const arriva = E().ships(from)
+                    .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
+                    .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); });
+                if (!arriva.length) {
+                    return fail(R().provinceLabel(to) + ' non confina con ' + R().provinceLabel(from) +
+                        ' e nessuna nave ancorata lì la raggiunge.');
+                }
+                const capMax = Math.max.apply(null, arriva.map(h => E().shipCapacity(h.tipo)));
+                return fail('La nave regge al massimo ' + capMax + ' uomini: riduci il carico.');
+            }
+        }
+
+        // Tetto: il presidio minimo sempre, e via mare anche il carico dello scafo.
+        const tetto = viaMare ? Math.min(mobili, E().shipCapacity(scafo.tipo)) : mobili;
+        if (n > tetto) {
+            return fail(viaMare
+                ? 'La nave porta al massimo ' + tetto + ' uomini da ' + R().provinceLabel(from) + '.'
+                : 'Da ' + R().provinceLabel(from) + ' puoi muoverne al massimo ' + tetto +
+                  ': uno resta sempre a presidiare.');
         }
         const room = roomFor(to);
         if (n > room) return fail(R().provinceLabel(to) + ' regge solo altri ' + room + ' soldati.');
@@ -1547,13 +1813,21 @@
         consumePlaced(player, fromId, n);
         putSoldiers(player, to, n);
         E().addMerc(to, mercMossi);
+        // La nave viaggia con gli uomini: lascia la partenza e ancora all'arrivo
+        // a carico vuoto, come nello sbarco (§9.2). Le navi sono di chi possiede
+        // la provincia, quindi basta spostare lo scafo.
+        if (viaMare && scafo) {
+            E().removeShip(from, scafo.tipo);
+            E().addShip(to, scafo.tipo, 0);
+        }
         E().redrawProvince(from);
+        E().redrawProvince(to);
         player.spostamentoFatto = true;
 
         E().refresh();
         E().save();
-        return done(n + (n === 1 ? ' soldato spostato da ' : ' soldati spostati da ') +
-            R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '. Lo spostamento del turno è speso.',
+        return done(n + (n === 1 ? ' soldato spostato' : ' soldati spostati') + (viaMare ? ' via nave' : '') +
+            ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '. Lo spostamento del turno è speso.',
             { fromId, toId });
     }
 
@@ -1771,13 +2045,13 @@
         startGame, beginTurn, endTurn,
         decree,
         deploy, deployBound, deployAllBound, undeploy,
-        build, buildRoad, recruit, attack, attackTargets,
+        build, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
         sendSpy, spyTargets, spiesOf,
         hasMarket, marketPath, tradeWithBank, setTax,
         proposeTrade, acceptTrade, refuseTrade, cancelTrade,
         tradeInbox, tradeOutbox, expireTrades,
         conquestPending, resolveConquest,
-        moveTargets, moveOrigins, finalMove, ownReachable, garrisonNeutrals, neutralRaids,
+        moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool,
