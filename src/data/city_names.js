@@ -19,8 +19,10 @@
 
 const CITY_NAMES = {
     // ---------- Isole britanniche e Irlanda ----------
-    "Home Counties": "Londra",
-    "East Anglia": "Norwich",
+    // Scelta dell'utente: Londra va in East Anglia. Home Counties prende Oxford,
+    // così Londra non compare in due province.
+    "Home Counties": "Oxford",
+    "East Anglia": "Londra",
     "West Country": "Bristol",
     "Midlands": "Coventry",
     "Lancashire": "Manchester",
@@ -44,7 +46,8 @@ const CITY_NAMES = {
     "Alsace Lorraine": "Strasburgo",
     "Burgundy": "Digione",
     "Franche Comte": "Besançon",
-    "Orleans": "Orléans",
+    // Scelta dell'utente: Parigi va qui (su questa mappa non c'è Île-de-France).
+    "Orleans": "Parigi",
     "Rhone": "Lione",
     "Provence": "Marsiglia",
     "Languedoc": "Tolosa",
@@ -146,7 +149,9 @@ const CITY_NAMES = {
     "Galicia": "Santiago de Compostela",
     "Asturias": "Oviedo",
     "Navarra": "Pamplona",
-    "Castile": "Burgos",
+    // Scelta dell'utente: Madrid va qui (la provincia "Toledo" copre la zona reale
+    // di Madrid, ma la Castiglia è la sede della capitale).
+    "Castile": "Madrid",
     "Aragon": "Saragozza",
     "Catalonia": "Barcellona",
     "Andalusia": "Siviglia",

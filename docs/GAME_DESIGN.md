@@ -146,8 +146,9 @@ giocatori, turno, storico). Salvato in localStorage/Firestore e in Save/Load.
   scorte: { pietra, legno, grano, bestiame, argilla },  // risorse accumulate
   spie: [ { prov, turno } ],   // perlustrazioni in corso (§9.3): dove e da quando.
                                // La scadenza non si salva, si calcola dal turno
-  salute:   { acquedotti, bestiariMedici, erboristerie, pozziNeri, capanniMedici },  // bool (§6.1)
-  felicita: { terme, fiereBestiame, festaRaccolto, fornitureTaverne, palchiGiostre }, // bool (§6.1)
+  // Migliorie civiche (§6.1): NON stanno sul record del regno ma sul path della
+  // Capitale (data-welfare="acquedotto,teatro"): sono opere della città, così
+  // spostare la Capitale le annulla e conquistarla le trasferisce (vedi §6.1).
   obiettivi: {                 // obiettivi del ciclo di 10 turni corrente (§10)
     primario:   { descrizione, completato },   // 6 punti
     secondario: { descrizione, completato },   // 2 punti
@@ -240,7 +241,7 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 ### 5.3 Valori delle unità speciali
 - **Generale** = vale 2 soldati **[REGOLA]**, e conta per la Popolarità se nella Capitale.
 - **Mercenario** = 1 soldato **permanente** ma **di ventura** (150 monete) **[REGOLA]**.
-- **Guarnigione** = 3 soldati di rinforzo **permanenti** (truppe normali) **[REGOLA]**.
+- **Guarnigione** = 2 soldati di rinforzo **permanenti** (truppe normali) **[REGOLA]**.
 
 #### La ventura **[REGOLA]**
 Un mercenario è un soldato come gli altri **dappertutto**: presidio minimo (§5), spostamenti,
@@ -299,7 +300,7 @@ dove indicato.
 | **Mercato** | 4 soldati + 800 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
 | **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 500 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
 | **Mercenario** | 150 monete | +1 soldato **permanente**, ma di ventura: in battaglia vale meno di un suddito e rende un numero incerto (§5.3, §9). |
-| **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +3 soldati di rinforzo permanenti (truppe normali). |
+| **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +2 soldati di rinforzo permanenti (truppe normali). |
 | **Spia** | 300 monete | Perlustra per **3 turni** una provincia lontana e le sue limitrofe: se ne vedono i **proprietari**, non le truppe (§9.3). |
 
 **Interpretazioni [PROPOSTA]:**
@@ -310,27 +311,31 @@ dove indicato.
 
 ### 6.1 Migliorie civiche — Salute e Svago **[REGOLA]**
 
-Migliorie **una tantum per regno** (non ripetibili) che alzano il **Benessere** (§8). Ogni
-categoria ha **5 migliorie, una per tipo di risorsa**; ognuna completata dà **+1 punto** al suo
-indice (max 5). Costo: **3 unità** della risorsa indicata (nient'altro). Richiedono una Capitale.
+Migliorie **una tantum** (non ripetibili) che alzano il **Benessere** (§8). Ogni categoria ha
+**5 migliorie, una per tipo di risorsa**; ognuna completata dà **+1 punto** al suo indice
+(max 5). Costo: **3 unità** della risorsa indicata (nient'altro). Si costruiscono **SULLA
+Capitale** — sono opere della città-capitale, non del regno: spostare la Capitale le **annulla**
+(non è più la stessa città); conquistare una Capitale nemica le **eredita** (restano sulla
+provincia, come le altre costruzioni). Vivono in `data-welfare` sulla provincia; le costruisce
+`GameActions.buildWelfare`, le conta `popularityFactors` (app.js) leggendo la Capitale.
 
 **Salute e sanità** → indice **Sanità**
 | Miglioria | Costo |
 |---|---|
-| Acquedotti | 3 Pietra |
-| Bestiari medici | 3 Bestiame |
-| Erboristerie | 3 Grano |
-| Pozzi neri | 3 Argilla |
-| Capanni medici | 3 Legno |
+| Acquedotto | 3 Pietra |
+| Lebbrosario | 3 Legno |
+| Ospedale | 3 Argilla |
+| Erboristeria | 3 Grano |
+| Macelleria | 3 Bestiame |
 
 **Felicità e svago** → indice **Felicità**
 | Miglioria | Costo |
 |---|---|
-| Terme | 3 Pietra |
-| Fiere del bestiame | 3 Bestiame |
-| Festa del raccolto | 3 Grano |
-| Forniture per taverne | 3 Argilla |
-| Palchi e giostre teatrali | 3 Legno |
+| Teatro | 3 Pietra |
+| Palchi e arene | 3 Legno |
+| Taverna | 3 Argilla |
+| Festa del sole | 3 Grano |
+| Fiera del bestiame | 3 Bestiame |
 
 ---
 
@@ -381,16 +386,30 @@ Es.: 2,83 → 3 · 2,5 → 2 · 4,8 → 4 · 3,9 → 4.
 - **Cibo** (su 5): province di **Grano/Bestiame** collegate, `min(5, conteggio)`. Si contano le
   **province**, non la raccolta: il ±N di risorse dato dalla Popolarità **non entra** qui
   [REGOLA, utente] — altrimenti il Benessere si nutrirebbe di sé stesso.
-- **Sanità** (su 5): numero di **migliorie di salute** completate (una per tipo di risorsa, §6.1).
-- **Felicità** (su 5): numero di **migliorie di svago** completate (una per tipo di risorsa, §6.1).
-- Sanità e Felicità non sono ancora in gioco: finché non ci sono valgono **3** (baseline neutra),
-  così le due voci non affondano il Benessere prima di esistere.
+- **Sanità** (su 5): numero di **migliorie di salute** completate sulla Capitale (una per tipo
+  di risorsa, §6.1).
+- **Felicità** (su 5): numero di **migliorie di svago** completate sulla Capitale (una per tipo
+  di risorsa, §6.1).
+- Sanità e Felicità sono **in gioco** [REGOLA, utente]: partono da **0** e si alzano costruendo
+  (§6.1). Non c'è più una baseline neutra — il Benessere parte basso e va costruito; per l'IA
+  è una leva in più (`welfarePlan` in `bot.js` spende le eccedenze in migliorie).
 - `Benessere = (Risorse + Cibo + Sanità + Felicità) / 4` → intervallo **0–5**
 
 ### Livello Tassa **[REGOLA]**
 - Leggera → **5** · Normale → **3** · Dura → **1**.
 - Trade-off: la tassa **dura** dà più monete (§7, 150) ma popolarità minima; la **leggera** dà
   meno monete (50) ma popolarità massima.
+
+### Grazia dell'insediamento **[REGOLA, utente]**
+Bonus **decrescente** alla Popolarità nei primi decenni, ancorato al **turno globale** (l'età
+del mondo, non del singolo regno): `grazia(turno) = turno > 5 ? 0 : max(0, 2 − ⌊(turno−1)/3⌋)`
+→ **turni 1-3: +2 · 4-5: +1 · 6+: 0** (dura al massimo fino al turno 5). Si somma al livello
+(dopo l'arrotondamento, prima del clamp 1–5).
+Serve perché, tolta la baseline neutra del Benessere (§6.1), un regno appena nato — senza
+strade né migliorie civiche — precipiterebbe a Popolarità 1 (−2 reclute, −2 risorse: raccolto
+zero) prima di avere i mezzi per rimediare. La grazia gli dà i decenni per costruirseli, poi
+svanisce. Vale per tutti (umano e IA), vive in `popularity.js` (`graceBonus`, passata come
+`m.turn`). Costanti `GRACE_START`/`GRACE_EVERY`/`GRACE_LAST`.
 
 ### Effetti per livello **[REGOLA]**
 | Liv | Soldati/turno | Risorse/turno | Prestigio/turno |
@@ -614,6 +633,22 @@ Barcellona, **misurati**:
 
 **Suez non esiste**: per l'Asia si passa dal Capo. Verificato sulla mappa — Barcellona→Yemen
 misura 560 unità (giro dell'Africa), non 230 (Mar Rosso).
+
+**Il pedaggio del mare (naufragi e morìa).** Una rotta lunga non è gratis: più a lungo una
+spedizione resta al largo, più il mare la logora. A **ogni** turno di navigazione si tira il
+rischio, e cresce col numero di turni passati in mare aperto — piccolo all'inizio, poi via via
+più duro:
+
+| turni in mare | esito |
+|---|---|
+| **1** | 15% di perdere il 10% della ciurma |
+| **2** | 30% di perdere il 10%, 15% di perdere il 20% |
+| **3** | 45% il 10%, 30% il 20%, 15% il 30% |
+| **…** | ogni turno aggiunge una fascia e alza le probabilità; a **7** la perdita è certa |
+
+Le perdite colpiscono i **mercenari per primi** (§5.3). Se il mare si prende tutta la ciurma è il
+**naufragio**: nave e uomini spariscono. Non c'è ritorno da una spedizione — o si approda, o si
+paga il mare — e questo è il freno che impedisce di tenere un Veliero a vagare in eterno.
 
 **Lo sbarco è la nave stessa.** Attaccare via mare significa **approdare**: la nave lascia la sua
 provincia, si porta dietro il carico e combatte nella provincia bersaglio, col terreno di

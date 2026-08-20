@@ -197,10 +197,10 @@
                             <b class="coin" id="bp-coins">—</b>
                             <i id="bp-income">—</i>
                         </span>
-                        <span class="bps-item" id="bp-soldiers-item" title="Soldati del regno">
-                            <span class="bps-ico">⚔</span>
+                        <span class="bps-item" id="bp-provinces-item" title="Province controllate: da qui nascono i rinforzi del prossimo turno (§5.1)">
+                            <span class="bps-ico">🗺</span>
                             <b id="bp-soldiers">0</b>
-                            <i id="bp-soldiers-cap">0 in Capitale</i>
+                            <i id="bp-soldiers-cap">— il prossimo turno</i>
                         </span>
                         <span class="bps-item faith" id="bp-faith-item">
                             <span class="bps-faith" id="bp-faith-state">—</span>
@@ -292,8 +292,11 @@
                     <!-- Capitale nemica presa: promuovila o lasciala Città -->
                     <div id="bp-capital-choice" class="bp-conquest" style="display:none;"></div>
 
-                    <!-- titolo e riquadro compaiono insieme: li accende renderBattle() -->
-                    <div class="bp-title" id="bp-battle-title" style="display:none;">Ultima battaglia</div>
+                    <!-- Esito dell'ultima battaglia: OPZIONALE, mai proposto da
+                         solo (richiesta dell'utente). Il pulsante compare solo
+                         se c'è una battaglia da rivedere; il riquadro resta
+                         chiuso finché non lo si apre con un click. -->
+                    <button type="button" class="bp-battle-toggle" id="bp-battle-title" style="display:none;">Vedi l'ultima battaglia</button>
                     <div id="bp-battle" class="bp-battle" style="display:none;"></div>
 
                     <!-- ---------- FASE 4 · SPOSTAMENTO ---------- -->
@@ -311,7 +314,7 @@
                          azioni: sono i numeri che si vanno a cercare. -->
                     <div id="bp-consult">
                         <details class="bp-fold" id="fold-provinces">
-                            <summary>Le mie province <span class="bp-fold-hint">clicca per selezionare · in fase 1 anche + e −</span></summary>
+                            <summary>Le tue province <span class="bp-fold-hint">clicca per selezionare · in fase 1 anche + e −</span></summary>
                             <div class="bp-fold-body">
                                 <div id="bp-province-list"></div>
                             </div>
@@ -408,7 +411,7 @@
     <script src="js/game-actions.js?v=77"></script>
     <script src="js/bot.js?v=77"></script>
     <script src="js/player-board.js?v=77"></script>
-<script src="_dev-drive.js?t=1787139369"></script>
+<script src="_dev-drive.js?t=1787239508"></script>
 </body>
 
 </html>

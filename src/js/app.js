@@ -128,6 +128,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Chi le ha mandate le ritrova scorrendo gli altri regni (tradeOutbox in
         // game-actions.js): una proposta esiste in un posto solo.
         if (!Array.isArray(p.offerte)) p.offerte = [];
+        // COMMERCI CONCLUSI (§7): lo STORICO degli scambi andati a buon fine (per
+        // riproporli al volo) e gli AVVISI in coda per il proponente, che scopre
+        // l'esito all'apertura del suo turno — stessa logica degli editti.
+        if (!Array.isArray(p.commerciStorico)) p.commerciStorico = [];
+        if (!Array.isArray(p.commerciAvvisi)) p.commerciAvvisi = [];
         // EDITTI (GameActions.decree): gli interventi dell'admin che riguardano
         // questo regno. Restano qui finché il giocatore non apre il suo turno e
         // se li vede srotolare — un editto non deve poter passare inosservato.
@@ -143,6 +148,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // regni IA, ma non fa male tenerlo per tutti (un umano semplicemente lo
         // ignora).
         if (!Array.isArray(p.rancore)) p.rancore = [];
+        // SPEDIZIONI OLTREMARE (§9.2, rotte lunghe): [{id, dir, carico, merc, x, y,
+        // turno}] — i Velieri in rotta lunga, in mare aperto fuori da ogni
+        // provincia. Ognuno porta con sé posizione (x,y in coordinate SVG), la
+        // direzione che segue e il carico. Persistono nel salvataggio come le spie.
+        if (!Array.isArray(p.spedizioni)) p.spedizioni = [];
+        // AVVISI DI MARE (§9.2): naufragi e morìa dell'equipaggio in mare aperto,
+        // in coda finché il giocatore non li ha letti — stessa logica degli editti,
+        // così un naufragio non si perde se la pagina si ricarica prima del turno.
+        if (!Array.isArray(p.spedizioniAvvisi)) p.spedizioniAvvisi = [];
         return p;
     }
 
@@ -962,6 +976,33 @@ document.addEventListener('DOMContentLoaded', () => {
         else path.removeAttribute('data-merc');
     }
 
+    // MIGLIORIE CIVICHE (§6.1): Sanità e Felicità vivono in data-welfare come
+    // lista di chiavi ("acquedotto,teatro"). Stanno sul PATH, non sul record del
+    // regno: sono costruzioni della città-capitale e viaggiano con la provincia —
+    // spostare la Capitale le lascia sulla vecchia sede (non contano più, non è la
+    // stessa città), conquistarla le regala al vincitore. Solo game-actions le
+    // mette; qui c'è il deposito e nient'altro.
+    function welfareOf(path) {
+        if (!path) return [];
+        const raw = path.getAttribute('data-welfare');
+        if (!raw) return [];
+        return raw.split(',').map(s => s.trim()).filter(k => k &&
+            typeof GameRules !== 'undefined' && GameRules.WELFARE_INDEX[k]);
+    }
+
+    function setWelfare(path, list) {
+        if (!path) return;
+        // Deduplica preservando l'ordine e scarta le chiavi sconosciute.
+        const seen = {};
+        const clean = (list || []).map(s => (s || '').trim()).filter(k => {
+            if (!k || seen[k]) return false;
+            if (typeof GameRules !== 'undefined' && !GameRules.WELFARE_INDEX[k]) return false;
+            seen[k] = 1; return true;
+        });
+        if (clean.length) path.setAttribute('data-welfare', clean.join(','));
+        else path.removeAttribute('data-welfare');
+    }
+
     // Elenco (validato, con quantita') delle figure di una provincia: [{type,count}].
     // Le navi non stanno in data-pieces: si sintetizzano dagli scafi, così chi
     // conta non deve sapere nulla di carichi e chiglie.
@@ -1141,6 +1182,60 @@ document.addEventListener('DOMContentLoaded', () => {
         injectPieceDefs(svg);
         svg.querySelectorAll('.piece-marker').forEach(m => m.remove());
         provincePaths(svg).forEach(path => renderPiecesForPath(svg, path));
+        renderExpeditions(svg);
+    }
+
+    // SPEDIZIONI OLTREMARE (§9.2, rotte lunghe): i Velieri in rotta lunga stanno in
+    // mare aperto, fuori da ogni provincia, quindi non hanno un `data-ships` su cui
+    // appoggiarsi — vivono nel record del giocatore (player.spedizioni) e qui si
+    // disegnano al loro (x,y). Solo quelle del regno che sta guardando: una
+    // spedizione nemica non si vede (come le spie, la nebbia è di chi guarda). In
+    // vista generale (nessun focus) non se ne mostra nessuna.
+    function drawExpedition(svg, exp, color) {
+        const size = 7;
+        const x = exp.x - size / 2, y = exp.y - size / 2;
+        const add = (el) => {
+            el.setAttribute('class', 'exped-marker');
+            el.setAttribute('pointer-events', 'none');
+            el.style.color = color;
+            svg.appendChild(el);
+        };
+        const use = document.createElementNS(SVG_NS, 'use');
+        use.setAttribute('href', '#pc-vascello');
+        use.setAttributeNS(XLINK_NS, 'href', '#pc-vascello');
+        use.setAttribute('x', x); use.setAttribute('y', y);
+        use.setAttribute('width', size); use.setAttribute('height', size);
+        add(use);
+        // Il carico a bordo, nel pallino, come su ogni scafo (§9.2).
+        const bx = x + size * 0.9, by = y + size * 0.1, br = size * 0.42;
+        const c = document.createElementNS(SVG_NS, 'circle');
+        c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
+        c.setAttribute('fill', '#fff');
+        c.setAttribute('stroke', PIECE_INK);
+        c.setAttribute('stroke-width', size * 0.11);
+        add(c);
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('x', bx); t.setAttribute('y', by);
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('dominant-baseline', 'central');
+        t.setAttribute('font-size', br * 1.5);
+        t.setAttribute('font-weight', 'bold');
+        t.setAttribute('font-family', 'sans-serif');
+        t.setAttribute('fill', 'currentColor');
+        t.textContent = exp.carico;
+        add(t);
+    }
+
+    function renderExpeditions(svg) {
+        svg.querySelectorAll('.exped-marker').forEach(m => m.remove());
+        const focus = PLAYERS.find(p => p.id === selectedTabPlayerId);
+        if (!focus || !Array.isArray(focus.spedizioni)) return;
+        const color = focus.color || PIECE_INK;
+        focus.spedizioni.forEach(exp => {
+            if (typeof exp.x === 'number' && typeof exp.y === 'number') {
+                drawExpedition(svg, exp, color);
+            }
+        });
     }
 
     // Snapshot { provinceId: { t:"soldato:3,citta:1", c:"#e6194B" } } delle province con figure.
@@ -1149,10 +1244,12 @@ document.addEventListener('DOMContentLoaded', () => {
         provincePaths(svg).forEach(p => {
             const t = p.getAttribute('data-pieces');
             const s = p.getAttribute('data-ships');   // scafi, §9.2
-            if (!t && !s) return;
+            const w = p.getAttribute('data-welfare'); // migliorie civiche, §6.1
+            if (!t && !s && !w) return;
             const entry = {};
             if (t) entry.t = t;
             if (s) entry.s = s;
+            if (w) entry.w = w;
             const m = p.getAttribute('data-merc');   // mercenari, §5.3
             if (m) entry.m = m;
             const c = p.getAttribute('data-pc-color');
@@ -1169,10 +1266,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => {
             const v = map[p.id];
-            let str = '', ships = '', color = '', merc = 0;
+            let str = '', ships = '', color = '', merc = 0, welfare = '';
             if (v && typeof v === 'object' && !Array.isArray(v)) {
                 str = v.t || ''; ships = v.s || ''; color = v.c || '';
                 merc = parseInt(v.m, 10) || 0;
+                welfare = v.w || '';
             }
             else if (typeof v === 'string') str = v;
             else if (Array.isArray(v)) str = v.join(',');
@@ -1199,6 +1297,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const land = serializePieces(arr);   // filtra da sé le voci-nave
             if (land) p.setAttribute('data-pieces', land); else p.removeAttribute('data-pieces');
             setShips(p, hulls);
+            setWelfare(p, welfare ? welfare.split(',') : []);   // migliorie civiche, §6.1
             setMerc(p, merc);   // si clampa da sé sui soldati appena applicati (§5.3)
             if ((land || hulls.length) && color) p.setAttribute('data-pc-color', color);
             else p.removeAttribute('data-pc-color');
@@ -1504,6 +1603,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nome = (PIECES[other.type] && PIECES[other.type].nome) || other.type;
                 return { ok: false, msg: `Qui c'è già ${nome}: Capitale, Città e Fortezza si escludono a vicenda.` };
             }
+        }
+        // Il Mercato non convive con un insediamento (regola dell'utente): dove c'è
+        // una Capitale, una Città o una Fortezza non si costruisce un Mercato, e
+        // per la stessa esclusività non si posa un insediamento dove c'è già un Mercato.
+        if (type === 'mercato') {
+            const s = piecesOf(path).find(e => SETTLEMENT_GROUP.indexOf(e.type) >= 0);
+            if (s) {
+                const nome = (PIECES[s.type] && PIECES[s.type].nome) || s.type;
+                return { ok: false, msg: `Qui c'è già ${nome}: il Mercato vuole una provincia senza insediamento.` };
+            }
+        }
+        if (SETTLEMENT_GROUP.indexOf(type) >= 0 && piecesOf(path).some(e => e.type === 'mercato')) {
+            return { ok: false, msg: 'Qui c\'è già un Mercato: non convive con un insediamento.' };
         }
         // Capitale: 1 sola per regno (il "regno" e' identificato dal colore-esercito).
         if (type === 'capitale') {
@@ -2778,6 +2890,11 @@ document.addEventListener('DOMContentLoaded', () => {
             m.style.display = vis ? '' : 'none';
         });
 
+        // I Velieri in rotta lunga (§9.2) stanno in mare aperto: si ridisegnano a
+        // ogni refresh perché la loro posizione cambia di turno in turno e non
+        // vivono su un path (niente marker persistente da limitare a mostrare).
+        renderExpeditions(svg);
+
         renderPopularityPanel();
         renderGameControls();
         renderDecreeControls();
@@ -2830,6 +2947,17 @@ document.addEventListener('DOMContentLoaded', () => {
             Spies.active(me.spie, currentTurn).forEach(s => {
                 spie.add(s.prov);
                 Spies.watch(s.prov, id => NEIGHBORS_LAND[id]).forEach(id => haze.add(id));
+            });
+        }
+
+        // SPEDIZIONI OLTREMARE (§9.2): un Veliero in rotta lunga avvista, dalla sua
+        // posizione in mare aperto, tutte le coste entro la sua portata — stessa
+        // nebbia leggera della nave ancorata (bandiere, non guarnigioni).
+        if (me && Array.isArray(me.spedizioni) && me.spedizioni.length &&
+            typeof SeaRoutes !== 'undefined' && SeaRoutes.isReady(svg)) {
+            const r = SeaRoutes.rangeOf('vascello');
+            me.spedizioni.forEach(exp => {
+                SeaRoutes.reachFromPointCached(svg, exp.x, exp.y, r).forEach(id => haze.add(id));
             });
         }
 
@@ -3030,13 +3158,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (FOOD_RES.indexOf(k) >= 0) foodProv++;
         });
 
+        // Sanità e Felicità (§6.1): le migliorie civiche costruite SULLA Capitale.
+        // Ogni miglioria vale +1 punto al suo indice (max 5). Legate alla città:
+        // basta leggerle dal path della Capitale — spostarla le lascia indietro,
+        // conquistarla le trasferisce, senza codice apposta.
+        const welfare = welfareOf(capitalPath);
+        const sanita = GameRules.welfareCount(welfare, 'sanita');
+        const felicita = GameRules.welfareCount(welfare, 'felicita');
+
         return {
             enemyBorders,
             soldiers: countPiece(capitalPath, 'soldato'),   // guardia: i soldati oltre i 5
             hasGeneral: countPiece(capitalPath, 'generale') > 0,
             varieta: Object.keys(kinds).length,             // TIPI distinti collegati
             foodProv,                                       // province di Grano/Bestiame
-            tax: player.tassazione || 'normale'
+            sanita, felicita,                               // migliorie civiche (§6.1)
+            tax: player.tassazione || 'normale',
+            turn: currentTurn                               // grazia dell'insediamento (§8)
         };
     }
 
@@ -3056,6 +3194,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ricorda quali sotto-sezioni sono aperte tra un render e l'altro.
     const popOpenState = { sicurezza: false, benessere: false, tassazione: false };
 
+    // Migliorie civiche (§6.1) DENTRO la sottosezione Benessere: le due voci
+    // Sanità/Felicità non sono più solo un numero, sono i loro edifici da
+    // costruire. Ogni categoria: intestazione N/5 + i 5 edifici (uno per risorsa)
+    // come pulsanti. `buildOk` = si può agire davvero (plancia, proprio turno,
+    // fase costruisci); altrimenti i pulsanti restano lì ma spenti, così il
+    // giocatore vede cosa gli manca senza poter cliccare fuori tempo.
+    function welfareBlocksHtml(player, capital, buildOk) {
+        const built = new Set(welfareOf(capital));
+        return ['sanita', 'felicita'].map(cat => {
+            const def = GameRules.WELFARE[cat];
+            const keys = Object.keys(def.edifici);
+            const n = keys.filter(k => built.has(k)).length;
+            const btns = keys.map(key => {
+                const e = def.edifici[key];
+                const cost = GameRules.welfareCost(key);
+                const has = built.has(key);
+                let cls = 'pop-welfare-btn', title, disabled = '';
+                if (has) { cls += ' built'; title = 'Già costruita'; disabled = 'disabled'; }
+                else {
+                    const afford = GameRules.canAfford(player, cost, 0);
+                    if (!afford.ok) { cls += ' no'; title = GameRules.missingText(afford.missing); disabled = 'disabled'; }
+                    else if (!buildOk) { cls += ' locked'; title = 'Solo nel tuo turno, in fase Costruisci'; disabled = 'disabled'; }
+                    else { cls += ' ok'; title = 'Costruisci — ' + GameRules.formatCost(cost); }
+                }
+                return `<button type="button" class="${cls}" data-welfare-key="${key}" title="${title}" ${disabled}>` +
+                    `<span class="pwb-name">${e.label}</span>` +
+                    `<span class="pwb-cost">${has ? '✓' : GameRules.formatCost(cost)}</span></button>`;
+            }).join('');
+            return `<div class="pop-welfare" data-cat="${cat}">` +
+                `<div class="pop-welfare-head"><span class="pwf-name">${def.icon} ${def.label}</span>` +
+                `<span class="pwf-score">${n}/5</span></div>` +
+                `<div class="pop-welfare-btns">${btns}</div></div>`;
+        }).join('');
+    }
+
     function renderPopularityPanel() {
         const panel = document.getElementById('popularity-panel');
         if (!panel) return;
@@ -3074,6 +3247,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const pop = computePopularity(player, capital);
         const d = pop.detail;
+        // Si può costruire davvero? Solo nella plancia/admin, nel proprio turno e
+        // in fase costruisci — game-actions rifiuta comunque, ma così i pulsanti
+        // lo dicono prima invece di far cliccare a vuoto.
+        const buildOk = (BOARD_MODE || isAdminMode) && turnoDi === player.id &&
+            GameActions.phaseOf(player) === 'costruisci';
         const taxSel = ['leggera', 'normale', 'dura'].map(k =>
             `<div class="pop-tax-opt${(d.tax === k) ? ' active' : ''}" data-tax="${k}">${TAX_LEVELS[k].label}</div>`
         ).join('');
@@ -3082,6 +3260,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="pop-total">
                 <div class="pop-total-label">Livello ${pop.totale} / 5</div>
                 ${circlesHtml(pop.totale, false)}
+                ${pop.grazia ? `<div class="pop-grace" title="Nei primi decenni il popolo di un regno giovane è indulgente: questo bonus cala e sparisce. Costruisci strade e migliorie civiche prima che svanisca.">✨ Grazia dell'insediamento +${pop.grazia}</div>` : ''}
             </div>
             <div class="pop-sub${popOpenState.sicurezza ? ' open' : ''}" data-sub="sicurezza">
                 <div class="pop-sub-head">
@@ -3108,8 +3287,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${circlesHtml(pop.benessere, true)}
                     <div class="pop-factor"><span class="pop-factor-label">Tipi di risorsa collegati</span><span class="pop-factor-val">${d.varieta}/5</span></div>
                     <div class="pop-factor"><span class="pop-factor-label">Cibo collegato (Grano/Bestiame)</span><span class="pop-factor-val">${d.foodProv} → ${d.cibo}/5</span></div>
-                    <div class="pop-factor"><span class="pop-factor-label">Sanità</span><span class="pop-factor-val muted">in arrivo · ${d.sanita}/5</span></div>
-                    <div class="pop-factor"><span class="pop-factor-label">Felicità</span><span class="pop-factor-val muted">in arrivo · ${d.felicita}/5</span></div>
+                    ${welfareBlocksHtml(player, capital, buildOk)}
                 </div>
             </div>
             <div class="pop-sub${popOpenState.tassazione ? ' open' : ''}" data-sub="tassazione">
@@ -3134,6 +3312,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const key = sub.getAttribute('data-sub');
                 popOpenState[key] = !popOpenState[key];
                 sub.classList.toggle('open', popOpenState[key]);
+            });
+        });
+
+        // Migliorie civiche (§6.1): costruzione diretta dalla sottosezione Benessere.
+        // Passa da GameActions come ogni mutazione (salvataggio + rifiuto fuori
+        // turno/fase); poi ridisegna il pannello e avvisa la plancia (il Benessere,
+        // e quindi la Popolarità, sono cambiati).
+        body.querySelectorAll('.pop-welfare-btn:not([disabled])').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (!isAdminMode && !BOARD_MODE) return;
+                const res = GameActions.buildWelfare(player, btn.getAttribute('data-welfare-key'));
+                if (!res.ok) { showPieceNotice(res.msg); return; }
+                renderPopularityPanel();
+                notifyBoard();
             });
         });
 
@@ -3217,7 +3410,9 @@ document.addEventListener('DOMContentLoaded', () => {
         battaglia: 'Cronaca — accadde davvero in questi anni',
         capitale: 'Cronaca del regno',
         scisma: 'Cronaca della fede',
-        editto: 'Editto — accaduto mentre non eri al potere'
+        editto: 'Editto — accaduto mentre non eri al potere',
+        naufragio: 'Cronaca del mare — accadde in rotta',
+        commercio: 'Commercio — una carovana ha concluso'
     };
 
     // ---------- scismi (js/religions.js) ----------
@@ -4005,6 +4200,11 @@ document.addEventListener('DOMContentLoaded', () => {
             merc: mercOf,
             setMerc,
             addMerc(path, n) { setMerc(path, mercOf(path) + Math.floor(n || 0)); },
+            // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità della città-capitale.
+            // Lista di chiavi sul path; chi le costruisce è game-actions.
+            welfare: welfareOf,
+            setWelfare,
+            addWelfare(path, key) { setWelfare(path, welfareOf(path).concat(key)); },
             // SCAFI (§9.2): ogni nave è una pedina a sé, col suo carico.
             ships: shipsOf,
             setShips,
@@ -4018,6 +4218,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 const svg = document.querySelector('svg');
                 if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return new Set();
                 return SeaRoutes.reachCached(svg, provId, radius);
+            },
+            // SPEDIZIONI OLTREMARE (§9.2, rotte lunghe). Da dove una nave prende il
+            // mare (approdo in acqua libera di una provincia costiera):
+            seaAnchor(provId) {
+                const p = document.getElementById(provId);
+                if (!p) return null;
+                const a = seaAnchor(p);
+                return a ? { x: a.x, y: a.y } : null;
+            },
+            // Avanza una spedizione di una portata verso `dir` seguendo l'acqua.
+            sail(x, y, dir, radius) {
+                const svg = document.querySelector('svg');
+                if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return null;
+                return SeaRoutes.sail(svg, x, y, dir, radius);
+            },
+            // Le coste che una spedizione ferma in (x,y) avvista/raggiunge.
+            reachFromPoint(x, y, radius) {
+                const svg = document.querySelector('svg');
+                if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return new Set();
+                return SeaRoutes.reachFromPointCached(svg, x, y, radius);
             },
             armyColor: pieceColorOf,
             setArmyColor(path, color) {

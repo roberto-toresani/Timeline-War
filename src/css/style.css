@@ -325,6 +325,40 @@ svg path.haze {
     #ui-confirm, #ui-confirm .uc-card { animation: none; }
 }
 
+/* Modale della CONQUISTA (richiesta dell'utente): dopo una conquista con più
+   superstiti, un avviso centrale sopra la mappa fa decidere quanti restano a
+   occuparla e quanti rientrano — senza cercare la sezione nel pannello destro.
+   Stessa cornice della conferma; lo slider e le celle vengono da board.css. */
+#ui-conquest {
+    position: fixed; inset: 0; z-index: 12000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .62);
+    animation: uc-fade .15s ease-out;
+}
+#ui-conquest .uc-card {
+    background: var(--bg-panel-solid);
+    border: 2px solid var(--ok, var(--gold-edge));
+    border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .65);
+    padding: 20px 22px;
+    width: min(92vw, 460px);
+    font-family: 'Cinzel', Georgia, serif;
+    animation: uc-pop .18s ease-out;
+}
+#ui-conquest input[type="range"] { width: 100%; margin: 11px 0 4px; accent-color: var(--gold-bright); }
+#ui-conquest .uc-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+#ui-conquest .uc-actions button {
+    font-family: inherit; font-size: 1.02rem; padding: 9px 18px; border-radius: 6px; cursor: pointer;
+}
+#ui-conquest .uc-no { background: transparent; border: 1px solid var(--rule-strong); color: var(--parchment-muted); }
+#ui-conquest .uc-no:hover { border-color: var(--gold-edge); color: var(--gold); }
+#ui-conquest .uc-yes { background: var(--gold-edge); border: 1px solid var(--gold-bright); color: #2b2b2b; font-weight: bold; }
+#ui-conquest .uc-yes:hover { filter: brightness(1.1); }
+
+@media (prefers-reduced-motion: reduce) {
+    #ui-conquest, #ui-conquest .uc-card { animation: none; }
+}
+
 /* ============================================================
    PERGAMENA DI FONDAZIONE (vedi showFoundation in js/app.js)
    Costruire una Città è l'unico gesto che entra nella cronaca: qui il tema si
@@ -423,6 +457,7 @@ svg path.haze {
 /* Editto: l'intervento di chi governa il mondo, non del regno. Oro vecchio —
    si distingue dalla propria cronaca senza gridare come l'inchiostro rosso. */
 #ui-foundation .uf-scroll.uf-editto { --kingdom: #8a6d1f; }
+#ui-foundation .uf-scroll.uf-naufragio { --kingdom: #2e4a63; }
 
 #ui-foundation .uf-text {
     font-size: 1.05rem;
@@ -1477,6 +1512,18 @@ svg.map-interacting #decor-coast-layer { display: none; }
     opacity: 0.75;
     margin-bottom: 6px;
 }
+/* Grazia dell'insediamento (§8): bonus decrescente dei primi decenni */
+#popularity-panel .pop-grace {
+    margin-top: 8px;
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    color: var(--gold, #d8b25a);
+    background: rgba(216, 178, 90, 0.12);
+    border: 1px solid rgba(216, 178, 90, 0.35);
+    cursor: help;
+}
 .pop-circles {
     display: flex;
     justify-content: center;
@@ -1582,3 +1629,65 @@ svg.map-interacting #decor-coast-layer { display: none; }
     font-weight: bold;
     border-color: var(--gold-bright);
 }
+
+/* Migliorie civiche (§6.1) dentro la sottosezione Benessere: Sanità/Felicità */
+.pop-welfare {
+    padding: 8px 0 2px;
+    border-bottom: 1px dashed rgba(192, 160, 98, 0.15);
+}
+.pop-welfare:last-child { border-bottom: none; }
+.pop-welfare-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0 6px;
+    font-size: 1rem;
+}
+.pop-welfare-head .pwf-name { opacity: 0.9; }
+.pop-welfare-head .pwf-score {
+    font-weight: bold;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+}
+.pop-welfare-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+}
+.pop-welfare-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    padding: 5px 8px;
+    border: 1px solid rgba(192, 160, 98, 0.4);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.25);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.pop-welfare-btn .pwb-name { font-size: 0.92rem; }
+.pop-welfare-btn .pwb-cost {
+    font-size: 0.8rem;
+    opacity: 0.75;
+    font-variant-numeric: tabular-nums;
+}
+.pop-welfare-btn.ok:hover { background: rgba(192, 160, 98, 0.2); border-color: var(--gold-bright); }
+/* Costruita: dorata piena, come una tassa attiva */
+.pop-welfare-btn.built {
+    background: var(--gold-edge);
+    color: #2b2b2b;
+    border-color: var(--gold-bright);
+    cursor: default;
+}
+.pop-welfare-btn.built .pwb-cost { opacity: 0.9; }
+/* Manca la risorsa, o fuori fase: spenta */
+.pop-welfare-btn.no, .pop-welfare-btn.locked {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.pop-welfare-btn.no .pwb-cost { color: #e6a3a3; opacity: 0.9; }

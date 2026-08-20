@@ -28,10 +28,13 @@
     };
     const TAX_KEYS = ['leggera', 'normale', 'dura'];
 
-    // Sanità e Felicità contano le migliorie del §6.1, che non sono ancora in
-    // gioco: finché non ci sono valgono la baseline neutra 3, così il Benessere
-    // non viene affondato da due voci che nessuno può ancora alzare.
-    const WELFARE_PENDING = 3;
+    // Sanità e Felicità (§6.1) sono ora IN GIOCO: contano le migliorie civiche
+    // costruite sulla Capitale (una per tipo di risorsa, max 5 per indice). Chi
+    // misura (app.js popularityFactors) passa i due conteggi; se un chiamante li
+    // omette valgono 0 — non c'è più una baseline neutra, il Benessere parte
+    // basso e lo si alza costruendo. (WELFARE_PENDING resta esportato solo per
+    // compatibilità: nessuna formula lo usa più.)
+    const WELFARE_PENDING = 0;
 
     // La guardia cittadina ha due soli valori che contano: 5 soldati (=0) e 10
     // (=5, il massimo). Chi ne parcheggia 7 sta spendendo metà leva. Chi ne
@@ -76,8 +79,8 @@
     function welfare(m) {
         const varieta = clamp05(m.varieta || 0);
         const cibo = clamp05(m.foodProv || 0);
-        const sanita = (m.sanita === undefined) ? WELFARE_PENDING : m.sanita;
-        const felicita = (m.felicita === undefined) ? WELFARE_PENDING : m.felicita;
+        const sanita = clamp05((m.sanita === undefined) ? WELFARE_PENDING : m.sanita);
+        const felicita = clamp05((m.felicita === undefined) ? WELFARE_PENDING : m.felicita);
         return {
             varieta, cibo, sanita, felicita,
             valore: clamp05(roundRule((varieta + cibo + sanita + felicita) / 4))
@@ -88,21 +91,48 @@
         return (TAX_LEVELS[tax] || TAX_LEVELS.normale).score;
     }
 
+    // GRAZIA DELL'INSEDIAMENTO (§8, regola dell'utente). Nei primi decenni il
+    // popolo di un regno giovane è indulgente: un bonus alla Popolarità che scala e
+    // sparisce. Serve perché, tolta la baseline neutra del Benessere (§6.1), un
+    // regno appena nato — nessuna strada, nessuna miglioria civica — precipiterebbe
+    // a Popolarità 1 (−2 reclute, −2 risorse: raccolto zero) prima ancora di avere
+    // i mezzi per rimediare. La grazia gli dà i decenni per costruirseli, poi
+    // svanisce e il regno regge sulle proprie gambe. Vale per tutti — umano e IA.
+    // Ancorata al turno GLOBALE (il gioco parte dal turno 1, js/chronicle.js): è
+    // l'ETÀ del mondo, non del singolo regno.
+    const GRACE_START = 2;   // punti di Popolarità nei primissimi turni
+    const GRACE_EVERY = 3;   // ogni quanti turni cala di 1
+    const GRACE_LAST = 5;    // ultimo turno con grazia: dal 6 in poi è zero (regola dell'utente)
+    // Andamento: turni 1-3: +2 · 4-5: +1 · 6+: 0. Il tetto GRACE_LAST tronca la
+    // coda che la sola scala darebbe (turno 6), così la grazia dura al MASSIMO fino
+    // al turno 5.
+    function graceBonus(turn) {
+        if (turn === undefined || turn === null) return 0;
+        const t = Math.max(1, Math.floor(turn));
+        if (t > GRACE_LAST) return 0;
+        return Math.max(0, GRACE_START - Math.floor((t - 1) / GRACE_EVERY));
+    }
+
     // La formula del §8 per intero. `m` sono i fattori misurati:
-    //   { enemyBorders, soldiers, hasGeneral, varieta, foodProv, tax }
+    //   { enemyBorders, soldiers, hasGeneral, varieta, foodProv, sanita, felicita,
+    //     tax, turn }
     // Il totale è clampato 1–5: il livello 0 non esiste nella tabella effetti.
+    // `turn` porta la grazia dell'insediamento: chi non lo passa non la riceve.
     function score(m) {
         const meas = m || {};
         const dif = defence(meas);
         const ben = welfare(meas);
         const tax = TAX_LEVELS[meas.tax] ? meas.tax : 'normale';
         const tassa = taxScore(tax);
-        const totale = Math.max(1, clamp05(roundRule((dif.valore + ben.valore + tassa) / 3)));
+        const grazia = graceBonus(meas.turn);
+        const base = roundRule((dif.valore + ben.valore + tassa) / 3);
+        const totale = Math.max(1, clamp05(base + grazia));
         return {
             totale,
             sicurezza: dif.valore,
             benessere: ben.valore,
             tassa,
+            grazia,
             detail: {
                 enemyBorders: meas.enemyBorders || 0,
                 pConf: dif.pConf,
@@ -114,7 +144,8 @@
                 cibo: ben.cibo,
                 foodProv: meas.foodProv || 0,
                 sanita: ben.sanita,
-                felicita: ben.felicita
+                felicita: ben.felicita,
+                grazia
             }
         };
     }
@@ -226,8 +257,8 @@
         const pConf = clamp05(5 - (meas.enemyBorders || 0));
         const pGuardia = guardScore(meas.soldiers);
         const dif = clamp05((pConf + pGuardia) / 2 + (meas.hasGeneral ? 1 : 0));
-        const sanita = (meas.sanita === undefined) ? WELFARE_PENDING : meas.sanita;
-        const felicita = (meas.felicita === undefined) ? WELFARE_PENDING : meas.felicita;
+        const sanita = clamp05((meas.sanita === undefined) ? WELFARE_PENDING : meas.sanita);
+        const felicita = clamp05((meas.felicita === undefined) ? WELFARE_PENDING : meas.felicita);
         const ben = clamp05((clamp05(meas.varieta || 0) + clamp05(meas.foodProv || 0) +
             sanita + felicita) / 4);
         return (dif + ben + taxScore(meas.tax)) / 3;
@@ -248,6 +279,7 @@
 
     const api = {
         TAX_LEVELS, TAX_KEYS, WELFARE_PENDING, GUARD_FREE, GUARD_MAX, SOLDIER_COIN,
+        GRACE_START, GRACE_EVERY, GRACE_LAST, graceBonus,
         roundRule, clamp05, guardScore, soldiersForGuard, taxScore,
         defence, welfare, score, potential, plan, gainIf, levelGainIf
     };

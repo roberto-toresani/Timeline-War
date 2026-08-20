@@ -47,18 +47,6 @@
             baratto: 1.2,           // quanto deve ricevere per ogni unità che dà (§7)
             dispiegamento: 'punta'
         },
-        conservativo: {
-            nome: 'Conservatore',
-            motto: 'poche province, ben presidiate',
-            soglia: 0.82, maxAttacchi: 1, impegno: 0.7, riservaCasa: 2, guardiaCapitale: 9,
-            popTarget: 4,           // vive di rendita: la Popolarità è il suo raccolto
-            pesoNeutrali: 1.5, pesoGiocatori: 0.6,
-            avanzata: 0.5,
-            build: ['capitale', 'strada', 'mercato', 'fortezza', 'citta'],
-            mercenari: 1,
-            baratto: 1.5,
-            dispiegamento: 'minaccia'
-        },
         costruttore: {
             nome: 'Costruttore',
             motto: 'strade, città, e la guerra solo se conviene',
@@ -562,10 +550,15 @@
     // bot senza Mercato (4 soldati) per tutta la partita.
     function siteFor(player, type, s) {
         const serve = (GR().COSTS[type] || {}).soldati || 0;
+        const insediamento = (type === 'capitale' || type === 'citta' || type === 'fortezza');
         let prov = survey(player).filter(p => {
             const u = unitsAt(p.id);
             if (!u) return false;
             if (u.capitale || u.citta || u.fortezza) return false;   // insediamenti esclusivi
+            // Mercato e insediamenti si escludono a vicenda: un insediamento non va
+            // dove c'è già un Mercato, e il Mercato non va su un insediamento (già
+            // escluso sopra).
+            if (insediamento && u.mercato) return false;
             return true;
         });
         if (serve) {
@@ -600,6 +593,79 @@
         return GR().canAfford(player, cost, GR().spendableTroops(troopsAt(provId))).ok;
     }
 
+    // ---------- FASE 2 · NAVI: rompere l'assedio del mare (§9.2) ----------
+    // Un regno costiero che ha finito le province a portata di TERRA non deve
+    // fermarsi: costruisce una Nave e sbarca sul continente. È il caso
+    // dell'Inghilterra oltre la Manica e dei Fatimidi oltre Gibilterra — senza
+    // scafo restavano bloccati sull'isola/in Africa perché `attackTargets`
+    // mostra un bersaglio di mare SOLO se una nave è già ancorata lì (§9.2), e
+    // quindi `bestAttack` finiva a vuoto e il turno moriva. La macchina d'assalto
+    // sa già sbarcare: l'unico pezzo che mancava era COSTRUIRE la nave.
+    // Si punta sulla Nave (barca), non sul Veliero: costa pochissimo — 1 Legno e
+    // 3 soldati — e con portata 12 attraversa gli stretti; il Veliero (4000
+    // monete) è per gli oceani, non per l'espansione ordinaria.
+    const BOAT = 'barca';
+
+    // Le coste nemiche/neutrali che uno scafo con questa portata raggiunge da
+    // `id` e che la TERRAFERMA non tocca: è questo che rende utile una nave.
+    // Vuoto = qui una nave non aprirebbe niente.
+    function seaPreyFrom(player, id, range) {
+        const r = range || E().shipRange(BOAT);
+        if (!(r > 0)) return [];
+        const terra = new Set(E().landNeighbors(id));   // già raggiungibili a piedi
+        const out = [];
+        E().seaReach(id, r).forEach(tid => {
+            if (terra.has(tid)) return;
+            const tp = pathOf(tid);
+            if (tp && E().owner(tp) !== player.name) out.push(tid);
+        });
+        return out;
+    }
+
+    // Il regno ha GIÀ uno scafo pronto a colpire una preda oltremare? Se sì non se
+    // ne costruisce un altro: prima si usa quello che c'è (bestAttack lo farà da
+    // sé), poi semmai se ne arma un secondo.
+    function hasReadyShip(player) {
+        return E().ownedPaths(player.name).some(pp => {
+            const hulls = E().ships(pp);
+            if (!hulls.length) return false;
+            return hulls.some(h => seaPreyFrom(player, pp.id, E().shipRange(h.tipo)).length > 0);
+        });
+    }
+
+    // Dove (e se) costruire una Nave. La provincia costiera che può pagarla (Legno
+    // + 3 soldati sopra il presidio §5) e da cui si raggiungono più prede
+    // oltremare, con abbastanza uomini da riempire poi lo scafo per lo sbarco.
+    function shipPlan(player, s, st) {
+        if (((player.scorte || {}).legno || 0) < ((GR().COSTS[BOAT] || {}).legno || 1)) return null;
+        if (hasReadyShip(player)) return null;               // usa prima quella che hai
+        const serve = (GR().COSTS[BOAT] || {}).soldati || 3;
+        let best = null;
+        survey(player).forEach(p => {
+            if (E().ships(p.path).length) return;            // già una nave qui
+            if (!E().canPlacePiece(p.path, BOAT).ok) return; // non è costiera
+            if (p.spare < serve) return;                     // non può armarla
+            const prede = seaPreyFrom(player, p.id);
+            if (!prede.length) return;
+            // Uomini che resterebbero da imbarcare dopo aver pagato la ciurma e
+            // lasciato il presidio: se nessuno può sbarcare, la nave è inutile ora.
+            const sbarco = p.truppe - serve - p.presidio;
+            if (sbarco < 1) return;
+            const punti = prede.length + sbarco * 0.1;
+            if (!best || punti > best.punti) best = { id: p.id, punti };
+        });
+        return best;
+    }
+
+    // Il regno "vuole il mare"? Serve all'economia: se sì e manca il Legno, lo si
+    // compra/baratta (vedi resourceNeed) così la Nave si potrà poi costruire.
+    function wantsSea(player) {
+        if (hasReadyShip(player)) return false;
+        return survey(player).some(p =>
+            !E().ships(p.path).length && E().canPlacePiece(p.path, BOAT).ok &&
+            seaPreyFrom(player, p.id).length > 0);
+    }
+
     // TRASLOCARE il seggio (GameActions.moveCapital, 500 monete). Una Capitale
     // scelta bene al turno 1 può diventare pessima al turno 10: il regno cresce da
     // una parte sola e la vecchia sede si ritrova sul confine, con `P_conf` a zero
@@ -620,7 +686,10 @@
         prov.forEach(p => {
             if (p.id === st.cap.id) return;
             const u = unitsAt(p.id);
-            if (!u || u.citta || u.fortezza || u.capitale) return;   // insediamenti esclusivi
+            // Il seggio si trasloca solo su una propria Città (regola dell'utente):
+            // la Città viene assorbita dalla Capitale. Le altre province non sono
+            // mete valide.
+            if (!u || !u.citta) return;
             const punti = capitalScore(player, p);
             if (!meglio || punti > meglio.punti) meglio = { id: p.id, punti };
         });
@@ -660,6 +729,54 @@
         const merce = GR().RES.reduce((n, k) => n + ((player.scorte || {})[k] || 0), 0);
         if (merce < GR().TRADE_RATE + 2) return false;
         return tipi.size < GR().RES.length - 1;           // gli manca più di un tipo
+    }
+
+    // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità sulla Capitale alzano il Benessere
+    // (§8), cioè un terzo della Popolarità, e costano solo 3 unità di una risorsa.
+    // Il bot le completa IN BASE ALLE RISORSE CHE HA (regola dell'utente): fra le
+    // migliorie che avvicinano il Benessere, sceglie quella la cui risorsa gli
+    // AVANZA di più — così spende ciò che ha in eccesso e le due sezioni
+    // (Sanità/Felicità) crescono secondo il magazzino, non con un ordine fisso.
+    // Sempre solo con le ECCEDENZE — mai sotto RESERVE, che è la scorta minima da
+    // lasciare a un edificio vero. Senza queste migliorie un regno resta inchiodato
+    // in basso: la baseline neutra di un tempo non esiste più, il Benessere parte
+    // da zero e va costruito.
+    const WELFARE_RESERVE = 3;   // di una risorsa non si scende mai sotto questo per una miglioria
+    const WELFARE_PER_TURN = 2;  // quante migliorie al massimo per turno
+    function welfarePlan(player, s, st) {
+        if (!st || !st.cap || typeof root.Popularity === 'undefined') return [];
+        const cap = st.cap;
+        const built = new Set(E().welfare(cap));
+        const scorte = Object.assign({}, player.scorte || {});   // copia: non tocco le vere
+        const m = Object.assign({}, st.m);                       // sanita/felicita simulati
+        const cost = GR().WELFARE_COST;
+        const idx = GR().WELFARE_INDEX;
+        const out = [];
+
+        while (out.length < WELFARE_PER_TURN) {
+            let best = null;
+            Object.keys(idx).forEach(k => {
+                if (built.has(k) || out.indexOf(k) >= 0) return;
+                const res = idx[k].res;
+                const have = scorte[res] || 0;
+                if (have < cost + WELFARE_RESERVE) return;   // niente eccedenza
+                const cat = idx[k].cat;
+                const cur = (cat === 'sanita') ? m.sanita : m.felicita;
+                const delta = (cat === 'sanita') ? { sanita: cur + 1 } : { felicita: cur + 1 };
+                const gain = root.Popularity.gainIf(m, delta);
+                if (gain <= 0) return;                       // non muove il Benessere
+                // Priorità alla risorsa di cui ha PIÙ eccedenza; a parità, il
+                // guadagno maggiore. È così che "completa in base a ciò che ha".
+                if (!best || have > best.have || (have === best.have && gain > best.gain)) {
+                    best = { k, cat, cur, gain, res, have };
+                }
+            });
+            if (!best) break;
+            out.push(best.k);
+            if (best.cat === 'sanita') m.sanita = best.cur + 1; else m.felicita = best.cur + 1;
+            scorte[best.res] = (scorte[best.res] || 0) - cost;
+        }
+        return out;
     }
 
     // La banca, cioè L'ESTERO (§7): 2 unità di quel che avanza → 1 di quel che
@@ -739,6 +856,16 @@
             need.pietra = Math.max(need.pietra, Math.min(1.2, scollegate / 3));
         } else if ((scorte.pietra || 0) < 2) {
             need.pietra += 0.4;
+        }
+
+        // Il LEGNO della Nave (§9.2): un regno costiero che vuole sbarcare sul
+        // continente ne ha bisogno per la barca (COSTS.barca). La barca non è in
+        // s.build, quindi senza questa riga il bisogno di legno resta zero e il
+        // regno non compra mai il legname per attraversare il mare — resta
+        // bloccato sull'isola. Con questa, banca e carovane glielo procurano.
+        if (wantsSea(player)) {
+            const serveLegno = (GR().COSTS[BOAT] || {}).legno || 3;
+            if ((scorte.legno || 0) < serveLegno) need.legno = Math.max(need.legno, 0.9);
         }
 
         // L'abbondanza raffredda il desiderio, ma non cancella un fabbisogno già
@@ -940,9 +1067,16 @@
                 // grosso quanto più bruciava perderla (peso 1-3 dal rancore). A
                 // parità di bersagli il bot torna dov'è stato colpito invece di
                 // vagare.
+                // LO SBARCO sul continente vale un premio a sé (§9.2): oltremare la
+                // Popolarità non conta (la costa presa non è collegata, popValueOf
+                // tace), ma una testa di ponte è espansione vera — è così che
+                // l'Inghilterra passa la Manica e i Fatimidi Gibilterra invece di
+                // restare fermi. Senza, un attacco di mare aveva premio ~1 e perdeva
+                // sempre contro qualsiasi conquista di terra.
                 const premio = 1 + (u.capitale ? 1.2 : 0) + (u.citta ? 0.6 : 0) + (u.fortezza ? 0.4 : 0)
                     + popValueOf(st, t.id, t.viaMare) * 6
-                    + grudgeAgainst(player, t.id) * 1.5;
+                    + grudgeAgainst(player, t.id) * 1.5
+                    + (t.viaMare ? 0.8 : 0);
                 const peso = (t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori;
                 const score = (p100 - s.soglia + 0.1) * premio * peso;
                 if (!best || score > best.score) {
@@ -1198,6 +1332,27 @@
             if (!sito || !canBuild(player, type, sito.id)) continue;
             yield GA().build(player, sito.id, type);
             costruite++;
+        }
+
+        // Migliorie civiche (§6.1): dopo gli edifici veri, le eccedenze di risorsa
+        // vanno in Sanità/Felicità sulla Capitale — Benessere a poco prezzo.
+        if (GA().phaseOf(player) === 'costruisci' && st) {
+            for (const key of welfarePlan(player, s, st)) {
+                yield GA().buildWelfare(player, key);
+                st = popState(player, s);   // ogni miglioria cambia il Benessere
+            }
+        }
+
+        // NAVE (§9.2): se il regno è costiero e ha finito le prede di terra ma ne
+        // ha oltremare (l'Inghilterra dietro la Manica, i Fatimidi dietro
+        // Gibilterra), si arma una barca sulla costa giusta. Da lì l'attacco di
+        // mare lo fa `bestAttack` da sé, perché ora `attackTargets` vede lo scafo.
+        if (GA().phaseOf(player) === 'costruisci') {
+            const nave = shipPlan(player, s, st);
+            if (nave && canBuild(player, BOAT, nave.id)) {
+                yield GA().build(player, nave.id, BOAT);
+                st = popState(player, s);
+            }
         }
 
         // Commerci (§7): prima si risponde alle carovane arrivate (il pegno di chi

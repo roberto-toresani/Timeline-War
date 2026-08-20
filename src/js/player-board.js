@@ -21,11 +21,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let hasFitted = false;
     let selectedProvId = null;
     let lastBattle = null;
+    // Esito dell'ultima battaglia: la scheda è OPZIONALE e non si apre mai da
+    // sola (richiesta dell'utente). Resta chiusa finché non la si apre col
+    // pulsante, e ogni nuova battaglia la richiude — non deve saltare fuori.
+    let battleOpen = false;
     // Con che cosa si parte all'attacco (§9.2): null = via terra, altrimenti il
     // tipo di scafo scelto. Si azzera da sé quando cambia la provincia di
     // partenza — una nave scelta in Normandia non ha senso partendo da Napoli.
     let attackVessel = null;
     let attackVesselProv = null;
+    // SPEDIZIONE OLTREMARE (§9.2, rotte lunghe): la direzione scelta nel lanciatore
+    // e la rotta che si sta impostando per una spedizione già in mare. Si tengono
+    // qui perché render() ricostruisce l'HTML a ogni azione (anche dei bot).
+    let expedDir = null;
 
     // SPOSTAMENTO IN DUE CLIC (regola dell'utente): un clic sceglie la PARTENZA,
     // uno l'ARRIVO. Prima la partenza era semplicemente la provincia selezionata,
@@ -128,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- sezioni del pannello destro a fisarmonica ----------
     // Richiesta dell'utente: le sezioni si aprono come un menù — aprendone una
-    // (Commerci, Spie, Le mie province, Il tuo regno) le altre si chiudono, così
+    // (Commerci, Spie, Le tue province, Il tuo regno) le altre si chiudono, così
     // il pannello mostra una cosa per volta. La legenda dei costi (#fold-legend)
     // resta FUORI dal gruppo: sta in fondo e si consulta in qualunque momento
     // senza chiudere nulla.
@@ -185,6 +193,8 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedProvId = null;
         moveArmed = false;
         lastBattle = null;
+        battleOpen = false;
+        conquestPromptFor = null;
         R.clearAttackArrows();
         R.clearTargets();
         closeOrder();
@@ -326,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!result) return;
         if (result.battle) {
             lastBattle = result;
+            battleOpen = false;   // mai proposta da sola: la scheda resta chiusa
             // Scena sulla mappa, ma nessuna inquadratura: la vista è del
             // giocatore, si sposta solo quando la sposta lui (zoom, trascinamento
             // o il bottone ↺ del rapporto di battaglia).
@@ -1020,25 +1031,40 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderArmy(owned, units, pop, capitalPath, connectedSet) {
         setText('bp-prov-owned', owned.length);
         setText('bp-prov-connected', connectedSet.size);
+        const r = KingdomStats.reinforcements(owned.length, units, pop ? pop.totale : null);
         // Nel cruscotto lo spazio è una riga sola: il nome della Capitale basta,
         // "Capitale:" davanti lo mangerebbe tutto (le capitali hanno nomi lunghi).
-        const capEl = $('bp-capital');
-        capEl.textContent = capitalPath ? '⌂ ' + R.provinceLabel(capitalPath) : 'nessuna Capitale';
-        capEl.title = capitalPath
-            ? 'La Capitale è in ' + R.provinceLabel(capitalPath) + ': è lei a dare la fede di stato'
-            : 'Senza Capitale non c\'è religione di stato, e il regno non raccoglie nulla';
-        setText('bp-soldiers', units.soldato);
+        // La guardia debole (≤5, §8) si segna qui con ⚠: prima stava nella
+        // tessera dei soldati, che ora conta le province.
         const inCap = capitalPath ? R.countPiece(capitalPath, 'soldato') : 0;
-        // Sotto i 6 la Popolarità cade a 2 (§8): il numero da solo non lo dice.
-        setText('bp-soldiers-cap', inCap + ' in Capitale' + (capitalPath && inCap <= 5 ? ' ⚠' : ''));
-        $('bp-soldiers-cap').className = (capitalPath && inCap <= 5) ? 'bad' : '';
-        $('bp-soldiers-cap').title = (capitalPath && inCap <= 5)
-            ? 'Guardia debole: con 5 o meno soldati in Capitale la Popolarità scende a 2 (§8)'
-            : 'Soldati di guardia nella Capitale';
+        const weakGuard = !!(capitalPath && inCap <= 5);
+        const capEl = $('bp-capital');
+        capEl.textContent = capitalPath
+            ? '⌂ ' + R.provinceLabel(capitalPath) + (weakGuard ? ' ⚠' : '')
+            : 'nessuna Capitale';
+        capEl.title = capitalPath
+            ? 'La Capitale è in ' + R.provinceLabel(capitalPath) + ' (' + inCap + ' di guardia)' +
+              (weakGuard ? ' — guardia debole: 5 o meno soldati fanno scendere la Popolarità a 2 (§8)' : '') +
+              '. È lei a dare la fede di stato.'
+            : 'Senza Capitale non c\'è religione di stato, e il regno non raccoglie nulla';
+        capEl.classList.toggle('bad', weakGuard);
+
+        // CRUSCOTTO (richiesta dell'utente): al posto dei soldati, le PROVINCE
+        // controllate e, sotto, i RINFORZI che porteranno il prossimo turno — è
+        // il numero con cui si decide quanto crescere (province ÷ 3 + edifici +
+        // Popolarità, §5.1). L'esercito totale resta nel tooltip.
+        setText('bp-soldiers', owned.length);
+        const provItem = $('bp-provinces-item');
+        if (provItem) provItem.title = owned.length + (owned.length === 1 ? ' provincia controllata' : ' province controllate') +
+            ' · esercito: ' + units.soldato + ' soldati · Capitale: ' + inCap + ' di guardia';
+        const reinfEl = $('bp-soldiers-cap');
+        setText('bp-soldiers-cap', signed(r.total) + ' il prossimo turno');
+        reinfEl.className = r.total > 0 ? 'good' : (r.total < 0 ? 'bad' : '');
+        reinfEl.title = 'Rinforzi stimati del prossimo turno: ' + r.libere + ' libere, ' +
+            r.vincolate + ' obbligatorie (da Capitale, Città, Fortezza)';
         setText('bp-units', units.generale + ' · ' + units.barca + ' · ' + units.vascello);
         setText('bp-buildings', units.citta + ' · ' + units.fortezza + ' · ' + units.mercato);
 
-        const r = KingdomStats.reinforcements(owned.length, units, pop ? pop.totale : null);
         setText('bp-reinf', signed(r.total));
         $('bp-reinf-detail').innerHTML = r.breakdown.map(b => `
             <div class="bp-line">
@@ -1175,6 +1201,9 @@ document.addEventListener('DOMContentLoaded', () => {
             metaTag('bsel-res', '', '');
             metaTag('bsel-terrain', '', '');
             actions.innerHTML = '<div class="bp-empty-hint">Clicca una provincia sulla mappa.</div>';
+            // Le spedizioni in mare (§9.2) non stanno su una provincia: si comandano
+            // anche a selezione vuota, altrimenti sparirebbero appena si deseleziona.
+            maybeAppendExpeditions(player, actions);
             return;
         }
 
@@ -1226,6 +1255,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (!mine) {
             actions.innerHTML = '<div class="bp-empty-hint">Non è tua. Per attaccarla, seleziona una tua provincia confinante.</div>';
+            maybeAppendExpeditions(player, actions);
             return;
         }
         if (!isPlaying(player)) {
@@ -1253,6 +1283,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'attacca':
                 actions.appendChild(attackGroup(player, path));
+                maybeAppendExpeditions(player, actions);
                 break;
             case 'sposta':
                 // Niente testo: la provincia di partenza è già evidente (è
@@ -1366,12 +1397,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 () => run(GA().build(player, path.id, type))));
         });
 
-        // Spostamento della Capitale (500 monete): la vecchia sede diventa Città.
-        // Compare solo se il regno ha una Capitale e la provincia scelta è propria
-        // e diversa dalla Capitale attuale.
+        // Spostamento della Capitale (500 monete): la vecchia sede diventa Città e
+        // la Città di destinazione viene assorbita dal seggio. Compare solo se il
+        // regno ha una Capitale e la provincia scelta è propria e diversa dalla
+        // Capitale attuale; è possibile SOLO su una propria Città (regola
+        // dell'utente: prima si fonda la Città, poi vi si sposta la Capitale).
         if (capPath && R.engine.owner(path) === player.name && path.id !== capPath.id) {
             let why = null;
-            if (R.countPiece(path, 'citta') > 0 || R.countPiece(path, 'fortezza') > 0) why = 'insediamento presente';
+            if (R.countPiece(path, 'citta') === 0) why = 'serve una tua Città qui';
             if (!why) {
                 const afford = GR().canAfford(player, GR().COSTS.capitale, soldiersHere);
                 if (!afford.ok) why = GR().missingText(afford.missing);
@@ -1401,6 +1434,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return g;
     }
 
+    // MIGLIORIE CIVICHE (§6.1): Sanità e Felicità. Si costruiscono SULLA Capitale
+    // e alzano il Benessere (§8). Compaiono solo quando la provincia selezionata è
+    // la Capitale — è lì che si costruiscono, ed è lì che il giocatore le cerca.
     function roadGroup(player, path) {
         const g = group('Strade');
         const gratis = player.stradeGratis || 0;
@@ -1472,6 +1508,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     'porta ' + cap + ' uomini');
             });
             g.appendChild(row);
+        }
+
+        // ---- SPEDIZIONE OLTREMARE (§9.2, rotte lunghe) ----
+        // Scelto il Veliero, oltre allo sbarco entro la portata si può SALPARE per
+        // una rotta lunga: si sceglie una direzione e la nave naviga di turno in
+        // turno alla ricerca di una costa. Vive solo qui, sotto il Veliero.
+        if (attackVessel === 'vascello' && partenti > 0) {
+            const l = expeditionLauncher(player, path, partenti);
+            if (l) g.appendChild(l);
         }
 
         // L'elenco dei bersagli segue la scelta: via terra i confinanti, con una
@@ -1564,6 +1609,165 @@ document.addEventListener('DOMContentLoaded', () => {
         const refreshOdds = () => odds.forEach(f => f());
         input.addEventListener('input', refreshOdds);
         refreshOdds();
+        return g;
+    }
+
+    // ---------- SPEDIZIONI OLTREMARE (§9.2, rotte lunghe) ----------
+    // La rotta lunga del Veliero non si comanda dalla mappa (la meta è ignota: si
+    // scopre navigando): si sceglie una DIREZIONE con una bussola e la nave avanza
+    // di turno in turno. Il lanciatore vive sotto il Veliero nella fase attacco; le
+    // spedizioni già in mare hanno un gruppo tutto loro, indipendente dalla
+    // provincia selezionata — sono in mare aperto, non appartengono a una costa.
+    const DIR_ARROW = { N: '↑', NE: '↗', E: '→', SE: '↘', S: '↓', SW: '↙', W: '←', NW: '↖' };
+
+    // Bussola: 8 bottoni-direzione, disposti a rosa dei venti (griglia 3×3 via CSS).
+    function compass(sel, onPick) {
+        const wrap = document.createElement('div');
+        wrap.className = 'bp-compass';
+        GA().EXPED_DIRS.forEach(d => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'bp-dir bp-dir-' + d + (sel === d ? ' on' : '');
+            b.innerHTML = '<span class="bp-dir-a">' + DIR_ARROW[d] + '</span>';
+            b.title = 'Rotta verso ' + GA().EXPED_DIR_LABEL[d];
+            b.addEventListener('click', () => onPick(d));
+            wrap.appendChild(b);
+        });
+        return wrap;
+    }
+
+    function expeditionLauncher(player, path, partenti) {
+        const cap = R.engine.shipCapacity('vascello');
+        const tetto = Math.min(partenti, cap);
+        const fold = document.createElement('details');
+        fold.className = 'bp-fold bp-exped-launch';
+        fold.open = true;
+        fold.innerHTML = '<summary>🧭 Spedizione oltremare <span class="bp-fold-hint">' +
+            'più turni · alla ricerca di una costa</span></summary>';
+        const body = document.createElement('div');
+        body.className = 'bp-fold-body';
+        fold.appendChild(body);
+
+        body.insertAdjacentHTML('beforeend',
+            '<div class="bp-hint">Il Veliero salpa e <b>naviga di turno in turno</b> verso la ' +
+            'direzione scelta, scoprendo le coste che avvista. Non sbarca subito: approderai quando ' +
+            'vorrai, su una terra in vista. Uomini e nave lasciano ' + R.provinceLabel(path) +
+            ' e restano in mare finché non tocchi terra.</div>');
+
+        body.appendChild(compass(expedDir, d => { expedDir = d; render(); }));
+
+        const row = document.createElement('div');
+        row.className = 'bp-act-row';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '1'; input.max = String(tetto); input.value = String(tetto);
+        input.title = 'Uomini da imbarcare (il Veliero ne porta ' + cap + ')';
+        row.appendChild(input);
+        row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">a bordo · la nave porta ' +
+            cap + ', in provincia possono partire ' + partenti + '</span>');
+        body.appendChild(row);
+
+        const cargoFor = () => Math.max(0, Math.min(parseInt(input.value, 10) || 0, tetto));
+        const go = actionButton(
+            expedDir ? '⛵ Salpa verso ' + GA().EXPED_DIR_LABEL[expedDir] : '⛵ Scegli prima una rotta',
+            'spedizione', expedDir ? null : 'Scegli una direzione sulla bussola',
+            () => {
+                const n = cargoFor();
+                const dir = expedDir;
+                if (!dir || !n) return;
+                R.confirm({
+                    title: 'Salpare verso ' + GA().EXPED_DIR_LABEL[dir] + '?',
+                    text: n + (n === 1 ? ' uomo salpa' : ' uomini salpano') + ' da ' + R.provinceLabel(path) +
+                        ' con il Veliero. La spedizione navigherà per più turni: uomini e nave restano in ' +
+                        'mare aperto finché non approdi su una costa avvistata. Non si può richiamare a metà, ' +
+                        'e più a lungo resta in mare più rischia naufragi e morìa dell\'equipaggio.',
+                    ok: '⛵ Salpa', tone: 'war'
+                }, () => { expedDir = null; run(GA().launchExpedition(player, path.id, dir, n)); });
+            });
+        body.appendChild(go);
+        return fold;
+    }
+
+    // Aggiunge il gruppo delle spedizioni in mare al pannello, se è il turno del
+    // giocatore e sta guardando la fase attacco — anche senza provincia selezionata
+    // (le spedizioni non appartengono a una costa: vivono in mare aperto).
+    function maybeAppendExpeditions(player, actions) {
+        if (!isPlaying(player) || viewPhase(player) !== 'attacca') return;
+        const eg = expeditionsGroup(player);
+        if (eg) actions.appendChild(eg);
+    }
+
+    function expeditionsGroup(player) {
+        const list = Array.isArray(player.spedizioni) ? player.spedizioni : [];
+        if (!list.length) return null;
+        const g = document.createElement('div');
+        g.className = 'bp-act-group';
+        g.innerHTML = '<div class="bp-act-head">🚢 Spedizioni in mare (' + list.length + ')</div>';
+
+        list.forEach(exp => {
+            const card = document.createElement('div');
+            card.className = 'bp-exped';
+            const vNote = exp.merc ? ' · ' + exp.merc + '⚑' : '';
+            const mNote = exp.turniInMare ? ' · ' + exp.turniInMare + '° turno in mare' : '';
+            card.insertAdjacentHTML('beforeend',
+                '<div class="bp-exped-head">Veliero · <b>' + exp.carico + '</b> a bordo' + vNote +
+                ' · rotta <b>' + (GA().EXPED_DIR_LABEL[exp.dir] || exp.dir) + '</b>' + mNote + '</div>');
+
+            const targets = GA().expeditionTargets(player, exp);
+            if (!targets.length) {
+                card.insertAdjacentHTML('beforeend',
+                    '<div class="bp-empty-hint">Mare aperto: nessuna costa in vista. Continua a navigare ' +
+                    'verso ' + (GA().EXPED_DIR_LABEL[exp.dir] || exp.dir) + ' — puoi cambiare rotta qui sotto.</div>');
+            } else {
+                card.insertAdjacentHTML('beforeend', '<div class="bp-hint">Coste avvistate — approda dove vuoi:</div>');
+                const mercA = Math.min(exp.merc || 0, exp.carico);
+                targets.forEach(t => {
+                    if (t.mia) {
+                        card.appendChild(actionButton('⚓ ' + t.label, 'tua costa · rinforzo', null,
+                            () => R.confirm({
+                                title: 'Approdare a ' + t.label + '?',
+                                text: 'La spedizione sbarca ' + exp.carico + (exp.carico === 1 ? ' uomo' : ' uomini') +
+                                    ' sulla tua costa e la nave getta l\'ancora lì.',
+                                ok: '⚓ Approda', tone: 'calm'
+                            }, () => run(GA().expeditionLand(player, exp.id, t.id)))));
+                        return;
+                    }
+                    const f = RisikoBattle.winForecast(exp.carico, (t.troops || 0) + (t.fort || 0),
+                        t.esponente, mercA, t.merc || 0);
+                    const p = Math.round(100 * f.p), banda = Math.round(100 * f.banda);
+                    const bonus = t.fort ? ' +' + t.fort : '';
+                    const vent = t.merc ? ' · ' + t.merc + '⚑' : '';
+                    const terr = terrainTag(t.terreno);
+                    const btn = actionButton('⚓ ' + t.label,
+                        t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : ''), null,
+                        () => R.confirm({
+                            title: 'Sbarcare a ' + t.label + '?',
+                            text: exp.carico + (exp.carico === 1 ? ' uomo' : ' uomini') + ' contro ' + t.troops +
+                                (t.fort ? ' difensori (+' + t.fort + ')' : ' difensori') + ' · vittoria ' +
+                                (banda ? 'intorno al ' : '') + p + '%. Sbarco totale: vinci e la costa è tua con ' +
+                                'la nave ancorata; perdi e la spedizione è perduta.',
+                            ok: '⚓ Sbarca', tone: 'war'
+                        }, () => run(GA().expeditionLand(player, exp.id, t.id))));
+                    const chip = document.createElement('span');
+                    chip.className = 'bp-odds ' + (p >= 60 ? 'good' : p >= 40 ? 'even' : 'bad');
+                    chip.textContent = (banda ? '~' : '') + p + '%';
+                    btn.appendChild(chip);
+                    card.appendChild(btn);
+                });
+            }
+
+            // Cambia rotta senza far avanzare la nave (l'avanzamento è a inizio turno).
+            const steer = document.createElement('details');
+            steer.className = 'bp-fold';
+            steer.innerHTML = '<summary>Cambia rotta</summary>';
+            const sb = document.createElement('div');
+            sb.className = 'bp-fold-body';
+            sb.appendChild(compass(exp.dir, d => run(GA().steerExpedition(player, exp.id, d))));
+            steer.appendChild(sb);
+            card.appendChild(steer);
+
+            g.appendChild(card);
+        });
         return g;
     }
 
@@ -1678,6 +1882,79 @@ document.addEventListener('DOMContentLoaded', () => {
         sync();
         box.querySelector('.bc-go').addEventListener('click',
             () => run(GA().resolveConquest(player, parseInt(range.value, 10))));
+    }
+
+    // ---------- avviso di conquista sulla MAPPA (richiesta dell'utente) ----------
+    // Vinta una battaglia con più superstiti, la ripartizione (quanti occupano,
+    // quanti rientrano) va decisa. La sezione nel pannello destro resta come
+    // ripiego, ma l'avviso salta fuori CENTRALE sopra la mappa: si decide lì,
+    // senza andare a cercare la sezione. Si mostra una volta per conquista;
+    // "Decido dopo" la chiude e lascia il pannello a farla concludere.
+    let conquestPromptFor = null;
+
+    function showConquestPrompt(player) {
+        const c = GA().conquestPending(player);
+        if (!c) { conquestPromptFor = null; return; }
+        if (!isPlaying(player)) return;
+        const key = c.fromId + '>' + c.toId + '@' + R.turn();
+        if (conquestPromptFor === key) return;              // già proposta per questa presa
+        if (document.getElementById('ui-conquest')) return;  // già aperta
+        // Una modale/pergamena per volta: se qualcosa è già a schermo, si
+        // riprova al render successivo senza segnare come mostrata.
+        if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) return;
+        // Non coprire la scena della battaglia (svg.battle-focus, ~3,6s): la si
+        // lascia finire e si riprova da soli, così l'avviso non piomba sul colpo.
+        if (document.querySelector('svg.battle-focus')) {
+            clearTimeout(showConquestPrompt._t);
+            showConquestPrompt._t = setTimeout(render, 350);
+            return;
+        }
+
+        conquestPromptFor = key;
+        openConquestModal(player, c);
+    }
+
+    function openConquestModal(player, c) {
+        const old = document.getElementById('ui-conquest');
+        if (old) old.remove();
+
+        const wrap = document.createElement('div');
+        wrap.id = 'ui-conquest';
+        wrap.innerHTML =
+            '<div class="uc-card">' +
+            '<div class="bc-head">⚑ ' + c.toLabel + ' è tua — quanti restano a occuparla?</div>' +
+            '<div class="bc-route">' + c.superstiti + ' superstiti dell\'assalto partito da ' + c.fromLabel + '</div>' +
+            '<div class="bc-split">' +
+                '<div class="bc-cell win"><span class="n" id="uq-occup">0</span><span class="l">occupano ' + c.toLabel + '</span></div>' +
+                '<div class="bc-cell back"><span class="n" id="uq-back">0</span><span class="l">rientrano in ' + c.fromLabel + '</span></div>' +
+            '</div>' +
+            '<input type="range" id="uq-range" min="1" max="' + c.superstiti + '" value="' + c.superstiti + '">' +
+            '<div class="bc-note">Almeno 1 resta a occuparla, se no la provincia torna sguarnita.</div>' +
+            '<div class="uc-actions">' +
+                '<button type="button" class="uc-no uq-later">Decido dopo</button>' +
+                '<button type="button" class="uc-yes uq-go">Conferma</button>' +
+            '</div></div>';
+
+        const range = wrap.querySelector('#uq-range');
+        const sync = () => {
+            const n = parseInt(range.value, 10);
+            wrap.querySelector('#uq-occup').textContent = n;
+            wrap.querySelector('#uq-back').textContent = c.superstiti - n;
+        };
+        range.addEventListener('input', sync);
+        sync();
+
+        const close = () => { document.removeEventListener('keydown', onKey); wrap.remove(); };
+        function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+        wrap.querySelector('.uq-later').addEventListener('click', close);
+        wrap.querySelector('.uq-go').addEventListener('click', () => {
+            close();
+            run(GA().resolveConquest(player, parseInt(range.value, 10)));
+        });
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(wrap);
+        wrap.querySelector('.uq-go').focus();
     }
 
     // ---------- capitale nemica presa: promuovila o lasciala Città ----------
@@ -2033,6 +2310,61 @@ document.addEventListener('DOMContentLoaded', () => {
         box.appendChild(proposeCard(player, myTurn));
         box.appendChild(inboxCard(player, myTurn));
         box.appendChild(outboxCard(player, myTurn));
+        box.appendChild(historyCard(player));
+    }
+
+    // --- storico degli scambi conclusi: si RIPROPONGONO con un click ---
+    // (richiesta dell'utente) Ogni scambio andato a buon fine resta qui, dal
+    // punto di vista di questo regno (cosa ha DATO, cosa ha RICEVUTO). "Riproponi"
+    // compila la proposta qui sopra con gli stessi termini verso lo stesso regno:
+    // rifarlo è un click, non da ricomporre a mano ogni volta.
+    function historyCard(player) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        const log = player.commerciStorico || [];
+        card.innerHTML = '<div class="bp-trade-head">Storico degli scambi' +
+            (log.length ? ' <span class="bp-trade-badge">' + log.length + '</span>' : '') + '</div>';
+
+        if (!log.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessuno scambio concluso, per ora.</div>');
+            return card;
+        }
+
+        const anno = t => (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? ' · A.D. ' + Chronicle.yearOfTurn(t) : '';
+        log.slice().reverse().forEach(h => {   // i più recenti in cima
+            const con = R.players().find(p => p.id === h.conId);
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((con && con.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-terms"><span class="out">− ' + GR().goodsText(h.dato) +
+                '</span><span class="in">+ ' + GR().goodsText(h.ricevuto) + '</span></div>';
+            item.querySelector('.bp-trade-from').textContent = 'Con ' + h.conNome + anno(h.turno);
+
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const again = document.createElement('button');
+            again.type = 'button'; again.className = 'bp-mini'; again.textContent = '↻ Riproponi';
+            const vivo = con && R.ownedPaths(con.name).length;
+            again.disabled = !vivo;
+            again.title = vivo ? 'Compila la proposta qui sopra con gli stessi termini'
+                : h.conNome + ' non ha più province con cui trattare';
+            again.addEventListener('click', () => {
+                tradeUI.verso = h.conId;
+                tradeUI.offroT = h.dato.tipo; tradeUI.offroN = h.dato.n;
+                tradeUI.chiedoT = h.ricevuto.tipo; tradeUI.chiedoN = h.ricevuto.n;
+                renderTrade(player);
+                // La card "Proponi a un regno" è la seconda: la si porta in vista.
+                const prop = $('bp-trade').children[1];
+                if (prop && prop.scrollIntoView) prop.scrollIntoView({ block: 'nearest' });
+            });
+            acts.appendChild(again);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+        return card;
     }
 
     // --- scambio con l'estero (banca 2:1) ---
@@ -2551,13 +2883,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // il giocatore torna a leggere con calma quello che sulla mappa è durato 3".
     function renderBattle() {
         const box = $('bp-battle');
-        const title = $('bp-battle-title');   // il capitolo 1.3 esiste solo se c'è una battaglia
+        const title = $('bp-battle-title');   // il pulsante esiste solo se c'è una battaglia
         if (!lastBattle || !lastBattle.battle) {
             box.style.display = 'none';
             if (title) title.style.display = 'none';
             return;
         }
-        if (title) title.style.display = '';
+
+        // La scheda è OPZIONALE (richiesta dell'utente): il pulsante c'è sempre
+        // che ci sia una battaglia da rivedere, ma il riquadro si apre solo se
+        // il giocatore l'ha chiesto. Il click alterna, e ogni nuova battaglia
+        // parte da chiuso (run() azzera battleOpen).
+        if (title) {
+            const vintaLast = lastBattle.battle.attackerWins;
+            title.style.display = '';
+            title.classList.toggle('open', battleOpen);
+            title.textContent = (battleOpen ? '▾ ' : '▸ ') +
+                (vintaLast ? 'Ultima battaglia — vinta' : 'Ultima battaglia — persa');
+            title.onclick = () => { battleOpen = !battleOpen; renderBattle(); };
+        }
+        if (!battleOpen) { box.style.display = 'none'; return; }
 
         const L = lastBattle;
         const b = L.battle;
@@ -2691,6 +3036,114 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ---------- naufragi e morìa in mare (GameActions.advanceExpeditions) ----------
+    // Le spedizioni avanzano fra un turno e l'altro (§9.2): se il mare si è preso
+    // parte dell'equipaggio, o ha inghiottito una nave intera, il giocatore lo
+    // scopre QUI, all'apertura del proprio turno, con la stessa pergamena degli
+    // editti e delle fondazioni. Il mare non cambia le cose di nascosto.
+    function showPendingWrecks(player) {
+        const attesa = (player.spedizioniAvvisi || []).filter(a => !a.letto);
+        if (!attesa.length || !R.showFoundation) return;
+        if (!isPlaying(player)) return;
+
+        // Una sola pergamena per volta (#ui-foundation): se un editto dell'admin
+        // attende, ha la precedenza e questa aspetta il render dopo — così un
+        // naufragio non copre un editto senza lasciarne traccia.
+        if ((player.editti || []).some(e => !e.letto)) return;
+
+        attesa.forEach(a => { a.letto = true; });
+        R.save();
+
+        const dirLabel = d => (GA().EXPED_DIR_LABEL && GA().EXPED_DIR_LABEL[d]) || d || '?';
+        const riga = a => {
+            const rotta = 'In rotta verso ' + dirLabel(a.dir) + ', al ' + a.turniInMare +
+                'º turno di mare aperto, ';
+            return a.tipo === 'totale'
+                ? rotta + 'una tempesta ha inghiottito la nave e gli ultimi ' + a.morti +
+                    (a.morti === 1 ? ' uomo a bordo' : ' uomini a bordo') + ': la spedizione è perduta.'
+                : rotta + 'il mare si è preso ' + a.morti +
+                    (a.morti === 1 ? ' uomo dell\'equipaggio.' : ' uomini dell\'equipaggio.');
+        };
+        const naufragio = attesa.some(a => a.tipo === 'totale');
+        const primo = attesa[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(primo.turno || R.turn())
+            : (primo.turno || R.turn());
+        R.showFoundation({
+            tipo: 'naufragio',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: naufragio ? 'Naufragio' : 'Il pedaggio del mare',
+            testo: attesa.map(riga).join('\n\n'),
+            nota: attesa.length > 1 ? attesa.length + ' notizie dal mare ti attendevano.' : ''
+        });
+    }
+
+    // ---------- carovane concluse (§7, richiesta dell'utente) ----------
+    // Uno scambio ANDATO A BUON FINE lo conclude l'altro regno, spesso nel suo
+    // turno: il proponente lo scopre QUI, all'apertura del proprio, con la stessa
+    // pergamena degli editti. game-actions.recordTrade lascia l'avviso in coda
+    // (player.commerciAvvisi); qui lo si srotola una volta sola e si segna letto.
+    function showPendingCommerci(player) {
+        const attesa = (player.commerciAvvisi || []).filter(a => !a.letto);
+        if (!attesa.length || !R.showFoundation) return;
+        if (!isPlaying(player)) return;
+        // Una pergamena per volta (#ui-foundation): editti e avvisi di mare hanno
+        // la precedenza, questa aspetta il render dopo.
+        if ((player.editti || []).some(e => !e.letto)) return;
+        if ((player.spedizioniAvvisi || []).some(a => !a.letto)) return;
+
+        attesa.forEach(a => { a.letto = true; });
+        R.save();
+
+        const primo = attesa[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(primo.turno || R.turn())
+            : (primo.turno || R.turn());
+        const riga = a => 'Accordo con ' + a.conNome + ': hai dato ' +
+            GR().goodsText(a.dato) + ', ricevuto ' + GR().goodsText(a.ricevuto) + '.';
+        R.showFoundation({
+            tipo: 'commercio',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: attesa.length > 1 ? 'Le carovane sono tornate' : 'La carovana è tornata',
+            testo: attesa.map(riga).join('\n\n'),
+            nota: 'Le ritrovi nello storico dei Commerci, pronte da riproporre.'
+        });
+    }
+
+    // ---------- schieramento automatico dei rinforzi obbligatori ----------
+    // (richiesta dell'utente) I rinforzi OBBLIGATORI (Capitale +1, Città +1,
+    // Fortezza +5) hanno una destinazione sola: non c'è niente da decidere.
+    // A inizio turno un pop-up centrale li piazza TUTTI con un click, senza
+    // doverli cercare nel pannello. Una volta per turno: chi dice "li dispongo
+    // io" non viene più interrotto.
+    let deployPromptShownFor = null;
+
+    function showDeployPrompt(player) {
+        if (!isPlaying(player) || !inPhase(player, 'schiera')) return;
+        const tot = GA().boundTotal(player);
+        if (!tot) return;
+        const key = player.id + '@' + R.turn();
+        if (deployPromptShownFor === key) return;
+        // Una modale per volta: se una pergamena (editto, mare, commercio) o
+        // un'altra conferma è aperta, si riprova al render dopo — non si segna
+        // come mostrata, così non va perduta.
+        if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) return;
+
+        deployPromptShownFor = key;
+        R.confirm({
+            title: 'Rinforzi di corte',
+            text: tot + (tot === 1 ? ' rinforzo obbligatorio è pronto' : ' rinforzi obbligatori sono pronti') +
+                ': +1 in ogni Città e Capitale, +5 in ogni Fortezza. Ognuno va solo nel suo edificio — ' +
+                'li schiero tutti adesso?',
+            ok: 'Schiera tutti (' + tot + ')',
+            cancel: 'Li dispongo io'
+        }, () => run(GA().deployAllBound(player)));
+    }
+
     function render() {
         // In solitaria la plancia segue il turno: se è cambiato regno, enterKingdom
         // ha già rifatto il render e questo va lasciato cadere.
@@ -2752,6 +3205,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // mentre la plancia si sta ancora ridisegnando (stessa ragione per cui
         // le fondazioni si srotolano dopo render() in run()).
         showPendingEditti(player);
+        showPendingWrecks(player);
+        showPendingCommerci(player);
+        showConquestPrompt(player);
+        showDeployPrompt(player);
     }
 
     // ---------- selezione dalla mappa ----------

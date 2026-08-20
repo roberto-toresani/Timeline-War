@@ -24,7 +24,7 @@
     // Strada, sulla prima delle due province).
     const COSTS = {
         strada:      { pietra: 1, soldati: 1 },
-        barca:       { legno: 1, soldati: 3 },
+        barca:       { legno: 3, soldati: 1 },
         capitale:    { monete: 500 },
         citta:       { monete: 1000, pietra: 3, argilla: 2, bestiame: 2 },
         fortezza:    { monete: 2000, pietra: 6, legno: 4, argilla: 4, bestiame: 2, grano: 2 },
@@ -47,9 +47,65 @@
         mercato:     'Apre i commerci: scambio con l\'estero al rapporto 2:1 e trattative con gli altri regni.',
         generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
         mercenario:  '+1 soldato che resta per sempre, ma è di ventura: in battaglia vale meno di un suddito e quanto renda si sa solo sul campo (§9).',
-        guarnigione: '+3 soldati di rinforzo: restano per sempre, sono truppe normali.',
+        guarnigione: '+2 soldati di rinforzo: restano per sempre, sono truppe normali.',
         spia:        'Perlustra un territorio lontano: per 3 turni vedi di chi sono quella provincia e le sue limitrofe — le bandiere, non le guarnigioni (§9.3).'
     };
+
+    // MIGLIORIE CIVICHE (§6.1): Sanità e Felicità. Una tantum, si costruiscono
+    // SULLA CAPITALE e alzano il Benessere (§8): ogni miglioria completata vale
+    // +1 punto al suo indice (max 5, uno per tipo di risorsa). Costano 3 unità
+    // della risorsa indicata e nient'altro. Sono legate alla CITTÀ-capitale, non
+    // al regno: spostare la Capitale le annulla (non è più la stessa città),
+    // conquistarla le regala al vincitore (restano sulla provincia, come le
+    // costruzioni). Vivono in data-welfare sulla provincia, un posto solo.
+    const WELFARE_COST = 3;
+    const WELFARE = {
+        sanita: {
+            label: 'Sanità', icon: '⚕',
+            edifici: {
+                acquedotto:  { label: 'Acquedotto',  res: 'pietra' },
+                lebbrosario: { label: 'Lebbrosario', res: 'legno' },
+                ospedale:    { label: 'Ospedale',    res: 'argilla' },
+                erboristeria:{ label: 'Erboristeria', res: 'grano' },
+                macelleria:  { label: 'Macelleria',  res: 'bestiame' }
+            }
+        },
+        felicita: {
+            label: 'Felicità', icon: '🎭',
+            edifici: {
+                teatro:        { label: 'Teatro',            res: 'pietra' },
+                palchi_arene:  { label: 'Palchi e arene',    res: 'legno' },
+                taverna:       { label: 'Taverna',           res: 'argilla' },
+                fiera_bestiame:{ label: 'Fiera del bestiame', res: 'bestiame' },
+                festa_sole:    { label: 'Festa del sole',    res: 'grano' }
+            }
+        }
+    };
+    // Indice piatto chiave → { cat, res, label }, per non ricalcolare la categoria
+    // di una miglioria a ogni lettura.
+    const WELFARE_INDEX = {};
+    Object.keys(WELFARE).forEach(cat => {
+        Object.keys(WELFARE[cat].edifici).forEach(key => {
+            const e = WELFARE[cat].edifici[key];
+            WELFARE_INDEX[key] = { cat, res: e.res, label: e.label };
+        });
+    });
+
+    function welfareInfo(key) { return WELFARE_INDEX[key] || null; }
+    function welfareCategory(key) { const i = WELFARE_INDEX[key]; return i ? i.cat : null; }
+    function welfareCost(key) {
+        const i = WELFARE_INDEX[key];
+        if (!i) return null;
+        const c = {}; c[i.res] = WELFARE_COST; return c;
+    }
+    function welfareLabel(key) { const i = WELFARE_INDEX[key]; return i ? i.label : key; }
+    // Quante migliorie di una categoria sono nella lista di chiavi costruite.
+    function welfareCount(built, cat) {
+        if (!built || !built.length) return 0;
+        let n = 0;
+        built.forEach(k => { const i = WELFARE_INDEX[k]; if (i && i.cat === cat) n++; });
+        return n;
+    }
 
     // Cosa si costruisce su UNA provincia (la Strada ne collega due).
     const BUILDABLE_ON_PROVINCE = ['capitale', 'citta', 'fortezza', 'mercato', 'barca', 'vascello', 'generale'];
@@ -377,6 +433,8 @@
     const api = {
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
+        WELFARE, WELFARE_COST, WELFARE_INDEX,
+        welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
         NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, neutralGarrison, PRESTIGE_ENABLED,
         NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,

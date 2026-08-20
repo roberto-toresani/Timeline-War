@@ -316,15 +316,45 @@
         return out;
     }
 
-    // Dijkstra sull'acqua fermato a `radius`. Restituisce Map(idProvincia → distanza).
+    // Centro (x,y) in coordinate SVG della cella `cell`.
+    function cellCenter(cell) {
+        const i = cell % GW, j = (cell / GW) | 0;
+        return { x: (i + 0.5) * CELL, y: (j + 0.5) * CELL };
+    }
+
+    // La cella d'ACQUA più vicina a (x,y). Una spedizione parte da un approdo
+    // (seaAnchor) che è già in acqua, ma un arrotondamento può cadere su terra o
+    // su una cella non ancora classificata: si allarga a spirale finché trova mare.
+    function nearestWaterCell(svg, x, y) {
+        const g = gridOf(svg);
+        const ci = Math.max(0, Math.min(GW - 1, Math.floor(x / CELL)));
+        const cj = Math.max(0, Math.min(GH - 1, Math.floor(y / CELL)));
+        if (kindAt(svg, g, ci, cj) === WATER) return cj * GW + ci;
+        for (let r = 1; r <= 10; r++) {
+            for (let dj = -r; dj <= r; dj++) {
+                for (let di = -r; di <= r; di++) {
+                    if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;   // solo l'anello
+                    const ni = ci + di, nj = cj + dj;
+                    if (ni < 0 || nj < 0 || ni >= GW || nj >= GH) continue;
+                    if (kindAt(svg, g, ni, nj) === WATER) return nj * GW + ni;
+                }
+            }
+        }
+        return cj * GW + ci;   // niente acqua vicina: si tiene la cella (ripiego)
+    }
+
+    // Dijkstra sull'acqua da un insieme di celle di partenza, fermato a `radius`.
+    // Restituisce Map(idProvincia → distanza) di ogni terra bagnata dall'acqua
+    // percorsa, saltando `selfIdx` (l'indice della provincia di partenza, o -1 se
+    // non c'è: la spedizione salpa da un punto in mare aperto, non da una costa).
+    // `onWater(cell, d, i, j)` — se dato — è chiamato per ogni cella d'acqua
+    // finalizzata: serve a chi naviga per direzione (sail), non alla portata.
     // Le distanze sono in unità SVG, le stesse di §9.2.
-    function distances(svg, provId, radius) {
+    function floodWater(svg, startCells, radius, selfIdx, onWater) {
         const g = gridOf(svg);
         const out = new Map();
-        if (!(radius > 0)) return out;
+        if (!(radius > 0) || !startCells || !startCells.length) return out;
         indexTinyIslands(svg, g);
-        const start = coastCellsOf(svg, g, provId);
-        if (!start.length) return out;   // provincia senza sbocco: niente mare
 
         // Coda a bucket: le distanze crescono di CELL o CELL·√2, quindi un passo
         // di CELL/4 basta a ordinarle senza inventare uno heap.
@@ -338,9 +368,8 @@
             const b = Math.min(nb - 1, Math.floor(d / STEP));
             (buckets[b] || (buckets[b] = [])).push(cell);
         };
-        start.forEach(c => push(c, 0));
+        startCells.forEach(c => push(c, 0));
 
-        const self = g.index.get(provId);
         for (let b = 0; b < nb; b++) {
             const q = buckets[b];
             if (!q) continue;
@@ -348,14 +377,15 @@
                 const cell = q[h];
                 const d = dist[cell];
                 if (d > (b + 1) * STEP) continue;      // rimesso in coda più avanti
+                const i = cell % GW, j = (cell / GW) | 0;
+                if (onWater) onWater(cell, d, i, j);
                 // Isolotti che stanno DENTRO questa cella d'acqua (§ isole piccole).
                 const tiny = g.tiny.get(cell);
                 if (tiny) tiny.forEach(p => {
-                    if (p === self) return;
+                    if (p === selfIdx) return;
                     const prev = out.get(g.ids[p]);
                     if (prev === undefined || d < prev) out.set(g.ids[p], d);
                 });
-                const i = cell % GW, j = (cell / GW) | 0;
                 for (let dj = -1; dj <= 1; dj++) {
                     for (let di = -1; di <= 1; di++) {
                         if (!di && !dj) continue;
@@ -367,7 +397,7 @@
                             // Terra bagnata da questa cella d'acqua: la provincia è
                             // raggiungibile a questa distanza.
                             const p = g.prov[k];
-                            if (p !== NO_PROV && p !== self) {
+                            if (p !== NO_PROV && p !== selfIdx) {
                                 const prev = out.get(g.ids[p]);
                                 if (prev === undefined || d < prev) out.set(g.ids[p], d);
                             }
@@ -379,6 +409,48 @@
             }
         }
         return out;
+    }
+
+    // Dijkstra sull'acqua fermato a `radius`, da una PROVINCIA costiera.
+    function distances(svg, provId, radius) {
+        const g = gridOf(svg);
+        const start = coastCellsOf(svg, g, provId);
+        if (!start.length) return new Map();       // provincia senza sbocco: niente mare
+        const self = g.index.has(provId) ? g.index.get(provId) : -1;
+        return floodWater(svg, start, radius, self, null);
+    }
+
+    // Province raggiungibili entro `radius` da un PUNTO in mare aperto (§9.2, rotte
+    // lunghe): è la portata di una spedizione ferma lì, cioè le coste che avvista.
+    function reachFromPoint(svg, x, y, radius) {
+        const cell = nearestWaterCell(svg, x, y);
+        return new Set(floodWater(svg, [cell], radius, -1, null).keys());
+    }
+
+    // NAVIGAZIONE PER DIREZIONE (§9.2, rotte lunghe). Da (x,y) in mare aperto, una
+    // spedizione avanza di una portata piena verso `dir` (uno degli 8 punti
+    // cardinali) SEGUENDO L'ACQUA: gira le penisole, non attraversa la terra.
+    // Restituisce la cella d'acqua raggiungibile entro `range` che va PIÙ LONTANO
+    // nella direzione voluta (massima proiezione sul versore). Se l'acqua non porta
+    // da nessuna parte in quella direzione (nave imbottigliata), resta ferma.
+    const DIRV = {
+        N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0],
+        NE: [0.70710678, -0.70710678], NW: [-0.70710678, -0.70710678],
+        SE: [0.70710678, 0.70710678], SW: [-0.70710678, 0.70710678]
+    };
+    function sail(svg, x, y, dir, range) {
+        const startCell = nearestWaterCell(svg, x, y);
+        const s = cellCenter(startCell);
+        const v = DIRV[dir];
+        if (!v || !(range > 0)) return { x: s.x, y: s.y, moved: 0 };
+        let best = startCell, bestScore = 0;
+        floodWater(svg, [startCell], range, -1, (cell, d, i, j) => {
+            const cx = (i + 0.5) * CELL, cy = (j + 0.5) * CELL;
+            const score = (cx - s.x) * v[0] + (cy - s.y) * v[1];
+            if (score > bestScore) { bestScore = score; best = cell; }
+        });
+        const c = cellCenter(best);
+        return { x: c.x, y: c.y, moved: bestScore };
     }
 
     // Set degli id raggiungibili entro `radius` (esclusa la provincia di partenza).
@@ -398,6 +470,18 @@
         return s;
     }
 
+    // reachFromPoint memoizzata: la nebbia (refreshMapDisplay) la chiede a ogni
+    // azione, e una portata da veliero costa ~30 ms. La posizione di una spedizione
+    // è il centro di una cella e cambia solo quando la nave avanza, quindi
+    // (cella, raggio) è una chiave stabile fra un turno e l'altro.
+    function reachFromPointCached(svg, x, y, radius) {
+        const memo = svg.__seaReachPt || (svg.__seaReachPt = new Map());
+        const key = Math.round(x) + ',' + Math.round(y) + '@' + radius;
+        let s = memo.get(key);
+        if (!s) { s = reachFromPoint(svg, x, y, radius); memo.set(key, s); }
+        return s;
+    }
+
     // Una provincia ha uno sbocco sul mare vero? (le navi si costruiscono solo lì)
     function hasSeaAccess(svg, provId) {
         return coastCellsOf(svg, gridOf(svg), provId).length > 0;
@@ -405,6 +489,7 @@
 
     global.SeaRoutes = {
         CELL, prepare, reach, reachCached, distances, hasSeaAccess,
+        reachFromPoint, reachFromPointCached, sail,
         // Portate di §9.2. Chi ne vuole una nuova la aggiunge qui, non sparsa.
         RANGE: { barca: 12, vascello: 170 },
         rangeOf: tipo => (global.SeaRoutes.RANGE[tipo] || 0),
