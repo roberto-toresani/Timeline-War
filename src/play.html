@@ -146,6 +146,18 @@
                         </div>
                     </details>
 
+                    <!-- Diplomazia (§Diplomazia): proporre patti a un regno
+                         visibile, vedere quelli attivi, concederne l'attacco o
+                         romperli. Sta a sinistra e NON è vincolata a una fase:
+                         un araldo si manda in qualunque momento del proprio turno
+                         (renderDiplomacy in player-board.js). -->
+                    <details class="bp-fold" id="fold-diplomacy" open>
+                        <summary>Diplomazia <span class="bp-fold-hint">patti · alleanze · si può sempre mentire</span></summary>
+                        <div class="bp-fold-body">
+                            <div id="bp-diplomacy"></div>
+                        </div>
+                    </details>
+
                     <!-- Cosa sta facendo l'IA: si legge qui invece di inseguire la
                          telecamera sulla mappa (aiLog in player-board.js). -->
                     <details class="bp-fold" id="fold-ailog" open>
@@ -407,6 +419,8 @@
     <script src="js/sea-routes.js?v=77"></script>
     <!-- Spie (§9.3): puro, e serve ad app.js per la nebbia. Prima di app.js. -->
     <script src="js/spies.js?v=77"></script>
+    <!-- Diplomazia (alleanze): puro, serve a game-actions/app/bot. Prima di app.js. -->
+    <script src="js/diplomacy.js?v=77"></script>
     <script src="js/app.js?v=77"></script>
     <script src="js/game-actions.js?v=77"></script>
     <script src="js/bot.js?v=77"></script>

@@ -157,6 +157,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // in coda finché il giocatore non li ha letti — stessa logica degli editti,
         // così un naufragio non si perde se la pagina si ricarica prima del turno.
         if (!Array.isArray(p.spedizioniAvvisi)) p.spedizioniAvvisi = [];
+        // DIPLOMAZIA (§Diplomazia): i PATTI. `patti` è la lista MUTUA degli
+        // accordi attivi ({tipo, con, dal, scad}), scritta su entrambi i record
+        // da game-actions (come recordTrade). `pattiProposte` sono le proposte
+        // RICEVUTE (sul record di chi le riceve, come le offerte di commercio);
+        // `pattiAvvisi` gli avvisi pop-up a inizio turno (accettato / scaduto /
+        // rotto / tradito), come editti e commerci. `permessiAttacco` sono i
+        // consensi CONCESSI da questo regno: [{chi, prov}] = "permetto a `chi`
+        // di attaccare la mia `prov` senza rompere il patto". Vivono nello stato
+        // come il rancore: servono ai bot, un umano se ne serve dalla plancia.
+        if (!Array.isArray(p.patti)) p.patti = [];
+        if (!Array.isArray(p.pattiProposte)) p.pattiProposte = [];
+        if (!Array.isArray(p.pattiAvvisi)) p.pattiAvvisi = [];
+        if (!Array.isArray(p.permessiAttacco)) p.permessiAttacco = [];
         return p;
     }
 
@@ -2613,30 +2626,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const soloGameBtn = document.getElementById('solo-game-btn');
     if (soloGameBtn) soloGameBtn.addEventListener('click', () => avviaPartitaIA(true, true));
 
+    const followTwoBtn = document.getElementById('follow-two-btn');
+    if (followTwoBtn) followTwoBtn.addEventListener('click', () => avviaPartitaIA(true, false, 2));
+
     // Esito del sorteggio: chi sei, con che link entri nella tua plancia, e con
     // che testa giocano gli altri nove.
     function renderNewGameResult(res) {
         const box = document.getElementById('new-game-result');
         if (!box || !res || !res.ok) return;
-        const umano = res.umano;
+        // I regni umani possono essere più d'uno (segui 2+ regni, gli altri IA).
+        const umani = res.umani || (res.umano ? [res.umano] : []);
+        const umanoIds = new Set(umani.map(p => p.id));
         const righe = res.regni.map(r => {
             const p = r.player;
             const bot = window.Bot ? window.Bot.strategyOf(p) : null;
-            return '<div class="ng-row' + (umano && p.id === umano.id ? ' me' : '') + '">' +
+            return '<div class="ng-row' + (umanoIds.has(p.id) ? ' me' : '') + '">' +
                 '<span class="ng-dot" style="background:' + p.color + '"></span>' +
                 '<span class="ng-name">' + p.name + '</span>' +
                 '<span class="ng-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
                 '</div>';
         }).join('');
-        // In solitaria non c'è UN regno tuo: la plancia si apre senza codice
-        // d'invito (play.html liscio) e da lì segue il turno di regno in regno.
-        // Aprirla col link di uno dei dieci la incollerebbe a quel regno anche
-        // dopo un ricaricamento (vedi resolvePlayer in player-board.js).
+        // Con più regni tuoi (solitaria o partita mista) non c'è UN regno solo: la
+        // plancia si apre senza codice d'invito (play.html liscio) e da lì segue il
+        // turno di regno in regno. Aprirla col link di uno solo la incollerebbe a
+        // quel regno anche dopo un ricaricamento (vedi resolvePlayer in player-board.js).
         const dir = location.href.split('?')[0].replace(/[^/]*$/, '');
-        const link = res.tuttiUmani ? dir + 'play.html' : (umano ? inviteUrlFor(umano) : null);
+        const unSoloUmano = umani.length === 1 ? umani[0] : null;
+        const link = (umani.length !== 1) ? dir + 'play.html'
+            : (unSoloUmano ? inviteUrlFor(unSoloUmano) : null);
         const testa = res.tuttiUmani
             ? 'Giochi tutti i ' + res.regni.length + ' regni'
-            : (umano ? 'Giochi ' + umano.name : 'Nessun regno umano');
+            : umani.length >= 2
+            ? 'Segui ' + umani.map(p => p.name).join(' e ')
+            : (unSoloUmano ? 'Giochi ' + unSoloUmano.name : 'Nessun regno umano');
         box.innerHTML =
             '<div class="ng-head">' + testa + '</div>' +
             (link ? '<a class="ng-link" href="' + link + '">▶ Apri la plancia</a>' : '') +
@@ -2958,6 +2980,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = SeaRoutes.rangeOf('vascello');
             me.spedizioni.forEach(exp => {
                 SeaRoutes.reachFromPointCached(svg, exp.x, exp.y, r).forEach(id => haze.add(id));
+            });
+        }
+
+        // VISIONE CONDIVISA (§Diplomazia): con un patto di 'vista' (o
+        // un'alleanza, che la comprende) si vede il territorio del partner come
+        // il proprio, truppe comprese — è il senso del patto. Si aggiunge in
+        // piena visibilità, non in nebbia leggera: un alleato non ti nasconde le
+        // guarnigioni. I bot non hanno nebbia, ma la relazione vale comunque.
+        if (me && typeof Diplomacy !== 'undefined') {
+            PLAYERS.forEach(other => {
+                if (other === me || !Diplomacy.sharesVision(me, other)) return;
+                svg.querySelectorAll(`path[data-owner="${other.name}"]`).forEach(path => {
+                    visible.add(path.id);
+                });
             });
         }
 
@@ -3360,7 +3396,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // ovunque e si veste come il resto della plancia.
     // ============================================================
 
-    function askConfirm(opts, onYes) {
+    // `onNo` (opzionale) scatta SOLO sul bottone di rifiuto esplicito, non su
+    // Esc/click fuori: così un pop-up può offrire tre esiti — sì (onYes), no
+    // (onNo) e "più tardi" (chiudi e basta). I chiamanti che passano solo onYes
+    // restano identici a prima.
+    function askConfirm(opts, onYes, onNo) {
         const o = (typeof opts === 'string') ? { text: opts } : (opts || {});
         const old = document.getElementById('ui-confirm');
         if (old) old.remove();
@@ -3388,7 +3428,8 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (e.key === 'Enter') { e.preventDefault(); accept(); }
         }
 
-        wrap.querySelector('.uc-no').addEventListener('click', close);
+        const refuse = () => { close(); if (typeof onNo === 'function') onNo(); };
+        wrap.querySelector('.uc-no').addEventListener('click', refuse);
         wrap.querySelector('.uc-yes').addEventListener('click', accept);
         wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
         document.addEventListener('keydown', onKey);
@@ -3412,7 +3453,9 @@ document.addEventListener('DOMContentLoaded', () => {
         scisma: 'Cronaca della fede',
         editto: 'Editto — accaduto mentre non eri al potere',
         naufragio: 'Cronaca del mare — accadde in rotta',
-        commercio: 'Commercio — una carovana ha concluso'
+        commercio: 'Commercio — una carovana ha concluso',
+        patto: 'Diplomazia — un araldo alla tua corte',
+        tradimento: 'Diplomazia — un araldo reca la nuova di un tradimento'
     };
 
     // ---------- scismi (js/religions.js) ----------

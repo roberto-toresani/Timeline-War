@@ -288,6 +288,74 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (`historyCard` in `renderTrade`) elenca gli scambi conclusi; "↻ Riproponi" ricompila
     la card "Proponi a un regno" (`tradeUI`) con gli stessi termini verso lo stesso
     regno. Rifare un affare è un click, non da ricomporre a mano.
+- **Diplomazia: i PATTI, e il fatto che si possono ROMPERE** (§Diplomazia, regola
+  dell'utente: "si può sempre mentire"). Come le richieste di commercio, un regno propone
+  a un altro **visibile** (anche via spia) uno di **cinque** patti di peso diverso. La
+  relazione pura e i **privilegi** stanno in `js/diplomacy.js` (`window.Diplomacy`, come
+  `popularity.js`); le mutazioni **solo** in `game-actions.js`; la UI in `player-board.js`
+  (fatti i **pop-up a inizio turno** e il **pannello Diplomazia** — vedi sotto; resta
+  l'attacco-con-consenso/tradimento **dalla mappa**). Un patto è **mutuo**: `bondPact`/`unbondPact` lo scrivono su **entrambi** i
+  record (`player.patti = [{tipo, con, dal, scad}]`), come `recordTrade`. Proposte come le
+  offerte (`pattiProposte` su chi riceve), avvisi come gli editti (`pattiAvvisi`).
+  - **I cinque patti e i privilegi** (`Diplomacy.GRANTS`): `alleanza` (tutti i privilegi,
+    senza scadenza), `alleanzaTempo` (tutti, dura `Diplomacy.TIMED = 5` turni poi scade),
+    `nonBelligeranza` (solo non-aggressione), `rinforzi` (solo accesso militare), `vista`
+    (solo visione condivisa). I privilegi: `nonAgg` (non ci si attacca), `vista` (§9.2, in
+    `computeVisibleProvinces` il territorio del partner si vede in **piena** visibilità,
+    truppe comprese), `rinforzi` (accesso militare: lo spostamento di fine turno può
+    **inviare rinforzi** a un alleato confinante via terra — `moveTargets` lo segna
+    `alleato:true`, `finalMove` aggiunge i soldati alla provincia del partner **senza**
+    cambiarne proprietario/colore: diventano suoi. Solo via terra, niente sbarco).
+  - **Solo l'alleanza costa a romperla**: `−2` prestigio (`Diplomacy.BREAK_PRESTIGE`, su
+    `puntiOro`). I patti leggeri si sciolgono **gratis** — è il loro vantaggio (impegni
+    meno). Il prestigio è **oggi spento** (`GameRules.PRESTIGE_ENABLED = false`), quindi il
+    `−2` è un no-op finché non si riaccende il §10: **la regola è già codificata**, morde
+    da sé quando torna il prestigio.
+  - **Attacco a un alleato: consenso o tradimento.** In `attack()` (parametro finale
+    `tradimento`) colpire un partner di non-aggressione è bloccato, salvo: (1) il
+    **consenso** del proprietario a quella provincia — `grantAttack` lascia un permesso
+    una-tantum `owner.permessiAttacco = [{chi, prov}]`, l'attacco **non rompe** il patto e
+    consuma il permesso; (2) `tradimento` esplicito — rompe **tutti** i patti col
+    difensore (`breakPact(..., null)`), `−2` se c'era un'alleanza. Il rancore del tradito
+    lo segna già la conquista (`recordGrudge`), non serve raddoppiarlo. Il patto si scioglie
+    al **commit** (battaglia risolta, `silent`), non prima.
+  - **Scadenza gratis**: `expirePacts()` (in `endTurn`, come `expireTrades`) scioglie le
+    alleanze a tempo giunte a `scad`, senza prestigio, avvisando entrambi. `scad = dal +
+    TIMED`; niente zombie.
+  - **`attackTargets` porta la diplomazia sul bersaglio**: `patto` (non-aggressione),
+    `alleanza` (costa prestigio romperla), `consenso` (permesso già concesso) — così la
+    plancia chiede consenso/tradimento invece di attaccare liscio.
+  - **Pop-up a inizio turno (regola dell'utente: come i commerci, ma con un pop-up)**, in
+    `player-board.js` e agganciati in coda a `render()`: `showPendingPactProposals` apre una
+    modale **azionabile** (`Risiko.confirm` con il terzo esito `onNo`) — *"Un araldo alla
+    tua corte"*, **Accetta**/**Rifiuta**, Esc/click-fuori = decidi dopo (la proposta resta
+    in `pattiProposte`, ritorna al render successivo); `showPendingPactNotices` srotola la
+    pergamena (`showFoundation`, tipo `patto`/`tradimento`, *"Un araldo reca notizia/cattive
+    nuove"*) per gli esiti in `pattiAvvisi`, cedendo la precedenza a editti/mare/commerci.
+    Il taglio è quello di un **araldo/messo** che reca la proposta o la notizia.
+  - **Il pannello** (`renderDiplomacy`, `#bp-diplomacy` nel pannellone SINISTRO, non
+    vincolato a una fase — un araldo si manda in ogni momento del proprio turno): tre card
+    (`bp-trade-card`, stessa veste dei commerci). *Proponi un patto* (select del regno
+    **visibile** via `diploKingdomsVisibili` + select del tipo → `proposePact`); *Patti
+    attivi* raggruppati per regno, con "Sciogli/⚔" (`breakPact`; l'alleanza chiede conferma
+    `danger` per il −2) e, per ogni partner di non-aggressione, il riquadro *Concedi
+    attacco* (select di una propria provincia → `grantAttack`); *Araldi alla porta* (le
+    proposte in arrivo, Accetta/Rifiuta — le stesse del pop-up, qui elencate).
+  - **I bot fanno diplomazia "per bisogno"** (regola dell'utente), in `bot.js`, dentro la
+    fase costruzioni del `turnScript` accanto ai commerci. `diploAnswers` risponde agli
+    araldi arrivati (accetta i patti che convengono: un leggero salvo che il proponente sia
+    una **preda** `isJuicyPrey`; un'alleanza solo se il proponente non è preda ed è forte);
+    `diploProposals` compra pace — un solo araldo per turno — proponendo la **non
+    belligeranza** al vicino-regno più minaccioso su un confine, se non è già in pace, non è
+    preda, e non ha un araldo già in viaggio (`pendingBetween`). La lealtà vive
+    nell'**attacco**: `bestAttack` salta un bersaglio di un partner di non aggressione
+    (`t.patto`) a meno del suo **consenso** (`t.consenso`, gratis) o di un **tradimento**,
+    che dipende dal carattere — `s.tradimento` per profilo (predone 1, opportunista 0.85,
+    espansione 0.4, costruttore 0.1: *"opportunisti a scaglioni"*). Il tradimento sconta lo
+    score (`× s.tradimento − BETRAY_RELUCTANCE`), così si tradisce solo per un bottino che
+    vale molto più di una conquista qualunque; `best.tradimento` diventa il 7º argomento di
+    `attack`. Guerra coordinata di base: `enemyThreat` **non** conta un partner di non
+    aggressione come minaccia (confine tranquillo, niente presidio).
 - **Alias di funzione: `function`, non `const arrow`.** `initMap()` gira in cima alla
   closure di `app.js` e da lì scende fino al render di risorse e pedine: qualunque
   helper dichiarato più in basso con `const`/`let` è ancora nella sua **zona morta** e

@@ -49,6 +49,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Stato dei moduli di commercio (§7): si tiene qui perché render() ricostruisce
     // l'HTML a ogni azione (anche dei bot) e i menù a tendina perderebbero la scelta.
     const tradeUI = { dai: null, prendi: null, n: 1, verso: null, offroT: null, offroN: 3, chiedoT: null, chiedoN: 2 };
+    // Diplomazia (§Diplomazia): a chi propongo e che patto. `consenso` è la
+    // provincia scelta nel riquadro "concedi attacco", per partner.
+    const diploUI = { verso: null, tipo: 'alleanza', consenso: {} };
 
     // ---------- pannelli: tre colonne, o tendine su schermi stretti ----------
     // Da 1200px in su i pannelli sono due colonne vere della griglia: la mappa
@@ -3114,6 +3117,322 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ---------- diplomazia: il PANNELLO (§Diplomazia) ----------
+    // (regola dell'utente) Come i commerci, ma per i PATTI: proporre a un regno
+    // VISIBILE (anche via spia), vedere i patti attivi e romperli/tradirli,
+    // concedere a un partner di attaccare una propria provincia. Le proposte in
+    // arrivo hanno già il pop-up a inizio turno; qui restano elencate per
+    // decidere con calma. Nessun vincolo di fase: basta il proprio turno.
+    function diploKingdomsVisibili(player) {
+        // I regni che questo giocatore VEDE: quelli con almeno una provincia
+        // visibile (in vista generale/editor la nebbia è nulla e si vedono tutti).
+        const noFog = !R.visibleProvinces || !R.visibleProvinces();
+        return R.players().filter(p => {
+            if (p.id === player.id) return false;
+            const paths = R.ownedPaths(p.name);
+            if (!paths.length) return false;
+            return noFog || paths.some(pt => R.isVisible(pt.id));
+        });
+    }
+    function renderDiplomacy(player) {
+        const box = $('bp-diplomacy');
+        if (!box) return;
+        box.innerHTML = '';
+        const myTurn = isPlaying(player);
+        box.appendChild(diploProposeCard(player, myTurn));
+        box.appendChild(diploActiveCard(player, myTurn));
+        box.appendChild(diploInboxCard(player, myTurn));
+    }
+
+    function diploProposeCard(player, myTurn) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        card.innerHTML = '<div class="bp-trade-head">Proponi un patto</div>';
+
+        const D = window.Diplomacy;
+        const visibili = diploKingdomsVisibili(player);
+        if (!visibili.length) {
+            card.insertAdjacentHTML('beforeend',
+                '<div class="bp-empty-hint">Nessun regno in vista con cui trattare. Una spia allarga lo sguardo.</div>');
+            return card;
+        }
+        if (!diploUI.verso || !visibili.some(p => p.id === diploUI.verso)) diploUI.verso = visibili[0].id;
+
+        const row = document.createElement('div');
+        row.className = 'bp-trade-row';
+
+        const who = document.createElement('div');
+        who.className = 'bp-trade-leg';
+        who.innerHTML = '<span class="bp-trade-lab">con</span>';
+        const selWho = document.createElement('select');
+        selWho.className = 'bp-trade-sel';
+        visibili.forEach(p => {
+            const o = document.createElement('option');
+            o.value = p.id; o.textContent = p.name;
+            if (p.id === diploUI.verso) o.selected = true;
+            selWho.appendChild(o);
+        });
+        selWho.addEventListener('change', () => { diploUI.verso = parseInt(selWho.value, 10); renderDiplomacy(player); });
+        who.appendChild(selWho);
+
+        const what = document.createElement('div');
+        what.className = 'bp-trade-leg';
+        what.innerHTML = '<span class="bp-trade-lab">patto</span>';
+        const selWhat = document.createElement('select');
+        selWhat.className = 'bp-trade-sel';
+        D.TYPES.forEach(t => {
+            const o = document.createElement('option');
+            o.value = t; o.textContent = D.LABEL[t];
+            if (t === diploUI.tipo) o.selected = true;
+            selWhat.appendChild(o);
+        });
+        selWhat.addEventListener('change', () => { diploUI.tipo = selWhat.value; renderDiplomacy(player); });
+        what.appendChild(selWhat);
+
+        row.appendChild(who);
+        row.appendChild(what);
+        card.appendChild(row);
+
+        // Una riga che dice cosa concede e cosa costa romperlo.
+        const nota = document.createElement('div');
+        nota.className = 'bp-trade-cost';
+        nota.textContent = pactGrantText(diploUI.tipo) + ' ' +
+            (D.costsPrestige(diploUI.tipo) ? 'Rottura: −' + D.BREAK_PRESTIGE + ' prestigio.' : 'Rottura: gratis.');
+        card.appendChild(nota);
+
+        const altro = R.players().find(p => p.id === diploUI.verso);
+        const chk = altro ? D.canPropose(player, altro, diploUI.tipo) : { ok: false, msg: 'Scegli un regno.' };
+        const why = myTurn ? (chk.ok ? null : chk.msg) : 'Solo nel tuo turno.';
+        card.appendChild(actionButton('Invia l\'araldo', null, why ? shorten(why) : null,
+            () => run(GA().proposePact(player, diploUI.verso, diploUI.tipo))));
+        return card;
+    }
+
+    function diploActiveCard(player, myTurn) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        const D = window.Diplomacy;
+        const patti = (player.patti || []);
+        card.innerHTML = '<div class="bp-trade-head">Patti attivi' +
+            (patti.length ? ' <span class="bp-trade-badge">' + patti.length + '</span>' : '') + '</div>';
+        if (!patti.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun patto in vigore.</div>');
+            return card;
+        }
+        // Raggruppa per regno: un partner può avere più patti leggeri.
+        const perRegno = new Map();
+        patti.forEach(p => {
+            const k = String(p.con);
+            if (!perRegno.has(k)) perRegno.set(k, []);
+            perRegno.get(k).push(p);
+        });
+        perRegno.forEach((lista, con) => {
+            const altro = R.players().find(p => String(p.id) === con);
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            const chips = lista.map(p => {
+                const scad = p.scad != null ? ' <em>(scade al ' + p.scad + ')</em>' : '';
+                return D.LABEL[p.tipo] + scad;
+            }).join(' · ');
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((altro && altro.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-terms" style="flex-wrap:wrap">' + chips + '</div>';
+            item.querySelector('.bp-trade-from').textContent = altro ? altro.name : 'Regno scomparso';
+
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            lista.forEach(p => {
+                const tradisci = D.costsPrestige(p.tipo);
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'bp-mini';
+                b.textContent = (tradisci ? '⚔ Sciogli ' : '✕ Sciogli ') + D.LABEL[p.tipo].toLowerCase();
+                b.title = tradisci ? 'Rompere un\'alleanza costa −' + D.BREAK_PRESTIGE + ' prestigio' : 'Si scioglie senza costo';
+                b.disabled = !myTurn;
+                b.addEventListener('click', () => {
+                    if (tradisci) {
+                        R.confirm({
+                            title: 'Sciogliere l\'alleanza?',
+                            text: 'Rompere il patto con ' + (altro ? altro.name : 'questo regno') +
+                                ' ti costa −' + D.BREAK_PRESTIGE + ' prestigio. Procedo?',
+                            ok: 'Rompi il patto', cancel: 'Lascia stare', tone: 'danger'
+                        }, () => run(GA().breakPact(player, altro.id, p.tipo, {})));
+                    } else {
+                        run(GA().breakPact(player, altro.id, p.tipo, {}));
+                    }
+                });
+                acts.appendChild(b);
+            });
+            item.appendChild(acts);
+
+            // Concessione d'attacco: se c'è un patto di non aggressione, puoi
+            // permettere al partner di colpire UNA tua provincia senza rottura.
+            if (altro && D.grantsNonAggression(player, altro)) {
+                item.appendChild(diploConsentRow(player, altro, myTurn));
+            }
+            card.appendChild(item);
+        });
+        return card;
+    }
+
+    // Riquadro "concedi attacco": scegli una tua provincia e la offri al partner.
+    function diploConsentRow(player, altro, myTurn) {
+        const wrap = document.createElement('div');
+        wrap.className = 'bp-trade-row';
+        wrap.style.marginTop = '4px';
+        const mie = R.ownedPaths(player.name);
+        const sel = document.createElement('select');
+        sel.className = 'bp-trade-sel';
+        const key = String(altro.id);
+        mie.forEach(pt => {
+            const o = document.createElement('option');
+            o.value = pt.id; o.textContent = R.provinceLabel(pt);
+            if (diploUI.consenso[key] === pt.id) o.selected = true;
+            sel.appendChild(o);
+        });
+        if (!diploUI.consenso[key] && mie[0]) diploUI.consenso[key] = mie[0].id;
+        sel.addEventListener('change', () => { diploUI.consenso[key] = sel.value; });
+        wrap.appendChild(sel);
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'bp-mini';
+        b.textContent = '🏳 Concedi attacco';
+        b.title = 'Permetti a ' + altro.name + ' di attaccare questa provincia senza rompere il patto';
+        b.disabled = !myTurn;
+        b.addEventListener('click', () => run(GA().grantAttack(player, altro.id, diploUI.consenso[key] || (mie[0] && mie[0].id))));
+        wrap.appendChild(b);
+        return wrap;
+    }
+
+    function diploInboxCard(player, myTurn) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        const D = window.Diplomacy;
+        const list = (player.pattiProposte || []);
+        card.innerHTML = '<div class="bp-trade-head">Araldi alla porta' +
+            (list.length ? ' <span class="bp-trade-badge">' + list.length + '</span>' : '') + '</div>';
+        if (!list.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessuna proposta in arrivo.</div>');
+            return card;
+        }
+        list.forEach(off => {
+            const mitt = R.players().find(p => p.id === off.da);
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((mitt && mitt.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-terms">' + D.LABEL[off.tipo] + '</div>';
+            item.querySelector('.bp-trade-from').textContent = (mitt ? mitt.name : 'Un regno') + ' propone';
+
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const yes = document.createElement('button');
+            yes.type = 'button'; yes.className = 'bp-mini'; yes.textContent = '✓ Accetta';
+            yes.disabled = !myTurn;
+            yes.addEventListener('click', () => run(GA().acceptPact(player, off.id)));
+            const no = document.createElement('button');
+            no.type = 'button'; no.className = 'bp-mini'; no.textContent = '✕ Rifiuta';
+            no.disabled = !myTurn;
+            no.addEventListener('click', () => run(GA().declinePact(player, off.id)));
+            acts.appendChild(yes); acts.appendChild(no);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+        return card;
+    }
+
+    // ---------- diplomazia: avvisi dai patti (§Diplomazia) ----------
+    // Gli ESITI dei patti (accettato / sciolto / TRADITO / scaduto / consenso
+    // concesso) arrivano spesso nel turno di un altro regno: il giocatore li
+    // scopre QUI, all'apertura del suo, con la stessa pergamena degli editti.
+    // game-actions li lascia in player.pattiAvvisi; qui si srotolano una volta.
+    function pactLabel(tipo) {
+        return (typeof Diplomacy !== 'undefined' && Diplomacy.LABEL && Diplomacy.LABEL[tipo]) || 'patto';
+    }
+    function showPendingPactNotices(player) {
+        const attesa = (player.pattiAvvisi || []).filter(a => !a.letto);
+        if (!attesa.length || !R.showFoundation) return;
+        if (!isPlaying(player)) return;
+        // Una pergamena per volta (#ui-foundation): editti, mare e commerci hanno
+        // la precedenza, questa aspetta il render dopo.
+        if ((player.editti || []).some(e => !e.letto)) return;
+        if ((player.spedizioniAvvisi || []).some(a => !a.letto)) return;
+        if ((player.commerciAvvisi || []).some(a => !a.letto)) return;
+
+        attesa.forEach(a => { a.letto = true; });
+        R.save();
+
+        const provLabel = id => { const p = R.engine && R.engine.path(id); return p ? R.provinceLabel(p) : id; };
+        const riga = a => {
+            const patto = pactLabel(a.patto);
+            switch (a.tipo) {
+                case 'accettato': return a.conNome + ' ha accettato: ' + patto.toLowerCase() + ' in vigore.';
+                case 'rotto': return a.conNome + ' ha sciolto il patto con te (' + patto.toLowerCase() + ').';
+                case 'tradito': return a.conNome + ' ti ha TRADITO: ha infranto ' + patto.toLowerCase() + ' e ti ha attaccato.';
+                case 'scaduto': return 'L\'accordo con ' + a.conNome + ' (' + patto.toLowerCase() + ') è giunto a scadenza.';
+                case 'consenso': return a.conNome + ' ti concede di attaccare ' + provLabel(a.prov) + ' senza rompere il patto.';
+                default: return '';
+            }
+        };
+        const tradito = attesa.some(a => a.tipo === 'tradito');
+        const primo = attesa[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(primo.turno || R.turn())
+            : (primo.turno || R.turn());
+        R.showFoundation({
+            tipo: tradito ? 'tradimento' : 'patto',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: tradito ? 'Un araldo reca cattive nuove' : 'Un araldo reca notizia',
+            testo: attesa.map(riga).filter(Boolean).join('\n\n'),
+            nota: attesa.length > 1 ? attesa.length + ' notizie ti attendevano.' : ''
+        });
+    }
+
+    // ---------- diplomazia: proposte di patto in arrivo (§Diplomazia) ----------
+    // (regola dell'utente) Come le richieste di commercio, una proposta di patto
+    // deve COMPARIRE a inizio turno, non restare nascosta in un pannello: un
+    // pop-up per accettarla o rifiutarla lì. Una per volta, cedendo il passo alle
+    // pergamene. "Più tardi" (Esc/click fuori) la lascia in sospeso: torna al
+    // render successivo. Le proposte vivono in player.pattiProposte finché non si
+    // decide, quindi non serve un flag "letto".
+    function pactGrantText(tipo) {
+        switch (tipo) {
+            case 'alleanza': return 'Concede tutto: non vi attaccate, visione condivisa e accesso militare reciproco.';
+            case 'alleanzaTempo': return 'Tutti i privilegi dell\'alleanza, per ' +
+                ((typeof Diplomacy !== 'undefined' && Diplomacy.TIMED) || 5) + ' turni, poi scade da sé.';
+            case 'nonBelligeranza': return 'Un impegno a non attaccarvi.';
+            case 'rinforzi': return 'Accesso militare: rinforzi e passaggio fra i vostri territori.';
+            case 'vista': return 'Vi vedrete a vicenda oltre la nebbia.';
+            default: return '';
+        }
+    }
+    function showPendingPactProposals(player) {
+        if (!isPlaying(player) || !R.confirm) return;
+        const list = player.pattiProposte || [];
+        if (!list.length) return;
+        // Una modale per volta: se una pergamena o un'altra conferma è aperta,
+        // si riprova al render dopo.
+        if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) return;
+
+        const off = list[0];
+        const mittente = R.players().find(p => p.id === off.da);
+        const nome = mittente ? mittente.name : 'Un regno';
+        const costa = typeof Diplomacy !== 'undefined' && Diplomacy.costsPrestige && Diplomacy.costsPrestige(off.tipo);
+        R.confirm({
+            title: 'Un araldo alla tua corte',
+            text: 'Un messo di ' + nome + ' reca una proposta di ' + pactLabel(off.tipo).toLowerCase() + '. ' +
+                pactGrantText(off.tipo) + ' ' +
+                (costa ? 'Un\'alleanza, se rotta, costa prestigio a chi tradisce.'
+                       : 'È un patto leggero: si può sciogliere senza costo.'),
+            ok: 'Accetta',
+            cancel: 'Rifiuta'
+        },
+        () => run(GA().acceptPact(player, off.id)),
+        () => run(GA().declinePact(player, off.id)));
+    }
+
     // ---------- schieramento automatico dei rinforzi obbligatori ----------
     // (richiesta dell'utente) I rinforzi OBBLIGATORI (Capitale +1, Città +1,
     // Fortezza +5) hanno una destinazione sola: non c'è niente da decidere.
@@ -3172,6 +3491,7 @@ document.addEventListener('DOMContentLoaded', () => {
         spyChoices = spyPicking ? GA().spyTargets(player) : [];
         renderSpies(player);
         renderTrade(player);
+        renderDiplomacy(player);
         renderConquest(player);
         renderCapitalChoice(player);
         renderBattle();
@@ -3207,6 +3527,8 @@ document.addEventListener('DOMContentLoaded', () => {
         showPendingEditti(player);
         showPendingWrecks(player);
         showPendingCommerci(player);
+        showPendingPactNotices(player);
+        showPendingPactProposals(player);
         showConquestPrompt(player);
         showDeployPrompt(player);
     }

@@ -21,6 +21,7 @@
     const E = () => root.Risiko.engine;
     const GA = () => root.GameActions;
     const GR = () => root.GameRules;
+    const D = () => root.Diplomacy;   // DIPLOMAZIA (§Diplomazia): la relazione pura
 
     // ---------- profili di gioco ----------
     // Ogni strategia è un modo diverso di rispondere a tre domande: dove metto le
@@ -45,6 +46,7 @@
             build: ['capitale', 'strada', 'citta', 'mercato'],
             mercenari: 4,           // quanti se ne possono comprare in un turno, se servono a vincere
             baratto: 1.2,           // quanto deve ricevere per ogni unità che dà (§7)
+            tradimento: 0.4,        // §Diplomazia: quanto è disposto a tradire un patto (0-1)
             dispiegamento: 'punta'
         },
         costruttore: {
@@ -57,6 +59,7 @@
             build: ['capitale', 'strada', 'mercato', 'citta', 'fortezza'],
             mercenari: 1,
             baratto: 0.9,           // le risorse gli servono: tratta volentieri
+            tradimento: 0.1,        // quasi mai: la parola data vale
             dispiegamento: 'fronte'
         },
         opportunista: {
@@ -69,6 +72,7 @@
             build: ['capitale', 'strada', 'mercato', 'citta'],
             mercenari: 3,
             baratto: 1.1,
+            tradimento: 0.85,       // colpisce dove è debole, patto o no
             dispiegamento: 'punta'
         },
         predone: {
@@ -81,6 +85,7 @@
             build: ['capitale', 'strada', 'mercato'],
             mercenari: 4,
             baratto: 2.5,           // prende quello che vuole: quasi non baratta
+            tradimento: 1,          // nessuna lealtà: un patto è solo una copertura
             dispiegamento: 'punta'
         }
     };
@@ -168,6 +173,7 @@
     // (come il `salvo` di raidFloor), se no il regno non contrattaccherebbe mai.
     const DEFEND_RATIO = 0.7;   // quanta parte dell'esercito nemico si eguaglia
     const DEFENSE_CAP = 12;     // nessuna provincia pretende più uomini di così
+    const BETRAY_RELUCTANCE = 0.6;  // §Diplomazia: pedaggio fisso sullo score di un tradimento
     function enemyThreat(player, id, salvo) {
         return E().landNeighbors(id).reduce((max, n) => {
             if (n === salvo) return max;
@@ -175,6 +181,11 @@
             if (!np) return max;
             const chi = E().owner(np);
             if (!chi || chi === player.name) return max;   // libero o mio: non è un invasore
+            // Un partner di non aggressione (§Diplomazia) non ti invade: il suo
+            // confine è tranquillo e non chiede presidio. Vale finché il patto
+            // regge — se lui tradisce, al giro dopo torna a contare.
+            const altro = D() ? R().players().find(p => p.name === chi) : null;
+            if (altro && D().grantsNonAggression(player, altro)) return max;
             return Math.max(max, GR().spendableTroops(E().countPiece(np, 'soldato')));
         }, 0);
     }
@@ -1054,6 +1065,14 @@
                 if (imbarcabili < 1) return;
                 const p100 = winProb(imbarcabili, t, p.id);
                 if (p100 < s.soglia) return;
+                // TRADIMENTO (§Diplomazia): un bersaglio di un partner di non
+                // aggressione si colpisce solo col suo CONSENSO (t.consenso, gratis
+                // e senza rottura) o TRADENDO. Un bot FEDELE (propensione ~0) lo
+                // salta e basta; gli altri lo valutano, ma il bottino deve valere
+                // lo strappo — lo score è poi scontato più in basso. È la traduzione
+                // di "opportunisti a scaglioni": ogni carattere ha la sua soglia.
+                const tradimento = !!(t.patto && !t.consenso);
+                if (tradimento && (s.tradimento || 0) <= 0) return;
                 const u = unitsAt(t.id) || {};
                 // Il premio dice QUANTO vale la provincia, non quanto è facile.
                 // La voce più pesante è la Popolarità: togliere una nemica dal
@@ -1078,10 +1097,20 @@
                     + grudgeAgainst(player, t.id) * 1.5
                     + (t.viaMare ? 0.8 : 0);
                 const peso = (t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori;
-                const score = (p100 - s.soglia + 0.1) * premio * peso;
+                let score = (p100 - s.soglia + 0.1) * premio * peso;
+                // Il tradimento paga un pedaggio: lo score si sconta per la
+                // propensione del carattere e per una riluttanza fissa (la fiducia
+                // rotta, il rancore che ne nasce). Così un partner si attacca solo
+                // se vale MOLTO più di una conquista qualunque, e i fedeli non lo
+                // fanno mai. `consenso` non paga pedaggio: è un attacco autorizzato.
+                if (tradimento) {
+                    score = score * (s.tradimento || 0) - BETRAY_RELUCTANCE;
+                    if (score <= 0) return;
+                }
                 if (!best || score > best.score) {
                     best = {
                         fromId: p.id, toId: t.id, disponibili: imbarcabili, target: t, score, p100,
+                        tradimento,
                         // Quanti uomini avrebbe SENZA il rinforzo immaginato: serve a
                         // mercenaryPlan per trovare quanti gliene mancano davvero.
                         base: Math.max(0, disponibili - rinforzo)
@@ -1229,6 +1258,73 @@
         return n > 0 ? { fromId: retro.id, toId: fronte.id, n } : null;
     }
 
+    // ---------- DIPLOMAZIA (§Diplomazia) ----------
+    // I bot fanno diplomazia "per bisogno" (regola dell'utente): non tessono reti
+    // per il gusto di farlo, ma comprano pace quando un fronte scotta e accettano
+    // i patti che convengono. La lealtà è nell'attacco: `bestAttack` non colpisce
+    // un partner se non tradendo, e tradisce solo secondo il carattere
+    // (`s.tradimento`). Qui restano proposte e risposte.
+    function kingdomStrength(p) {
+        return E().ownedPaths(p.name).reduce((n, pt) => n + E().countPiece(pt, 'soldato'), 0);
+    }
+    function botBorders(player, other) {
+        return E().ownedPaths(player.name).some(pt =>
+            E().landNeighbors(pt.id).some(n => ownerAt(n) === other.name));
+    }
+    // Un vicino-regno più DEBOLE che confina con me è una preda: un bot aggressivo
+    // (pesoGiocatori alto) preferisce mangiarselo piuttosto che firmarci la pace.
+    function isJuicyPrey(player, s, other) {
+        return botBorders(player, other) &&
+            (s.pesoGiocatori || 1) >= 1 &&
+            kingdomStrength(other) < kingdomStrength(player) * 0.8;
+    }
+    function pendingBetween(player, other) {
+        return (other.pattiProposte || []).some(o => String(o.da) === String(player.id)) ||
+               (player.pattiProposte || []).some(o => String(o.da) === String(other.id));
+    }
+    // Risposte agli araldi arrivati: si accettano i patti che convengono. Un patto
+    // leggero si prende salvo che il proponente sia una preda; un'alleanza solo se
+    // il proponente non è preda ed è forte abbastanza da valere l'impegno.
+    function diploAnswers(player, s) {
+        if (!D()) return [];
+        return (player.pattiProposte || []).slice().map(off => {
+            const mitt = R().players().find(p => p.id === off.da);
+            if (!mitt || !E().ownedPaths(mitt.name).length) return { id: off.id, kind: 'decline' };
+            const preda = isJuicyPrey(player, s, mitt);
+            const forte = kingdomStrength(mitt) >= kingdomStrength(player) * 0.6;
+            const accetta = D().costsPrestige(off.tipo) ? (!preda && forte) : !preda;
+            return { id: off.id, kind: accetta ? 'accept' : 'decline' };
+        });
+    }
+    // Proposta "per bisogno": il vicino-regno più minaccioso su un mio confine, con
+    // cui non sono già in pace e che non è una preda, si compra con la non
+    // belligeranza. Un solo araldo per turno.
+    function diploProposals(player, s) {
+        if (!D()) return null;
+        const minaccia = new Map();   // id regno -> spendibili massimi al confine
+        E().ownedPaths(player.name).forEach(pt => {
+            E().landNeighbors(pt.id).forEach(n => {
+                const owner = ownerAt(n);
+                if (!owner || owner === player.name) return;
+                const other = R().players().find(p => p.name === owner);
+                if (!other) return;   // neutrale: non si tratta
+                const forza = GR().spendableTroops(E().countPiece(pathOf(n), 'soldato'));
+                minaccia.set(other.id, Math.max(minaccia.get(other.id) || 0, forza));
+            });
+        });
+        let target = null, best = 0;
+        minaccia.forEach((forza, id) => {
+            const other = R().players().find(p => p.id === id);
+            if (!other) return;
+            if (forza < 3) return;                              // minaccia trascurabile
+            if (D().grantsNonAggression(player, other)) return; // già in pace
+            if (pendingBetween(player, other)) return;          // araldo già in viaggio
+            if (isJuicyPrey(player, s, other)) return;          // preferisco attaccarlo
+            if (forza > best) { best = forza; target = other; }
+        });
+        return target ? { toId: target.id, tipo: 'nonBelligeranza' } : null;
+    }
+
     // ============================================================
     // IL TURNO DEL BOT
     // Ogni `yield` è un'azione già applicata alla mappa: il driver la mostra e
@@ -1366,6 +1462,14 @@
             for (const prop of tradePlan(player, s, st)) {
                 yield GA().proposeTrade(player, prop.toId, prop.offro, prop.chiedo);
             }
+            // Diplomazia (§Diplomazia): prima si risponde agli araldi arrivati,
+            // poi si manda il proprio se un fronte scotta. proposePact/acceptPact
+            // non vogliono la fase (solo il turno), ma restiamo qui per ordine.
+            for (const a of diploAnswers(player, s)) {
+                yield a.kind === 'accept' ? GA().acceptPact(player, a.id) : GA().declinePact(player, a.id);
+            }
+            const patto = diploProposals(player, s);
+            if (patto) yield GA().proposePact(player, patto.toId, patto.tipo);
         }
 
         // Mercenari: monete convertite in muscoli per questo turno soltanto, e
@@ -1384,7 +1488,9 @@
             const best = bestAttack(player, s, st);
             if (!best) break;
             const engaged = engagedFor(best, s);
-            yield GA().attack(player, best.fromId, best.toId, engaged);
+            // Il 7º argomento è il TRADIMENTO (§Diplomazia): serve solo quando il
+            // bersaglio è di un partner senza consenso — bestAttack l'ha già deciso.
+            yield GA().attack(player, best.fromId, best.toId, engaged, undefined, undefined, best.tradimento);
             // La conquista si chiude SUBITO: finché è aperta il motore blocca
             // qualsiasi altra azione (compreso il passaggio di fase).
             const pend = GA().conquestPending(player);

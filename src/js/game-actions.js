@@ -13,6 +13,7 @@
 
     const R = () => root.Risiko;
     const E = () => root.Risiko.engine;
+    const D = () => root.Diplomacy;   // DIPLOMAZIA (alleanze): la relazione pura
     const GR = () => root.GameRules;
 
     const fail = (msg) => ({ ok: false, msg });
@@ -496,6 +497,9 @@
             // Nuovo decennio: le carovane rimaste senza risposta tornano a casa
             // con la merce (§7) — il pegno non resta appeso all'infinito.
             scadute = expireTrades();
+            // ...e le alleanze a tempo giunte a scadenza si sciolgono da sé,
+            // gratis, avvisando entrambi i firmatari (§Diplomazia).
+            expirePacts();
             // Le terre di nessuno di fede diversa razziano PRIMA del rifornimento,
             // così colpiscono a piena forza (§ religione).
             razzie = neutralRaids(R().turn());
@@ -1325,15 +1329,212 @@
         return scadute;
     }
 
+    // ============================================================
+    // DIPLOMAZIA — stringere, ROMPERE e TRADIRE i patti (§Diplomazia).
+    // La relazione pura e i privilegi stanno in js/diplomacy.js; qui vive tutto
+    // ciò che MUTA lo stato, perché questo resta l'unico mutatore. Un patto è
+    // MUTUO: le funzioni lo scrivono/cancellano su ENTRAMBI i record in un colpo
+    // (bondPact/unbondPact), come recordTrade scrive lo storico da tutti e due i
+    // lati — così le liste non divergono. Le PROPOSTE viaggiano come le offerte
+    // di commercio (sul record di chi le riceve), gli AVVISI come gli editti.
+    // ============================================================
+    const PACT_LOG_MAX = 20;
+
+    function pactInbox(player) {
+        if (!Array.isArray(player.pattiProposte)) player.pattiProposte = [];
+        return player.pattiProposte;
+    }
+    function pactNotices(player) {
+        if (!Array.isArray(player.pattiAvvisi)) player.pattiAvvisi = [];
+        return player.pattiAvvisi;
+    }
+    function pactsMut(player) {
+        if (!Array.isArray(player.patti)) player.patti = [];
+        return player.patti;
+    }
+    function pushPactNotice(player, entry) {
+        const av = pactNotices(player);
+        av.push(Object.assign({ letto: false, turno: R().turn() }, entry));
+        while (av.length > PACT_LOG_MAX) av.shift();
+    }
+    // Scrive un patto `tipo` di `owner` verso `partnerId` (togliendo un eventuale
+    // doppione dello stesso tipo). `scad` solo per l'alleanza a tempo.
+    function addPact(owner, partnerId, tipo, dal, scad) {
+        const list = pactsMut(owner);
+        for (let i = list.length - 1; i >= 0; i--) {
+            if (String(list[i].con) === String(partnerId) && list[i].tipo === tipo) list.splice(i, 1);
+        }
+        const rec = { tipo, con: partnerId, dal };
+        if (scad != null) rec.scad = scad;
+        list.push(rec);
+    }
+    function bondPact(a, b, tipo) {
+        const dal = R().turn();
+        const scad = tipo === 'alleanzaTempo' ? dal + D().TIMED : null;
+        addPact(a, b.id, tipo, dal, scad);
+        addPact(b, a.id, tipo, dal, scad);
+        return scad;
+    }
+    // Cancella da ENTRAMBI il patto `tipo` (o TUTTI i patti fra i due se tipo è null).
+    function unbondPact(a, b, tipo) {
+        [[a, b.id], [b, a.id]].forEach(([owner, pid]) => {
+            owner.patti = pactsMut(owner).filter(p =>
+                !(String(p.con) === String(pid) && (!tipo || p.tipo === tipo)));
+        });
+    }
+    function takePactProposal(player, offerId) {
+        const list = pactInbox(player);
+        const i = list.findIndex(o => o.id === offerId);
+        return i < 0 ? null : { list, i, off: list[i] };
+    }
+
+    // Propone un patto a un regno visibile. Non è commercio: niente Mercato,
+    // niente fase — basta il proprio turno (la visibilità la filtra la plancia,
+    // come per i commerci). La proposta finisce nella casella del destinatario.
+    function proposePact(player, toId, tipo) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const altro = R().players().find(p => String(p.id) === String(toId));
+        if (!altro) return fail('Regno sconosciuto.');
+        if (!E().ownedPaths(altro.name).length) return fail(altro.name + ' non ha più province.');
+        const chk = D().canPropose(player, altro, tipo);
+        if (!chk.ok) return fail(chk.msg);
+        const dup = o => o.tipo === tipo &&
+            ((String(o.da) === String(player.id) && String(o.a) === String(altro.id)) ||
+             (String(o.da) === String(altro.id) && String(o.a) === String(player.id)));
+        if (pactInbox(altro).some(dup) || pactInbox(player).some(dup)) {
+            return fail('C\'è già una proposta di ' + D().LABEL[tipo].toLowerCase() + ' in sospeso con ' + altro.name + '.');
+        }
+        pactInbox(altro).push({ id: newTradeId(), da: player.id, a: altro.id, tipo, turno: R().turn() });
+        E().refresh(); E().save();
+        return done('Proposta di ' + D().LABEL[tipo].toLowerCase() + ' inviata a ' + altro.name + '.', { prov: homeId(player) });
+    }
+
+    // Accetta: si ricontrolla la validità al momento dell'accordo (nel frattempo
+    // può essere nata un'alleanza che copre tutto). Il patto nasce mutuo e il
+    // proponente lo scopre con un avviso a inizio turno.
+    function acceptPact(player, offerId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const found = takePactProposal(player, offerId);
+        if (!found) return fail('Questa proposta non c\'è più.');
+        const { list, i, off } = found;
+        const mittente = R().players().find(p => p.id === off.da);
+        if (!mittente) { list.splice(i, 1); E().save(); return fail('Il regno che l\'aveva proposta non esiste più.'); }
+        const chk = D().canPropose(player, mittente, off.tipo);
+        if (!chk.ok) { list.splice(i, 1); E().save(); return fail(chk.msg); }
+        bondPact(player, mittente, off.tipo);
+        list.splice(i, 1);
+        pushPactNotice(mittente, { tipo: 'accettato', patto: off.tipo, conNome: player.name });
+        E().refresh(); E().save();
+        return done(D().LABEL[off.tipo] + ' con ' + mittente.name + ': patto stretto.', { prov: homeId(player) });
+    }
+
+    function declinePact(player, offerId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const found = takePactProposal(player, offerId);
+        if (!found) return fail('Questa proposta non c\'è più.');
+        const nome = nameOf(found.off.da);
+        found.list.splice(found.i, 1);
+        E().refresh(); E().save();
+        return done('Proposta di ' + D().LABEL[found.off.tipo].toLowerCase() + ' di ' + nome + ' rifiutata.', { prov: homeId(player) });
+    }
+
+    // Rompe un patto (o tutti quelli con `partnerId` se `tipo` è null: è il caso
+    // di un attacco, atto di guerra che scioglie ogni accordo). Solo la rottura
+    // di un'ALLEANZA costa prestigio (§10, D.BREAK_PRESTIGE): i patti leggeri no.
+    // Il prestigio è oggi spento (GameRules.PRESTIGE_ENABLED=false), quindi il
+    // −2 su puntiOro è un no-op finché non si riaccende il §10 — la regola è
+    // già qui, pronta. `tradimento` cambia solo il testo dell'avviso al tradito;
+    // il rancore lo segna già la conquista (recordGrudge). `silent` evita il
+    // doppio refresh/save quando la chiama attack() a metà transazione.
+    function breakPact(player, partnerId, tipo, opts) {
+        const altro = R().players().find(p => String(p.id) === String(partnerId));
+        if (!altro) return fail('Regno sconosciuto.');
+        const presenti = D().pactsWith(player, altro.id).filter(p => !tipo || p.tipo === tipo);
+        if (!presenti.length) return fail('Non avete questo patto.');
+        const tradimento = !!(opts && opts.tradimento);
+        const perde = presenti.some(p => D().costsPrestige(p.tipo));
+        unbondPact(player, altro, tipo || null);
+        if (perde) player.puntiOro = Math.max(0, (player.puntiOro || 0) - D().BREAK_PRESTIGE);
+        pushPactNotice(altro, {
+            tipo: tradimento ? 'tradito' : 'rotto',
+            patto: tipo || presenti[0].tipo, conNome: player.name
+        });
+        if (!(opts && opts.silent)) { E().refresh(); E().save(); }
+        const testa = tradimento ? 'Hai tradito ' + altro.name
+                                 : (tipo ? D().LABEL[tipo] : 'Ogni patto') + ' con ' + altro.name + ' sciolto';
+        return done(testa + (perde ? ' (−' + D().BREAK_PRESTIGE + ' prestigio).' : '.'), { prov: homeId(player) });
+    }
+
+    // CONSENSO ALL'ATTACCO (regola dell'utente): il PROPRIETARIO concede a un
+    // partner di colpire una PROPRIA provincia senza che il patto si rompa. Vive
+    // come un permesso una-tantum sul record di chi lo concede: [{chi, prov}].
+    function consentIndex(owner, attackerId, provId) {
+        const list = owner && owner.permessiAttacco;
+        if (!Array.isArray(list)) return -1;
+        return list.findIndex(x => String(x.chi) === String(attackerId) && String(x.prov) === String(provId));
+    }
+    function grantAttack(player, toId, provId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const altro = R().players().find(p => String(p.id) === String(toId));
+        if (!altro) return fail('Regno sconosciuto.');
+        if (!D().grantsNonAggression(player, altro)) {
+            return fail('Non avete un patto di non aggressione: ' + altro.name + ' non ha bisogno del tuo consenso per attaccarti.');
+        }
+        const path = E().path(provId);
+        if (!path || E().owner(path) !== player.name) return fail('Puoi concedere solo una tua provincia.');
+        if (!Array.isArray(player.permessiAttacco)) player.permessiAttacco = [];
+        if (consentIndex(player, altro.id, provId) < 0) {
+            player.permessiAttacco.push({ chi: altro.id, prov: provId, turno: R().turn() });
+        }
+        pushPactNotice(altro, { tipo: 'consenso', prov: provId, conNome: player.name });
+        E().refresh(); E().save();
+        return done('Consenti a ' + altro.name + ' di attaccare ' + labelOf(provId) + ' senza rompere il patto.', { prov: provId });
+    }
+
+    // Un'alleanza a tempo scaduta si scioglie da sé — GRATIS (niente prestigio):
+    // gira a giro completato (endTurn), come expireTrades. Avvisa entrambi.
+    function expirePacts() {
+        const turno = R().turn();
+        const visti = new Set();
+        let scadute = 0;
+        R().players().forEach(p => {
+            pactsMut(p).slice().forEach(pact => {
+                if (pact.scad == null || turno < pact.scad) return;
+                const chiave = [String(p.id), String(pact.con), pact.tipo].sort().join('|');
+                if (visti.has(chiave)) return;
+                visti.add(chiave);
+                const partner = R().players().find(x => String(x.id) === String(pact.con));
+                if (partner) {
+                    unbondPact(p, partner, pact.tipo);
+                    pushPactNotice(p, { tipo: 'scaduto', patto: pact.tipo, conNome: partner.name });
+                    pushPactNotice(partner, { tipo: 'scaduto', patto: pact.tipo, conNome: p.name });
+                } else {
+                    p.patti = pactsMut(p).filter(x => x !== pact);
+                }
+                scadute++;
+            });
+        });
+        return scadute;
+    }
+
     // Bersagli d'attacco validi: province adiacenti via terra non tue (§9).
     // `terreno`/`esponente` viaggiano col bersaglio: plancia e bot pronosticano
     // con lo stesso numero che poi userà la battaglia, senza rileggerlo da sé.
     function attackTargets(player, provId) {
         const seen = new Set();
-        const card = (p, viaMare, scafo) => ({
+        const card = (p, viaMare, scafo) => {
+        const difP = R().players().find(pl => pl.name === E().owner(p));
+        // DIPLOMAZIA: se il bersaglio è di un partner di non aggressione, la
+        // plancia deve saperlo per chiedere consenso/tradimento invece di
+        // attaccare liscio. `alleanza` distingue il patto che costa prestigio.
+        const pattoNonAgg = !!(difP && D().grantsNonAggression(player, difP));
+        return {
             id: p.id,
             label: R().provinceLabel(p),
             owner: E().owner(p) || 'Neutrale',
+            patto: pattoNonAgg,
+            alleanza: !!(difP && D().areAllied(player, difP)),
+            consenso: pattoNonAgg && difP ? consentIndex(difP, player.id, p.id) >= 0 : false,
             troops: E().countPiece(p, 'soldato'),
             // Quanti di quei difensori sono di ventura (§5.3): viaggia col
             // bersaglio come il terreno, così plancia e bot pronosticano con lo
@@ -1352,7 +1553,8 @@
             scafi: viaMare ? scafo.slice() : [],
             scafo: viaMare ? scafo[scafo.length - 1] : null,
             carico: viaMare ? E().shipCapacity(scafo[scafo.length - 1]) : null
-        });
+        };
+        };
 
         const out = [];
         E().landNeighbors(provId)
@@ -1522,12 +1724,28 @@
         return null;
     }
 
-    function attack(player, fromId, toId, engaged, rng, scafoVoluto) {
+    function attack(player, fromId, toId, engaged, rng, scafoVoluto, tradimento) {
         const turnErr = requirePhase(player, 'attacca'); if (turnErr) return turnErr;
         const from = E().path(fromId), to = E().path(toId);
         if (!from || !to) return fail('Provincia sconosciuta.');
         if (E().owner(from) !== player.name) return fail('Puoi attaccare solo da una tua provincia.');
         if (E().owner(to) === player.name) return fail('Non puoi attaccare te stesso.');
+        // NON AGGRESSIONE (§Diplomazia): con chi hai un patto di non aggressione
+        // (alleanza, alleanza a tempo o non belligeranza) non ci si attacca —
+        // salvo tre vie: il suo CONSENSO a colpire QUESTA provincia (permesso
+        // una-tantum, non rompe il patto), oppure TRADIRE apposta (rompe TUTTI i
+        // patti con lui; se c'era un'alleanza costa −2 prestigio). Senza consenso
+        // né flag l'attacco si rifiuta, così non parte per sbaglio. Vale anche
+        // per i bot: chiamano attack senza flag, quindi restano fedeli finché
+        // bot.js non decide apposta di tradire.
+        const difRegno = R().players().find(p => p.name === E().owner(to));
+        const pattoNonAgg = !!(difRegno && D().grantsNonAggression(player, difRegno));
+        const consenso = pattoNonAgg && difRegno ? consentIndex(difRegno, player.id, toId) >= 0 : false;
+        if (pattoNonAgg && !consenso && !tradimento) {
+            return fail('Hai un patto con ' + difRegno.name + ': serve il suo consenso per colpire ' +
+                R().provinceLabel(to) + ', oppure devi tradire (rompe il patto' +
+                (D().areAllied(player, difRegno) ? ', −' + D().BREAK_PRESTIGE + ' prestigio' : '') + ').');
+        }
         // ATTACCO DI TERRA o SBARCO (§9.2). Se le due province non confinano, si
         // cerca uno scafo che copra la distanza: è lui a rendere `to` limitrofa.
         const viaMare = !E().areLandAdjacent(fromId, toId);
@@ -1582,6 +1800,17 @@
         const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng, terrainExp(to),
             mercImp, mercDif);
         if (!res) return fail('Nessuna battaglia possibile.');
+
+        // IL PATTO si scioglie QUI, non prima: solo ora l'attacco è certo (tutto
+        // validato, battaglia risolta). Col CONSENSO del proprietario si consuma
+        // il permesso una-tantum e il patto resta; senza, è un TRADIMENTO che
+        // rompe ogni patto col difensore (−2 prestigio se c'era un'alleanza) e
+        // avvisa il tradito. Il save di questa attack in coda copre tutto (silent).
+        if (pattoNonAgg && difRegno) {
+            const ci = consentIndex(difRegno, player.id, toId);
+            if (ci >= 0) difRegno.permessiAttacco.splice(ci, 1);
+            else breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
+        }
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
         E().addPiece(from, 'soldato', -engaged);
@@ -2053,6 +2282,25 @@
             if (p) { seen.add(id); out.push(card(p, false, null)); }
         });
 
+        // CORRIDOIO (§Diplomazia, privilegio 'rinforzi' — o un'alleanza, che lo
+        // comprende): si possono INVIARE rinforzi a una provincia ALLEATA
+        // confinante via terra. I soldati diventano suoi, ad aiutarlo a tenere il
+        // fronte: è un rinforzo, non una conquista. La meta porta `alleato:true`.
+        E().landNeighbors(fromId).forEach(id => {
+            if (seen.has(id)) return;
+            const p = E().path(id);
+            if (!p) return;
+            const owner = E().owner(p);
+            if (!owner || owner === player.name) return;
+            const altro = R().players().find(pl => pl.name === owner);
+            if (altro && D().allowsReinforce(player, altro)) {
+                seen.add(id);
+                const c = card(p, false, null);
+                c.alleato = true;
+                out.push(c);
+            }
+        });
+
         // Via mare: con una nave ancorata qui si rinforza una PROPRIA costiera
         // entro portata (regola dell'utente, il caso tipico è dopo uno sbarco:
         // la nave è ora sulla costa presa e riparte da lì). È un rinforzo, non
@@ -2105,17 +2353,32 @@
 
         const from = E().path(fromId), to = E().path(toId);
         if (!from || !to) return fail('Provincia sconosciuta.');
-        if (E().owner(from) !== player.name || E().owner(to) !== player.name) {
-            return fail('Lo spostamento avviene fra due province che possiedi.');
-        }
+        if (E().owner(from) !== player.name) return fail('Lo spostamento parte da una tua provincia.');
         if (fromId === toId) return fail('Partenza e arrivo sono la stessa provincia.');
 
-        // Confinano via terra? È uno spostamento normale. Se no, serve una nave
-        // ancorata alla partenza che copra la distanza (§9.2): il rinforzo
-        // navale dopo uno sbarco. Come per l'attacco, `scafoVoluto` fissa la nave
-        // quando è il giocatore a sceglierla; senza, si prende il meno capiente
-        // che basti (non si sciupa un Veliero dove arriva una Nave).
-        const viaMare = !E().areLandAdjacent(fromId, toId);
+        // La meta è una PROPRIA provincia, oppure — col privilegio 'rinforzi'
+        // (§Diplomazia) — un ALLEATO confinante via terra a cui inviare rinforzi
+        // (i soldati diventano suoi). Il rinforzo a un alleato è solo via terra:
+        // niente sbarco su costa altrui.
+        const toMine = E().owner(to) === player.name;
+        let allyTo = null;
+        if (!toMine) {
+            allyTo = R().players().find(pl => pl.name === E().owner(to));
+            if (!allyTo || !D().allowsReinforce(player, allyTo)) {
+                return fail('Lo spostamento avviene fra due province tue, o come rinforzo a un alleato confinante.');
+            }
+            if (!E().areLandAdjacent(fromId, toId)) {
+                return fail('Puoi inviare rinforzi solo a un alleato che confina via terra.');
+            }
+        }
+
+        // Confinano via terra? È uno spostamento normale. Se no (solo fra province
+        // proprie), serve una nave ancorata alla partenza che copra la distanza
+        // (§9.2): il rinforzo navale dopo uno sbarco. Come per l'attacco,
+        // `scafoVoluto` fissa la nave quando è il giocatore a sceglierla; senza, si
+        // prende il meno capiente che basti (non si sciupa un Veliero dove arriva
+        // una Nave).
+        const viaMare = toMine && !E().areLandAdjacent(fromId, toId);
         let scafo = null;
 
         const mobili = spare(from);
@@ -2155,8 +2418,15 @@
         E().addPiece(from, 'soldato', -n);
         E().setMerc(from, mercPrima - mercMossi);
         consumePlaced(player, fromId, n);
-        putSoldiers(player, to, n);
-        E().addMerc(to, mercMossi);
+        if (allyTo) {
+            // Rinforzo a un alleato: i soldati (e la loro ventura) diventano SUOI.
+            // Si aggiungono senza toccare proprietario né colore della provincia.
+            E().addPiece(to, 'soldato', n);
+            E().addMerc(to, mercMossi);
+        } else {
+            putSoldiers(player, to, n);
+            E().addMerc(to, mercMossi);
+        }
         // La nave viaggia con gli uomini: lascia la partenza e ancora all'arrivo
         // a carico vuoto, come nello sbarco (§9.2). Le navi sono di chi possiede
         // la provincia, quindi basta spostare lo scafo.
@@ -2170,9 +2440,12 @@
 
         E().refresh();
         E().save();
-        return done(n + (n === 1 ? ' soldato spostato' : ' soldati spostati') + (viaMare ? ' via nave' : '') +
-            ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '. Lo spostamento del turno è speso.',
-            { fromId, toId });
+        const testa = allyTo
+            ? n + (n === 1 ? ' soldato inviato' : ' soldati inviati') + ' in rinforzo a ' + allyTo.name +
+              ' (' + R().provinceLabel(to) + '): ora sono suoi.'
+            : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') + (viaMare ? ' via nave' : '') +
+              ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.';
+        return done(testa + ' Lo spostamento del turno è speso.', { fromId, toId });
     }
 
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista
@@ -2396,6 +2669,10 @@
         hasMarket, marketPath, tradeWithBank, setTax,
         proposeTrade, acceptTrade, refuseTrade, cancelTrade,
         tradeInbox, tradeOutbox, expireTrades, tradeHistory,
+        // DIPLOMAZIA (§Diplomazia): proporre, accettare, rifiutare, rompere i
+        // patti; concedere l'attacco a un proprio territorio; far scadere le
+        // alleanze a tempo (chiamata da endTurn come expireTrades).
+        proposePact, acceptPact, declinePact, breakPact, grantAttack, expirePacts, pactInbox,
         conquestPending, resolveConquest,
         moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
