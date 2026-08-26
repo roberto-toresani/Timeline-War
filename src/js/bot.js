@@ -757,7 +757,7 @@
     function welfarePlan(player, s, st) {
         if (!st || !st.cap || typeof root.Popularity === 'undefined') return [];
         const cap = st.cap;
-        const built = new Set(E().welfare(cap));
+        const built = new Set(E().welfare(cap).map(e => e.key));   // attive o dormienti: non si ricostruiscono
         const scorte = Object.assign({}, player.scorte || {});   // copia: non tocco le vere
         const m = Object.assign({}, st.m);                       // sanita/felicita simulati
         const cost = GR().WELFARE_COST;

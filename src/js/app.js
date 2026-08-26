@@ -94,6 +94,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let turnoDi = null;        // id del giocatore che sta giocando il suo turno
     let ordine = [];           // ordine dei giocatori (id) nel giro
     let primoDelGiro = 0;      // indice in `ordine` di chi apre il round (ruota, §2.1)
+    // EVENTI STORICI (js/events.js): lo stato GLOBALE del calendario degli eventi
+    // datati (crociate, mongoli, peste…). `attivi` = eventi in corso col loro
+    // stato persistente; `fatti` = one-shot già scattati (guardia anti-bis). Vive
+    // qui come turnoDi/ordine, viaggia nello snapshot e lo muta game-actions.
+    let eventi = { attivi: [], fatti: [] };
 
     const TESORO_INIZIALE = 1000;   // §11
     const SOLDATI_INIZIALI = 5;     // §11, per provincia posseduta
@@ -137,6 +142,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // questo regno. Restano qui finché il giocatore non apre il suo turno e
         // se li vede srotolare — un editto non deve poter passare inosservato.
         if (!Array.isArray(p.editti)) p.editti = [];
+        // EVENTI STORICI (js/events.js): gli avvisi in coda (crociata bandita, orda
+        // in arrivo, peste, guerra dichiarata), srotolati come pergamena all'apertura
+        // del turno — stessa logica degli editti, così un evento non passa inosservato.
+        if (!Array.isArray(p.eventiAvvisi)) p.eventiAvvisi = [];
         // SPIE (§9.3): [{prov, turno}] — dove sta ciascuna e da che turno.
         // La scadenza non si salva: si calcola (js/spies.js), così una spia non
         // può sopravvivere a un salvataggio riaperto tre decenni dopo.
@@ -170,6 +179,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Array.isArray(p.pattiProposte)) p.pattiProposte = [];
         if (!Array.isArray(p.pattiAvvisi)) p.pattiAvvisi = [];
         if (!Array.isArray(p.permessiAttacco)) p.permessiAttacco = [];
+        // MANUTENZIONE DELLE MIGLIORIE CIVICHE (§6.1): ogni 5 turni un contributo
+        // di 1 risorsa per edificio (auto-pagato dal magazzino); se manca, la
+        // miglioria va dormiente e poi crolla. `welfareMaintTurn` = ultimo turno di
+        // manutenzione già processato (evita il doppio prelievo a un ricaricamento);
+        // `welfareAvvisi` = gli esiti in coda per la pergamena a inizio turno, come
+        // gli editti e gli avvisi di mare.
+        if (typeof p.welfareMaintTurn !== 'number') p.welfareMaintTurn = 0;
+        if (!Array.isArray(p.welfareAvvisi)) p.welfareAvvisi = [];
+        // OBIETTIVI DI PRESTIGIO (§10, js/objectives.js): la spunta del ciclo
+        // corrente è DAL VIVO (si ricalcola, non si salva), quindi qui basta lo
+        // STORICO dei cicli conclusi — fotografato al passaggio di ciclo e sempre
+        // consultabile dalla plancia. `puntiPrestigio` è il PUNTEGGIO accumulato:
+        // i punti TENUTI a fine di ogni ciclo, sommati per sempre (niente Punto
+        // d'Oro — scelta dell'utente: si conta quanto si fa per sezione). Il ciclo
+        // in corso conta dal vivo ma entra nel totale solo quando si archivia.
+        if (!Array.isArray(p.obiettiviStorico)) p.obiettiviStorico = [];
+        if (typeof p.puntiPrestigio !== 'number') p.puntiPrestigio = 0;
         return p;
     }
 
@@ -989,30 +1015,52 @@ document.addEventListener('DOMContentLoaded', () => {
         else path.removeAttribute('data-merc');
     }
 
-    // MIGLIORIE CIVICHE (§6.1): Sanità e Felicità vivono in data-welfare come
-    // lista di chiavi ("acquedotto,teatro"). Stanno sul PATH, non sul record del
-    // regno: sono costruzioni della città-capitale e viaggiano con la provincia —
-    // spostare la Capitale le lascia sulla vecchia sede (non contano più, non è la
-    // stessa città), conquistarla le regala al vincitore. Solo game-actions le
-    // mette; qui c'è il deposito e nient'altro.
+    // MIGLIORIE CIVICHE (§6.1): Sanità e Felicità vivono in data-welfare, una voce
+    // per edificio nel formato `chiave:turnoCostruzione(:d se dormiente)`, es.
+    // "acquedotto:4,teatro:6:d". Stanno sul PATH, non sul record del regno: sono
+    // costruzioni della città-capitale e viaggiano con la provincia — spostare la
+    // Capitale le lascia sulla vecchia sede (non contano più), conquistarla le
+    // regala al vincitore. `turno` serve alla manutenzione (§6.1): garantisce un
+    // primo ciclo pieno prima del primo prelievo. `dormiente` = manutenzione
+    // saltata una volta: non conta più per il Benessere finché non si paga, e al
+    // secondo salto crolla. Solo game-actions le muta; qui c'è il deposito.
+    // Salvataggi vecchi ("acquedotto" senza turno) → turno 0, attiva: si migrano
+    // da soli.
     function welfareOf(path) {
         if (!path) return [];
         const raw = path.getAttribute('data-welfare');
         if (!raw) return [];
-        return raw.split(',').map(s => s.trim()).filter(k => k &&
-            typeof GameRules !== 'undefined' && GameRules.WELFARE_INDEX[k]);
+        const out = [];
+        raw.split(',').forEach(tok => {
+            const parts = tok.split(':');
+            const key = (parts[0] || '').trim();
+            if (!key || typeof GameRules === 'undefined' || !GameRules.WELFARE_INDEX[key]) return;
+            const turn = parseInt(parts[1], 10);
+            out.push({ key, turn: turn > 0 ? turn : 0, dormant: parts.indexOf('d') >= 1 });
+        });
+        return out;
     }
 
     function setWelfare(path, list) {
         if (!path) return;
-        // Deduplica preservando l'ordine e scarta le chiavi sconosciute.
+        // Accetta voci come oggetti {key,turn,dormant} o stringhe "chiave:turno:d".
+        // Deduplica per chiave, preserva l'ordine, scarta le chiavi sconosciute.
         const seen = {};
-        const clean = (list || []).map(s => (s || '').trim()).filter(k => {
-            if (!k || seen[k]) return false;
-            if (typeof GameRules !== 'undefined' && !GameRules.WELFARE_INDEX[k]) return false;
-            seen[k] = 1; return true;
+        const toks = [];
+        (list || []).forEach(e => {
+            let key, turn, dormant;
+            if (typeof e === 'string') {
+                const p = e.split(':'); key = (p[0] || '').trim();
+                turn = parseInt(p[1], 10); dormant = p.indexOf('d') >= 1;
+            } else if (e && typeof e === 'object') { key = e.key; turn = e.turn; dormant = e.dormant; }
+            if (!key || seen[key]) return;
+            if (typeof GameRules !== 'undefined' && !GameRules.WELFARE_INDEX[key]) return;
+            seen[key] = 1;
+            let t = key + ':' + (turn > 0 ? turn : 0);
+            if (dormant) t += ':d';
+            toks.push(t);
         });
-        if (clean.length) path.setAttribute('data-welfare', clean.join(','));
+        if (toks.length) path.setAttribute('data-welfare', toks.join(','));
         else path.removeAttribute('data-welfare');
     }
 
@@ -2758,7 +2806,8 @@ document.addEventListener('DOMContentLoaded', () => {
             roads: collectRoads(),
             turnoDi: turnoDi,
             ordine: ordine,
-            primoDelGiro: primoDelGiro
+            primoDelGiro: primoDelGiro,
+            eventi: eventi
         };
 
         localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
@@ -2814,6 +2863,8 @@ document.addEventListener('DOMContentLoaded', () => {
         turnoDi = (data && data.turnoDi !== undefined) ? data.turnoDi : null;
         ordine = (data && Array.isArray(data.ordine)) ? data.ordine.slice() : [];
         primoDelGiro = (data && typeof data.primoDelGiro === 'number') ? data.primoDelGiro : 0;
+        eventi = (data && data.eventi && Array.isArray(data.eventi.attivi) && Array.isArray(data.eventi.fatti))
+            ? data.eventi : { attivi: [], fatti: [] };
     }
 
     // --- MAP DISPLAY ---
@@ -3195,12 +3246,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Sanità e Felicità (§6.1): le migliorie civiche costruite SULLA Capitale.
-        // Ogni miglioria vale +1 punto al suo indice (max 5). Legate alla città:
-        // basta leggerle dal path della Capitale — spostarla le lascia indietro,
-        // conquistarla le trasferisce, senza codice apposta.
-        const welfare = welfareOf(capitalPath);
-        const sanita = GameRules.welfareCount(welfare, 'sanita');
-        const felicita = GameRules.welfareCount(welfare, 'felicita');
+        // Ogni miglioria ATTIVA vale +1 punto al suo indice (max 5). Le dormienti
+        // (manutenzione saltata, §6.1) non contano finché non si pagano. Legate
+        // alla città: si leggono dal path della Capitale — spostarla le lascia
+        // indietro, conquistarla le trasferisce, senza codice apposta.
+        const attive = welfareOf(capitalPath).filter(e => !e.dormant).map(e => e.key);
+        const sanita = GameRules.welfareCount(attive, 'sanita');
+        const felicita = GameRules.welfareCount(attive, 'felicita');
 
         return {
             enemyBorders,
@@ -3217,6 +3269,82 @@ document.addEventListener('DOMContentLoaded', () => {
     // Calcola i tre componenti + il totale della Popolarità per un giocatore.
     function computePopularity(player, capitalPath, connectedSet) {
         return Popularity.score(popularityFactors(player, capitalPath, connectedSet));
+    }
+
+    // ---------- Obiettivi di prestigio (§10, js/objectives.js) ----------
+    // Solo TRASPORTO: costruisce le letture di stato che il modulo puro
+    // Objectives usa per valutare la completezza (la REGOLA sta nel modulo).
+    function objectiveContext(player) {
+        const paths = ownedPaths(player.name);
+        const ids = paths.map(p => p.id);
+        const idSet = new Set(ids);
+        const connected = (typeof GameActions !== 'undefined' && GameActions.connectedOf)
+            ? GameActions.connectedOf(player) : new Set();
+        let connOwned = 0; const types = new Set();
+        paths.forEach(p => {
+            if (!connected.has(p.id)) return;
+            connOwned++;
+            const k = resourceKeyOf(p);
+            if (k) types.add(k);
+        });
+        let roads = 0;                          // strade con ENTRAMBI gli estremi miei
+        ROADS.forEach(r => { if (idSet.has(r.a) && idSet.has(r.b)) roads++; });
+        let pop = 0, sic = 0;                   // Popolarità e Sicurezza (§8, serve la Capitale)
+        try { const cap = getCapitalPathFor(player); if (cap) { const p = computePopularity(player, cap, connected); pop = p.totale; sic = p.sicurezza; } }
+        catch (e) { pop = 0; sic = 0; }
+        return {
+            owns: id => idSet.has(id),
+            ownedIds: () => ids,
+            provCount: () => ids.length,
+            soldiersOn: id => { const el = document.getElementById(id); return el ? countPiece(el, 'soldato') : 0; },
+            hasMercato: () => paths.some(p => countPiece(p, 'mercato') > 0),
+            hasCity: () => paths.some(p => countPiece(p, 'citta') > 0),
+            hasFortress: () => paths.some(p => countPiece(p, 'fortezza') > 0),
+            cityIds: () => paths.filter(p => countPiece(p, 'citta') > 0).map(p => p.id),
+            shipIds: () => paths.filter(p => { const s = p.getAttribute('data-ships'); return s && s.split(',').filter(Boolean).length > 0; }).map(p => p.id),
+            shipCount: () => paths.reduce((n, p) => { const s = p.getAttribute('data-ships'); return n + (s ? s.split(',').filter(Boolean).length : 0); }, 0),
+            monete: player.monete || 0,
+            scorteOf: res => (player.scorte && player.scorte[res]) || 0,
+            connectedCount: () => connOwned,
+            connectedTypes: () => types.size,
+            isConnected: id => connected.has(id),
+            roadCount: () => roads,
+            isCoastal: id => { const el = document.getElementById(id); return el ? isCoastalProvince(el) : false; },
+            popularity: () => pop,
+            sicurezza: () => sic
+        };
+    }
+
+    // Valutazione LIVE degli obiettivi del ciclo corrente di un regno.
+    function objectivesFor(player) {
+        if (typeof window.Objectives === 'undefined' || !player) return null;
+        const cyc = window.Objectives.cycleOfTurn(currentTurn);
+        return window.Objectives.evaluate(player.name, objectiveContext(player), cyc);
+    }
+
+    // Storico: quando il calendario entra in un ciclo nuovo, fotografa la
+    // completezza raggiunta e la archivia — una volta per ciclo (la spunta è dal
+    // vivo, quindi lo scatto al primo turno del ciclo nuovo riflette la fine di
+    // quello precedente). Idempotente: si può chiamare a ogni render.
+    function archiveCyclesIfNeeded() {
+        if (typeof window.Objectives === 'undefined') return;
+        const cyc = window.Objectives.cycleOfTurn(currentTurn);
+        if (cyc <= 1) return;
+        PLAYERS.forEach(player => {
+            if (!Array.isArray(player.obiettiviStorico)) player.obiettiviStorico = [];
+            for (let c = 1; c < cyc; c++) {
+                if (player.obiettiviStorico.some(h => h.ciclo === c)) continue;
+                const snap = window.Objectives.evaluate(player.name, objectiveContext(player), c);
+                if (!snap) continue;
+                player.obiettiviStorico.push({
+                    ciclo: c, punti: snap.punti, puntiMax: snap.puntiMax,
+                    items: snap.items.map(i => ({ tier: i.tier, titolo: i.titolo, punti: i.punti, completato: i.completato }))
+                });
+                // Il punteggio accumulato cresce coi punti TENUTI a fine ciclo.
+                if (typeof player.puntiPrestigio !== 'number') player.puntiPrestigio = 0;
+                player.puntiPrestigio += snap.punti;
+            }
+        });
     }
 
     function circlesHtml(value, mini) {
@@ -3237,32 +3365,76 @@ document.addEventListener('DOMContentLoaded', () => {
     // fase costruisci); altrimenti i pulsanti restano lì ma spenti, così il
     // giocatore vede cosa gli manca senza poter cliccare fuori tempo.
     function welfareBlocksHtml(player, capital, buildOk) {
-        const built = new Set(welfareOf(capital));
-        return ['sanita', 'felicita'].map(cat => {
+        const entries = welfareOf(capital);
+        const byKey = {};
+        entries.forEach(e => { byKey[e.key] = e; });
+        const resLabel = k => GameRules.RES_LABEL[k] || k;
+
+        const blocks = ['sanita', 'felicita'].map(cat => {
             const def = GameRules.WELFARE[cat];
             const keys = Object.keys(def.edifici);
-            const n = keys.filter(k => built.has(k)).length;
+            const n = keys.filter(k => byKey[k] && !byKey[k].dormant).length;   // solo ATTIVE contano
             const btns = keys.map(key => {
                 const e = def.edifici[key];
                 const cost = GameRules.welfareCost(key);
-                const has = built.has(key);
-                let cls = 'pop-welfare-btn', title, disabled = '';
-                if (has) { cls += ' built'; title = 'Già costruita'; disabled = 'disabled'; }
-                else {
+                const entry = byKey[key];
+                let cls = 'pop-welfare-btn', title, disabled = '', costTxt;
+                if (entry && !entry.dormant) {
+                    cls += ' built'; title = 'Attiva · manutenzione 1 ' + resLabel(e.res) + ' ogni 5 turni';
+                    disabled = 'disabled'; costTxt = '✓';
+                } else if (entry && entry.dormant) {
+                    // Dormiente: riattivabile pagando 1 (la manutenzione arretrata).
+                    const upkeep = {}; upkeep[e.res] = 1;
+                    const okRi = GameRules.canAfford(player, upkeep, 0);
+                    costTxt = '1 ' + resLabel(e.res);
+                    if (!okRi.ok) { cls += ' no dormant'; title = 'Dormiente — ' + GameRules.missingText(okRi.missing) + ' per riattivarla'; disabled = 'disabled'; }
+                    else if (!buildOk) { cls += ' locked dormant'; title = 'Dormiente — riattivala nel tuo turno (fase Costruisci)'; disabled = 'disabled'; }
+                    else { cls += ' revive dormant'; title = 'Riattiva — 1 ' + resLabel(e.res); }
+                } else {
                     const afford = GameRules.canAfford(player, cost, 0);
+                    costTxt = GameRules.formatCost(cost);
                     if (!afford.ok) { cls += ' no'; title = GameRules.missingText(afford.missing); disabled = 'disabled'; }
                     else if (!buildOk) { cls += ' locked'; title = 'Solo nel tuo turno, in fase Costruisci'; disabled = 'disabled'; }
                     else { cls += ' ok'; title = 'Costruisci — ' + GameRules.formatCost(cost); }
                 }
                 return `<button type="button" class="${cls}" data-welfare-key="${key}" title="${title}" ${disabled}>` +
                     `<span class="pwb-name">${e.label}</span>` +
-                    `<span class="pwb-cost">${has ? '✓' : GameRules.formatCost(cost)}</span></button>`;
+                    `<span class="pwb-cost">${costTxt}</span></button>`;
             }).join('');
             return `<div class="pop-welfare" data-cat="${cat}">` +
                 `<div class="pop-welfare-head"><span class="pwf-name">${def.icon} ${def.label}</span>` +
                 `<span class="pwf-score">${n}/5</span></div>` +
                 `<div class="pop-welfare-btns">${btns}</div></div>`;
         }).join('');
+
+        // Riga di stato della manutenzione (§6.1): quando cade il prossimo prelievo
+        // e cosa reclama. Rispetta la stessa GRAZIA della logica: un edificio è
+        // coinvolto in un turno di manutenzione M solo se ha compiuto il primo ciclo
+        // pieno (turno ≤ M−5), così un edificio appena costruito non compare come
+        // "dovuto" al ciclo che salta.
+        let status = '';
+        if (entries.length) {
+            const T = currentTurn;
+            const firstMaint = (T % 5 === 0) ? T + 5 : (Math.floor(T / 5) + 1) * 5;
+            // Turno in cui QUESTO edificio viene davvero prelevato: il primo turno di
+            // manutenzione futuro in cui ha già compiuto il ciclo pieno (turno ≤ M−5).
+            const dueAt = e => { let M = firstMaint; while ((e.turn || 0) > M - 5) M += 5; return M; };
+            const nextDue = Math.min.apply(null, entries.map(dueAt));
+            const dovute = entries.filter(e => dueAt(e) === nextDue);
+            const dormienti = entries.filter(e => e.dormant);
+            let txt = '🔧 Prossima manutenzione: turno ' + nextDue +
+                ' · ' + dovute.length + (dovute.length === 1 ? ' risorsa' : ' risorse') + ' (1 per edificio)';
+            status = '<div class="pop-welfare-maint">' + txt + '</div>';
+            if (dormienti.length) {
+                const quando = Math.min.apply(null, dormienti.map(dueAt));
+                status += '<div class="pop-welfare-maint warn">⚠ Dormienti: ' +
+                    dormienti.map(e => GameRules.welfareLabel(e.key)).join(', ') +
+                    ' — crollano al turno ' + quando + ' se non paghi 1 ' +
+                    dormienti.map(e => resLabel(GameRules.welfareInfo(e.key).res)).filter((v, i, a) => a.indexOf(v) === i).join('/') +
+                    '.</div>';
+            }
+        }
+        return blocks + status;
     }
 
     function renderPopularityPanel() {
@@ -3455,8 +3627,44 @@ document.addEventListener('DOMContentLoaded', () => {
         naufragio: 'Cronaca del mare — accadde in rotta',
         commercio: 'Commercio — una carovana ha concluso',
         patto: 'Diplomazia — un araldo alla tua corte',
-        tradimento: 'Diplomazia — un araldo reca la nuova di un tradimento'
+        tradimento: 'Diplomazia — un araldo reca la nuova di un tradimento',
+        manutenzione: 'Migliorie civiche — la manutenzione reclama il suo (§6.1)'
     };
+
+    // Le province CONQUISTATE (data-fede-conq) portano la fede DI STATO di chi le
+    // tiene, fissata al momento della presa (§la fede segue la spada). Ma "segue
+    // la spada" vuol dire seguire la CORONA, non restare congelate: se la fede di
+    // stato cambia più tardi — la Capitale si spacca per uno scisma geografico
+    // (lei non è mai "conquistata" in casa propria, quindi lo scisma la tocca), si
+    // sposta su una provincia di fede diversa, o si promuove una Capitale nemica
+    // appena presa — le province già conquistate restavano indietro: un impero
+    // ortodosso con mezze province ancora segnate "cristiani" (bug segnalato
+    // dall'utente: Rus' conquistava da cristiano, poi il Grande Scisma spaccava la
+    // sua Capitale in ortodossa e le terre prese prima restavano nel limbo). Le
+    // riallinea alla fede di stato CORRENTE del loro regno; chi non ha ancora una
+    // Capitale (quindi nessuna fede di stato) resta come sta. Va chiamata ad ogni
+    // giro completo (applySchisms, sotto), non solo quando scatta uno scisma nuovo:
+    // così ripara anche il disallineamento di una partita già in corso.
+    function syncConquestFaiths(paths) {
+        if (typeof Religions === 'undefined') return 0;
+        const stateFaith = new Map();
+        let changed = 0;
+        paths.forEach(p => {
+            if (!p.getAttribute('data-fede-conq')) return;
+            const ownerName = p.getAttribute('data-owner');
+            if (!ownerName) return;
+            if (!stateFaith.has(ownerName)) {
+                const owner = PLAYERS.find(pl => pl.name === ownerName);
+                stateFaith.set(ownerName, owner ? stateReligionOf(owner) : null);
+            }
+            const sf = stateFaith.get(ownerName);
+            if (sf && religionKeyOf(p) !== sf) {
+                p.setAttribute('data-religione', sf);
+                changed++;
+            }
+        });
+        return changed;
+    }
 
     // ---------- scismi (js/religions.js) ----------
     // A un dato turno una fede si spezza in un'altra dentro certe regioni. Muta le
@@ -3466,46 +3674,52 @@ document.addEventListener('DOMContentLoaded', () => {
     // che hanno davvero cambiato qualcosa (per log/test).
     function applySchisms(turn) {
         if (typeof Religions === 'undefined') return [];
-        const fired = Religions.schismsAt(turn);
-        if (!fired.length) return [];
         const svg = document.querySelector('svg');
         if (!svg) return [];
         const paths = provincePaths(svg);
-
-        // Centro di ogni provincia, una volta sola: le regole degli scismi filtrano
-        // per rettangolo sul centro.
-        const center = new Map();
-        paths.forEach(p => {
-            let b = null; try { b = p.getBBox(); } catch (e) { b = null; }
-            center.set(p, b ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : { x: 0, y: 0 });
-        });
+        const fired = Religions.schismsAt(turn);
 
         const done = [];
-        fired.forEach(sc => {
-            let changed = 0;
-            (sc.rules || []).forEach(rule => {
-                const scoped = !!(rule.rects || rule.names);
-                paths.forEach(p => {
-                    // La fede fissata dalla conquista non si scisma (§la fede segue
-                    // la spada): resta quella del regno che ha preso la provincia.
-                    if (p.getAttribute('data-fede-conq')) return;
-                    if (religionKeyOf(p) !== rule.from) return;
-                    if (scoped) {
-                        const c = center.get(p);
-                        const inRect = rule.rects && rule.rects.some(r =>
-                            c.x >= r[0] && c.x <= r[2] && c.y >= r[1] && c.y <= r[3]);
-                        const inNames = rule.names && rule.names.indexOf(provinceLabel(p)) >= 0;
-                        if (!inRect && !inNames) return;
-                    }
-                    p.setAttribute('data-religione', rule.to);
-                    changed++;
-                });
+        if (fired.length) {
+            // Centro di ogni provincia, una volta sola: le regole degli scismi
+            // filtrano per rettangolo sul centro.
+            const center = new Map();
+            paths.forEach(p => {
+                let b = null; try { b = p.getBBox(); } catch (e) { b = null; }
+                center.set(p, b ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : { x: 0, y: 0 });
             });
-            if (changed) done.push(sc);
-        });
 
+            fired.forEach(sc => {
+                let changed = 0;
+                (sc.rules || []).forEach(rule => {
+                    const scoped = !!(rule.rects || rule.names);
+                    paths.forEach(p => {
+                        // La fede fissata dalla conquista non si scisma per
+                        // GEOGRAFIA: la sua sorte è legata alla Capitale del suo
+                        // regno, e ci pensa syncConquestFaiths qui sotto.
+                        if (p.getAttribute('data-fede-conq')) return;
+                        if (religionKeyOf(p) !== rule.from) return;
+                        if (scoped) {
+                            const c = center.get(p);
+                            const inRect = rule.rects && rule.rects.some(r =>
+                                c.x >= r[0] && c.x <= r[2] && c.y >= r[1] && c.y <= r[3]);
+                            const inNames = rule.names && rule.names.indexOf(provinceLabel(p)) >= 0;
+                            if (!inRect && !inNames) return;
+                        }
+                        p.setAttribute('data-religione', rule.to);
+                        changed++;
+                    });
+                });
+                if (changed) done.push(sc);
+            });
+        }
+
+        // Ad ogni giro, scisma o no: riallinea le province conquistate alla fede
+        // di stato corrente del loro regno (vedi syncConquestFaiths).
+        const synced = syncConquestFaiths(paths);
+
+        if (done.length || synced) refreshMapDisplay();
         if (done.length) {
-            refreshMapDisplay();
             const anno = (typeof Chronicle !== 'undefined') ? Chronicle.yearOfTurn(turn) : 1000;
             // Uno scisma per turno (SCHISMS ha turni distinti): srotola il primo.
             const sc = done[0];
@@ -4176,6 +4390,9 @@ document.addEventListener('DOMContentLoaded', () => {
         resourceKeyOf,
         getCapitalPathFor,
         computePopularity,
+        // Obiettivi di prestigio (§10): valutazione live + archiviazione dello storico.
+        objectivesFor,
+        archiveCycles: archiveCyclesIfNeeded,
         // I fattori misurati (nemiche al confine, guardia, varietà, cibo, tassa):
         // è quel che serve a Popularity.plan per rispondere "quanto costa il
         // livello che voglio?". Lo usa l'IA (js/bot.js) prima di ogni turno.
@@ -4208,6 +4425,27 @@ document.addEventListener('DOMContentLoaded', () => {
             turnoDi = t;
             if (o) ordine = o.slice();
             if (typeof primo === 'number') primoDelGiro = primo;
+        },
+        // EVENTI STORICI (js/events.js): lo stato globale del calendario. Lo legge
+        // e lo scrive game-actions (applyEvents/tickEvents); qui vive e si salva.
+        eventi: () => eventi,
+        setEventi(e) { eventi = (e && Array.isArray(e.attivi) && Array.isArray(e.fatti)) ? e : { attivi: [], fatti: [] }; },
+        // Aggiunge un REGNO a partita in corso (evento: spawnKingdom). Come
+        // addPlayer, ma con nome/colore dati; restituisce il record creato. NON
+        // tocca province né ordine dei turni — quello lo fa game-actions, che
+        // possiede lo stato di gioco. initPalette/renderPlayerTabs guardano da sé
+        // l'elemento mancante, quindi vale sia in editor sia nella plancia.
+        addKingdom(spec) {
+            const s = spec || {};
+            const nextId = PLAYERS.reduce((m, p) => Math.max(m, p.id), 0) + 1;
+            const used = new Set(PLAYERS.map(p => (p.color || '').toLowerCase()));
+            const color = (s.color && !used.has(s.color.toLowerCase())) ? s.color : pickNewPlayerColor();
+            const pl = normalizePlayer({ id: nextId, name: s.name || ('Giocatore ' + nextId), color });
+            pl.bot = s.bot || null;
+            PLAYERS.push(pl);
+            initPalette();
+            renderPlayerTabs();
+            return pl;
         },
         advanceGlobalTurn() {
             saveCurrentTurnToHistory();
@@ -4244,10 +4482,19 @@ document.addEventListener('DOMContentLoaded', () => {
             setMerc,
             addMerc(path, n) { setMerc(path, mercOf(path) + Math.floor(n || 0)); },
             // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità della città-capitale.
-            // Lista di chiavi sul path; chi le costruisce è game-actions.
+            // Voci {key,turn,dormant} sul path; chi le muta è game-actions.
             welfare: welfareOf,
             setWelfare,
-            addWelfare(path, key) { setWelfare(path, welfareOf(path).concat(key)); },
+            addWelfare(path, key, turn) {
+                setWelfare(path, welfareOf(path).concat({ key, turn: turn || 0, dormant: false }));
+            },
+            setWelfareDormant(path, key, on) {
+                setWelfare(path, welfareOf(path).map(e =>
+                    e.key === key ? { key: e.key, turn: e.turn, dormant: !!on } : e));
+            },
+            removeWelfare(path, key) {
+                setWelfare(path, welfareOf(path).filter(e => e.key !== key));
+            },
             // SCAFI (§9.2): ogni nave è una pedina a sé, col suo carico.
             ships: shipsOf,
             setShips,
@@ -4365,6 +4612,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 applyPieceState(data.pieces || {});
                 applyRoadState(data.roads || []);
                 turnoDi = null;
+                eventi = { attivi: [], fatti: [] };
                 ordine = [];
                 primoDelGiro = 0;
                 renderPlayerTabs();

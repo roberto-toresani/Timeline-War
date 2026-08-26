@@ -27,6 +27,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ popularity.js      POPOLARITÀ (§8): la formula E il suo rovescio (il piano) — puro
 │  ├─ spies.js           SPIE (§9.3): costo, durata, raggio in province, cosa vedono — puro
 │  ├─ religions.js       RELIGIONI: confessioni, famiglie, blocchi di partenza, scismi — puro
+│  ├─ events.js          EVENTI STORICI datati (crociate, mongoli, peste, Cent'Anni): calendario + ciclo di vita — puro
 │  ├─ terrain.js         TERRENO chiuso/aperto: l'esponente della battaglia (§9) — puro
 │  ├─ sea-routes.js      PORTATA DELLE NAVI: quanto lontano si arriva via mare (§9.2) — puro
 │  ├─ bot.js             regni governati dall'IA: 4 strategie + driver dei turni
@@ -635,6 +636,68 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     ne resta sempre 1. E le truppe appartengono a chi possiede la **provincia** (come le navi,
     §9.2): con `consegna` posare soldati su una provincia non del regno non glieli consegna —
     `decree` lo dice nel messaggio invece di far finta di niente.
+- **Eventi storici (`js/events.js`)**: il calendario datato della partita (crociate,
+  mongoli, peste, Cent'Anni) sul calendario compresso, gemello di `Religions.SCHISMS`.
+  `events.js` è **puro**: descrittori `{id, turn, fino, tipo, titolo, testo, nota, dato,
+  onStart, onRound, onEnd}` + helper (`startingAt`, `activeAt`, `byId`) + i pianificatori
+  puri (marcia dell'orda, contagio — arriveranno). L'**unico posto che applica** è
+  `game-actions.js`: `applyEvents(turn)` (onStart di chi scatta + onEnd di chi chiude la
+  finestra) e `tickEvents(turn)` (onRound), agganciati in `endTurn` nel blocco `giroFinito`
+  **prima** di scismi/razzie/rifornimenti, così un'orda appena arrivata è già sulla mappa
+  quando le neutrali si ricalcolano.
+  - **L'orchestrazione vive nel descrittore, con `ctx`** (regola dell'utente): `onStart(ctx)`
+    chiama i mutatori di `ctx` (`muster`/`assault`/`pact`/`notify`/`spawnKingdom`…), che sono
+    funzioni di game-actions — così il set-piece si legge tutto in un posto, ma le scritture
+    restano concentrate. I verbi ancora non serviti sono segnaposto che **falliscono a voce
+    alta** (`eventTodo`): un evento che li usi prima del tempo si vede subito.
+  - **Lo stato che PERSISTE** vive in `R().eventi() = { attivi:[{id,dal,fino,stato}], fatti:[…] }`
+    (accanto a `turnoDi`/`ordine` in app.js, nello snapshot/save, reset in `startGame` e
+    `scenario.apply`). `fatti` è la **guardia anti-doppio-scatto**: uno spawn NON è
+    idempotente. Un **one-shot** (`fino:null`) non entra mai negli `attivi`; solo i ticking
+    (con `fino`) restano e prendono onRound/onEnd. tickEvents salta l'evento nel suo stesso
+    giro di scatto (`rec.dal === turn`).
+  - **Gli avvisi** al giocatore riusano il canale editti: `player.eventiAvvisi` (init in
+    `normalizePlayer`), srotolati da `showPendingEventi` in player-board **in testa** alla
+    catena di pergamene (un evento storico è il titolo del decennio), rispettando la nebbia.
+  - **I bot reagiscono gratis**: un'orda che conquista al confine alza `enemyThreat` →
+    `defenseFloor`/`holdFloor`, la peste che decima entra nei conti da sé. Niente rami `if`.
+  - **Prima Crociata** (`prima-crociata`, turno 11 = ciclo 2, one-shot): al bando, due osti
+    partono. **Mete scambiate per volere dell'utente**: `Impero Bizantino` da `Eastern_Thrace`
+    (Costantinopoli) → **Palestine** (Gerusalemme); `Regno di Francia` → **Aleppo**. Ogni oste
+    è `forza:10` **radunata drenando le VERE truppe** del regno (`ctx.muster`: §5 rispettato,
+    prima la partenza voluta, poi la Capitale, poi le più piene) — non è evocata. Poi
+    `ctx.assault` la **sbarca all'assalto** (stessa battaglia dello sbarco d'editto:
+    `applyBattleOutcome`, terreno del difensore, nessun vincolo di adiacenza/carico); se la
+    meta è già del regno la rinforza invece di sprecarsi. Vinta → provincia del regno,
+    superstiti di presidio, fede **convertita** (la fede segue la spada) e lock; persa → l'oste
+    è perduta. Al turno 11 i due regni hanno una Capitale (costruita al turno 1), quindi la
+    conversione a `cristiani` scatta; senza Capitale (test al turno 1) non c'è religione di
+    stato e non converte — non è un bug. Infine `ctx.pact('Regno di Francia','Impero
+    Bizantino','vista')` lega i due con la **sola vista condivisa** (`bondPact`, su entrambi):
+    si vedono in Terra Santa ma possono comunque farsi guerra. Le mete sono neutrali sulla
+    mappa iniziale, ma al turno 11 possono essere dei Califfati (Abbaside/Fatimide): l'assalto
+    combatte chi le tiene in quel momento. (Difesa cristiana e riconquista araba del ciclo 2:
+    obiettivi, ancora da fare.)
+  - **Invasione mongola** (`invasione-mongola`, turno 25 = ciclo 3, ~1240, one-shot): l'Orda
+    **non è scriptata e non è IA** — nasce un **regno nuovo che gioca l'ADMIN** (regola
+    dell'utente: "i Mongoli li gioco io"). `onStart` chiama `ctx.spawnKingdom(...)` con la
+    Mongolia storica — **Urga** (Ulaanbaatar), **Uliastai**, **Buryatia**, tutte neutrali e
+    lontanissime a est — **15 armate per stato** (45 in tutto: bastano ad attraversare il
+    corridoio di neutrali fino all'Europa senza sciogliersi). Colore `#6b2b2b` (rosso-bruno di
+    steppa, distinto dai 10 regni), `bot:null`. **Nessuna pergamena globale**: la nebbia lo
+    tiene segreto finché non arriva ai confini di qualcuno — il corridoio Mongolia→steppe
+    kazake→Volga→Kievan Rus'→Polonia/Ungheria è tutto terra di nessuno, e i vicini si
+    difendono da sé (`enemyThreat`/`holdFloor`). L'espansione la fa l'admin **giocando** il
+    regno, non un motore.
+  - **`spawnKingdom` (il verbo nuovo, `game-actions.eventSpawnKingdom`)**: crea un regno a
+    partita in corso via `R().addKingdom({name,color,bot})` (app.js: come `addPlayer`, ma con
+    nome/colore dati e ritorna il record — `initPalette`/`renderPlayerTabs` guardano l'elemento
+    mancante, quindi vale anche nella plancia), gli posa le province con l'esercito del suo
+    colore (una neutrale è un insediamento; le costruzioni, se ci fossero, restano e cambiano
+    colore come in conquista), e lo **infila in coda all'`ordine`** (attivo dal giro dopo;
+    l'append in fondo non sposta `primoDelGiro`, indice sul prefisso). **`endTurn` rilegge
+    l'ordine VIVO** (`ordAfter = R().ordine()`) prima di ruotare nel blocco `giroFinito`: se
+    no la copia locale catturata a inizio funzione clobbererebbe il regno appena nato.
 - **Religione (`js/religions.js` + `data/start_religions.js`)**: ogni provincia ha una
   fede (`data-religione`, come `data-resource`: viaggia negli snapshot accanto a
   resources/pieces/roads, seminata a `initMap` se assente). La religione **di stato** di
@@ -683,6 +746,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     resta in piedi e cambia colore, quindi subito dopo `stateReligionOf` potrebbe trovare
     quella e leggere la fede del vinto. `attack` restituisce `conversione` ({da, a, label})
     e il rapporto di battaglia la mostra (`.bb-faith`).
+  - **Le province conquistate seguono la CORONA, non restano congelate** (fix di un bug
+    segnalato dall'utente): "segue la spada" vuol dire seguire la fede di stato corrente
+    del regno, non il valore fissato al momento della presa. La Capitale, in casa propria,
+    non è mai `data-fede-conq` e quindi **uno scisma geografico la tocca** — se il regno
+    aveva conquistato province mentre era ancora, poniamo, `cristiani` generico, e poi il
+    Grande Scisma spacca la sua Capitale in `ortodossi`, quelle province restavano
+    indietro sul vecchio `cristiani` (una fede che dopo lo scisma non esiste più in nessun
+    regno). `syncConquestFaiths` (app.js, chiamata da `applySchisms` ad **ogni giro
+    completo**, scisma o no) riallinea ogni provincia `data-fede-conq` alla
+    `stateReligionOf` corrente del suo proprietario — così anche il disallineamento di una
+    partita già in corso si ripara da solo al giro successivo, senza bisogno di un editto.
+    Chi non ha (più) una Capitale non ha fede di stato e resta come sta.
   - **Vista mappa per fede**: bottone ☩ (plancia `#board-faith`, editor `#faith-view-btn`)
     → `Risiko.setMapPaint('fede')`. È **solo pittura**: non cambia proprietari, turni o
     permessi, e rispetta la nebbia. Chi aggiunge un'azione che sposta la Capitale o

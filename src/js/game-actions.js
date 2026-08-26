@@ -14,6 +14,7 @@
     const R = () => root.Risiko;
     const E = () => root.Risiko.engine;
     const D = () => root.Diplomacy;   // DIPLOMAZIA (alleanze): la relazione pura
+    const EV = () => root.Events;     // EVENTI STORICI (crociate, mongoli, peste…)
     const GR = () => root.GameRules;
 
     const fail = (msg) => ({ ok: false, msg });
@@ -403,6 +404,10 @@
         // Le terre di nessuno partono presidiate (2 soldati, +1 ogni 10 turni).
         garrisonNeutrals({ seed: true });
 
+        // Il calendario degli eventi storici (js/events.js) riparte pulito: una
+        // partita nuova non eredita orde o pestilenze da quella prima.
+        if (R().setEventi) R().setEventi({ attivi: [], fatti: [] });
+
         // Giocano solo i regni che hanno almeno una provincia.
         const ordine = players.filter(pl => E().ownedPaths(pl.name).length).map(pl => pl.id);
         R().setTurnState(ordine.length ? ordine[0] : null, ordine, 0);
@@ -449,6 +454,12 @@
         // dietro perlustrazioni di tre decenni fa.
         if (root.Spies) player.spie = root.Spies.active(player.spie, R().turn());
 
+        // Manutenzione delle migliorie civiche (§6.1): ogni 5 turni globali un
+        // contributo di 1 risorsa per edificio, auto-pagato DOPO la raccolta di
+        // questo turno (così vale tutto ciò che si è accumulato nei 5 turni). Chi
+        // resta scoperto va dormiente, poi crolla; l'esito va nella pergamena.
+        maintainWelfare(player);
+
         // Le spedizioni in mare (§9.2, rotte lunghe) avanzano di una portata verso
         // la loro rotta: si sono mosse nell'intervallo, il giocatore le ritrova più
         // avanti. Va PRIMA di restituire, così la nebbia del turno le vede già lì.
@@ -491,6 +502,11 @@
         let scismi = null;
         if (giroFinito) {
             R().advanceGlobalTurn();
+            // Nuovo decennio: gli EVENTI STORICI (js/events.js) scattano e
+            // ticchettano PRIMA di scismi, razzie e rifornimenti — così un'orda
+            // appena arrivata è già sulla mappa quando le neutrali si ricalcolano.
+            applyEvents(R().turn());
+            tickEvents(R().turn());
             // Nuovo decennio: uno SCISMA può spezzare una fede (Religions.SCHISMS).
             // È un fatto di cronaca globale: app.js srotola la pergamena da sé.
             scismi = R().applySchisms ? R().applySchisms(R().turn()) : null;
@@ -508,8 +524,13 @@
             // le perdite in battaglia (garrisonNeutrals è additivo, regola
             // dell'utente): una neutrale bastonata non torna a quota da sola.
             neutrali = garrisonNeutrals();
-            const nuovoPrimo = (primo + 1) % ordine.length;
-            R().setTurnState(ordine[nuovoPrimo], ordine, nuovoPrimo);
+            // Un evento può aver aggiunto un regno all'ordine (spawnKingdom): rileggo
+            // la lista VIVA, così il nuovo regno entra nel giro invece di essere
+            // clobberato dalla copia locale catturata a inizio funzione. L'append è
+            // in coda, quindi `primo` (indice sul prefisso) resta valido.
+            const ordAfter = R().ordine();
+            const nuovoPrimo = (primo + 1) % ordAfter.length;
+            R().setTurnState(ordAfter[nuovoPrimo], ordAfter, nuovoPrimo);
         } else {
             R().setTurnState(ordine[nextIdx], ordine, primo);
         }
@@ -528,6 +549,248 @@
         return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota + notaN + notaC + notaR,
             { produzione: res.produzione, neutrali, scadute,
               razzie: (razzie && razzie.razzie) || [], scismi: scismi || [] });
+    }
+
+    // ---------- EVENTI STORICI (js/events.js) ----------
+    // L'unico posto che APPLICA il calendario degli eventi, come applySchisms per
+    // gli scismi e neutralRaids per le terre di nessuno. Un evento ha tre agganci
+    // — onStart/onRound/onEnd — che chiamano i mutatori di `ctx` (qui sotto): così
+    // l'orchestrazione si legge nel descrittore, ma le scritture restano in questo
+    // modulo. Lo stato che PERSISTE (fronte dell'orda, focolai, regni spawnati)
+    // vive in R().eventi() = { attivi:[{id,dal,fino,stato}], fatti:[id…] }; `fatti`
+    // è la guardia anti-doppio-scatto — uno spawn NON è idempotente.
+    function eventsBook() {
+        return (EV() && Array.isArray(EV().EVENTS)) ? EV().EVENTS : [];
+    }
+    function eventStore() {
+        const s = R().eventi ? R().eventi() : null;
+        if (s && Array.isArray(s.attivi) && Array.isArray(s.fatti)) return s;
+        const fresh = { attivi: [], fatti: [] };
+        if (R().setEventi) R().setEventi(fresh);
+        return fresh;
+    }
+
+    // La superficie stretta e DICHIARATA che gli agganci usano per toccare lo
+    // stato. Cresce man mano che si specificano i singoli eventi: i mutatori
+    // pesanti sono per ora dei segnaposto che falliscono a voce alta, così un
+    // evento che li usi prima del tempo si vede subito (il calendario è vuoto,
+    // quindi oggi nessuno di questi viene chiamato).
+    function eventTodo(nome) {
+        throw new Error('ctx.' + nome + ' non ancora implementato (impianto eventi).');
+    }
+    function makeEventCtx(rec, turn) {
+        return {
+            turn,
+            state: rec.stato,          // lo stato persistente DI QUESTO evento
+            map: E(),                  // lettura mappa: non muta niente
+            R: R(),
+            // Pergamena a inizio turno ai regni toccati (rispetta la nebbia in
+            // player-board), come gli editti: vive in player.eventiAvvisi.
+            notify: (regni, avviso) => eventNotify(regni, avviso),
+            // CROCIATE: `muster` raduna un'oste drenando le vere truppe di un regno
+            // (§5); `assault` la sbarca all'assalto di una provincia (§9.2, terreno
+            // del difensore); `pact` lega due regni (bondPact, su entrambi).
+            muster: (regno, opts) => eventMuster(regno, opts),
+            assault: (regno, metaId, host) => eventAssault(regno, metaId, host),
+            pact: (a, b, tipo) => eventPact(a, b, tipo),
+            // MONGOLI: crea un nuovo regno a partita in corso, gli posa le province
+            // di partenza con un esercito e lo infila nell'ordine dei turni.
+            spawnKingdom: (spec) => eventSpawnKingdom(spec),
+            // --- mutatori ancora da implementare (peste, Cent'Anni) ---
+            despawnKingdom: () => eventTodo('despawnKingdom'),
+            dropArmy: () => eventTodo('dropArmy'),
+            decimate: () => eventTodo('decimate'),
+            convert: () => eventTodo('convert'),
+            giveProvince: () => eventTodo('giveProvince'),
+            setWarLock: () => eventTodo('setWarLock')
+        };
+    }
+
+    // Mette un avviso in coda ai regni indicati. `regni` è un id/nome o un array;
+    // `avviso` è {tipo, titolo, testo, nota} (il tipo colora la pergamena).
+    function eventNotify(regni, avviso) {
+        const ids = (Array.isArray(regni) ? regni : [regni]).filter(Boolean);
+        const players = R().players();
+        ids.forEach(key => {
+            const p = players.find(pl => pl.id === key || pl.name === key);
+            if (!p) return;
+            if (!Array.isArray(p.eventiAvvisi)) p.eventiAvvisi = [];
+            p.eventiAvvisi.push(Object.assign({ letto: false, turno: R().turn() }, avviso || {}));
+        });
+    }
+
+    // CROCIATE — raduna un'oste drenando le VERE truppe del regno (§5): non è
+    // evocata, gli uomini escono dalle province, prima da `da` (la partenza
+    // voluta), poi dalla Capitale, poi dalle più capienti, lasciando ovunque il
+    // presidio minimo. La ventura parte in quota (§5.3). Ritorna { soldati, merc,
+    // fromId, fromLabel } o null se il regno non esiste / non ha uomini da dare.
+    function eventMuster(regnoName, opts) {
+        const o = opts || {};
+        const forza = Math.max(0, Math.floor(o.forza || 0));
+        const regno = R().players().find(p => p.name === regnoName);
+        if (!regno || forza <= 0) return null;
+        const owned = E().ownedPaths(regnoName);
+        if (!owned.length) return null;
+        const capital = R().getCapitalPathFor ? R().getCapitalPathFor(regno) : null;
+        const rank = p => (o.da && p.id === o.da) ? 3 : (capital && p.id === capital.id) ? 2 : 1;
+        const ordered = owned.slice().sort((a, b) => {
+            const dr = rank(b) - rank(a);
+            if (dr) return dr;
+            return GR().spendableTroops(E().countPiece(b, 'soldato')) -
+                   GR().spendableTroops(E().countPiece(a, 'soldato'));
+        });
+        let restano = forza, soldati = 0, merc = 0;
+        ordered.forEach(path => {
+            if (restano <= 0) return;
+            const disp = GR().spendableTroops(E().countPiece(path, 'soldato'));
+            const take = Math.min(disp, restano);
+            if (take <= 0) return;
+            const mercPrima = E().merc(path);
+            const mercVia = mercLeaving(path, take);
+            E().addPiece(path, 'soldato', -take);
+            E().setMerc(path, mercPrima - mercVia);
+            E().redrawProvince(path);
+            soldati += take; merc += mercVia; restano -= take;
+        });
+        if (soldati <= 0) return null;
+        const fromPath = (o.da && E().path(o.da)) || capital || ordered[0];
+        return { soldati, merc,
+            fromId: fromPath ? fromPath.id : null,
+            fromLabel: fromPath ? R().provinceLabel(fromPath) : null };
+    }
+
+    // CROCIATE — l'oste SBARCA e assalta `metaId`: stessa battaglia dello sbarco
+    // d'editto (terreno del difensore e bonus costruzioni, §9), senza vincoli di
+    // adiacenza/carico perché il trasporto è del Papa. Se la meta è GIÀ del regno
+    // la RINFORZA invece di sprecarsi. Ritorna un esito per la pergamena, o null
+    // se la meta non esiste. La conquista (proprietario, fede, ventura, superstiti)
+    // passa da applyBattleOutcome, l'unico punto della regola.
+    function eventAssault(regnoName, metaId, host) {
+        const regno = R().players().find(p => p.name === regnoName);
+        const to = E().path(metaId);
+        if (!regno || !to || !host || host.soldati <= 0) return null;
+        const mossi = host.soldati, mercMossi = host.merc || 0;
+        if (E().owner(to) === regnoName) {
+            E().addPiece(to, 'soldato', mossi);
+            if (mercMossi) E().addMerc(to, mercMossi);
+            E().redrawProvince(to);
+            return { regno: regnoName, metaId, metaLabel: R().provinceLabel(to),
+                rinforzo: true, vinta: true, superstiti: mossi };
+        }
+        const defTroops = E().countPiece(to, 'soldato');
+        const fort = GR().defenceBonus(unitsOf([to]));
+        const difensore = E().owner(to) || 'Neutrale';
+        const mercDif = E().merc(to);
+        const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to), mercMossi, mercDif);
+        if (!res) return null;
+        const mercArrivati = res.attackerWins ? Math.max(0, mercMossi - res.losses) : 0;
+        const conversione = applyBattleOutcome(regno, to, res, defTroops, mercArrivati);
+        E().redrawProvince(to);
+        E().redrawRoads();
+        return {
+            regno: regnoName, metaId, metaLabel: R().provinceLabel(to),
+            fromId: host.fromId, fromLabel: host.fromLabel,
+            difensore, terreno: terrainOf(to),
+            engaged: mossi, defTroops, vinta: res.attackerWins,
+            superstiti: res.attackerWins ? res.attackerSurvivors : 0,
+            perditeAttaccante: res.attackerWins ? res.losses : mossi,
+            perditeDifensore: res.attackerWins ? defTroops : (defTroops - res.defenderSurvivors),
+            conversione
+        };
+    }
+
+    // CROCIATE — lega due regni con un patto (bondPact scrive su ENTRAMBI). Salta
+    // se un regno non esiste più o non ha province.
+    function eventPact(aName, bName, tipo) {
+        const a = R().players().find(p => p.name === aName);
+        const b = R().players().find(p => p.name === bName);
+        if (!a || !b) return false;
+        if (!E().ownedPaths(a.name).length || !E().ownedPaths(b.name).length) return false;
+        bondPact(a, b, tipo || 'vista');
+        return true;
+    }
+
+    // MONGOLI — crea un NUOVO regno a partita in corso (l'Orda che sorge dalle
+    // steppe) e lo infila nell'ordine dei turni, attivo dal giro dopo. Gli posa le
+    // province di partenza con un esercito del suo colore; una provincia neutrale
+    // viene semplicemente insediata (le costruzioni, se ci fossero, restano e
+    // cambiano colore, come in conquista). Il regno nasce con `bot:null`: lo gioca
+    // l'admin. spec: { name, color, bot, province:[{id, soldati, merc, capitale}] }.
+    function eventSpawnKingdom(spec) {
+        const s = spec || {};
+        if (!R().addKingdom) return null;
+        const pl = R().addKingdom({ name: s.name, color: s.color, bot: s.bot || null });
+        if (!pl) return null;
+        (s.province || []).forEach(spot => {
+            const path = spot && E().path(spot.id);
+            if (!path) return;
+            E().setOwner(path, pl.name);
+            E().setArmyColor(path, pl.color);
+            const cur = E().countPiece(path, 'soldato');
+            const want = Math.max(0, Math.floor(spot.soldati || 0));
+            if (want !== cur) E().addPiece(path, 'soldato', want - cur);
+            if (spot.merc) E().setMerc(path, Math.min(want, Math.floor(spot.merc)));
+            if (spot.capitale && E().countPiece(path, 'capitale') === 0) E().addPiece(path, 'capitale', 1);
+            E().redrawProvince(path);
+        });
+        E().redrawRoads();
+        // In coda all'ordine: gioca dal giro successivo. `primoDelGiro` è un indice
+        // sul prefisso, che appendendo in fondo non si sposta. Se la partita non è
+        // avviata (ordine vuoto) non lo si forza dentro. endTurn rilegge l'ordine
+        // vivo prima di ruotare, così questo append non viene perso.
+        const ordine = R().ordine();
+        if (ordine.length && ordine.indexOf(pl.id) === -1) {
+            ordine.push(pl.id);
+            R().setTurnState(R().turnoDi(), ordine, R().primoDelGiro());
+        }
+        return pl;
+    }
+
+    // onStart di chi scatta ORA (non già in `fatti`), poi onEnd di chi ha chiuso
+    // la finestra. Gira in endTurn dopo advanceGlobalTurn, prima delle razzie.
+    function applyEvents(turn) {
+        const store = eventStore();
+        const book = eventsBook();
+        book.forEach(ev => {
+            if (ev.turn !== turn) return;
+            if (store.fatti.indexOf(ev.id) !== -1) return;   // già scattato: niente bis
+            const oneShot = (ev.fino == null);               // one-shot: niente attivi/onRound/onEnd
+            const rec = { id: ev.id, dal: turn, fino: oneShot ? null : ev.fino, stato: {} };
+            store.fatti.push(ev.id);
+            if (!oneShot) store.attivi.push(rec);            // solo i ticking restano attivi
+            if (typeof ev.onStart === 'function') {
+                try { ev.onStart(makeEventCtx(rec, turn)); }
+                catch (err) { console.error('Evento ' + ev.id + ' onStart:', err); }
+            }
+        });
+        // Finestra chiusa (fino < turno): onEnd e rimozione dagli attivi.
+        store.attivi.filter(rec => rec.fino != null && rec.fino < turn).forEach(rec => {
+            const ev = book.find(e => e.id === rec.id);
+            if (ev && typeof ev.onEnd === 'function') {
+                try { ev.onEnd(makeEventCtx(rec, turn)); }
+                catch (err) { console.error('Evento ' + rec.id + ' onEnd:', err); }
+            }
+        });
+        store.attivi = store.attivi.filter(rec => !(rec.fino != null && rec.fino < turn));
+        if (R().setEventi) R().setEventi(store);
+        return store;
+    }
+
+    // onRound degli eventi attivi. Salta quelli scattati proprio ORA: il loro
+    // onStart ha già girato in questo stesso giro, l'onRound parte dal successivo.
+    function tickEvents(turn) {
+        const store = eventStore();
+        const book = eventsBook();
+        store.attivi.forEach(rec => {
+            if (rec.dal === turn) return;
+            const ev = book.find(e => e.id === rec.id);
+            if (ev && typeof ev.onRound === 'function') {
+                try { ev.onRound(makeEventCtx(rec, turn)); }
+                catch (err) { console.error('Evento ' + rec.id + ' onRound:', err); }
+            }
+        });
+        if (R().setEventi) R().setEventi(store);
+        return store;
     }
 
     // La Guarnigione vale un turno solo (§5.3). Il Mercenario NO: si paga di più
@@ -752,30 +1015,88 @@
             Object.assign({ prov: provId }, fondazione ? { fondazione } : null));
     }
 
-    // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità. Una tantum, si costruiscono
-    // SULLA Capitale, costano 3 unità di una risorsa e alzano il Benessere (§8).
-    // Vivono in data-welfare sulla provincia-capitale (E().welfare): così
-    // spostare la Capitale le annulla (la nuova città non le ha) e conquistarla
-    // le trasferisce, senza codice apposta.
+    // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità. Si costruiscono SULLA Capitale,
+    // costano 3 unità di una risorsa e alzano il Benessere (§8). Vivono in
+    // data-welfare sulla provincia-capitale (E().welfare): spostare la Capitale le
+    // annulla, conquistarla le trasferisce, senza codice apposta. Una miglioria
+    // DORMIENTE (manutenzione saltata, §6.1) si RIATTIVA da qui pagando subito 1
+    // unità della sua risorsa, invece di aspettare la manutenzione successiva.
     function buildWelfare(player, key) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         const info = GR().welfareInfo(key);
         if (!info) return fail('Miglioria sconosciuta.');
         const cap = R().getCapitalPathFor(player);
         if (!cap) return fail('Le migliorie civiche si costruiscono sulla Capitale: prima costruiscine una.');
-        if (E().welfare(cap).indexOf(key) >= 0) return fail(GR().welfareLabel(key) + ' è già stata costruita.');
+        const esistente = E().welfare(cap).find(e => e.key === key);
+
+        // Già attiva: niente da fare. Dormiente: si riattiva pagando 1 (la
+        // manutenzione arretrata), non si ricostruisce da capo.
+        if (esistente && !esistente.dormant) return fail(GR().welfareLabel(key) + ' è già attiva.');
+        if (esistente && esistente.dormant) {
+            const upkeep = {}; upkeep[info.res] = 1;
+            const okRiatt = GR().canAfford(player, upkeep, 0);
+            if (!okRiatt.ok) return fail('Per riattivarla serve ' + GR().missingText(okRiatt.missing) + '.');
+            pay(player, upkeep, cap);
+            E().setWelfareDormant(cap, key, false);
+            E().refresh(); E().save();
+            return done(GR().welfareLabel(key) + ' riattivata in ' + R().provinceLabel(cap) + '.',
+                { prov: cap.id });
+        }
+
         const cost = GR().welfareCost(key);
         // Non costano soldati: il presidio minimo non c'entra (soldiersHere = 0).
         const afford = GR().canAfford(player, cost, 0);
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
         pay(player, cost, cap);
-        E().addWelfare(cap, key);
+        E().addWelfare(cap, key, R().turn());   // il turno di costruzione: manutenzione (§6.1)
         E().refresh();
         E().save();
         const catLabel = GR().WELFARE[info.cat].label;
         return done(GR().welfareLabel(key) + ' costruita in ' + R().provinceLabel(cap) +
             ' — ' + catLabel + ' +1.', { prov: cap.id });
+    }
+
+    // MANUTENZIONE DELLE MIGLIORIE CIVICHE (§6.1, regola dell'utente). Ogni 5 turni
+    // GLOBALI (sincronizzata: turni multipli di 5) ogni miglioria reclama 1 unità
+    // della sua risorsa. È AUTO-PAGATA dal magazzino — nessuna micro-gestione: se
+    // la risorsa c'è, si scala. Se manca:
+    //   attiva  → DORMIENTE (smette di contare per il Benessere, ma resta in piedi);
+    //   dormiente → CROLLA (rimossa; per riaverla si ricostruisce a prezzo pieno).
+    // Una miglioria è ESENTE finché non ha compiuto il primo ciclo pieno
+    // (turnoCostruzione ≤ T−5): così ha davvero 5 turni prima del primo prelievo.
+    // Gira per TUTTI in beginTurn; l'umano ne vede l'esito nella pergamena
+    // (welfareAvvisi), i bot no. `welfareMaintTurn` evita il doppio prelievo se
+    // beginTurn rigira nello stesso turno (ricaricamento).
+    function maintainWelfare(player) {
+        const T = R().turn();
+        if (T % 5 !== 0) return null;                    // solo i turni di manutenzione
+        if (player.welfareMaintTurn === T) return null;  // già fatto in questo turno
+        const cap = R().getCapitalPathFor(player);
+        if (!cap) { player.welfareMaintTurn = T; return null; }
+        const entries = E().welfare(cap);
+        if (!entries.length) { player.welfareMaintTurn = T; return null; }
+
+        const eventi = [];
+        const rimasti = [];
+        entries.forEach(e => {
+            if ((e.turn || 0) > T - 5) { rimasti.push(e); return; }   // troppo giovane: esente
+            const res = GR().welfareInfo(e.key).res;
+            const ha = (player.scorte[res] || 0) >= 1;
+            if (!e.dormant) {
+                if (ha) { player.scorte[res] -= 1; rimasti.push(e); }               // pagata
+                else { rimasti.push({ key: e.key, turn: e.turn, dormant: true });    // → dormiente
+                    eventi.push({ key: e.key, res, esito: 'dormiente' }); }
+            } else {
+                if (ha) { player.scorte[res] -= 1; rimasti.push({ key: e.key, turn: e.turn, dormant: false });
+                    eventi.push({ key: e.key, res, esito: 'riattivata' }); }         // rimediata
+                else { eventi.push({ key: e.key, res, esito: 'crollata' }); }        // → crolla (fuori)
+            }
+        });
+        E().setWelfare(cap, rimasti);
+        player.welfareMaintTurn = T;
+        if (eventi.length) player.welfareAvvisi.push({ turno: T, eventi, letto: false });
+        return eventi.length ? { prov: cap.id, eventi } : null;
     }
 
     // Trasloco fisico del seggio: la vecchia Capitale diventa Città (non si rade
@@ -2660,9 +2981,12 @@
 
     root.GameActions = {
         startGame, beginTurn, endTurn,
+        // EVENTI STORICI (js/events.js): il calendario datato. Chiamati da endTurn;
+        // esposti anche qui per poterli guidare a mano nei test.
+        applyEvents, tickEvents,
         decree,
         deploy, deployBound, deployAllBound, undeploy,
-        build, buildWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
+        build, buildWelfare, maintainWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
         launchExpedition, expeditionTargets, expeditionLand, steerExpedition, advanceExpeditions,
         EXPED_DIRS, EXPED_DIR_LABEL,
         sendSpy, spyTargets, spiesOf,

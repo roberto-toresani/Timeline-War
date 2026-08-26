@@ -967,6 +967,58 @@ document.addEventListener('DOMContentLoaded', () => {
         `).join('');
     }
 
+    // ---------- Obiettivi di prestigio (§10) ----------
+    // Il piano del regno nella corona: le tre medaglie (5/3/2), la spunta
+    // AUTOMATICA dal vivo (R.objectivesFor rivaluta a ogni render) e lo storico
+    // dei cicli conclusi, sempre consultabile. Contenuto tutto nostro: niente
+    // escaping. Se il regno non è fra i 10 del catalogo, il blocco sparisce.
+    const CICLO_ROMANO = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+    function medalClass(pts) { return pts >= 5 ? 'm5' : pts >= 3 ? 'm3' : 'm2'; }
+
+    function renderObjectives(player) {
+        const box = $('bp-objectives');
+        if (!box) return;
+        if (R.archiveCycles) R.archiveCycles();
+        const data = R.objectivesFor ? R.objectivesFor(player) : null;
+        if (!data) { box.innerHTML = ''; box.style.display = 'none'; return; }
+        box.style.display = '';
+        const rows = data.items.map(o => `
+            <div class="bo-item${o.completato ? ' done' : ''}">
+                <span class="bo-medal ${medalClass(o.punti)}">${o.punti}</span>
+                <div class="bo-body">
+                    <div class="bo-top"><span class="bo-chip t-${o.tipo}">${o.tier}</span><span class="bo-title">${o.titolo}</span></div>
+                    <div class="bo-desc">${o.descrizione}</div>
+                    <div class="bo-check"><span class="bo-mark">${o.completato ? '✓' : '○'}</span> ${o.check}</div>
+                </div>
+            </div>`).join('');
+        const totale = player.puntiPrestigio || 0;
+        box.innerHTML =
+            '<div class="bp-title">Prestigio</div>' +
+            '<div class="bo-total"><span class="bo-total-num">' + totale + '</span>' +
+                '<span class="bo-total-unit">punti accumulati</span>' +
+                (data.punti ? '<span class="bo-total-live">+' + data.punti + ' in corso</span>' : '') + '</div>' +
+            '<div class="bo-head"><span class="bo-cycle">Obiettivi · Ciclo ' + (CICLO_ROMANO[data.ciclo] || data.ciclo) + '</span>' +
+                '<span class="bo-score">' + data.punti + ' / ' + data.puntiMax + '</span></div>' +
+            '<div class="bo-list">' + rows + '</div>' +
+            objHistoryHtml(player);
+    }
+
+    function objHistoryHtml(player) {
+        const hist = (player.obiettiviStorico || []).slice().sort((a, b) => a.ciclo - b.ciclo);
+        if (!hist.length) return '';
+        const cicli = hist.map(h => {
+            const items = h.items.map(i =>
+                '<div class="bh-item' + (i.completato ? ' done' : '') + '">' +
+                    '<span class="bh-mark">' + (i.completato ? '✓' : '✗') + '</span>' +
+                    '<span class="bh-pts">' + i.punti + '</span>' +
+                    '<span class="bh-title">' + i.titolo + '</span></div>').join('');
+            return '<div class="bh-cycle"><div class="bh-head">Ciclo ' + (CICLO_ROMANO[h.ciclo] || h.ciclo) +
+                ' <span class="bh-score">' + h.punti + ' / ' + h.puntiMax + '</span></div>' + items + '</div>';
+        }).join('');
+        return '<details class="bp-fold bo-history"><summary>Storico obiettivi</summary>' +
+            '<div class="bp-fold-body">' + cicli + '</div></details>';
+    }
+
     function renderPopEffect(pop) {
         const el = $('bp-pop-effect');
         if (!pop) {
@@ -3039,6 +3091,38 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ---------- eventi storici (js/events.js) ----------
+    // Crociata bandita, orda in arrivo, peste, guerra dichiarata: game-actions
+    // (applyEvents/tickEvents via ctx.notify) lascia l'avviso in coda
+    // (player.eventiAvvisi); qui lo si srotola all'apertura del proprio turno, una
+    // volta sola, con la stessa pergamena degli editti. È in TESTA alla catena di
+    // precedenza: un evento storico è il titolo del decennio. Il `tipo` (crociata/
+    // mongoli/peste/guerra) colora la pergamena — la sua veste CSS arriva quando si
+    // specifica l'evento; per ora ricade sullo stile neutro.
+    function showPendingEventi(player) {
+        const attesa = (player.eventiAvvisi || []).filter(a => !a.letto);
+        if (!attesa.length || !R.showFoundation) return;
+        if (!isPlaying(player)) return;
+
+        attesa.forEach(a => { a.letto = true; });
+        R.save();
+
+        const primo = attesa[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(primo.turno || R.turn())
+            : (primo.turno || R.turn());
+        R.showFoundation({
+            tipo: primo.tipo || 'evento',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: primo.titolo || 'Cronaca del decennio',
+            testo: attesa.map(a => a.testo).filter(Boolean).join('\n\n'),
+            nota: (attesa.length > 1 ? attesa.length + ' notizie ti attendevano. ' : '') +
+                (primo.nota || '')
+        });
+    }
+
     // ---------- naufragi e morìa in mare (GameActions.advanceExpeditions) ----------
     // Le spedizioni avanzano fra un turno e l'altro (§9.2): se il mare si è preso
     // parte dell'equipaggio, o ha inghiottito una nave intera, il giocatore lo
@@ -3480,6 +3564,7 @@ document.addEventListener('DOMContentLoaded', () => {
         syncEditorLink();
         renderTopbar(player, paths);
         renderPrestige(player);
+        renderObjectives(player);
         renderPopEffect(pop);
         renderPhases(player);
         renderDeployPanel(player);
@@ -3524,13 +3609,62 @@ document.addEventListener('DOMContentLoaded', () => {
         // In coda al render: la pergamena non deve rubare il focus ai comandi
         // mentre la plancia si sta ancora ridisegnando (stessa ragione per cui
         // le fondazioni si srotolano dopo render() in run()).
+        showPendingEventi(player);
         showPendingEditti(player);
         showPendingWrecks(player);
         showPendingCommerci(player);
         showPendingPactNotices(player);
         showPendingPactProposals(player);
+        showPendingWelfare(player);
         showConquestPrompt(player);
         showDeployPrompt(player);
+    }
+
+    // ---------- manutenzione delle migliorie civiche (§6.1) ----------
+    // Ogni 5 turni le migliorie reclamano 1 risorsa (game-actions.maintainWelfare,
+    // auto-pagata). L'esito di chi è andato dormiente / si è riattivato / è
+    // crollato attende in player.welfareAvvisi; qui lo si srotola una volta sola,
+    // con la stessa pergamena degli avvisi di mare. Cede la precedenza a editti,
+    // mare, commerci e patti: una pergamena per volta (#ui-foundation).
+    function showPendingWelfare(player) {
+        const attesa = (player.welfareAvvisi || []).filter(a => !a.letto);
+        if (!attesa.length || !R.showFoundation) return;
+        if (!isPlaying(player)) return;
+        if ((player.editti || []).some(e => !e.letto)) return;
+        if ((player.spedizioniAvvisi || []).some(a => !a.letto)) return;
+        if ((player.commerciAvvisi || []).some(a => !a.letto)) return;
+        if ((player.pattiAvvisi || []).some(a => !a.letto)) return;
+
+        attesa.forEach(a => { a.letto = true; });
+        R.save();
+
+        const verbo = { dormiente: 'è andata dormiente', riattivata: 'è tornata attiva', crollata: 'è CROLLATA' };
+        const resLabel = k => (GR().RES_LABEL && GR().RES_LABEL[k]) || k;
+        const righe = [];
+        let crolli = 0;
+        attesa.forEach(a => (a.eventi || []).forEach(ev => {
+            if (ev.esito === 'crollata') crolli++;
+            const nome = GR().welfareLabel(ev.key);
+            let frase = nome + ' ' + (verbo[ev.esito] || ev.esito);
+            if (ev.esito === 'dormiente') frase += ': mancava 1 ' + resLabel(ev.res) +
+                '. Procurala entro la prossima manutenzione o crollerà.';
+            else if (ev.esito === 'crollata') frase += ': senza 1 ' + resLabel(ev.res) +
+                ' per due manutenzioni. Per riaverla va ricostruita a prezzo pieno.';
+            else frase += ' (1 ' + resLabel(ev.res) + ' versata).';
+            righe.push(frase);
+        }));
+        if (!righe.length) return;
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(attesa[0].turno || R.turn()) : (attesa[0].turno || R.turn());
+        R.showFoundation({
+            tipo: 'manutenzione',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: crolli ? 'Le opere della Capitale rovinano' : 'Manutenzione della Capitale',
+            testo: righe.join('\n\n'),
+            nota: 'Le migliorie civiche reclamano un contributo ogni 5 turni (§6.1).'
+        });
     }
 
     // ---------- selezione dalla mappa ----------

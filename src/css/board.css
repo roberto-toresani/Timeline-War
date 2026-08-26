@@ -2111,3 +2111,77 @@ svg path.state.spied {
 
 /* Il Veliero in rotta lunga sta in mare aperto (marker appeso in coda all'SVG). */
 .exped-marker { pointer-events: none; }
+
+/* ===================== Obiettivi del ciclo (§10) =====================
+   Il piano del regno nella corona: medaglie 5/3/2, spunta automatica dal
+   vivo, e lo storico dei cicli conclusi. Render: renderObjectives (player-board.js). */
+.bp-objectives { margin-top: 6px; }
+/* Punteggio accumulato: i punti tenuti a fine ciclo, sommati per sempre. */
+.bo-total { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 12px; flex-wrap: wrap; }
+.bo-total-num {
+    font-family: 'Cinzel', serif; font-weight: 600; font-size: 2.1rem; line-height: 1;
+    color: var(--gold-bright); font-variant-numeric: tabular-nums;
+}
+.bo-total-unit { color: var(--parchment-muted); font-size: .95rem; }
+.bo-total-live {
+    margin-left: auto; color: var(--ok-soft); font-size: .82rem;
+    background: var(--ok-bg); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+    border-radius: 12px; padding: 2px 9px; white-space: nowrap;
+}
+.bo-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 0 0 8px;
+}
+.bo-cycle { color: var(--gold); letter-spacing: .06em; font-size: .95rem; }
+.bo-score { color: var(--parchment-muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.bo-list { display: flex; flex-direction: column; gap: 7px; }
+.bo-item {
+    display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start;
+    padding: 8px 9px; border: 1px solid var(--gold-edge); border-radius: 7px;
+    background: rgba(0, 0, 0, .14);
+}
+.bo-item.done { background: var(--ok-bg); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.bo-medal {
+    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+    font-weight: 700; font-size: .95rem; color: #2a2413;
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.45), inset 0 -2px 3px rgba(0,0,0,.3);
+}
+.bo-medal.m5 { background: radial-gradient(circle at 34% 28%, #e6c34e, #a9800f); }
+.bo-medal.m3 { background: radial-gradient(circle at 34% 28%, #cdd2d8, #838991); }
+.bo-medal.m2 { background: radial-gradient(circle at 34% 28%, #cf9256, #8a5a2c); }
+.bo-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.bo-chip {
+    font-size: .62rem; letter-spacing: .09em; text-transform: uppercase;
+    padding: 1.5px 6px; border-radius: 20px; border: 1px solid transparent;
+}
+.bo-chip.t-espansione   { color: #e78a8a; background: rgba(231,138,138,.13); border-color: rgba(231,138,138,.34); }
+.bo-chip.t-economia     { color: #dcb85e; background: rgba(220,184,94,.13);  border-color: rgba(220,184,94,.34); }
+.bo-chip.t-preparazione { color: #93a3e2; background: rgba(147,163,226,.13); border-color: rgba(147,163,226,.34); }
+.bo-chip.t-navale       { color: #74c6c6; background: rgba(116,198,198,.13); border-color: rgba(116,198,198,.34); }
+.bo-chip.t-religione    { color: #bd94e2; background: rgba(189,148,226,.13); border-color: rgba(189,148,226,.34); }
+.bo-chip.t-crescita     { color: #86c988; background: rgba(134,201,136,.13); border-color: rgba(134,201,136,.34); }
+.bo-title { font-weight: 600; font-size: .95rem; color: var(--parchment); }
+.bo-item.done .bo-title {
+    color: var(--ok-soft);
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--ok) 60%, transparent);
+}
+.bo-desc { font-size: .82rem; color: var(--parchment-muted); margin: 2px 0 5px; line-height: 1.35; }
+.bo-check {
+    font-family: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+    font-size: .73rem; color: var(--parchment-dim); line-height: 1.4;
+}
+.bo-mark { color: var(--parchment-dim); }
+.bo-item.done .bo-mark { color: var(--ok); }
+
+/* Storico degli obiettivi (cicli conclusi) — sempre consultabile. */
+.bo-history { margin-top: 10px; }
+.bh-cycle { margin-bottom: 8px; }
+.bh-head { color: var(--gold); font-size: .85rem; margin-bottom: 4px; }
+.bh-head .bh-score { color: var(--parchment-muted); font-variant-numeric: tabular-nums; }
+.bh-item { display: flex; gap: 7px; align-items: baseline; font-size: .82rem; color: var(--parchment-muted); padding: 1px 0; }
+.bh-item.done { color: var(--parchment); }
+.bh-mark { flex: 0 0 1em; }
+.bh-item.done .bh-mark { color: var(--ok); }
+.bh-item:not(.done) .bh-mark { color: #c56b6b; }
+.bh-pts { color: var(--gold); font-variant-numeric: tabular-nums; }

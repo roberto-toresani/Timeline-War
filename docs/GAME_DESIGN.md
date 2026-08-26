@@ -337,6 +337,24 @@ provincia, come le altre costruzioni). Vivono in `data-welfare` sulla provincia;
 | Festa del sole | 3 Grano |
 | Fiera del bestiame | 3 Bestiame |
 
+**Manutenzione [REGOLA, utente].** Ogni **5 turni globali** (sincronizzati: turni multipli di 5)
+ogni miglioria reclama un **contributo di 1 unità** della sua risorsa. È **auto-pagato dal
+magazzino** — nessuna micro-gestione: se la risorsa c'è, si scala. Se manca:
+- miglioria **attiva → dormiente**: smette di contare per il Benessere (§8) ma **resta in piedi**;
+- miglioria **dormiente → crollo**: viene rimossa, e per riaverla si **ricostruisce a prezzo pieno** (3).
+
+Fra un prelievo e l'altro il giocatore ha i **5 turni** per procurare la risorsa (raccolta o
+commercio); una miglioria dormiente si **riattiva** pagando subito 1 unità (dalla sottosezione
+Benessere) o in automatico alla manutenzione successiva se la risorsa è tornata. Una miglioria è
+**esente** finché non ha compiuto il primo ciclo pieno (turno di costruzione ≤ turno−5): ha
+sempre almeno 5 turni prima del primo contributo. Vale per **tutti** (umano e IA, auto-pagato);
+l'umano vede l'esito nella **pergamena** a inizio turno. `GameActions.maintainWelfare` in
+`beginTurn`; stato per edificio in `data-welfare` come `chiave:turnoCostruzione(:d se dormiente)`.
+
+Effetto pratico: la manutenzione è **banale** per i tipi di risorsa che produci, una **tassa 2:1
+via banca** per quelli che non produci — quindi conviene costruire ampio **solo nella propria base
+di risorse** (è la stessa logica con cui l'IA sceglie, `welfarePlan` in `bot.js`).
+
 ---
 
 ## 7. Economia delle monete

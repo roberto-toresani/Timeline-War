@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=77">
-    <link rel="stylesheet" href="css/style.css?v=77">
-    <link rel="stylesheet" href="css/board.css?v=77">
+    <link rel="stylesheet" href="css/tokens.css?v=81">
+    <link rel="stylesheet" href="css/style.css?v=81">
+    <link rel="stylesheet" href="css/board.css?v=81">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -116,6 +116,11 @@
                         <div id="pop-body"><!-- iniettato da app.js --></div>
                     </div>
                     <div class="bp-effect flat" id="bp-pop-effect">Costruisci una Capitale per attivare la Popolarità.</div>
+
+                    <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del regno,
+                         con spunta AUTOMATICA dal vivo e storico sempre disponibile.
+                         Iniettato da renderObjectives in player-board.js. -->
+                    <div id="bp-objectives" class="bp-objectives"></div>
 
                     <!-- Prestigio sospeso su richiesta: GameRules.PRESTIGE_ENABLED = false
                          spegne il blocco (player-board.js lo nasconde). Il markup resta
@@ -395,36 +400,41 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/sync.js"></script>
 
-    <script src="data/map_data.js?v=77"></script>
-    <script src="data/id_mapping.js?v=77"></script>
-    <script src="data/embedded_map.js?v=77"></script>
-    <script src="data/resource_icons.js?v=77"></script>
-    <script src="data/piece_icons.js?v=77"></script>
-    <script src="data/default_state.js?v=77"></script>
-    <script src="data/city_names.js?v=77"></script>
-    <script src="data/historic_battles.js?v=77"></script>
-    <script src="data/start_religions.js?v=77"></script>
-    <script src="data/province_terrain.js?v=77"></script>
-    <script src="js/chronicle.js?v=77"></script>
-    <script src="js/religions.js?v=77"></script>
-    <script src="js/terrain.js?v=77"></script>
-    <script src="js/map-decor.js?v=77"></script>
-    <script src="js/battle.js?v=77"></script>
-    <script src="js/kingdom-stats.js?v=77"></script>
-    <script src="js/popularity.js?v=77"></script>
-    <script src="js/game-rules.js?v=77"></script>
+    <script src="data/map_data.js?v=81"></script>
+    <script src="data/id_mapping.js?v=81"></script>
+    <script src="data/embedded_map.js?v=81"></script>
+    <script src="data/resource_icons.js?v=81"></script>
+    <script src="data/piece_icons.js?v=81"></script>
+    <script src="data/default_state.js?v=81"></script>
+    <script src="data/city_names.js?v=81"></script>
+    <script src="data/historic_battles.js?v=81"></script>
+    <script src="data/start_religions.js?v=81"></script>
+    <script src="data/province_terrain.js?v=81"></script>
+    <script src="js/chronicle.js?v=81"></script>
+    <script src="js/religions.js?v=81"></script>
+    <!-- Eventi storici (crociate, mongoli, peste, Cent'Anni): calendario puro,
+         letto da game-actions. Prima di app.js, come religions.js. -->
+    <script src="js/events.js?v=81"></script>
+    <script src="js/terrain.js?v=81"></script>
+    <script src="js/map-decor.js?v=81"></script>
+    <script src="js/battle.js?v=81"></script>
+    <script src="js/kingdom-stats.js?v=81"></script>
+    <script src="js/popularity.js?v=81"></script>
+    <script src="js/game-rules.js?v=81"></script>
     <!-- PRIMA di app.js: vedi la nota in index.html. -->
-    <script src="js/popularity.js?v=77"></script>
-    <script src="js/map-anchors.js?v=77"></script>
-    <script src="js/sea-routes.js?v=77"></script>
+    <script src="js/popularity.js?v=81"></script>
+    <script src="js/map-anchors.js?v=81"></script>
+    <script src="js/sea-routes.js?v=81"></script>
     <!-- Spie (§9.3): puro, e serve ad app.js per la nebbia. Prima di app.js. -->
-    <script src="js/spies.js?v=77"></script>
+    <script src="js/spies.js?v=81"></script>
     <!-- Diplomazia (alleanze): puro, serve a game-actions/app/bot. Prima di app.js. -->
-    <script src="js/diplomacy.js?v=77"></script>
-    <script src="js/app.js?v=77"></script>
-    <script src="js/game-actions.js?v=77"></script>
-    <script src="js/bot.js?v=77"></script>
-    <script src="js/player-board.js?v=77"></script>
+    <script src="js/diplomacy.js?v=81"></script>
+    <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
+    <script src="js/objectives.js?v=81"></script>
+    <script src="js/app.js?v=81"></script>
+    <script src="js/game-actions.js?v=81"></script>
+    <script src="js/bot.js?v=81"></script>
+    <script src="js/player-board.js?v=81"></script>
 </body>
 
 </html>

@@ -1691,3 +1691,26 @@ svg.map-interacting #decor-coast-layer { display: none; }
     cursor: not-allowed;
 }
 .pop-welfare-btn.no .pwb-cost { color: #e6a3a3; opacity: 0.9; }
+/* Dormiente (manutenzione saltata, §6.1): bordo ambrato, riattivabile per 1 risorsa */
+.pop-welfare-btn.dormant {
+    border-color: #c98b3a;
+    border-style: dashed;
+    background: rgba(201, 139, 58, 0.12);
+}
+.pop-welfare-btn.dormant .pwb-name { opacity: 0.85; font-style: italic; }
+.pop-welfare-btn.revive { opacity: 1; cursor: pointer; }
+.pop-welfare-btn.revive:hover { background: rgba(201, 139, 58, 0.28); }
+.pop-welfare-btn.revive .pwb-cost { color: #e8b877; }
+
+/* Stato manutenzione: prossimo prelievo e allerta dormienti */
+.pop-welfare-maint {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    opacity: 0.8;
+    font-variant-numeric: tabular-nums;
+}
+.pop-welfare-maint.warn {
+    opacity: 1;
+    color: #e8b877;
+    margin-top: 4px;
+}
