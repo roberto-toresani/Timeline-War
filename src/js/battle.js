@@ -50,15 +50,17 @@
 //
 //   Vince l'attaccante -> CONQUISTA: il difensore perde tutte le truppe,
 //   l'attaccante conserva A - C ed entra nella provincia.
-//   Vince il difensore -> l'attaccante RIPIEGA (non piu' annientato): torna a
-//   casa una FRAZIONE delle truppe impegnate, tanto piu' grande quanto piu' la
-//   battaglia era pari (scala quindi con la taglia dell'armata):
-//     surv_L = ROUT_SURV_MIN + (ROUT_SURV_MAX - ROUT_SURV_MIN) * I
-//     surv   = clamp( round( A * surv_L * (1 + CASUALTY_SPREAD * zr) ), 0, A - 1 )
-//   Disfatta netta -> pochi sbandati; scontro pari perso -> un manipolo. Il tetto
-//   A-1 impone almeno un caduto; la rotta totale (0 superstiti) esce solo nella
-//   coda bassa, quindi di rado. Il difensore conserva D - C. (Lo sbarco §9.2 resta
-//   totale: la ritirata la applica game-actions, solo all'attacco di terra.)
+//   Vince il difensore -> l'attaccante RIPIEGA (non piu' annientato): perde una
+//   FRAZIONE delle truppe impegnate, tanto piu' grande quanto piu' la battaglia
+//   era pari — stessa direzione delle perdite del vincitore, non il contrario
+//   (scala quindi con la taglia dell'armata):
+//     loss_L = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I
+//     mu_l   = clamp( loss_L * (1 + CASUALTY_SPREAD * zr), 0, 0.95 )
+//     persi  = max(1, round(A * mu_l))       (sconfitta = almeno un caduto)
+//   Scontro sproporzionato perso -> pochi caduti (chi vince aveva pochi uomini
+//   per far danno); scontro pari perso -> un bagno di sangue anche per chi
+//   perde. Il difensore conserva D - C. (Lo sbarco §9.2 resta totale: la
+//   ritirata la applica game-actions, solo all'attacco di terra.)
 
 (function (root) {
     'use strict';
@@ -101,13 +103,18 @@
     //    un pugno di uomini. Cosi' 20-contro-13 dissangua chi vince, 20-contro-5 no.
     const WIN_LOSS_MIN = 0.10;  // frazione persa dal vincitore in uno scontro scontato
     const WIN_LOSS_MAX = 0.80;  // ...e in un perfetto 50/50
-    // 2) Superstiti dell'attaccante SCONFITTO (ripiega, non e' annientato): frazione
-    //    media che torna a casa, anch'essa piu' alta in una battaglia equilibrata.
-    //    Disfatta netta (I basso) -> tornano in pochi; scontro pari perso ->
-    //    ripiega un manipolo. E' una FRAZIONE, cosi' scala con la taglia dell'armata
-    //    (8 persi -> 1-2 sbandati; 20 persi in uno scontro pari -> 3-7).
-    const ROUT_SURV_MIN = 0.10; // frazione che ripiega da una disfatta netta
-    const ROUT_SURV_MAX = 0.30; // ...e da uno scontro equilibrato perso
+    // 2) Perdite dell'attaccante SCONFITTO (ripiega, non e' annientato): frazione
+    //    media che NON torna a casa, cresce con l'EQUILIBRIO I come le perdite
+    //    del vincitore (§ sopra) — non il contrario. Un piccolo che sbaraglia un
+    //    grande non puo' infliggergli piu' morti di quanti uomini abbia lui
+    //    stesso da menare le mani: se lo scontro era nettamente sproporzionato
+    //    sulla carta (I basso), la sconfitta e' rapida e pulita per ENTRAMBI —
+    //    il perdente si ritira con poche perdite, non annientato da un pugno di
+    //    difensori. Solo uno scontro alla pari (I alto), vinto o perso, e' un
+    //    bagno di sangue per tutti. E' una FRAZIONE, cosi' scala con la taglia
+    //    dell'armata.
+    const ROUT_LOSS_MIN = 0.10; // frazione persa in una sconfitta netta (scontro sproporzionato)
+    const ROUT_LOSS_MAX = 0.70; // ...e in uno scontro alla pari perso
     // 3) Ampiezza casuale attorno a OGNI media (z ~ U(-1,1)): garantisce
     //    imprevedibilita' SEMPRE, anche in una battaglia squilibrata.
     const CASUALTY_SPREAD = 0.35;
@@ -211,21 +218,24 @@
         //   Vince l'attaccante -> CONQUISTA: il difensore e' spazzato via (la
         //   provincia cambia mano, non puo' restare presidiata dal vinto).
         //   Vince il difensore -> l'attaccante RIPIEGA, non e' piu' annientato:
-        //   torna a casa una FRAZIONE delle truppe impegnate, tanto piu' grande
-        //   quanto piu' la battaglia era equilibrata (disfatta netta -> pochi
-        //   sbandati; scontro pari perso -> un manipolo). Il tetto A-1 garantisce
-        //   almeno un caduto; la rotta totale (0 superstiti) esce solo nella coda
-        //   bassa, quindi di rado. E' game-actions a riportare i superstiti alla
-        //   provincia di partenza; lo sbarco resta totale (§9.2).
-        let attackerSurvivors, defenderSurvivors, zr = 0;
+        //   perde una FRAZIONE delle truppe impegnate, tanto piu' grande quanto
+        //   piu' la battaglia era equilibrata — stessa logica delle perdite del
+        //   vincitore (§ sopra), non il contrario: uno scontro nettamente
+        //   sproporzionato e' una sconfitta rapida e pulita anche per chi perde.
+        //   Almeno un caduto sempre; la rotta totale (0 superstiti) esce solo
+        //   nella coda alta di `I`, quindi di rado. E' game-actions a riportare i
+        //   superstiti alla provincia di partenza; lo sbarco resta totale (§9.2).
+        let attackerSurvivors, defenderSurvivors, zr = 0, lossL = 0, muL = 0;
         if (attackerWins) {
             attackerSurvivors = winnerSurvivors;
             defenderSurvivors = 0;
         } else {
             defenderSurvivors = winnerSurvivors;
             zr = rng() * 2 - 1;                              // U(-1,1), tiro della ritirata
-            const survL = ROUT_SURV_MIN + (ROUT_SURV_MAX - ROUT_SURV_MIN) * I;
-            attackerSurvivors = clamp(Math.round(A * survL * (1 + CASUALTY_SPREAD * zr)), 0, A - 1);
+            lossL = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I;
+            muL = clamp(lossL * (1 + CASUALTY_SPREAD * zr), 0, 0.95);
+            const lost = Math.max(1, Math.round(A * muL));   // sconfitta = almeno un caduto
+            attackerSurvivors = Math.max(0, A - lost);
         }
 
         return {
@@ -243,7 +253,7 @@
             Aeff: Aeff, DeffMerc: DeffM,
             P_A: P_A, P_D: P_D, I: I,
             u: u, z: z, zr: zr,
-            lossW: lossW, muF: muF
+            lossW: lossW, muF: muF, lossL: lossL, muL: muL
         };
     }
 

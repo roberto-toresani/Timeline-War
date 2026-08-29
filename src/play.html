@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 
 <head>
@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
-    <link rel="stylesheet" href="css/tokens.css?v=81">
-    <link rel="stylesheet" href="css/style.css?v=81">
-    <link rel="stylesheet" href="css/board.css?v=81">
+    <link rel="stylesheet" href="css/tokens.css?v=90">
+    <link rel="stylesheet" href="css/style.css?v=90">
+    <link rel="stylesheet" href="css/board.css?v=90">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -59,6 +59,10 @@
             <!-- Colora la mappa per terreno (§9): dove il numero conta e dove no.
                  Serve a scegliere DOVE attaccare, non a cambiare qualcosa. -->
             <button id="board-terrain" type="button" title="Colora la mappa per terreno: dove il numero conta e dove no">⛰ Terreno</button>
+            <!-- Le urla della battaglia (js/audio.js). Un suono senza
+                 interruttore è un suono che si finisce per odiare: la scelta
+                 resta nel browser di chi guarda, non nella partita. -->
+            <button id="board-sound" type="button" title="Urla della battaglia">🔊 Suono</button>
             <!-- Velocità con cui giocano i regni dell'IA: da "si segue l'azione"
                  a "arriva subito al mio turno". -->
             <button id="board-speed" type="button" title="Velocità dei regni governati dall'IA">⏩ IA normale</button>
@@ -66,18 +70,52 @@
             <a id="board-editor-link" href="index.html" title="Torna all'editor mappa (admin)">🛠 Editor</a>
         </div>
 
+        <!-- ============================================================
+             LA SCENA — la mappa è il fondo, tutto il resto ci sta sopra.
+             (richiesta dell'utente) Non più tre colonne fisse che si spartiscono
+             lo schermo: la mappa prende tutto, il PANNELLO DEL TURNO è una
+             colonna snella agganciata a destra che si chiude con un pulsante, e
+             i pannelli di consultazione — Corona, Diplomazia, Mercato — non
+             stanno più in colonna: sono PULSANTI nel dock a sinistra che aprono
+             un foglio sull'INTERA VISUALE, uno per volta. I costi delle
+             costruzioni sono un pop-up che si apre e si chiude, non una cartella
+             da cercare scorrendo.
+             ============================================================ -->
         <div id="board-main">
 
             <div id="map-wrapper">
                 <div id="svg-container">Caricamento mappa…</div>
-                <!-- Linguette dei due pannelli: stanno DENTRO la cornice della
-                     mappa, così sono sempre visibili e sempre nello stesso
-                     posto, che il pannello sia aperto o chiuso. Chiuderli
-                     entrambi lascia la mappa da sola su tutto lo schermo. -->
-                <button id="board-left-tab" class="board-tab left" type="button"
-                        title="Mostra o nascondi il pannello della corona">◀</button>
+
+                <!-- ---------- DOCK: i pannelli come pulsanti ----------
+                     Sta DENTRO la cornice della mappa, sempre nello stesso posto,
+                     sempre visibile. Ogni pulsante apre un foglio a tutta visuale
+                     (o, per i costi, un pop-up). Ricliccare chiude. -->
+                <div id="board-dock">
+                    <button class="dock-btn" type="button" data-sheet="corona"
+                            title="Popolarità, obiettivi, il tuo regno, i regni in gioco, cosa fa l'IA">
+                        <span class="dock-ico">👑</span><span class="dock-lab">Corona</span>
+                    </button>
+                    <button class="dock-btn" type="button" data-sheet="diplomazia"
+                            title="Patti, rapporti fra i regni, araldi in viaggio">
+                        <span class="dock-ico">🕊</span><span class="dock-lab">Diplomazia</span>
+                        <span class="dock-badge" id="dock-badge-diplomazia" style="display:none;">0</span>
+                    </button>
+                    <button class="dock-btn" type="button" data-sheet="mercato"
+                            title="Trattative in corso, con chi commerci di più, scambio con l'estero">
+                        <span class="dock-ico">⚖</span><span class="dock-lab">Mercato</span>
+                        <span class="dock-badge" id="dock-badge-mercato" style="display:none;">0</span>
+                    </button>
+                    <button class="dock-btn" type="button" id="dock-costi"
+                            title="Costi ed effetti di ogni costruzione — si apre e si chiude, sempre">
+                        <span class="dock-ico">📜</span><span class="dock-lab">Costi</span>
+                    </button>
+                </div>
+
+                <!-- Linguetta del pannello del turno: l'unica rimasta, sta nella
+                     cornice della mappa e non balla quando la colonna si chiude. -->
                 <button id="board-right-tab" class="board-tab right" type="button"
                         title="Mostra o nascondi il pannello del turno">▶</button>
+
                 <!-- Cursore di schieramento ancorato alla provincia selezionata: in
                      fase 1 le truppe si spostano anche direttamente sulla mappa,
                      senza passare dall'elenco. Lo posiziona player-board.js. -->
@@ -92,118 +130,34 @@
                 </div>
                 <!-- CURSORE D'ORDINE: si comanda dalla mappa.
                      In fase "attacca" e in fase "sposta" le province valide si
-                     si segnano a retino sulla mappa (Risiko.markTargets, strato
-                     #order-marks): cliccandone una si apre qui sopra un
-                     cursore ancorato alla provincia — quanti uomini, che
-                     probabilità, e via. Il pannello resta la strada lunga (e
-                     l'unica per gli sbarchi lontani), questa è quella corta.
+                     segnano a retino sulla mappa (Risiko.markTargets, strato
+                     #order-marks): cliccandone una si apre qui sopra un cursore
+                     ancorato alla provincia — quanti uomini, che probabilità, e
+                     via. Il pannello resta la strada lunga (e l'unica per gli
+                     sbarchi lontani), questa è quella corta.
                      Lo riempie e lo posiziona player-board.js. -->
                 <div id="map-order-hud" style="display:none;"></div>
-            </div>
 
-            <!-- ============ PANNELLO SINISTRO: corona ============
-                 Ordine di importanza, dall'alto: POPOLARITÀ e OBIETTIVI DI
-                 PRESTIGIO sono il pannello (è lì che si guarda per capire come
-                 sta il regno); tutto il resto — chi gioca, cosa fa l'IA — vive
-                 in cartelle richiudibili in fondo, con un tetto d'altezza suo,
-                 perché è cronaca e non deve rubare spazio alla corona. -->
-            <div id="board-left" class="board-panel">
-
-                <div class="bp-crown">
-                    <div class="bp-title">Popolarità</div>
-                    <div id="popularity-panel">
-                        <div class="pop-header">Popolarità</div>
-                        <div id="pop-body"><!-- iniettato da app.js --></div>
-                    </div>
-                    <div class="bp-effect flat" id="bp-pop-effect">Costruisci una Capitale per attivare la Popolarità.</div>
-
-                    <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del regno,
-                         con spunta AUTOMATICA dal vivo e storico sempre disponibile.
-                         Iniettato da renderObjectives in player-board.js. -->
-                    <div id="bp-objectives" class="bp-objectives"></div>
-
-                    <!-- Prestigio sospeso su richiesta: GameRules.PRESTIGE_ENABLED = false
-                         spegne il blocco (player-board.js lo nasconde). Il markup resta
-                         al suo posto, si riaccende cambiando quella costante. -->
-                    <div id="bp-prestige-block">
-                        <div class="bp-title">Prestigio</div>
-                        <div class="bp-hero">
-                            <span class="bp-hero-num" id="bp-gold-points">—</span>
-                            <span class="bp-hero-unit">punti d'oro</span>
-                            <span class="bp-soon">in arrivo</span>
-                        </div>
-                        <div class="bp-ticks" id="bp-cycle-ticks"></div>
-                        <div class="bp-note" id="bp-cycle-note">Ciclo di 10 turni: arrivare a 10 punti vale 1 punto d'oro.</div>
-
-                        <div class="bp-title">Obiettivi del ciclo</div>
-                        <div id="bp-goals"></div>
-                    </div>
-                </div>
-
-                <!-- Cronaca: si chiude e sparisce dai piedi. -->
-                <div class="bp-chronicle">
-                    <!-- Chi c'è in partita e con che testa gioca: si aggiorna a ogni
-                         turno dell'IA (renderKingdoms in player-board.js). -->
-                    <details class="bp-fold" id="fold-kingdoms">
-                        <summary>Regni in gioco</summary>
-                        <div class="bp-fold-body">
-                            <div id="bp-kingdoms"></div>
-                        </div>
-                    </details>
-
-                    <!-- Diplomazia (§Diplomazia): proporre patti a un regno
-                         visibile, vedere quelli attivi, concederne l'attacco o
-                         romperli. Sta a sinistra e NON è vincolata a una fase:
-                         un araldo si manda in qualunque momento del proprio turno
-                         (renderDiplomacy in player-board.js). -->
-                    <details class="bp-fold" id="fold-diplomacy" open>
-                        <summary>Diplomazia <span class="bp-fold-hint">patti · alleanze · si può sempre mentire</span></summary>
-                        <div class="bp-fold-body">
-                            <div id="bp-diplomacy"></div>
-                        </div>
-                    </details>
-
-                    <!-- Cosa sta facendo l'IA: si legge qui invece di inseguire la
-                         telecamera sulla mappa (aiLog in player-board.js). -->
-                    <details class="bp-fold" id="fold-ailog" open>
-                        <summary>Cosa fa l'IA <span class="bp-fold-hint">solo ciò che vedi</span></summary>
-                        <div class="bp-fold-body">
-                            <div id="bp-ailog"></div>
-                        </div>
-                    </details>
-                </div>
-
+                <!-- Legenda dei confini coi regni di GIOCATORI: si accende da sé
+                     quando c'è almeno un confine segnato (player-board.js). -->
+                <div id="map-border-key" style="display:none;"></div>
             </div>
 
             <!-- ============ PANNELLO DESTRO: il turno ============
-                 Regola guida (richiesta dell'utente): DURANTE IL TURNO SI LEGGE
-                 POCO. Il pannello mostra solo quello che serve ad agire adesso;
-                 tutto il resto è consultazione e sta chiuso finché non lo si
-                 apre. Quattro fasce, e solo la terza scorre:
-
-                   1. CRUSCOTTO (#bp-status) — una riga sola: oro, esercito,
-                      fede di stato, più la striscia delle scorte. Non scorre
-                      mai. Prima erano tre riquadroni con etichette su due
-                      righe: gli stessi numeri, un terzo dello spazio.
-                   2. CARTELLE DELLE FASI (#bp-phases) — quattro linguette
-                      (docs/GAME_DESIGN.md §2: schiera → costruisci → attacca →
-                      sposta) e sotto una riga sola di spiegazione. Aprire una
-                      cartella non è agire: le fasi avanzano col bottone in
-                      fondo, e non si torna indietro (lo impone anche
-                      game-actions.js). Cartella aperta ≠ fase in corso = si
-                      sbircia, e i comandi sono spenti.
-                   3. CORPO (#bp-body) — la provincia selezionata in UNA riga
-                      (nome, truppe, proprietario, risorsa, fede) e sotto le
-                      azioni della fase aperta. Nient'altro.
-                   4. FONDO fisso (#bp-next-phase) — l'avanzamento di fase.
-
-                 In coda al corpo c'è #bp-consult (province, regno) e, staccata,
-                 la legenda #bp-reference: tutte CHIUSE di default. Le sezioni si
-                 aprono a FISARMONICA — aprendone una le altre si chiudono — ma
-                 la legenda dei costi resta FUORI dal gruppo, sempre consultabile
-                 (wireAccordion in player-board.js). Chi aggiunge un blocco che si
-                 consulta lo mette in #bp-consult; chi aggiunge un'azione la mette
-                 nella fase a cui appartiene. -->
+                 (richiesta dell'utente) COLONNA SNELLA: qui resta SOLO quello che
+                 serve ad agire adesso. Tutto ciò che si consulta è uscito di qui
+                 ed è diventato un pulsante del dock:
+                   · Popolarità, obiettivi, il tuo regno, i regni, l'IA → 👑 Corona
+                   · Patti e rapporti fra regni                         → 🕊 Diplomazia
+                   · Commerci, trattative, storico                      → ⚖ Mercato
+                   · Costi ed effetti delle costruzioni                 → 📜 pop-up
+                 Restano quattro fasce, e solo la terza scorre:
+                   1. CRUSCOTTO (#bp-status) — oro, esercito, fede, scorte.
+                   2. LINGUETTE DELLE FASI (#bp-phases) — schiera → costruisci →
+                      attacca → sposta. Cartella aperta ≠ fase in corso.
+                   3. CORPO (#bp-body) — la provincia selezionata e le azioni
+                      della fase aperta. Nient'altro.
+                   4. FONDO fisso (#bp-next-phase) — l'avanzamento di fase. -->
             <div id="board-right" class="board-panel">
 
                 <!-- ---------- 1 · CRUSCOTTO SEMPRE VISIBILE ---------- -->
@@ -276,26 +230,14 @@
                         <div id="bp-actions"><!-- iniettato da player-board.js --></div>
                     </div>
 
-                    <!-- ---------- FASE 2b · COMMERCI (§7) ----------
-                         Vive dentro la cartella delle costruzioni ma richiusa:
-                         il commercio è una cosa che si fa ogni tanto, le
-                         costruzioni ogni turno. Il contenuto lo genera
-                         renderTrade(). -->
-                    <details class="bp-fold" id="fase-commerci" style="display:none;">
-                        <summary>Commerci <span class="bp-fold-hint">banca 2:1 · proposte agli altri regni</span></summary>
-                        <div class="bp-fold-body">
-                            <div id="bp-trade"></div>
-                        </div>
-                    </details>
-
                     <!-- ---------- FASE 2c · SPIE (§9.3) ----------
-                         Anche questa vive nella cartella delle costruzioni e
-                         anche questa nasce richiusa: si compra un occhio, non
-                         un edificio, e non si fa ogni turno. Il bersaglio NON
-                         si sceglie da qui — si sceglie sulla mappa, come
-                         l'attacco e lo spostamento: il bottone accende le
-                         province dove la spia può arrivare. Contenuto da
-                         renderSpies(). -->
+                         Resta nel pannello del turno: è un'AZIONE della fase
+                         costruzioni, non una consultazione. Nasce richiusa: si
+                         compra un occhio, non un edificio, e non si fa ogni
+                         turno. Il bersaglio NON si sceglie da qui — si sceglie
+                         sulla mappa, come l'attacco e lo spostamento: il bottone
+                         accende le province dove la spia può arrivare.
+                         Contenuto da renderSpies(). -->
                     <details class="bp-fold" id="fase-spie" style="display:none;">
                         <summary>Spie <span class="bp-fold-hint">300 monete · 3 turni · vedi le bandiere, non le truppe</span></summary>
                         <div class="bp-fold-body">
@@ -310,9 +252,9 @@
                     <div id="bp-capital-choice" class="bp-conquest" style="display:none;"></div>
 
                     <!-- Esito dell'ultima battaglia: OPZIONALE, mai proposto da
-                         solo (richiesta dell'utente). Il pulsante compare solo
-                         se c'è una battaglia da rivedere; il riquadro resta
-                         chiuso finché non lo si apre con un click. -->
+                         solo (richiesta dell'utente). Il pulsante compare solo se
+                         c'è una battaglia da rivedere; il riquadro resta chiuso
+                         finché non lo si apre con un click. -->
                     <button type="button" class="bp-battle-toggle" id="bp-battle-title" style="display:none;">Vedi l'ultima battaglia</button>
                     <div id="bp-battle" class="bp-battle" style="display:none;"></div>
 
@@ -321,49 +263,14 @@
                         <div id="bp-move"></div>
                     </div>
 
-                    <!-- ---------- consultazione: si apre quando serve ----------
-                         Tutte chiuse di default e a FISARMONICA (richiesta
-                         dell'utente): aprendone una — qui o fra le sezioni della
-                         fase (Commerci, Spie) — le altre si chiudono, così il
-                         pannello mostra una cosa per volta. Il gruppo è ogni
-                         details.bp-fold del pannello destro tranne la legenda:
-                         wireAccordion() in player-board.js lo governa. Non sono
-                         azioni: sono i numeri che si vanno a cercare. -->
+                    <!-- L'elenco delle province resta qui: da lì si SELEZIONA (e
+                         in fase 1 si schiera con + e −), quindi è un comando, non
+                         una lettura. Chiuso di default. -->
                     <div id="bp-consult">
                         <details class="bp-fold" id="fold-provinces">
                             <summary>Le tue province <span class="bp-fold-hint">clicca per selezionare · in fase 1 anche + e −</span></summary>
                             <div class="bp-fold-body">
                                 <div id="bp-province-list"></div>
-                            </div>
-                        </details>
-
-                        <details class="bp-fold" id="fold-kingdom">
-                            <summary>Il tuo regno <span class="bp-fold-hint">territorio, esercito, rinforzi in arrivo</span></summary>
-                            <div class="bp-fold-body">
-                                <div class="bp-row"><span class="k">Province controllate</span><span class="v" id="bp-prov-owned">0</span></div>
-                                <div class="bp-row"><span class="k">Collegate alla Capitale</span><span class="v" id="bp-prov-connected">0</span></div>
-                                <div class="bp-row"><span class="k">Generali · navi · vascelli</span><span class="v" id="bp-units">0 · 0 · 0</span></div>
-                                <div class="bp-row"><span class="k">Città · fortezze · mercati</span><span class="v" id="bp-buildings">0 · 0 · 0</span></div>
-
-                                <div class="bp-box">
-                                    <div class="bp-box-head"><span class="k">Rinforzi del prossimo turno</span><span class="v" id="bp-reinf">0</span></div>
-                                    <div id="bp-reinf-detail"></div>
-                                </div>
-                            </div>
-                        </details>
-                    </div>
-
-                    <!-- ---------- legenda: FUORI dalla fisarmonica ----------
-                         La legenda dei costi sta a parte, in fondo, e si consulta
-                         in QUALUNQUE momento (richiesta dell'utente): aprirla non
-                         chiude le altre sezioni, e aprire un'altra sezione non
-                         chiude lei. Per questo non è dentro #bp-consult e
-                         wireAccordion() la esclude per id. -->
-                    <div id="bp-reference">
-                        <details class="bp-fold" id="fold-legend">
-                            <summary>Costi ed effetti <span class="bp-fold-hint">di ogni costruzione · sempre consultabile</span></summary>
-                            <div class="bp-fold-body">
-                                <div id="bp-legend"></div>
                             </div>
                         </details>
                     </div>
@@ -378,9 +285,156 @@
                     </div>
                 </div>
 
-                <!-- ---------- 3 · fondo fisso: avanzamento di fase ---------- -->
+                <!-- ---------- 4 · fondo fisso: avanzamento di fase ---------- -->
                 <button id="bp-next-phase" type="button" class="bp-next">Avanti</button>
 
+            </div>
+
+            <!-- ============================================================
+                 FOGLI A TUTTA VISUALE — uno per volta, aperti dal dock.
+                 Il contenuto tiene gli STESSI id di prima, così le funzioni di
+                 render in player-board.js continuano a scriverci senza sapere
+                 dove è finito il riquadro.
+                 ============================================================ -->
+            <div id="board-sheets" style="display:none;">
+                <div id="sheet-backdrop"></div>
+
+                <!-- ---------- 👑 CORONA ---------- -->
+                <section class="sheet" data-sheet="corona" style="display:none;">
+                    <header class="sheet-head">
+                        <span class="sheet-ico">👑</span>
+                        <h2 class="sheet-title">La corona</h2>
+                        <span class="sheet-sub">come sta il regno, cosa promette il ciclo, chi altro gioca</span>
+                        <button type="button" class="sheet-close" title="Chiudi (Esc)">✕</button>
+                    </header>
+                    <div class="sheet-body cols">
+
+                        <!-- colonna 1: popolarità e obiettivi.
+                             Tiene l'id #board-left perché è lì che app.js inietta
+                             il pannello Popolarità e da lì pendono le sue misure. -->
+                        <div id="board-left" class="sheet-col">
+                            <div class="bp-crown">
+                                <div class="bp-title">Popolarità</div>
+                                <div id="popularity-panel">
+                                    <div class="pop-header">Popolarità</div>
+                                    <div id="pop-body"><!-- iniettato da app.js --></div>
+                                </div>
+                                <div class="bp-effect flat" id="bp-pop-effect">Costruisci una Capitale per attivare la Popolarità.</div>
+
+                                <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del
+                                     regno, con spunta AUTOMATICA dal vivo e storico sempre
+                                     disponibile. Iniettato da renderObjectives in player-board.js. -->
+                                <div id="bp-objectives" class="bp-objectives"></div>
+
+                                <!-- Prestigio sospeso su richiesta: GameRules.PRESTIGE_ENABLED = false
+                                     spegne il blocco (player-board.js lo nasconde). Il markup resta
+                                     al suo posto, si riaccende cambiando quella costante. -->
+                                <div id="bp-prestige-block">
+                                    <div class="bp-title">Prestigio</div>
+                                    <div class="bp-hero">
+                                        <span class="bp-hero-num" id="bp-gold-points">—</span>
+                                        <span class="bp-hero-unit">punti d'oro</span>
+                                        <span class="bp-soon">in arrivo</span>
+                                    </div>
+                                    <div class="bp-ticks" id="bp-cycle-ticks"></div>
+                                    <div class="bp-note" id="bp-cycle-note">Ciclo di 10 turni: arrivare a 10 punti vale 1 punto d'oro.</div>
+
+                                    <div class="bp-title">Obiettivi del ciclo</div>
+                                    <div id="bp-goals"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- colonna 2: il regno in numeri, chi gioca, cosa fa l'IA -->
+                        <div class="sheet-col">
+                            <div class="bp-title">Il tuo regno</div>
+                            <div class="bp-row"><span class="k">Province controllate</span><span class="v" id="bp-prov-owned">0</span></div>
+                            <div class="bp-row"><span class="k">Collegate alla Capitale</span><span class="v" id="bp-prov-connected">0</span></div>
+                            <div class="bp-row"><span class="k">Generali · navi · vascelli</span><span class="v" id="bp-units">0 · 0 · 0</span></div>
+                            <div class="bp-row"><span class="k">Città · fortezze · mercati</span><span class="v" id="bp-buildings">0 · 0 · 0</span></div>
+
+                            <div class="bp-box">
+                                <div class="bp-box-head"><span class="k">Rinforzi del prossimo turno</span><span class="v" id="bp-reinf">0</span></div>
+                                <div id="bp-reinf-detail"></div>
+                            </div>
+
+                            <div class="bp-title">Regni in gioco</div>
+                            <div id="bp-kingdoms"></div>
+
+                            <div class="bp-title">Cosa fa l'IA <span class="bp-title-hint">solo ciò che vedi</span></div>
+                            <div id="bp-ailog"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ---------- 🕊 DIPLOMAZIA ----------
+                     (richiesta dell'utente) Il foglio entra nel DETTAGLIO: a
+                     sinistra i regni uno per uno col LIVELLO DI RAPPORTO e la sua
+                     motivazione, i patti in essere e cosa costa romperli; a destra
+                     gli araldi — proponi, in arrivo, in attesa. Intanto sulla
+                     mappa (sempre visibile, foglio aperto o chiuso) i confini coi
+                     regni di GIOCATORI restano segnati col loro colore. -->
+                <section class="sheet sheet-diplo" data-sheet="diplomazia" style="display:none;">
+                    <header class="sheet-head">
+                        <span class="sheet-ico">🕊</span>
+                        <h2 class="sheet-title">Diplomazia</h2>
+                        <span class="sheet-sub">patti · alleanze · si può sempre mentire</span>
+                        <button type="button" class="sheet-close" title="Chiudi (Esc)">✕</button>
+                    </header>
+                    <div class="sheet-body cols">
+                        <div class="sheet-col wide">
+                            <div class="bp-title">I regni e il rapporto con loro
+                                <span class="bp-title-hint">passa col mouse su una scheda per vederne i confini accesi sulla mappa</span>
+                            </div>
+                            <div id="bp-relations"></div>
+                        </div>
+                        <div class="sheet-col">
+                            <div class="bp-title">Araldi <span class="bp-title-hint">proponi, rompi, concedi</span></div>
+                            <div id="bp-diplomacy"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ---------- ⚖ MERCATO ----------
+                     (richiesta dell'utente) Sfondo da mercato: pergamena, legno e
+                     bilancia. A sinistra il polso del commercio — trattative in
+                     corso, con chi hai trattato di più, cosa hai in magazzino; a
+                     destra i banchi veri (estero 2:1, proposte, carovane,
+                     storico), che sono il #bp-trade di sempre. -->
+                <section class="sheet sheet-market" data-sheet="mercato" style="display:none;">
+                    <header class="sheet-head">
+                        <span class="sheet-ico">⚖</span>
+                        <h2 class="sheet-title">Il mercato</h2>
+                        <span class="sheet-sub">carovane, banchi e trattative</span>
+                        <button type="button" class="sheet-close" title="Chiudi (Esc)">✕</button>
+                    </header>
+                    <div class="sheet-body cols">
+                        <div class="sheet-col">
+                            <div id="bp-market-pulse"></div>
+                        </div>
+                        <div class="sheet-col wide">
+                            <div id="fase-commerci">
+                                <div id="bp-trade"></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ---------- 📜 COSTI ED EFFETTI: pop-up ----------
+                 (richiesta dell'utente) Non più una cartella in fondo a un
+                 pannello che scorre e che, una volta aperta, resta lì a fare
+                 confusione: un pulsante del dock la apre, un click fuori o Esc la
+                 chiude. Si apre in QUALUNQUE momento, anche sopra un foglio. -->
+            <div id="bp-costs-pop" style="display:none;">
+                <header class="pop-head">
+                    <span class="sheet-ico">📜</span>
+                    <h3>Costi ed effetti</h3>
+                    <button type="button" class="sheet-close" title="Chiudi (Esc)">✕</button>
+                </header>
+                <div class="pop-body">
+                    <div id="bp-legend"></div>
+                </div>
             </div>
 
             <!-- scelta manuale del regno: link senza codice, o codice sconosciuto -->
@@ -400,41 +454,45 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/sync.js"></script>
 
-    <script src="data/map_data.js?v=81"></script>
-    <script src="data/id_mapping.js?v=81"></script>
-    <script src="data/embedded_map.js?v=81"></script>
-    <script src="data/resource_icons.js?v=81"></script>
-    <script src="data/piece_icons.js?v=81"></script>
-    <script src="data/default_state.js?v=81"></script>
-    <script src="data/city_names.js?v=81"></script>
-    <script src="data/historic_battles.js?v=81"></script>
-    <script src="data/start_religions.js?v=81"></script>
-    <script src="data/province_terrain.js?v=81"></script>
-    <script src="js/chronicle.js?v=81"></script>
-    <script src="js/religions.js?v=81"></script>
+    <script src="data/map_data.js?v=90"></script>
+    <script src="data/id_mapping.js?v=90"></script>
+    <script src="data/embedded_map.js?v=90"></script>
+    <script src="data/resource_icons.js?v=90"></script>
+    <script src="data/piece_icons.js?v=90"></script>
+    <script src="data/default_state.js?v=90"></script>
+    <script src="data/city_names.js?v=90"></script>
+    <script src="data/historic_battles.js?v=90"></script>
+    <script src="data/start_religions.js?v=90"></script>
+    <script src="data/province_terrain.js?v=90"></script>
+    <script src="js/chronicle.js?v=90"></script>
+    <script src="js/religions.js?v=90"></script>
     <!-- Eventi storici (crociate, mongoli, peste, Cent'Anni): calendario puro,
          letto da game-actions. Prima di app.js, come religions.js. -->
-    <script src="js/events.js?v=81"></script>
-    <script src="js/terrain.js?v=81"></script>
-    <script src="js/map-decor.js?v=81"></script>
-    <script src="js/battle.js?v=81"></script>
-    <script src="js/kingdom-stats.js?v=81"></script>
-    <script src="js/popularity.js?v=81"></script>
-    <script src="js/game-rules.js?v=81"></script>
+    <script src="js/events.js?v=93"></script>
+    <script src="js/terrain.js?v=90"></script>
+    <script src="js/map-decor.js?v=90"></script>
+    <script src="js/battle.js?v=90"></script>
+    <!-- Voce della battaglia: urla, acciaio, tamburo — sintetizzati con
+         WebAudio, nessun file audio. Puro effetto, letto da app.js. -->
+    <script src="js/audio.js?v=90"></script>
+    <script src="js/kingdom-stats.js?v=90"></script>
+    <script src="js/popularity.js?v=90"></script>
+    <script src="js/game-rules.js?v=90"></script>
     <!-- PRIMA di app.js: vedi la nota in index.html. -->
-    <script src="js/popularity.js?v=81"></script>
-    <script src="js/map-anchors.js?v=81"></script>
-    <script src="js/sea-routes.js?v=81"></script>
+    <script src="js/popularity.js?v=90"></script>
+    <script src="js/map-anchors.js?v=90"></script>
+    <script src="js/sea-routes.js?v=90"></script>
     <!-- Spie (§9.3): puro, e serve ad app.js per la nebbia. Prima di app.js. -->
-    <script src="js/spies.js?v=81"></script>
+    <script src="js/spies.js?v=90"></script>
     <!-- Diplomazia (alleanze): puro, serve a game-actions/app/bot. Prima di app.js. -->
-    <script src="js/diplomacy.js?v=81"></script>
+    <script src="js/diplomacy.js?v=90"></script>
+    <script src="js/doctrines.js?v=90"></script>
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
-    <script src="js/objectives.js?v=81"></script>
-    <script src="js/app.js?v=81"></script>
-    <script src="js/game-actions.js?v=81"></script>
-    <script src="js/bot.js?v=81"></script>
-    <script src="js/player-board.js?v=81"></script>
+    <script src="js/objectives.js?v=93"></script>
+    <script src="js/app.js?v=92"></script>
+    <script src="js/game-actions.js?v=93"></script>
+    <script src="js/bot.js?v=91"></script>
+    <script src="js/player-board.js?v=91"></script>
 </body>
 
 </html>

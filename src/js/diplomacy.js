@@ -128,11 +128,101 @@
         return { ok: true };
     }
 
+    // ============================================================
+    // IL LIVELLO DI RAPPORTO (richiesta dell'utente: "il livello di rapporto che
+    // c'è tra i regni").
+    //
+    // Non è un campo nuovo nello stato, e non deve esserlo: il gioco REGISTRA
+    // GIÀ tutto quel che serve a dire come stanno fra loro due regni — i patti
+    // in essere, gli scambi andati a buon fine (`commerciStorico`), le province
+    // preziose strappate (`rancore`), gli avvisi di patto rotto o tradito
+    // (`pattiAvvisi`), i consensi concessi (`permessiAttacco`). Qui quei fatti
+    // si sommano in un solo numero, da −100 (guerra aperta) a +100 (fratelli).
+    //
+    // È il PUNTO DI VISTA DI `me` SU `other`: legge solo il registro di `me`,
+    // quindi non svela niente che il giocatore non sappia già. E resta puro come
+    // il resto del file: nessuna mutazione, nessun DOM. Chi la mostra è
+    // renderRelations in player-board.js; chi volesse farla pesare all'IA la
+    // legge da qui, non se la ricalcola.
+    //
+    // Ogni voce porta con sé il PERCHÉ: il pannello non mostra un numero calato
+    // dall'alto, mostra i fatti che lo compongono.
+    // ============================================================
+    const PACT_WEIGHT = {
+        alleanza: 50,
+        alleanzaTempo: 40,
+        nonBelligeranza: 20,
+        rinforzi: 15,
+        vista: 15
+    };
+    const LEVELS = [
+        { min: 45,  key: 'allied',  label: 'Alleati' },
+        { min: 15,  key: 'warm',    label: 'Amichevoli' },
+        { min: -15, key: 'neutral', label: 'Neutrali' },
+        { min: -45, key: 'tense',   label: 'Tesi' },
+        { min: -Infinity, key: 'hostile', label: 'Ostili' }
+    ];
+
+    function levelOf(score) {
+        return LEVELS.find(l => score >= l.min) || LEVELS[LEVELS.length - 1];
+    }
+
+    function standing(me, other, ctx) {
+        const why = [];
+        const add = (delta, txt) => { if (delta) why.push({ delta, txt }); };
+        const cap = (n, max) => Math.max(-max, Math.min(max, n));
+        const opts = ctx || {};
+        if (!me || !other) return { score: 0, level: 'neutral', label: 'Neutrali', why };
+
+        // 1. I patti in essere: è il fatto che pesa di più, ed è l'unico che
+        //    entrambi hanno firmato.
+        pactsWith(me, other.id).forEach(p => {
+            add(PACT_WEIGHT[p.tipo] || 10, LABEL[p.tipo] || p.tipo);
+        });
+
+        // 2. Gli scambi CONCLUSI: ogni carovana arrivata è fiducia guadagnata.
+        const scambi = (Array.isArray(me.commerciStorico) ? me.commerciStorico : [])
+            .filter(h => String(h.conId) === String(other.id)).length;
+        add(cap(scambi * 7, 28), scambi === 1 ? '1 scambio concluso' : scambi + ' scambi conclusi');
+
+        // 3. I consensi che gli hai concesso: passaggio d'armi dato e non tradito.
+        const consensi = (Array.isArray(me.permessiAttacco) ? me.permessiAttacco : [])
+            .filter(x => String(x.chi) === String(other.id)).length;
+        add(cap(consensi * 4, 8), consensi === 1 ? '1 consenso concesso' : consensi + ' consensi concessi');
+
+        // 4. Il RANCORE: le province preziose che ti ha strappato. `g.chi` è il
+        //    NOME di chi le ha prese (così lo scrive recordGrudge).
+        const torti = (Array.isArray(me.rancore) ? me.rancore : [])
+            .filter(g => g.chi === other.name);
+        const peso = torti.reduce((s, g) => s + (g.peso || 1), 0);
+        add(-cap(peso * 9, 45), torti.length === 1 ? '1 provincia strappata' : torti.length + ' province strappate');
+
+        // 5. La parola data e ripresa: patti rotti e, peggio, traditi.
+        const avvisi = (Array.isArray(me.pattiAvvisi) ? me.pattiAvvisi : [])
+            .filter(a => a.conNome === other.name);
+        const traditi = avvisi.filter(a => a.tipo === 'tradito').length;
+        const rotti = avvisi.filter(a => a.tipo === 'rotto').length;
+        add(-cap(traditi * 30, 60), traditi === 1 ? 'ti ha tradito' : traditi + ' tradimenti');
+        add(-cap(rotti * 14, 42), rotti === 1 ? '1 patto sciolto da lui' : rotti + ' patti sciolti da lui');
+
+        // 6. Confinare senza nessun accordo è di per sé una tensione: due eserciti
+        //    che si guardano. Vale poco, ma vale.
+        if (opts.confinanti && !pactsWith(me, other.id).length) {
+            add(-6, 'confinate senza accordi');
+        }
+
+        const score = Math.max(-100, Math.min(100, why.reduce((s, w) => s + w.delta, 0)));
+        const lv = levelOf(score);
+        return { score, level: lv.key, label: lv.label, why };
+    }
+
     root.Diplomacy = {
         TYPES, LABEL, TIMED, BREAK_PRESTIGE, GRANTS,
         isFullAlliance, costsPrestige,
         pactsList, pactsWith, hasPactType, hasPrivilege,
         grantsNonAggression, sharesVision, allowsReinforce, areAllied,
-        partnersOf, alliesOf, canPropose
+        partnersOf, alliesOf, canPropose,
+        // il livello di rapporto e i fatti che lo compongono
+        standing, LEVELS
     };
 })(typeof window !== 'undefined' ? window : this);

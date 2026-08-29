@@ -1,28 +1,38 @@
 // ============================================================================
-//  OBIETTIVI DI PRESTIGIO (§10) — catalogo + valutazione. Modulo PURO.
-//  Come popularity.js e religions.js: qui vivono le REGOLE (il catalogo dei 30
-//  obiettivi del Ciclo I e la funzione che ne calcola la completezza); app.js
-//  fornisce le letture dello stato via un "contesto" (ctx) e player-board.js
-//  disegna. Nessuna dipendenza dal DOM: così è testabile e non può divergere
-//  fra la plancia e (in futuro) l'IA.
+//  OBIETTIVI DI PRESTIGIO (§10) — il BINARIO STORICO di ogni regno. Modulo PURO.
+//  Come popularity.js e religions.js: qui vivono le REGOLE, app.js fornisce le
+//  letture dello stato via un "contesto" (ctx) e player-board.js disegna.
+//  Nessuna dipendenza dal DOM: così è testabile e non può divergere fra la
+//  plancia e l'IA.
+//
+//  L'IMPIANTO (regola dell'utente). Gli obiettivi non sono più tre righe fisse
+//  per (regno, ciclo): ogni regno ha un BINARIO, cioè la sequenza dei capitoli
+//  della sua storia. Il binario NON è indicizzato per ciclo, ma per dove il
+//  regno è arrivato nella PROPRIA storia (`player.capitolo`): chi compie un
+//  capitolo avanza al successivo, chi non ce la fa lo rifà in intensità minore.
+//  Così un regno martellato non resta indietro per sempre (rifà il suo capitolo,
+//  che è un obiettivo che PUÒ fare) e un regno che corre non trova obiettivi già
+//  completati (riceve il pezzo di storia successivo, non un numero più grande a
+//  caso). L'adattamento cambia il PASSO e l'INTENSITÀ, mai il soggetto: il
+//  filone storico guida tutto.
+//
+//  Un capitolo è un blocco di TRE voci — Primario 5 · Secondario 3 · Terziario 2
+//  (la forma che il catalogo ha sempre avuto). Ogni voce è un TEMPLATE (19
+//  archetipi coprono tutto) più argomenti JSON puri, quindi un'assegnazione si
+//  SERIALIZZA e vive nel salvataggio: `test` e `hint` si ricostruiscono al volo.
+//
+//  Le tre INTENSITÀ (`resistere` · `avanzare` · `eccedere`) sono lo stesso
+//  capitolo raccontato a tre scale: l'autore scrive tre ancore e un passo, il
+//  generatore sceglie la soglia dentro quella banda.
 //
 //  Spunta = DAL VIVO (regola dell'utente): `completato` riflette lo stato
 //  ATTUALE. Un obiettivo "conquista e difendi" o "costruisci un Mercato" conta
 //  solo se lo TIENI quando si fanno i conti (a fine ciclo). Nessun latch.
 //
-//  Le condizioni "per regione" (costa mediterranea/adriatica, penisola iberica,
-//  Isole Britanniche, al-Andalus) usano ELENCHI DI ID-PROVINCIA curati qui
-//  sotto: precisi e ritoccabili in un posto solo.
-//
-//  Catalogo DEFINITIVO (revisione dell'utente sul foglio Obiettivi.xlsx,
-//  2026-08-26): i 60 obiettivi (Ciclo I + Ciclo II) sono stati rivisti a mano
-//  dall'utente — soglie alzate/abbassate, alcuni obiettivi sostituiti di netto,
-//  due coppie Primario/Secondario scambiate di posto (Bisanzio e Ungheria nel
-//  Ciclo II: la voce più identitaria è promossa a Primario). Il testo del
-//  foglio è la fonte di verità; il `check` qui sotto descrive la formula VERA
-//  (nel foglio la colonna delle note tecniche non sempre seguiva la modifica
-//  del testo narrativo, quindi non ci si è appoggiati a quella colonna dov'era
-//  in contraddizione col testo).
+//  I capitoli I e II sono i 60 obiettivi del foglio Obiettivi.xlsx (revisione
+//  dell'utente 2026-08-26), riparametrizzati senza cambiarne una soglia:
+//  l'ancora `avanzare` di ogni voce È il numero scritto a mano. Il testo del
+//  foglio resta la fonte di verità.
 // ============================================================================
 (function (root) {
     'use strict';
@@ -45,338 +55,725 @@
     const NORMANDY_FR = new Set(['Normandy', 'Brittany', 'Picardy', 'Flanders', 'Aquitaine', 'Burgundy']);
     // Ciclo II: cuore della Grecia, oltre a Macedonia/Bulgaria già bizantine dal Ciclo I.
     const GREECE = new Set(['Thessalia', 'Attica', 'Peloponnese', 'Crete', 'West_Aegean_Islands', 'Albania', 'Northern_Thrace']);
-    // Ciclo II: l'Egitto, meta dell'espansione fatimide verso est. Elenco della
-    // revisione 2026-08-26: Matruh è entrata, Sinai è uscita (il foglio elenca
-    // esplicitamente "matruh, lower/middle/upper egypt o egyptian desert").
+    // Ciclo II: l'Egitto, meta dell'espansione fatimide verso est.
     const EGYPT = new Set(['Matruh', 'Lower_Egypt', 'Upper_Egypt', 'Middle_Egypt', 'Egyptian_Desert']);
     // Ciclo II: le isole del Mediterraneo occidentale, meta navale di Castiglia.
-    // Revisione 2026-08-26: Corsica è uscita ("fra Sicilia e Sardegna", non più
-    // "Sicilia, Sardegna e Corsica") — unico obiettivo che usa questo insieme.
     const ISLANDS = new Set(['Sicily', 'Sardinia']);
     // Ciclo II: le province di Terra Santa prese dai crociati (Francia/Bisanzio), da riconquistare.
     const HOLY_LAND = new Set(['Palestine', 'Aleppo', 'Lebanon', 'Syria']);
 
-    const has = (set, ctx) => ctx.ownedIds().filter(id => set.has(id)).length;
-    // Tutte le province di `ids` possedute e presidiate con almeno `n` uomini.
-    const heldWith = (ids, ctx, n) => ids.every(id => ctx.owns(id) && ctx.soldiersOn(id) >= n);
+    const SETS = { ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT, ISLANDS, HOLY_LAND };
 
-    // --- Catalogo del Ciclo I (turni 1-10), per NOME di regno --------------
-    // tier: etichetta · punti: 5/3/2 · tipo: per il chip colorato · test(ctx): booleano.
-    const CICLO_1 = {
+    // "una provincia" / "3 province": il testo di un obiettivo cambia col numero,
+    // e a soglia 1 la forma plurale suonerebbe da macchina.
+    const pl = (n, uno, molti) => n === 1 ? uno : n + ' ' + molti;
+
+    // ------------------------------------------------------------------------
+    //  TEMPLATES — gli archetipi di obiettivo.
+    // ------------------------------------------------------------------------
+    //  Ogni template dichiara una `misura(ctx, arg)` e il test è SEMPRE
+    //  `misura >= soglia`. È questa uniformità che rende possibile generare: la
+    //  stessa funzione che dice SE è fatto dice anche DOVE SEI, e quindi da dove
+    //  far partire la soglia del ciclo nuovo.
+    //
+    //  `hint(arg, n)` è la lettura MACCHINA dello stesso obiettivo, per bot.js:
+    //  la stessa richiesta spezzata in dati che un bot può confrontare con la
+    //  mappa senza reinterpretare il testo italiano. Vocabolario: region (Set,
+    //  min[, viaSea, ownedOnly, garrisonAny]) · province/provinces · gold ·
+    //  stock (res, min) · roads · connected · connectedTypes · provCount ·
+    //  garrisonCount/coastalGarrison ({count, threshold}) · mercato · city
+    //  ({min, at, connected}) · ships · shipGarrison · popularity · security.
+    //  Vive qui, non in bot.js, per la stessa ragione delle regole pure: un
+    //  obiettivo e la sua spinta cambiano insieme, in un solo file.
+    //
+    //  `misuraCal` (facoltativa) è la misura usata per CALIBRARE la soglia
+    //  quando differisce da quella del test: serve ai combinati, dove `misura`
+    //  vale -1 finché la parte fissa non è soddisfatta e schiaccerebbe la stima.
+    //
+    //  Convenzione: una misura che vale -1 dice "non possiedi nemmeno il posto",
+    //  così una soglia 0 significa "basta che sia tuo".
+    const TEMPLATES = {
+        // N province di una regione. La meta geografica, l'archetipo più storico.
+        regione: {
+            misura: (c, a) => c.ownedIds().filter(id => SETS[a.set].has(id)).length,
+            tetto: a => SETS[a.set].size,
+            hint: (a, n) => ({ region: SETS[a.set], min: n, viaSea: !!a.viaSea })
+        },
+        // Una provincia QUALUNQUE della regione, con almeno n uomini: radunare
+        // un'oste su una costa, non conquistare la costa intera.
+        regioneGuarnigione: {
+            misura: (c, a) => c.ownedIds().reduce((m, id) =>
+                SETS[a.set].has(id) ? Math.max(m, c.soldiersOn(id)) : m, -1),
+            hint: (a, n) => ({ region: SETS[a.set], ownedOnly: true, garrisonAny: n })
+        },
+        // TUTTE le province elencate, ciascuna con almeno n uomini.
+        province: {
+            misura: (c, a) => a.ids.reduce((m, id) =>
+                Math.min(m, c.owns(id) ? c.soldiersOn(id) : -1), Infinity),
+            hint: (a, n) => ({ provinces: a.ids.slice(), min: n })
+        },
+        // Una provincia precisa, con almeno n uomini (n = 0 → basta possederla).
+        provincia: {
+            misura: (c, a) => c.owns(a.id) ? c.soldiersOn(a.id) : -1,
+            hint: (a, n) => ({ province: a.id, min: n })
+        },
+        provCount: { misura: c => c.provCount(), hint: (a, n) => ({ provCount: n }) },
+        // n province con almeno `arg.soglia` uomini ciascuna.
+        guarnigioni: {
+            misura: (c, a) => c.ownedIds().filter(id => c.soldiersOn(id) >= a.soglia).length,
+            hint: (a, n) => ({ garrisonCount: { count: n, threshold: a.soglia } })
+        },
+        guarnigioniCostiere: {
+            misura: (c, a) => c.ownedIds().filter(id => c.isCoastal(id) && c.soldiersOn(id) >= a.soglia).length,
+            hint: (a, n) => ({ coastalGarrison: { count: n, threshold: a.soglia } })
+        },
+        oro: { misura: c => c.monete, hint: (a, n) => ({ gold: n }) },
+        scorte: { misura: (c, a) => c.scorteOf(a.res), hint: (a, n) => ({ stock: a.res, min: n }) },
+        strade: { misura: c => c.roadCount(), hint: (a, n) => ({ roads: n }) },
+        collegate: { misura: c => c.connectedCount(), hint: (a, n) => ({ connected: n }) },
+        tipiCollegati: { misura: c => c.connectedTypes(), hint: (a, n) => ({ connectedTypes: n }) },
+        mercato: { misura: c => c.hasMercato() ? 1 : 0, hint: () => ({ mercato: true }) },
+        // Una Città, eventualmente in un posto preciso (`at`) o collegata alla
+        // rete (`connected`), con almeno n uomini.
+        citta: {
+            misura: (c, a) => {
+                let ids = c.cityIds();
+                if (a.at) ids = ids.filter(id => id === a.at);
+                if (a.connected) ids = ids.filter(id => c.isConnected(id));
+                return ids.reduce((m, id) => Math.max(m, c.soldiersOn(id)), -1);
+            },
+            hint: (a, n) => {
+                const h = { city: true, min: n };
+                if (a.at) h.at = a.at;
+                if (a.connected) h.connected = true;
+                return h;
+            }
+        },
+        navi: { misura: c => c.shipCount(), hint: (a, n) => ({ ships: n }) },
+        // Una provincia con una nave ancorata e almeno n uomini a difenderla.
+        naveGuarnigione: {
+            misura: c => c.shipIds().reduce((m, id) => Math.max(m, c.soldiersOn(id)), -1),
+            hint: (a, n) => ({ ships: 1, shipGarrison: n })
+        },
+        popolarita: { misura: c => c.popularity(), tetto: () => 5, hint: (a, n) => ({ popularity: n }) },
+        sicurezza: { misura: c => c.sicurezza(), tetto: () => 5, hint: (a, n) => ({ security: n }) },
+        // Combinato: una parte SCALABILE (`capo`) più parti fisse (`altri`) che
+        // vanno tutte soddisfatte. Finché le fisse non lo sono la misura è -1,
+        // così l'obiettivo non risulta mai completo; per la calibrazione conta
+        // però solo il capo, se no la soglia nascerebbe schiacciata.
+        tutti: {
+            misura: (c, a) => {
+                const ok = a.altri.every(p => TEMPLATES[p.tmpl].misura(c, p.arg || {}) >= p.soglia);
+                return ok ? TEMPLATES[a.capo.tmpl].misura(c, a.capo.arg || {}) : -1;
+            },
+            misuraCal: (c, a) => TEMPLATES[a.capo.tmpl].misura(c, a.capo.arg || {}),
+            tetto: a => { const t = TEMPLATES[a.capo.tmpl]; return t.tetto ? t.tetto(a.capo.arg || {}) : Infinity; },
+            hint: (a, n) => [TEMPLATES[a.capo.tmpl].hint(a.capo.arg || {}, n)]
+                .concat(a.altri.map(p => TEMPLATES[p.tmpl].hint(p.arg || {}, p.soglia)))
+        }
+    };
+
+    // ------------------------------------------------------------------------
+    //  I BINARI — la storia di ogni regno, un capitolo per secolo.
+    // ------------------------------------------------------------------------
+    //  Un capitolo: { ciclo, epoca, tema, voci: [Primario, Secondario, Terziario] }.
+    //  `ciclo` è il secolo a cui il capitolo APPARTIENE nella storia vera, non
+    //  quello in cui lo si riceve: un regno lento arriva al capitolo III al
+    //  quinto ciclo, e va bene così — è la sua storia che è andata più piano.
+    //
+    //  Una voce: { id, tipo, titolo, tmpl, arg, n:{resistere,avanzare,eccedere,passo},
+    //  testo(n), check(n) }. `tipo` serve solo al chip colorato della plancia.
+    //  L'ancora `avanzare` è la soglia scritta a mano sul foglio: a intensità
+    //  `avanzare` il gioco chiede esattamente quello che chiedeva prima.
+    const BINARI = {
         'Regno di Castiglia': [
-            { id: 'ca1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Reconquista',
-              descrizione: 'Conquista e difendi 3 province che in partenza erano arabe.',
-              check: 'province con fede di partenza musulmana ≥ 3',
-              test: c => has(ANDALUS, c) >= 3 },
-            { id: 'ca2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'Il tesoro reale',
-              descrizione: 'Conserva 1000 monete d’oro.', check: 'monete ≥ 1000',
-              test: c => c.monete >= 1000 },
-            { id: 'ca3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le strade di frontiera',
-              descrizione: 'Costruisci 5 strade nel tuo regno.', check: 'strade nel regno ≥ 5',
-              test: c => c.roadCount() >= 5 }
+            { ciclo: 1, epoca: '1000-1099', tema: 'La Reconquista comincia', voci: [
+                { id: 'ca1', tipo: 'espansione', titolo: 'Reconquista',
+                  tmpl: 'regione', arg: { set: 'ANDALUS' },
+                  n: { resistere: 1, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Conquista e difendi ${n} province che in partenza erano arabe.`,
+                  check: n => `province con fede di partenza musulmana ≥ ${n}` },
+                { id: 'ca2', tipo: 'economia', titolo: 'Il tesoro reale',
+                  tmpl: 'oro', arg: {},
+                  n: { resistere: 600, avanzare: 1000, eccedere: 1500, passo: 200 },
+                  testo: n => `Conserva ${n} monete d’oro.`,
+                  check: n => `monete ≥ ${n}` },
+                { id: 'ca3', tipo: 'economia', titolo: 'Le strade di frontiera',
+                  tmpl: 'strade', arg: {},
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Costruisci ${n} strade nel tuo regno.`,
+                  check: n => `strade nel regno ≥ ${n}` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'Verso il Tago', voci: [
+                { id: 'ca2-1', tipo: 'espansione', titolo: 'Avanza la Reconquista',
+                  tmpl: 'regione', arg: { set: 'IBERIA' },
+                  n: { resistere: 6, avanzare: 9, eccedere: 11, passo: 1 },
+                  testo: n => `Avanza sulla penisola iberica: possiedi ${n} delle 13 province iberiche.`,
+                  check: n => `province iberiche possedute ≥ ${n}` },
+                { id: 'ca2-2', tipo: 'crescita', titolo: 'Il benessere del popolo',
+                  tmpl: 'popolarita', arg: {},
+                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
+                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
+                  check: n => `Popolarità ≥ ${n}` },
+                { id: 'ca2-3', tipo: 'navale', titolo: 'Verso Sardegna e Sicilia',
+                  tmpl: 'regione', arg: { set: 'ISLANDS', viaSea: true },
+                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
+                  testo: n => `Sbarca e conquista ${pl(n, 'una provincia', 'province')} fra Sicilia e Sardegna.`,
+                  check: n => `province fra Sicily/Sardinia possedute ≥ ${n}` }
+            ] }
         ],
         'Regno di Francia': [
-            { id: 'fr1', tier: 'Primario', punti: 5, tipo: 'preparazione', titolo: 'La Prima Crociata',
-              descrizione: 'Raduna 10 uomini su una costa mediterranea, per il Papa.',
-              check: 'una provincia in Provence/Languedoc/Rhone con soldati ≥ 10',
-              test: c => c.ownedIds().some(id => MED_FR.has(id) && c.soldiersOn(id) >= 10) },
-            { id: 'fr2', tier: 'Secondario', punti: 3, tipo: 'espansione', titolo: 'Espandere il regno',
-              descrizione: 'Conquista 3 province per espandere il regno.', check: 'province ≥ 6',
-              test: c => c.provCount() >= 6 },
-            { id: 'fr3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le foreste di Francia',
-              descrizione: 'Conserva 6 scorte di legno.', check: 'scorte di legno ≥ 6',
-              test: c => c.scorteOf('legno') >= 6 }
+            { ciclo: 1, epoca: '1000-1099', tema: 'L’appello di Clermont', voci: [
+                { id: 'fr1', tipo: 'preparazione', titolo: 'La Prima Crociata',
+                  tmpl: 'regioneGuarnigione', arg: { set: 'MED_FR' },
+                  n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
+                  testo: n => `Raduna ${n} uomini su una costa mediterranea, per il Papa.`,
+                  check: n => `una provincia in Provence/Languedoc/Rhone con soldati ≥ ${n}` },
+                { id: 'fr2', tipo: 'espansione', titolo: 'Espandere il regno',
+                  tmpl: 'provCount', arg: {},
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Espandi il regno fino a ${n} province.`,
+                  check: n => `province ≥ ${n}` },
+                { id: 'fr3', tipo: 'economia', titolo: 'Le foreste di Francia',
+                  tmpl: 'scorte', arg: { res: 'legno' },
+                  n: { resistere: 4, avanzare: 6, eccedere: 9, passo: 2 },
+                  testo: n => `Conserva ${n} scorte di legno.`,
+                  check: n => `scorte di legno ≥ ${n}` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'Oltremare', voci: [
+                { id: 'fr2-1', tipo: 'espansione', titolo: 'Difendi Aleppo',
+                  tmpl: 'provincia', arg: { id: 'Aleppo' },
+                  n: { resistere: 5, avanzare: 10, eccedere: 14, passo: 2 },
+                  testo: n => `Difendi l’avamposto di Aleppo in Terra Santa con almeno ${n} armate.`,
+                  check: n => `possiedi Aleppo con soldati ≥ ${n}` },
+                { id: 'fr2-2', tipo: 'espansione', titolo: 'Il regno consolidato',
+                  tmpl: 'provCount', arg: {},
+                  n: { resistere: 7, avanzare: 10, eccedere: 13, passo: 1 },
+                  testo: n => `Espandi il regno a ${n} province.`,
+                  check: n => `province ≥ ${n}` },
+                { id: 'fr2-3', tipo: 'crescita', titolo: 'Il regno feudale',
+                  tmpl: 'citta', arg: {},
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Costruisci una Città e difendila con almeno ${n} uomini.`,
+                  check: n => `una Città con soldati ≥ ${n}` }
+            ] }
         ],
         'Califfato Fatimide': [
-            { id: 'fa1', tier: 'Primario', punti: 5, tipo: 'navale', titolo: 'Verso al-Andalus',
-              descrizione: 'Conquista e difendi 2 province nella penisola iberica.',
-              check: '2 province iberiche possedute',
-              test: c => has(IBERIA, c) >= 2 },
-            { id: 'fa2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'La pergamena del califfo',
-              descrizione: 'Collega 5 tuoi territori con strade.',
-              check: 'province collegate ≥ 5',
-              test: c => c.connectedCount() >= 5 },
-            { id: 'fa3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'L’emporio del Mediterraneo',
-              descrizione: 'Costruisci un Mercato.', check: 'possiedi un Mercato',
-              test: c => c.hasMercato() }
+            { ciclo: 1, epoca: '1000-1099', tema: 'Il mare dei Fatimidi', voci: [
+                { id: 'fa1', tipo: 'navale', titolo: 'Verso al-Andalus',
+                  tmpl: 'regione', arg: { set: 'IBERIA', viaSea: true },
+                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  testo: n => `Conquista e difendi ${pl(n, 'una provincia', 'province')} nella penisola iberica.`,
+                  check: n => `province iberiche possedute ≥ ${n}` },
+                { id: 'fa2', tipo: 'economia', titolo: 'La pergamena del califfo',
+                  tmpl: 'collegate', arg: {},
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Collega ${n} tuoi territori con strade.`,
+                  check: n => `province collegate ≥ ${n}` },
+                { id: 'fa3', tipo: 'economia', titolo: 'L’emporio del Mediterraneo',
+                  tmpl: 'mercato', arg: {},
+                  n: { resistere: 1, avanzare: 1, eccedere: 1, passo: 0 },
+                  testo: () => 'Costruisci un Mercato.',
+                  check: () => 'possiedi un Mercato' }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'L’emirato e l’Egitto', voci: [
+                { id: 'fa2-1', tipo: 'espansione', titolo: 'L’emirato resiste',
+                  tmpl: 'regione', arg: { set: 'IBERIA' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
+                  testo: n => `Difendi la posizione in Iberia: possiedi ${n} province della penisola.`,
+                  check: n => `province iberiche possedute ≥ ${n}` },
+                { id: 'fa2-2', tipo: 'espansione', titolo: 'Verso l’Egitto',
+                  tmpl: 'regione', arg: { set: 'EGYPT' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Espanditi in Egitto: possiedi ${n} province egiziane.`,
+                  check: n => `province egiziane possedute ≥ ${n}` },
+                { id: 'fa2-3', tipo: 'economia', titolo: 'I granai del Nilo',
+                  tmpl: 'scorte', arg: { res: 'grano' },
+                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di grano.`,
+                  check: n => `scorte di grano ≥ ${n}` }
+            ] }
         ],
         'Regno di Inghilterra': [
-            { id: 'in1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Unificare l’isola',
-              descrizione: 'Unifica l’isola conquistando 4 nuove province.',
-              check: '7 province, tutte nelle Isole Britanniche',
-              test: c => has(BRITISH, c) >= 7 },
-            { id: 'in2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'La ricchezza della lana',
-              descrizione: 'Accumula 3 scorte di bestiame.', check: 'scorte di bestiame ≥ 3',
-              test: c => c.scorteOf('bestiame') >= 3 },
-            { id: 'in3', tier: 'Terziario', punti: 2, tipo: 'navale', titolo: 'La flotta',
-              descrizione: 'Costruisci una barca e difendi la provincia con 6 uomini.',
-              check: 'una provincia con una nave e soldati ≥ 6',
-              test: c => c.shipIds().some(id => c.soldiersOn(id) >= 6) }
+            { ciclo: 1, epoca: '1000-1099', tema: 'Unificare l’isola', voci: [
+                { id: 'in1', tipo: 'espansione', titolo: 'Unificare l’isola',
+                  tmpl: 'regione', arg: { set: 'BRITISH' },
+                  n: { resistere: 5, avanzare: 7, eccedere: 9, passo: 1 },
+                  testo: n => `Unifica l’isola: possiedi ${n} province delle Isole Britanniche.`,
+                  check: n => `province britanniche possedute ≥ ${n}` },
+                { id: 'in2', tipo: 'economia', titolo: 'La ricchezza della lana',
+                  tmpl: 'scorte', arg: { res: 'bestiame' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
+                  testo: n => `Accumula ${n} scorte di bestiame.`,
+                  check: n => `scorte di bestiame ≥ ${n}` },
+                { id: 'in3', tipo: 'navale', titolo: 'La flotta',
+                  tmpl: 'naveGuarnigione', arg: {},
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Costruisci una barca e difendi la provincia con ${n} uomini.`,
+                  check: n => `una provincia con una nave e soldati ≥ ${n}` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'L’impero angioino', voci: [
+                { id: 'in2-1', tipo: 'navale', titolo: 'Sbarco in Normandia',
+                  tmpl: 'regione', arg: { set: 'NORMANDY_FR', viaSea: true },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Sbarca sul continente e conquista ${pl(n, 'una provincia', 'province')} in Francia.`,
+                  check: n => `province della costa francese possedute ≥ ${n}` },
+                { id: 'in2-2', tipo: 'preparazione', titolo: 'La chiamata del Papa',
+                  tmpl: 'provincia', arg: { id: 'Home_Counties' },
+                  n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
+                  testo: n => `Raduna ${n} uomini a Home Counties, pronti a salpare per la crociata.`,
+                  check: n => `soldati a Home Counties ≥ ${n}` },
+                { id: 'in2-3', tipo: 'economia', titolo: 'Le strade della corona',
+                  tmpl: 'collegate', arg: {},
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Collega alla Capitale almeno ${n} province con strade.`,
+                  check: n => `province collegate ≥ ${n}` }
+            ] }
         ],
         'Sacro Romano Impero': [
-            { id: 'sr1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Consolidare l’Impero',
-              descrizione: 'Difendi con almeno 4 uomini un minimo di 6 territori.',
-              check: '6 province con soldati ≥ 4 ciascuna',
-              test: c => c.ownedIds().filter(id => c.soldiersOn(id) >= 4).length >= 6 },
-            { id: 'sr2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'Il legname del Reno',
-              descrizione: 'Immagazzina 8 scorte di legno.', check: 'scorte di legno ≥ 8',
-              test: c => c.scorteOf('legno') >= 8 },
-            { id: 'sr3', tier: 'Terziario', punti: 2, tipo: 'espansione', titolo: 'Il valico del Tirolo',
-              descrizione: 'Conquista e difendi la regione Tyrol.', check: 'possiedi Tyrol',
-              test: c => c.owns('Tyrol') }
+            { ciclo: 1, epoca: '1000-1099', tema: 'I ducati', voci: [
+                { id: 'sr1', tipo: 'espansione', titolo: 'Consolidare l’Impero',
+                  tmpl: 'guarnigioni', arg: { soglia: 4 },
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Difendi con almeno 4 uomini un minimo di ${n} territori.`,
+                  check: n => `${n} province con soldati ≥ 4 ciascuna` },
+                { id: 'sr2', tipo: 'economia', titolo: 'Il legname del Reno',
+                  tmpl: 'scorte', arg: { res: 'legno' },
+                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di legno.`,
+                  check: n => `scorte di legno ≥ ${n}` },
+                { id: 'sr3', tipo: 'espansione', titolo: 'Il valico del Tirolo',
+                  tmpl: 'provincia', arg: { id: 'Tyrol' },
+                  n: { resistere: 0, avanzare: 0, eccedere: 2, passo: 0 },
+                  testo: n => n > 0 ? `Conquista Tyrol e difendila con ${n} uomini.`
+                                    : 'Conquista e difendi la regione Tyrol.',
+                  check: n => n > 0 ? `possiedi Tyrol con soldati ≥ ${n}` : 'possiedi Tyrol' }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'Le città imperiali', voci: [
+                { id: 'sr2-1', tipo: 'crescita', titolo: 'La città imperiale',
+                  tmpl: 'citta', arg: {},
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Costruisci una Città e difendila con ${n} uomini.`,
+                  check: n => `una Città con soldati ≥ ${n}` },
+                { id: 'sr2-2', tipo: 'preparazione', titolo: 'La chiamata del Papa',
+                  tmpl: 'provincia', arg: { id: 'Bavaria' },
+                  n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
+                  testo: n => `Raduna ${n} uomini in Bavaria, pronti a marciare verso sud.`,
+                  check: n => `soldati in Bavaria ≥ ${n}` },
+                { id: 'sr2-3', tipo: 'economia', titolo: 'Le cave imperiali',
+                  tmpl: 'scorte', arg: { res: 'pietra' },
+                  n: { resistere: 4, avanzare: 6, eccedere: 9, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di pietra.`,
+                  check: n => `scorte di pietra ≥ ${n}` }
+            ] }
         ],
         'Ducato di Polonia': [
-            { id: 'po1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Sbocco al mare',
-              descrizione: 'Conquista 3 province che sboccano sul mare e difendile con almeno 4 uomini ciascuna.',
-              check: '3 province costiere con soldati ≥ 4 ciascuna',
-              test: c => c.ownedIds().filter(id => c.isCoastal(id) && c.soldiersOn(id) >= 4).length >= 3 },
-            { id: 'po2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'Il mercato e le mandrie',
-              descrizione: 'Costruisci un Mercato e immagazzina 4 scorte di bestiame.',
-              check: 'un Mercato e scorte di bestiame ≥ 4',
-              test: c => c.hasMercato() && c.scorteOf('bestiame') >= 4 },
-            { id: 'po3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le vie del regno',
-              descrizione: 'Collega alla Capitale almeno 3 tipi di risorse diverse.',
-              check: 'tipi di risorsa collegati ≥ 3',
-              test: c => c.connectedTypes() >= 3 }
+            { ciclo: 1, epoca: '1000-1099', tema: 'Sbocco al mare', voci: [
+                { id: 'po1', tipo: 'espansione', titolo: 'Sbocco al mare',
+                  tmpl: 'guarnigioniCostiere', arg: { soglia: 4 },
+                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
+                  testo: n => `Conquista ${n} province che sboccano sul mare e difendile con almeno 4 uomini ciascuna.`,
+                  check: n => `${n} province costiere con soldati ≥ 4 ciascuna` },
+                { id: 'po2', tipo: 'economia', titolo: 'Il mercato e le mandrie',
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'scorte', arg: { res: 'bestiame' } },
+                                        altri: [{ tmpl: 'mercato', arg: {}, soglia: 1 }] },
+                  n: { resistere: 2, avanzare: 4, eccedere: 6, passo: 1 },
+                  testo: n => `Costruisci un Mercato e immagazzina ${n} scorte di bestiame.`,
+                  check: n => `un Mercato e scorte di bestiame ≥ ${n}` },
+                { id: 'po3', tipo: 'economia', titolo: 'Le vie del regno',
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Collega alla Capitale almeno ${n} tipi di risorse diverse.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'La flotta baltica', voci: [
+                { id: 'po2-1', tipo: 'navale', titolo: 'La flotta del Baltico',
+                  tmpl: 'navi', arg: {},
+                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  testo: n => `Costruisci ${n} navi per dominare il Baltico.`,
+                  check: n => `navi ≥ ${n}` },
+                { id: 'po2-2', tipo: 'economia', titolo: 'Le vie del regno',
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
+                  testo: n => `Collega alla Capitale almeno ${n} tipi di risorse diverse.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` },
+                { id: 'po2-3', tipo: 'economia', titolo: 'Le foreste polacche',
+                  tmpl: 'scorte', arg: { res: 'legno' },
+                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di legno.`,
+                  check: n => `scorte di legno ≥ ${n}` }
+            ] }
         ],
         'Kievan Ru\'s': [
-            { id: 'ru1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Le terre della Rus’',
-              descrizione: 'Conquista 9 territori.', check: 'province ≥ 9',
-              test: c => c.provCount() >= 9 },
-            { id: 'ru2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'Le strade dei fiumi',
-              descrizione: 'Collega con strade almeno 6 territori e 2 risorse.',
-              check: '≥ 6 province collegate e ≥ 2 tipi di risorsa',
-              test: c => c.connectedCount() >= 6 && c.connectedTypes() >= 2 },
-            { id: 'ru3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le pellicce della steppa',
-              descrizione: 'Immagazzina 6 scorte di bestiame.',
-              check: 'scorte di bestiame ≥ 6',
-              test: c => c.scorteOf('bestiame') >= 6 }
+            { ciclo: 1, epoca: '1000-1099', tema: 'Le terre della Rus’', voci: [
+                { id: 'ru1', tipo: 'espansione', titolo: 'Le terre della Rus’',
+                  tmpl: 'provCount', arg: {},
+                  n: { resistere: 6, avanzare: 9, eccedere: 12, passo: 1 },
+                  testo: n => `Conquista ${n} territori.`,
+                  check: n => `province ≥ ${n}` },
+                { id: 'ru2', tipo: 'economia', titolo: 'Le strade dei fiumi',
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'collegate', arg: {} },
+                                        altri: [{ tmpl: 'tipiCollegati', arg: {}, soglia: 2 }] },
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Collega con strade almeno ${n} territori e 2 risorse.`,
+                  check: n => `≥ ${n} province collegate e ≥ 2 tipi di risorsa` },
+                { id: 'ru3', tipo: 'economia', titolo: 'Le pellicce della steppa',
+                  tmpl: 'scorte', arg: { res: 'bestiame' },
+                  n: { resistere: 4, avanzare: 6, eccedere: 9, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di bestiame.`,
+                  check: n => `scorte di bestiame ≥ ${n}` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'Kiev di pietra', voci: [
+                { id: 'ru2-1', tipo: 'crescita', titolo: 'Le mura di pietra',
+                  tmpl: 'citta', arg: { at: 'Kiev' },
+                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
+                  testo: n => `Costruisci una Città nella provincia di Kiev e difendila con ${n} uomini.`,
+                  check: n => `una Città a Kiev con soldati a Kiev ≥ ${n}` },
+                { id: 'ru2-2', tipo: 'espansione', titolo: 'Le terre della Rus’',
+                  tmpl: 'provCount', arg: {},
+                  n: { resistere: 10, avanzare: 13, eccedere: 16, passo: 1 },
+                  testo: n => `Espandi il regno a ${n} province.`,
+                  check: n => `province ≥ ${n}` },
+                { id: 'ru2-3', tipo: 'preparazione', titolo: 'Sentinella d’Oriente',
+                  tmpl: 'provincia', arg: { id: 'Tartaria' },
+                  n: { resistere: 5, avanzare: 8, eccedere: 11, passo: 2 },
+                  testo: n => `Raduna ${n} uomini a Tartaria per difendere i confini a oriente.`,
+                  check: n => `soldati a Tartaria ≥ ${n}` }
+            ] }
         ],
         'Ducato di Ungheria': [
-            { id: 'un1', tier: 'Primario', punti: 5, tipo: 'crescita', titolo: 'Il regno prospero',
-              descrizione: 'Ottieni una Sicurezza di livello 5 entro la fine del ciclo.',
-              check: 'Sicurezza (§8) ≥ 5',
-              test: c => c.sicurezza() >= 5 },
-            { id: 'un2', tier: 'Secondario', punti: 3, tipo: 'espansione', titolo: 'Verso l’Adriatico',
-              descrizione: 'Conquista e difendi l’accesso al Mar Mediterraneo.',
-              check: 'una provincia costiera adriatica (Croatia/Dalmatia/Istria)',
-              test: c => c.ownedIds().some(id => ADRIATIC.has(id)) },
-            { id: 'un3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Il mercato di Buda',
-              descrizione: 'Costruisci un Mercato.', check: 'possiedi un Mercato',
-              test: c => c.hasMercato() }
+            { ciclo: 1, epoca: '1000-1099', tema: 'Il regno prospero', voci: [
+                { id: 'un1', tipo: 'crescita', titolo: 'Il regno prospero',
+                  tmpl: 'sicurezza', arg: {},
+                  n: { resistere: 3, avanzare: 5, eccedere: 5, passo: 1 },
+                  testo: n => `Ottieni una Sicurezza di livello ${n} entro la fine del ciclo.`,
+                  check: n => `Sicurezza (§8) ≥ ${n}` },
+                { id: 'un2', tipo: 'espansione', titolo: 'Verso l’Adriatico',
+                  tmpl: 'regione', arg: { set: 'ADRIATIC' },
+                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
+                  testo: n => n > 1 ? `Conquista e difendi ${n} province adriatiche.`
+                                    : 'Conquista e difendi l’accesso al Mar Mediterraneo.',
+                  check: n => `province adriatiche (Croatia/Dalmatia/Istria) ≥ ${n}` },
+                { id: 'un3', tipo: 'economia', titolo: 'Il mercato di Buda',
+                  tmpl: 'mercato', arg: {},
+                  n: { resistere: 1, avanzare: 1, eccedere: 1, passo: 0 },
+                  testo: () => 'Costruisci un Mercato.',
+                  check: () => 'possiedi un Mercato' }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'L’Adriatico', voci: [
+                { id: 'un2-1', tipo: 'espansione', titolo: 'Il dominio adriatico',
+                  tmpl: 'province', arg: { ids: ['Croatia', 'Dalmatia', 'Istria'] },
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Conquista e tieni tutte e 3 le province adriatiche (Croatia, Dalmatia, Istria) e difendile con ${n} uomini ciascuna.`,
+                  check: n => `le 3 province adriatiche, soldati ≥ ${n} ciascuna` },
+                { id: 'un2-2', tipo: 'crescita', titolo: 'La città di Buda',
+                  tmpl: 'citta', arg: {},
+                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
+                  testo: n => n > 0 ? `Costruisci una Città e difendila con ${n} uomini.`
+                                    : 'Costruisci una Città nel tuo regno.',
+                  check: n => n > 0 ? `una Città con soldati ≥ ${n}` : 'possiedi una Città' },
+                { id: 'un2-3', tipo: 'economia', titolo: 'Le cave della Pannonia',
+                  tmpl: 'scorte', arg: { res: 'argilla' },
+                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di argilla.`,
+                  check: n => `scorte di argilla ≥ ${n}` }
+            ] }
         ],
         'Impero Bizantino': [
-            { id: 'bi1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'La riconquista balcanica',
-              descrizione: 'Conquista e difendi Macedonia e Bulgaria.',
-              check: 'possiedi Macedonia e Bulgaria',
-              test: c => c.owns('Macedonia') && c.owns('Bulgaria') },
-            { id: 'bi2', tier: 'Secondario', punti: 3, tipo: 'preparazione', titolo: 'L’appello di Alessio I',
-              descrizione: 'Raggruppa 8 uomini in Eastern Thrace per la crociata.',
-              check: 'soldati in Eastern Thrace ≥ 8',
-              test: c => c.owns('Eastern_Thrace') && c.soldiersOn('Eastern_Thrace') >= 8 },
-            { id: 'bi3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le vie dell’impero',
-              descrizione: 'Collega almeno 4 province alla Capitale con strade.',
-              check: 'province collegate ≥ 4',
-              test: c => c.connectedCount() >= 4 }
+            { ciclo: 1, epoca: '1000-1099', tema: 'La riconquista balcanica', voci: [
+                { id: 'bi1', tipo: 'espansione', titolo: 'La riconquista balcanica',
+                  tmpl: 'province', arg: { ids: ['Macedonia', 'Bulgaria'] },
+                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
+                  testo: n => n > 0 ? `Conquista Macedonia e Bulgaria e difendile con ${n} uomini ciascuna.`
+                                    : 'Conquista e difendi Macedonia e Bulgaria.',
+                  check: n => n > 0 ? `Macedonia e Bulgaria, soldati ≥ ${n} ciascuna` : 'possiedi Macedonia e Bulgaria' },
+                { id: 'bi2', tipo: 'preparazione', titolo: 'L’appello di Alessio I',
+                  tmpl: 'provincia', arg: { id: 'Eastern_Thrace' },
+                  n: { resistere: 5, avanzare: 8, eccedere: 11, passo: 2 },
+                  testo: n => `Raggruppa ${n} uomini in Eastern Thrace per la crociata.`,
+                  check: n => `soldati in Eastern Thrace ≥ ${n}` },
+                { id: 'bi3', tipo: 'economia', titolo: 'Le vie dell’impero',
+                  tmpl: 'collegate', arg: {},
+                  n: { resistere: 3, avanzare: 4, eccedere: 6, passo: 1 },
+                  testo: n => `Collega almeno ${n} province alla Capitale con strade.`,
+                  check: n => `province collegate ≥ ${n}` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'I Comneni', voci: [
+                { id: 'bi2-1', tipo: 'espansione', titolo: 'La riconquista della Grecia',
+                  tmpl: 'regione', arg: { set: 'GREECE' },
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Completa la conquista della Grecia: possiedi ${n} delle 7 province greche.`,
+                  check: n => `province greche possedute ≥ ${n} (su 7)` },
+                { id: 'bi2-2', tipo: 'espansione', titolo: 'La guardia di Gerusalemme',
+                  tmpl: 'provincia', arg: { id: 'Palestine' },
+                  n: { resistere: 3, avanzare: 5, eccedere: 8, passo: 1 },
+                  testo: n => `Difendi l’avamposto di Palestina in Terra Santa con almeno ${n} armate.`,
+                  check: n => `possiedi Palestine con soldati ≥ ${n}` },
+                { id: 'bi2-3', tipo: 'economia', titolo: 'Il tesoro di Costantinopoli',
+                  tmpl: 'oro', arg: {},
+                  n: { resistere: 700, avanzare: 1200, eccedere: 1800, passo: 200 },
+                  testo: n => `Conserva ${n} monete d’oro.`,
+                  check: n => `monete ≥ ${n}` }
+            ] }
         ],
         'Califfato Abbaside': [
-            { id: 'ab1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Sbocco sul Mediterraneo',
-              descrizione: 'Conquista e difendi con almeno 6 armate la provincia di Syria.',
-              check: 'possiedi Syria con soldati ≥ 6',
-              test: c => c.owns('Syria') && c.soldiersOn('Syria') >= 6 },
-            { id: 'ab2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'Il tesoro del bazar',
-              descrizione: 'Immagazzina 1000 monete.', check: 'monete ≥ 1000',
-              test: c => c.monete >= 1000 },
-            { id: 'ab3', tier: 'Terziario', punti: 2, tipo: 'espansione', titolo: 'Rafforzare il Califfato',
-              descrizione: 'Conquista e difendi 7 province con almeno 2 uomini ciascuna.',
-              check: '7 province con soldati ≥ 2 ciascuna',
-              test: c => c.ownedIds().filter(id => c.soldiersOn(id) >= 2).length >= 7 }
+            { ciclo: 1, epoca: '1000-1099', tema: 'Sbocco sul Mediterraneo', voci: [
+                { id: 'ab1', tipo: 'espansione', titolo: 'Sbocco sul Mediterraneo',
+                  tmpl: 'provincia', arg: { id: 'Syria' },
+                  n: { resistere: 3, avanzare: 6, eccedere: 9, passo: 2 },
+                  testo: n => `Conquista e difendi con almeno ${n} armate la provincia di Syria.`,
+                  check: n => `possiedi Syria con soldati ≥ ${n}` },
+                { id: 'ab2', tipo: 'economia', titolo: 'Il tesoro del bazar',
+                  tmpl: 'oro', arg: {},
+                  n: { resistere: 600, avanzare: 1000, eccedere: 1500, passo: 200 },
+                  testo: n => `Immagazzina ${n} monete.`,
+                  check: n => `monete ≥ ${n}` },
+                { id: 'ab3', tipo: 'espansione', titolo: 'Rafforzare il Califfato',
+                  tmpl: 'guarnigioni', arg: { soglia: 2 },
+                  n: { resistere: 5, avanzare: 7, eccedere: 10, passo: 1 },
+                  testo: n => `Conquista e difendi ${n} province con almeno 2 uomini ciascuna.`,
+                  check: n => `${n} province con soldati ≥ 2 ciascuna` }
+            ] },
+            { ciclo: 2, epoca: '1100-1199', tema: 'La Terra Santa', voci: [
+                { id: 'ab2-1', tipo: 'espansione', titolo: 'Riconquista la Terra Santa',
+                  tmpl: 'regione', arg: { set: 'HOLY_LAND' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  testo: n => `Riconquista le province cristiane in Terra Santa: possiedi ${n} fra Palestina, Aleppo, Libano e Siria.`,
+                  check: n => `province di Terra Santa possedute ≥ ${n}` },
+                { id: 'ab2-2', tipo: 'preparazione', titolo: 'Le sentinelle d’Oriente',
+                  tmpl: 'province', arg: { ids: ['Isfahan', 'Irakajemi'] },
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Conquista e difendi le province di Isfahan e Irakajemi con almeno ${n} uomini l’una.`,
+                  check: n => `Isfahan e Irakajemi, soldati ≥ ${n} ciascuna` },
+                { id: 'ab2-3', tipo: 'crescita', titolo: 'Lo splendore Abbaside',
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'tipiCollegati', arg: {} },
+                                        altri: [{ tmpl: 'citta', arg: { connected: true }, soglia: 0 }] },
+                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
+                  testo: n => `Costruisci una Città e collegala a ${pl(n, 'una risorsa', 'tipi di risorsa')}.`,
+                  check: n => `una Città collegata alla rete e tipi di risorsa collegati ≥ ${n}` }
+            ] }
         ]
     };
 
-    // --- Catalogo del Ciclo II (turni 11-20 ≈ 1100-1199), per NOME di regno --
-    // Francia e Bisanzio hanno appena preso Aleppo/Palestina con la Prima
-    // Crociata (js/events.js): il tema è tenerle. Inghilterra e HRI radunano
-    // per una chiamata futura del Papa; Ungheria/HRI/Rus' consolidano con un
-    // edificio (Città/flotta); Fatimidi ed Castiglia proseguono le rispettive
-    // direzioni del Ciclo I (Iberia→Egitto, Reconquista→isole); gli Abbasidi
-    // rispondono riprendendo la Terra Santa e presidiando l'Oriente.
-    // Revisione 2026-08-26: per Bisanzio e Ungheria la voce più identitaria
-    // (riconquista della Grecia; dominio adriatico) è stata promossa a
-    // Primario, l'altra retrocessa a Secondario — scambio di posto voluto
-    // dall'utente sul foglio, non un refuso.
-    const CICLO_2 = {
-        'Regno di Francia': [
-            { id: 'fr2-1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Difendi Aleppo',
-              descrizione: 'Difendi l’avamposto di Aleppo in Terra Santa con almeno 10 armate.',
-              check: 'possiedi Aleppo con soldati ≥ 10',
-              test: c => c.owns('Aleppo') && c.soldiersOn('Aleppo') >= 10 },
-            { id: 'fr2-2', tier: 'Secondario', punti: 3, tipo: 'espansione', titolo: 'Il regno consolidato',
-              descrizione: 'Espandi il regno a 10 province.', check: 'province ≥ 10',
-              test: c => c.provCount() >= 10 },
-            { id: 'fr2-3', tier: 'Terziario', punti: 2, tipo: 'crescita', titolo: 'Il regno feudale',
-              descrizione: 'Costruisci una Città e difendila con almeno 5 uomini.',
-              check: 'una Città con soldati ≥ 5',
-              test: c => c.cityIds().some(id => c.soldiersOn(id) >= 5) }
-        ],
-        'Impero Bizantino': [
-            { id: 'bi2-1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'La riconquista della Grecia',
-              descrizione: 'Completa la conquista della Grecia: possiedi 5 delle 7 province greche.',
-              check: 'province greche possedute ≥ 5 (su 7)',
-              test: c => has(GREECE, c) >= 5 },
-            { id: 'bi2-2', tier: 'Secondario', punti: 3, tipo: 'espansione', titolo: 'La guardia di Gerusalemme',
-              descrizione: 'Difendi l’avamposto di Palestina in Terra Santa con almeno 5 armate.',
-              check: 'possiedi Palestine con soldati ≥ 5',
-              test: c => c.owns('Palestine') && c.soldiersOn('Palestine') >= 5 },
-            { id: 'bi2-3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Il tesoro di Costantinopoli',
-              descrizione: 'Conserva 1200 monete d’oro.', check: 'monete ≥ 1200',
-              test: c => c.monete >= 1200 }
-        ],
-        'Regno di Inghilterra': [
-            { id: 'in2-1', tier: 'Primario', punti: 5, tipo: 'navale', titolo: 'Sbarco in Normandia',
-              descrizione: 'Sbarca sul continente e conquista 2 province in Francia.',
-              check: 'province della costa francese possedute ≥ 2',
-              test: c => has(NORMANDY_FR, c) >= 2 },
-            { id: 'in2-2', tier: 'Secondario', punti: 3, tipo: 'preparazione', titolo: 'La chiamata del Papa',
-              descrizione: 'Raduna 10 uomini a Home Counties, pronti a salpare per la crociata.',
-              check: 'soldati a Home Counties ≥ 10',
-              test: c => c.owns('Home_Counties') && c.soldiersOn('Home_Counties') >= 10 },
-            { id: 'in2-3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le strade della corona',
-              descrizione: 'Collega alla Capitale almeno 6 province con strade.',
-              check: 'province collegate ≥ 6',
-              test: c => c.connectedCount() >= 6 }
-        ],
-        'Sacro Romano Impero': [
-            { id: 'sr2-1', tier: 'Primario', punti: 5, tipo: 'crescita', titolo: 'La città imperiale',
-              descrizione: 'Costruisci una Città e difendila con 6 uomini.',
-              check: 'una Città con soldati ≥ 6',
-              test: c => c.cityIds().some(id => c.soldiersOn(id) >= 6) },
-            { id: 'sr2-2', tier: 'Secondario', punti: 3, tipo: 'preparazione', titolo: 'La chiamata del Papa',
-              descrizione: 'Raduna 10 uomini in Bavaria, pronti a marciare verso sud.',
-              check: 'soldati in Bavaria ≥ 10',
-              test: c => c.owns('Bavaria') && c.soldiersOn('Bavaria') >= 10 },
-            { id: 'sr2-3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le cave imperiali',
-              descrizione: 'Immagazzina 6 scorte di pietra.', check: 'scorte di pietra ≥ 6',
-              test: c => c.scorteOf('pietra') >= 6 }
-        ],
-        'Ducato di Polonia': [
-            { id: 'po2-1', tier: 'Primario', punti: 5, tipo: 'navale', titolo: 'La flotta del Baltico',
-              descrizione: 'Costruisci 2 navi per dominare il Baltico.', check: 'navi ≥ 2',
-              test: c => c.shipCount() >= 2 },
-            { id: 'po2-2', tier: 'Secondario', punti: 3, tipo: 'economia', titolo: 'Le vie del regno',
-              descrizione: 'Collega alla Capitale almeno 4 tipi di risorse diverse.',
-              check: 'tipi di risorsa collegati ≥ 4',
-              test: c => c.connectedTypes() >= 4 },
-            { id: 'po2-3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'Le foreste polacche',
-              descrizione: 'Immagazzina 8 scorte di legno.', check: 'scorte di legno ≥ 8',
-              test: c => c.scorteOf('legno') >= 8 }
-        ],
-        'Kievan Ru\'s': [
-            { id: 'ru2-1', tier: 'Primario', punti: 5, tipo: 'crescita', titolo: 'Le mura di pietra',
-              descrizione: 'Costruisci una Città nella provincia di Kiev e difendila con 6 uomini.',
-              check: 'una Città a Kiev con soldati a Kiev ≥ 6',
-              test: c => c.cityIds().indexOf('Kiev') !== -1 && c.soldiersOn('Kiev') >= 6 },
-            { id: 'ru2-2', tier: 'Secondario', punti: 3, tipo: 'espansione', titolo: 'Le terre della Rus’',
-              descrizione: 'Espandi il regno a 13 province.', check: 'province ≥ 13',
-              test: c => c.provCount() >= 13 },
-            { id: 'ru2-3', tier: 'Terziario', punti: 2, tipo: 'preparazione', titolo: 'Sentinella d’Oriente',
-              descrizione: 'Raduna 8 uomini a Tartaria per difendere i confini a oriente.',
-              check: 'soldati a Tartaria ≥ 8',
-              test: c => c.owns('Tartaria') && c.soldiersOn('Tartaria') >= 8 }
-        ],
-        'Ducato di Ungheria': [
-            { id: 'un2-1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Il dominio adriatico',
-              descrizione: 'Conquista e tieni tutte e 3 le province adriatiche (Croatia, Dalmatia, Istria) e difendile con 5 uomini ciascuna.',
-              check: 'le 3 province adriatiche, soldati ≥ 5 ciascuna',
-              test: c => heldWith(Array.from(ADRIATIC), c, 5) },
-            { id: 'un2-2', tier: 'Secondario', punti: 3, tipo: 'crescita', titolo: 'La città di Buda',
-              descrizione: 'Costruisci una Città nel tuo regno.', check: 'possiedi una Città',
-              test: c => c.hasCity() },
-            { id: 'un2-3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'I granai della Pannonia',
-              descrizione: 'Immagazzina 8 scorte di argilla.', check: 'scorte di argilla ≥ 8',
-              test: c => c.scorteOf('argilla') >= 8 }
-        ],
-        'Califfato Fatimide': [
-            { id: 'fa2-1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'L’emirato resiste',
-              descrizione: 'Difendi la posizione in Iberia: possiedi 3 province della penisola.',
-              check: 'province iberiche possedute ≥ 3',
-              test: c => has(IBERIA, c) >= 3 },
-            { id: 'fa2-2', tier: 'Secondario', punti: 3, tipo: 'espansione', titolo: 'Verso l’Egitto',
-              descrizione: 'Espanditi in Egitto: possiedi 2 province egiziane.',
-              check: 'province egiziane possedute ≥ 2',
-              test: c => has(EGYPT, c) >= 2 },
-            { id: 'fa2-3', tier: 'Terziario', punti: 2, tipo: 'economia', titolo: 'I granai del Nilo',
-              descrizione: 'Immagazzina 8 scorte di grano.', check: 'scorte di grano ≥ 8',
-              test: c => c.scorteOf('grano') >= 8 }
-        ],
-        'Regno di Castiglia': [
-            { id: 'ca2-1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Avanza la Reconquista',
-              descrizione: 'Avanza sulla penisola iberica: possiedi 9 delle 13 province iberiche.',
-              check: 'province iberiche possedute ≥ 9',
-              test: c => has(IBERIA, c) >= 9 },
-            { id: 'ca2-2', tier: 'Secondario', punti: 3, tipo: 'crescita', titolo: 'Il benessere del popolo',
-              descrizione: 'Chiudi il ciclo con una Popolarità di livello 4.',
-              check: 'Popolarità ≥ 4',
-              test: c => c.popularity() >= 4 },
-            { id: 'ca2-3', tier: 'Terziario', punti: 2, tipo: 'navale', titolo: 'Verso Sardegna e Sicilia',
-              descrizione: 'Sbarca e conquista una provincia fra Sicilia e Sardegna.',
-              check: 'province fra Sicily/Sardinia possedute ≥ 1',
-              test: c => has(ISLANDS, c) >= 1 }
-        ],
-        'Califfato Abbaside': [
-            { id: 'ab2-1', tier: 'Primario', punti: 5, tipo: 'espansione', titolo: 'Riconquista la Terra Santa',
-              descrizione: 'Riconquista le province cristiane in Terra Santa: possiedi 2 fra Palestina, Aleppo, Libano e Siria.',
-              check: 'province di Terra Santa possedute ≥ 2',
-              test: c => has(HOLY_LAND, c) >= 2 },
-            { id: 'ab2-2', tier: 'Secondario', punti: 3, tipo: 'preparazione', titolo: 'Le sentinelle d’Oriente',
-              descrizione: 'Conquista e difendi le province di Isfahan e Irakajemi con almeno 5 uomini l’una.',
-              check: 'Isfahan e Irakajemi, soldati ≥ 5 ciascuna',
-              test: c => heldWith(['Isfahan', 'Irakajemi'], c, 5) },
-            { id: 'ab2-3', tier: 'Terziario', punti: 2, tipo: 'crescita', titolo: 'Lo splendore Abbaside',
-              descrizione: 'Costruisci una Città e collegala a una risorsa.',
-              check: 'una Città collegata alla rete, con ≥ 1 tipo di risorsa raggiungibile',
-              test: c => c.cityIds().some(id => c.isConnected(id)) && c.connectedTypes() >= 1 }
-        ]
-    };
+    // ------------------------------------------------------------------------
+    //  Il motore: dal binario all'assegnazione, dall'assegnazione alla spunta.
+    // ------------------------------------------------------------------------
 
-    // Cataloghi per ciclo, per NOME di regno. Un regno assente da un ciclo
-    // (non dovrebbe succedere per i 10 nomi fissi) semplicemente non c'è.
-    const CYCLES = { 1: CICLO_1, 2: CICLO_2 };
-    const LAST_CYCLE = Math.max.apply(null, Object.keys(CYCLES).map(Number));
+    // I tre gradini di un capitolo. Somma 10: è il tetto del ciclo (§10).
+    const TIERS = [
+        { tier: 'Primario', punti: 5 },
+        { tier: 'Secondario', punti: 3 },
+        { tier: 'Terziario', punti: 2 }
+    ];
+    const INTENSITA = ['resistere', 'avanzare', 'eccedere'];
 
-    // Compat: CATALOG resta il catalogo del Ciclo I (era l'unico, letto altrove?
-    // nessun altro modulo lo legge oggi, ma si tiene per non rompere l'API).
-    const CATALOG = CICLO_1;
+    // Il FRENO: il capitolo non può superare il ciclo di più di due, altrimenti
+    // un regno fortunato finirebbe il millennio al turno trenta.
+    const FRENO = 2;
+    // Sotto queste province il regno è in ginocchio: il capitolo ARRETRA.
+    const CROLLO_PROV = 2;
+    // Quanto il ritmo del ciclo scorso pesa sul passo, per gradino: al Primario
+    // si chiede di fare MEGLIO, al Secondario di ripetersi, al Terziario di non
+    // peggiorare.
+    const K_TIER = { Primario: 1.2, Secondario: 1.0, Terziario: 0.5 };
+    const RITMO_MIN = 0.5, RITMO_MAX = 2;
+    // I template che si RATCHETTANO per intero: quel che si conquista o si
+    // costruisce non si perde spendendolo, quindi la soglia parte da dove sei
+    // PIÙ un passo. Gli altri — oro, scorte, Popolarità, Sicurezza — sono
+    // livelli da TENERE, non da superare: lì la soglia arriva a dove sei e si
+    // ferma, se no un tesoro chiederebbe di non spendere mai e una scorta di
+    // non costruire mai. (La banda dell'autore fa comunque da tetto a entrambi.)
+    const CRESCITA = new Set(['regione', 'regioneGuarnigione', 'province', 'provincia',
+        'provCount', 'guarnigioni', 'guarnigioniCostiere', 'strade', 'collegate',
+        'tipiCollegati', 'mercato', 'citta', 'navi', 'naveGuarnigione']);
+    // Un combinato eredita la natura della sua parte scalabile.
+    function cresce(tmpl, arg) {
+        if (tmpl === 'tutti') return cresce(arg.capo.tmpl, arg.capo.arg || {});
+        return CRESCITA.has(tmpl);
+    }
 
     function cycleOfTurn(turn) { return Math.floor((Math.max(1, turn | 0) - 1) / 10) + 1; }
 
-    // Valuta gli obiettivi del regno `name` con le letture di stato `ctx`, per
-    // il ciclo `cycle` (default: I). Un ciclo senza catalogo dedicato ricade
-    // sull'ultimo definito, così un regno non resta senza obiettivi mentre il
-    // catalogo del ciclo in corso non è ancora stato scritto.
-    // Torna null se il regno non ha un catalogo (partita fuori dai 10 regni).
-    function evaluate(name, ctx, cycle) {
-        let cyc = Math.max(1, (cycle | 0) || 1);
-        if (!CYCLES[cyc]) cyc = LAST_CYCLE;
-        const defs = CYCLES[cyc][name];
-        if (!defs) return null;
-        let punti = 0, puntiMax = 0;
-        const items = defs.map(d => {
-            let ok = false;
-            try { ok = !!d.test(ctx); } catch (e) { ok = false; }
-            puntiMax += d.punti;
-            if (ok) punti += d.punti;
-            return {
-                id: d.id, tier: d.tier, punti: d.punti, tipo: d.tipo,
-                titolo: d.titolo, descrizione: d.descrizione, check: d.check, completato: ok
-            };
-        });
-        return { ciclo: cyc, items: items, punti: punti, puntiMax: puntiMax };
+    // Quanti capitoli ha il binario di un regno (0 = regno senza binario).
+    function chapterCount(name) { return (BINARI[name] || []).length; }
+
+    // La soglia di una voce. Senza `misura` (generatore spento) è l'ancora nuda
+    // dell'intensità, cioè il numero scritto a mano sul foglio. Con la misura si
+    // CALIBRA, e sono tre vincoli insieme:
+    //   · mai sotto l'ancora dell'intensità — è il minimo che l'autore chiede;
+    //   · mai già completata alla nascita, per quel che si conquista e si
+    //     costruisce (`misura + passo`); un livello da TENERE arriva invece a
+    //     dove sei e si ferma;
+    //   · sempre dentro la BANDA fra `resistere` e mezza volta `eccedere`, e mai
+    //     oltre il TETTO naturale del template — una regione di 13 province non
+    //     può chiederne 15, e la Popolarità si ferma a 5. Senza, il ratchet di un
+    //     regno che possiede già tutta l'Iberia generava un obiettivo impossibile.
+    // Il passo si allunga o si accorcia col RITMO del ciclo scorso e col
+    // gradino: al Primario si chiede di fare meglio, al Terziario di reggere.
+    function soglia(voce, intensita, misura, opts) {
+        const n = voce.n || {};
+        const anc = typeof n[intensita] === 'number' ? n[intensita] : (n.avanzare || 0);
+        if (typeof misura !== 'number' || !isFinite(misura)) return anc;
+        opts = opts || {};
+        const k = K_TIER[opts.tier] || 1;
+        const rit = Math.min(RITMO_MAX, Math.max(RITMO_MIN,
+            typeof opts.ritmo === 'number' && isFinite(opts.ritmo) ? opts.ritmo : 1));
+        const base = typeof n.passo === 'number' ? n.passo : 1;
+        const passo = base ? Math.max(1, Math.round(base * k * rit)) : 0;
+        const ratchet = cresce(voce.tmpl, voce.arg || {}) ? misura + passo : misura;
+        const lo = typeof n.resistere === 'number' ? n.resistere : anc;
+        const t = TEMPLATES[voce.tmpl];
+        const tetto = t && t.tetto ? t.tetto(voce.arg || {}) : Infinity;
+        const hi = Math.max(lo, Math.min(tetto,
+            Math.round((typeof n.eccedere === 'number' ? n.eccedere : anc) * 1.5)));
+        return Math.min(Math.max(anc, ratchet, lo), hi);
     }
 
-    root.Objectives = {
-        CATALOG, CYCLES, evaluate, cycleOfTurn,
-        SETS: { ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT, ISLANDS, HOLY_LAND }
+    // Il RITMO del ciclo appena chiuso: quanto il regno è cresciuto, in una
+    // cifra sola. 0,5 = fermo o in ritirata, 1 = normale, 2 = corsa. Si legge
+    // dalle province perché sono la misura che ogni regno ha (un tesoro può
+    // essere zero per scelta, le province no).
+    function ritmoDa(profilo, precedente) {
+        if (!profilo || !precedente || !precedente.province) return 1;
+        const cresc = (profilo.province - precedente.province) / precedente.province;
+        if (cresc <= 0) return RITMO_MIN;
+        return Math.min(RITMO_MAX, 1 + cresc);
+    }
+
+    // IL PUNTATORE. Dato com'è andato il ciclo, dove si trova ora il regno nella
+    // sua storia e con che respiro affronta il pezzo successivo. È la regola che
+    // rende il sistema quel che è: chi compie il capitolo AVANZA, chi non ce la
+    // fa lo RIFÀ in intensità minore (un obiettivo che può fare, non uno più
+    // grande che non farà mai), chi crolla ARRETRA. Il numero del ciclo entra
+    // solo come freno.
+    // L'intensità è una SCALA a tre gradini e si sale o si scende di uno per
+    // volta. Con un interruttore acceso/spento il regno oscillava: a resistere
+    // riusciva a fare un obiettivo, veniva ripromosso ad avanzare, falliva tutto
+    // e ricadeva — avanti e indietro per l'intera partita, senza mai concludere
+    // un capitolo. Un gradino per volta invece consolida.
+    function giu(i) { return INTENSITA[Math.max(0, INTENSITA.indexOf(i) - 1)] || 'resistere'; }
+
+    // o = { primarioFatto, fatti, intensita, province, provincePrec,
+    //       capitalePersa, capitolo, ciclo, capitoli }
+    function passo(o) {
+        o = o || {};
+        const capitoli = Math.max(1, o.capitoli | 0 || 1);
+        const cap = Math.max(1, o.capitolo | 0 || 1);
+        const ciclo = Math.max(1, o.ciclo | 0 || 1);
+        const ora = INTENSITA.indexOf(o.intensita) >= 0 ? o.intensita : 'avanzare';
+        const chiudi = (c, intensita, motivo) => ({
+            capitolo: Math.min(Math.max(1, c), Math.min(capitoli, ciclo + FRENO)),
+            intensita: intensita, motivo: motivo
+        });
+        // Crollo: il regno è in ginocchio. Si torna al capitolo prima, a
+        // resistere — non si pretende che la storia vada avanti da sotto terra.
+        if (o.province <= CROLLO_PROV || o.capitalePersa) return chiudi(cap - 1, 'resistere', 'crollo');
+        // Capitolo COMPIUTO: si passa al pezzo di storia successivo. Con tutti e
+        // tre gli obiettivi in tasca lo si affronta al massimo respiro.
+        if (o.primarioFatto) return chiudi(cap + 1, o.fatti >= 3 ? 'eccedere' : 'avanzare',
+            o.fatti >= 3 ? 'trionfo' : 'compiuto');
+        const perse = typeof o.provincePrec === 'number' && o.province < o.provincePrec;
+        // Due obiettivi su tre e il regno non arretra: il capitolo non è compiuto
+        // ma il regno lo regge. Si sale di un gradino e ci si riprova.
+        if (o.fatti >= 2 && !perse) return chiudi(cap, ora === 'resistere' ? 'avanzare' : ora, 'quasi');
+        // Un obiettivo solo: si resta esattamente com'era. Non è un progresso da
+        // premiare con soglie più alte, ma nemmeno un fallimento da punire.
+        if (o.fatti >= 1 && !perse) return chiudi(cap, ora, 'parziale');
+        // Niente fatto, o province perdute: stesso capitolo, un gradino più in
+        // basso. È qui che si spezza l'effetto a catena.
+        return chiudi(cap, giu(ora), perse ? 'arretrato' : 'fermo');
+    }
+
+    // Il capitolo `idx` non ha più niente da dire a questo regno: la sua voce
+    // Primaria è già oltre l'ancora più ambiziosa. Serve a far ACCELERARE la
+    // storia di chi corre — riceve il pezzo successivo, non lo stesso capitolo
+    // con un numero più grande.
+    function superato(name, idx, ctx) {
+        const cap = chapter(name, idx);
+        if (!cap || !ctx) return false;
+        const v = cap.voci[0], t = TEMPLATES[v.tmpl];
+        const ecc = (v.n || {}).eccedere;
+        if (!t || typeof ecc !== 'number') return false;
+        try { return (t.misuraCal || t.misura)(ctx, v.arg || {}) >= ecc; } catch (e) { return false; }
+    }
+
+    // Il capitolo di un regno, per indice (1-based). Un indice oltre la fine del
+    // binario ricade sull'ultimo scritto, così un regno non resta senza
+    // obiettivi mentre i capitoli tardi non sono ancora stati scritti.
+    function chapter(name, idx) {
+        const rail = BINARI[name];
+        if (!rail || !rail.length) return null;
+        return rail[Math.min(Math.max(1, idx | 0 || 1), rail.length) - 1];
+    }
+
+    // Genera l'ASSEGNAZIONE di un ciclo: la forma serializzabile che finisce nel
+    // record del giocatore. `opts`: { ciclo, capitolo, intensita, turno, calibra }.
+    // `calibra` accende il generatore (soglie sulla misura attuale); spento, le
+    // soglie sono le ancore, cioè il catalogo scritto a mano.
+    function generate(name, ctx, opts) {
+        opts = opts || {};
+        const cap = chapter(name, opts.capitolo || opts.ciclo || 1);
+        if (!cap) return null;
+        const intensita = INTENSITA.indexOf(opts.intensita) >= 0 ? opts.intensita : 'avanzare';
+        const items = cap.voci.map((v, i) => {
+            const t = TEMPLATES[v.tmpl];
+            let mis = null;
+            if (opts.calibra && t && ctx) {
+                try { mis = (t.misuraCal || t.misura)(ctx, v.arg || {}); } catch (e) { mis = null; }
+            }
+            const n = soglia(v, intensita, mis, { tier: TIERS[i].tier, ritmo: opts.ritmo });
+            return {
+                id: v.id, tier: TIERS[i].tier, punti: TIERS[i].punti, tipo: v.tipo,
+                tmpl: v.tmpl, arg: v.arg || {}, soglia: n,
+                titolo: v.titolo, descrizione: v.testo(n), check: v.check(n),
+                base: typeof mis === 'number' && isFinite(mis) ? mis : null
+            };
+        });
+        return {
+            ciclo: Math.max(1, opts.ciclo | 0 || 1),
+            capitolo: (BINARI[name] || []).indexOf(cap) + 1,
+            intensita: intensita, epoca: cap.epoca, tema: cap.tema,
+            generatoAl: opts.turno | 0 || 0, items: items
+        };
+    }
+
+    // Valuta un'assegnazione contro lo stato. Accetta anche la vecchia firma
+    // `evaluate(nomeRegno, ctx, ciclo)`: in quel caso l'assegnazione si genera
+    // al volo dal binario (è la strada di chi non ne ha ancora una salvata).
+    // Torna null se il regno non ha un binario (partita fuori dai 10 regni).
+    function evaluate(assegnazione, ctx, cycle) {
+        let a = assegnazione;
+        if (typeof a === 'string') a = generate(a, ctx, { ciclo: cycle || 1 });
+        if (!a || !a.items) return null;
+        let punti = 0, puntiMax = 0;
+        const items = a.items.map(it => {
+            const t = TEMPLATES[it.tmpl];
+            let mis = -1;
+            try { if (t) mis = t.misura(ctx, it.arg || {}); } catch (e) { mis = -1; }
+            const ok = mis >= it.soglia;
+            puntiMax += it.punti;
+            if (ok) punti += it.punti;
+            return {
+                id: it.id, tier: it.tier, punti: it.punti, tipo: it.tipo,
+                titolo: it.titolo, descrizione: it.descrizione, check: it.check,
+                soglia: it.soglia, base: it.base, misura: mis, completato: ok,
+                hint: t && t.hint ? t.hint(it.arg || {}, it.soglia) : null
+            };
+        });
+        return {
+            ciclo: a.ciclo, capitolo: a.capitolo, intensita: a.intensita,
+            epoca: a.epoca, tema: a.tema,
+            items: items, punti: punti, puntiMax: puntiMax
+        };
+    }
+
+    const api = {
+        BINARI, TEMPLATES, SETS, TIERS, INTENSITA, FRENO, CROLLO_PROV, K_TIER,
+        cycleOfTurn, chapter, chapterCount, soglia, ritmoDa, passo, superato,
+        generate, evaluate
     };
+
+    root.Objectives = api;
+    if (typeof module !== 'undefined' && module.exports) module.exports = api;
 
 })(typeof window !== 'undefined' ? window : globalThis);

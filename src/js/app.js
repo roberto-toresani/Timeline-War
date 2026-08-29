@@ -118,6 +118,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof p.prestigioCiclo !== 'number') p.prestigioCiclo = 0;
         if (typeof p.puntiOro !== 'number') p.puntiOro = 0;
         if (typeof p.stradeGratis !== 'number') p.stradeGratis = 0;
+        // TURNO DI FONDAZIONE: 1 per i regni d'inizio partita, il turno dell'evento
+        // per chi nasce a partita in corso (game-actions.eventSpawnKingdom). Serve
+        // alla GRAZIA DELL'INSEDIAMENTO (§8, js/popularity.js), che si conta
+        // sull'età del REGNO: senza, un regno nato al turno 25 non avrebbe i decenni
+        // di indulgenza che gli altri hanno avuto all'inizio.
+        if (typeof p.nato !== 'number') p.nato = 1;
         if (!p.temporanei) p.temporanei = {};
         // Fase del turno (§2): schiera → costruisci → attacca → sposta. Uno stato
         // salvato prima delle fasi riparte dallo schieramento, che è corretto.
@@ -196,6 +202,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // in corso conta dal vivo ma entra nel totale solo quando si archivia.
         if (!Array.isArray(p.obiettiviStorico)) p.obiettiviStorico = [];
         if (typeof p.puntiPrestigio !== 'number') p.puntiPrestigio = 0;
+        // Il BINARIO STORICO: `capitolo` è dove il regno è arrivato nella PROPRIA
+        // storia (0 = ancora da dedurre), `intensita` con che respiro lo affronta.
+        // `obiettiviCiclo` è l'assegnazione del ciclo in corso — serializzabile
+        // apposta (template + argomenti + soglia), quindi vive nel salvataggio
+        // come le spie e gli editti, e la plancia mostra sempre i numeri con cui
+        // il ciclo è cominciato invece di rigenerarli a ogni render.
+        // `cicliStorico` è il registro di performance su cui il puntatore si
+        // muove; `obiettiviAvvisi` è il canale della pergamena di inizio ciclo.
+        if (typeof p.capitolo !== 'number') p.capitolo = 0;
+        if (typeof p.intensita !== 'string') p.intensita = 'avanzare';
+        if (!p.obiettiviCiclo || !Array.isArray(p.obiettiviCiclo.items)) p.obiettiviCiclo = null;
+        if (!Array.isArray(p.cicliStorico)) p.cicliStorico = [];
+        if (!Array.isArray(p.obiettiviAvvisi)) p.obiettiviAvvisi = [];
         return p;
     }
 
@@ -3262,7 +3281,8 @@ document.addEventListener('DOMContentLoaded', () => {
             foodProv,                                       // province di Grano/Bestiame
             sanita, felicita,                               // migliorie civiche (§6.1)
             tax: player.tassazione || 'normale',
-            turn: currentTurn                               // grazia dell'insediamento (§8)
+            turn: currentTurn,                              // grazia dell'insediamento (§8)
+            nato: player.nato || 1                          // ...che si conta dall'ETÀ del regno
         };
     }
 
@@ -3315,36 +3335,82 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // Valutazione LIVE degli obiettivi del ciclo corrente di un regno.
+    // Valutazione LIVE degli obiettivi del ciclo in corso di un regno.
+    // L'assegnazione vive sul record (`player.obiettiviCiclo`): la scrive
+    // GameActions.closeCycle a ogni cambio ciclo. Se manca — salvataggio
+    // anteriore al binario, partita già in corso, ciclo cambiato senza che
+    // nessuno abbia chiuso il giro — si genera al volo, così un regno non resta
+    // mai senza obiettivi.
     function objectivesFor(player) {
         if (typeof window.Objectives === 'undefined' || !player) return null;
-        const cyc = window.Objectives.cycleOfTurn(currentTurn);
-        return window.Objectives.evaluate(player.name, objectiveContext(player), cyc);
+        const a = ensureAssignment(player);
+        if (!a) return null;
+        return window.Objectives.evaluate(a, objectiveContext(player));
     }
 
-    // Storico: quando il calendario entra in un ciclo nuovo, fotografa la
-    // completezza raggiunta e la archivia — una volta per ciclo (la spunta è dal
-    // vivo, quindi lo scatto al primo turno del ciclo nuovo riflette la fine di
-    // quello precedente). Idempotente: si può chiamare a ogni render.
-    function archiveCyclesIfNeeded() {
-        if (typeof window.Objectives === 'undefined') return;
-        const cyc = window.Objectives.cycleOfTurn(currentTurn);
-        if (cyc <= 1) return;
-        PLAYERS.forEach(player => {
-            if (!Array.isArray(player.obiettiviStorico)) player.obiettiviStorico = [];
-            for (let c = 1; c < cyc; c++) {
-                if (player.obiettiviStorico.some(h => h.ciclo === c)) continue;
-                const snap = window.Objectives.evaluate(player.name, objectiveContext(player), c);
-                if (!snap) continue;
-                player.obiettiviStorico.push({
-                    ciclo: c, punti: snap.punti, puntiMax: snap.puntiMax,
-                    items: snap.items.map(i => ({ tier: i.tier, titolo: i.titolo, punti: i.punti, completato: i.completato }))
-                });
-                // Il punteggio accumulato cresce coi punti TENUTI a fine ciclo.
-                if (typeof player.puntiPrestigio !== 'number') player.puntiPrestigio = 0;
-                player.puntiPrestigio += snap.punti;
-            }
+    // L'assegnazione del ciclo in corso, generandola se non c'è. È l'unica
+    // scrittura che parte da una lettura, ed è voluta: è la migrazione dei
+    // salvataggi vecchi, e vale una volta per ciclo.
+    function ensureAssignment(player) {
+        const O = window.Objectives;
+        const cyc = O.cycleOfTurn(currentTurn);
+        const a = player.obiettiviCiclo;
+        if (a && a.ciclo === cyc && Array.isArray(a.items) && a.items.length) return a;
+        if (!player.capitolo) player.capitolo = cyc;
+        backfillCycles(player, cyc);
+        // Calibrata come quella di closeCycle: senza ritmo (non c'è uno storico
+        // su cui misurarlo) ma con la soglia che parte da dove il regno è,
+        // così anche un salvataggio migrato non riceve obiettivi già fatti.
+        player.obiettiviCiclo = O.generate(player.name, objectiveContext(player), {
+            ciclo: cyc, capitolo: player.capitolo,
+            intensita: player.intensita, turno: currentTurn, calibra: true
         });
+        return player.obiettiviCiclo;
+    }
+
+    // MIGRAZIONE dei salvataggi anteriori al binario: i cicli già chiusi che
+    // non sono nello storico si archiviano una volta sola, valutando il loro
+    // capitolo sullo stato ATTUALE. È quel che faceva il vecchio
+    // archiveCyclesIfNeeded, ed è il meglio che si possa fare a posteriori; da
+    // qui in poi la fotografia VERA la scatta closeCycle a fine ciclo.
+    function backfillCycles(player, cyc) {
+        const O = window.Objectives;
+        for (let c = 1; c < cyc; c++) {
+            if (player.obiettiviStorico.some(h => h.ciclo === c)) continue;
+            const snap = O.evaluate(player.name, objectiveContext(player), c);
+            if (snap) archiveObjectives(player, snap);
+        }
+    }
+
+    // Archivia la spunta di un ciclo concluso e somma i punti TENUTI a fine
+    // ciclo. Unico punto che tocca `puntiPrestigio`: lo chiamano la migrazione
+    // qui sopra e GameActions.closeCycle.
+    function archiveObjectives(player, snap) {
+        if (!Array.isArray(player.obiettiviStorico)) player.obiettiviStorico = [];
+        player.obiettiviStorico.push({
+            ciclo: snap.ciclo, capitolo: snap.capitolo, tema: snap.tema,
+            epoca: snap.epoca, intensita: snap.intensita,
+            punti: snap.punti, puntiMax: snap.puntiMax,
+            items: snap.items.map(i => ({ tier: i.tier, titolo: i.titolo, punti: i.punti, completato: i.completato }))
+        });
+        if (typeof player.puntiPrestigio !== 'number') player.puntiPrestigio = 0;
+        player.puntiPrestigio += snap.punti;
+    }
+
+    // La fotografia di fine ciclo su cui si misura la performance: quel che
+    // serve a dire se il regno è cresciuto, ha stagnato o è crollato. Non
+    // esisteva niente del genere — TURN_HISTORY conserva solo i proprietari
+    // delle province, non l'economia.
+    function objectiveProfile(player) {
+        const c = objectiveContext(player);
+        let esercito = 0;
+        ownedPaths(player.name).forEach(p => { esercito += countPiece(p, 'soldato'); });
+        return {
+            province: c.provCount(), monete: c.monete, esercito: esercito,
+            collegate: c.connectedCount(), tipiCollegati: c.connectedTypes(),
+            popolarita: c.popularity(), capitale: !!getCapitalPathFor(player),
+            scorte: Object.assign({}, player.scorte || {})
+        };
     }
 
     function circlesHtml(value, mini) {
@@ -3628,7 +3694,8 @@ document.addEventListener('DOMContentLoaded', () => {
         commercio: 'Commercio — una carovana ha concluso',
         patto: 'Diplomazia — un araldo alla tua corte',
         tradimento: 'Diplomazia — un araldo reca la nuova di un tradimento',
-        manutenzione: 'Migliorie civiche — la manutenzione reclama il suo (§6.1)'
+        manutenzione: 'Migliorie civiche — la manutenzione reclama il suo (§6.1)',
+        regno: 'Cronaca — una corona nuova sorge ai tuoi confini'
     };
 
     // Le province CONQUISTATE (data-fede-conq) portano la fede DI STATO di chi le
@@ -3784,9 +3851,30 @@ document.addEventListener('DOMContentLoaded', () => {
     // proporzionato all'evento, numeri di danno flottanti che dicono il costo.
     // Tutto in SVG + CSS: nessuna libreria, e con prefers-reduced-motion il CSS
     // spegne i movimenti lasciando i numeri leggibili.
+    //
+    // DURATE (scelta dell'utente: la scena deve VEDERSI, e l'esito arrivare
+    // dopo). Stanno qui, non sparse nei setTimeout della plancia: chi mostra un
+    // pop-up dopo una battaglia non deve indovinare quanto dura la scena, chiede
+    // `Risiko.battleFxBusy()` e aspetta. BATTLE_FX_SETTLE è il respiro fra la
+    // fine della scena e il pop-up: senza, l'avviso piomba sull'ultimo fotogramma.
     // ============================================================
 
+    const BATTLE_FX_MS = 5200;      // quanto dura la scena sulla mappa
+    const BATTLE_FX_SETTLE = 900;   // e quanto si aspetta ancora prima dei pop-up
+
     let battleTimers = [];
+    let battleFxUntil = 0;
+
+    // "La scena è ancora in corso (o è appena finita)?" — l'unica risposta,
+    // usata dalla plancia per non coprire il colpo con una modale.
+    function battleFxBusy() {
+        return nowMs() < battleFxUntil;
+    }
+
+    function nowMs() {
+        return (typeof performance !== 'undefined' && performance.now)
+            ? performance.now() : Date.now();
+    }
 
     function clearBattleFx() {
         battleTimers.forEach(clearTimeout);
@@ -4113,6 +4201,83 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ============================================================
+    // I CONFINI COI REGNI DI GIOCATORI (richiesta dell'utente)
+    //
+    // "sulla mappa sempre visibile, sarebbe bello fossero evidenziati i confini
+    //  con regni di giocatori": le province ALTRUI che toccano le tue si segnano
+    // col colore di chi le possiede — un filo tratteggiato e un alone morbido
+    // dentro il poligono. Serve a vedere a colpo d'occhio dove finisce il tuo
+    // regno e comincia quello di un altro, senza aprire nulla.
+    //
+    // Vive su uno STRATO SUO (#border-marks) e non su #order-marks: quello lo
+    // azzera markTargets a ogni fase, e il confine deve restare acceso sempre.
+    // Per il resto valgono le stesse tre regole dei retini d'ordine — strato a
+    // parte perché refreshMapDisplay riscrive i `fill`, clip riusato per id,
+    // pointer-events:none così il clic passa alla provincia sotto.
+    //
+    // CHI marcare non si decide qui: la plancia passa la lista già filtrata
+    // (province visibili, confinanti con le proprie, di regni umani), perché è
+    // lei a sapere chi è il giocatore e cosa vede oltre la nebbia.
+    // ============================================================
+    function borderLayer(svg) {
+        let layer = svg.querySelector('#border-marks');
+        if (!layer) {
+            layer = document.createElementNS(SVG_NS, 'g');
+            layer.setAttribute('id', 'border-marks');
+            layer.setAttribute('pointer-events', 'none');
+            const land = svg.querySelector('#map-group');
+            if (land && land.nextSibling) svg.insertBefore(layer, land.nextSibling);
+            else svg.appendChild(layer);
+        }
+        return layer;
+    }
+
+    function clearBorders() {
+        const layer = document.querySelector('#border-marks');
+        if (layer) layer.textContent = '';
+    }
+
+    // `list` = [{id, color}]. Restituisce quante ne ha davvero segnate, così la
+    // plancia sa se accendere la legenda.
+    function markBorders(list) {
+        const svg = document.querySelector('svg');
+        if (!svg) return 0;
+        const layer = borderLayer(svg);
+        layer.textContent = '';
+        let segnate = 0;
+        (list || []).forEach(item => {
+            const p = item && document.getElementById(item.id);
+            if (!p) return;
+            const clip = 'url(#' + orderClip(p) + ')';
+            const col = item.color || '#c0a062';
+            // alone: largo e tenue, tutto ritagliato dentro la provincia — è la
+            // banda di frontiera, non un bordo netto.
+            const halo = document.createElementNS(SVG_NS, 'path');
+            halo.setAttribute('d', p.getAttribute('d'));
+            halo.setAttribute('fill', 'none');
+            halo.setAttribute('stroke', col);
+            halo.setAttribute('stroke-width', '4.2');
+            halo.setAttribute('stroke-opacity', '.28');
+            halo.setAttribute('stroke-linejoin', 'round');
+            halo.setAttribute('clip-path', clip);
+            layer.appendChild(halo);
+            // il filo tratteggiato: dice "questo confine è di qualcuno", e il
+            // tratteggio lo distingue dai retini pieni degli ordini.
+            const line = document.createElementNS(SVG_NS, 'path');
+            line.setAttribute('d', p.getAttribute('d'));
+            line.setAttribute('fill', 'none');
+            line.setAttribute('stroke', col);
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('stroke-dasharray', '4 2.4');
+            line.setAttribute('stroke-linejoin', 'round');
+            line.setAttribute('clip-path', clip);
+            layer.appendChild(line);
+            segnate++;
+        });
+        return segnate;
+    }
+
     // Posizione della provincia in pixel dentro #map-wrapper: serve alla plancia
     // per ancorare il cursore di schieramento HTML sopra la mappa. In pixel e non
     // in coordinate SVG apposta — l'overlay è HTML, non entra nel viewBox.
@@ -4154,8 +4319,21 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBattleFx();
 
         const dist = Math.max(1, Math.hypot(B.x - A.x, B.y - A.y));
-        const unit = Math.max(3, Math.min(dist * 0.09, Math.min(A.r, B.r) * 0.9));
+        // Il segno è più GRANDE di prima (richiesta dell'utente: la scena si
+        // deve vedere). Il tetto resta il raggio libero delle due province — se
+        // no, su due province piccole l'impatto uscirebbe fuori dai loro confini
+        // e non si capirebbe più chi le sta prendendo.
+        const unit = Math.max(4.5, Math.min(dist * 0.13, Math.min(A.r, B.r) * 1.25));
         const vinta = !!info.conquistata;
+
+        // Le urla partono con la carica, non con l'esito: è il momento in cui
+        // l'ordine è dato. Il grido è più grosso quando l'assalto è grosso.
+        if (window.RisikoAudio) {
+            const uomini = info.engaged || 0;   // quanti uomini sono partiti davvero
+            window.RisikoAudio.battleCry({ scala: Math.min(1, uomini / 20) });
+        }
+
+        battleFxUntil = nowMs() + BATTLE_FX_MS + BATTLE_FX_SETTLE;
 
         svg.classList.add('battle-focus');
         from.classList.add('battle-attacker');
@@ -4165,61 +4343,76 @@ document.addEventListener('DOMContentLoaded', () => {
         const line = fxEl(svg, 'line', {
             x1: A.x, y1: A.y, x2: B.x, y2: B.y,
             stroke: info.coloreAttaccante || '#e0c097',
-            'stroke-width': Math.max(1, unit * 0.28),
+            'stroke-width': Math.max(1.4, unit * 0.34),
             'stroke-linecap': 'round',
             pathLength: 100
         }, 'fx-charge');
         line.style.stroke = info.coloreAttaccante || '#e0c097';
 
-        // la lama che corre lungo la traiettoria (CSS: translate da 0 a dx/dy)
-        const blade = fxEl(svg, 'text', {
-            x: A.x, y: A.y,
-            'text-anchor': 'middle',
-            'dominant-baseline': 'central',
-            'font-size': unit * 2
-        }, 'fx-blade');
-        blade.textContent = '⚔';
-        blade.style.setProperty('--dx', (B.x - A.x) + 'px');
-        blade.style.setProperty('--dy', (B.y - A.y) + 'px');
+        // Le lame che corrono lungo la traiettoria (CSS: translate da 0 a
+        // dx/dy). Sono TRE, sfalsate: una sola lama era un puntino che passava,
+        // tre sono un'ondata — e lo sfalsamento si legge come una colonna in
+        // marcia invece che come un colpo secco.
+        [0, 170, 330].forEach((ritardo, i) => {
+            const blade = fxEl(svg, 'text', {
+                x: A.x, y: A.y,
+                'text-anchor': 'middle',
+                'dominant-baseline': 'central',
+                'font-size': unit * (i === 0 ? 2.6 : 1.9),
+                // due animazioni (corsa, poi dissolvenza): due ritardi, e il
+                // secondo è il primo più la durata della corsa (1s nel CSS).
+                style: 'animation-delay:' + ritardo + 'ms, ' + (ritardo + 1020) + 'ms'
+            }, 'fx-blade');
+            blade.textContent = '⚔';
+            blade.style.setProperty('--dx', (B.x - A.x) + 'px');
+            blade.style.setProperty('--dy', (B.y - A.y) + 'px');
+            // le due lame di scorta viaggiano di fianco alla prima, non sopra
+            if (i) blade.setAttribute('opacity', '.75');
+        });
 
-        // 2) impatto sul difensore: due onde d'urto + lampo della provincia
+        // 2) impatto sul difensore: tre onde d'urto + lampo della provincia
         battleLater(() => {
-            [0, 160].forEach((d, i) => {
+            [0, 170, 340].forEach((d, i) => {
                 const c = fxEl(svg, 'circle', {
-                    cx: B.x, cy: B.y, r: unit * 1.2,
+                    cx: B.x, cy: B.y, r: unit * 1.3,
                     fill: 'none',
                     stroke: vinta ? '#ffd479' : '#ff8a8a',
-                    'stroke-width': Math.max(1, unit * 0.22),
+                    'stroke-width': Math.max(1.2, unit * 0.26),
                     style: 'animation-delay:' + d + 'ms'
                 }, 'fx-blast');
-                if (i) c.setAttribute('opacity', '.7');
+                if (i) c.setAttribute('opacity', (0.75 - i * 0.2).toFixed(2));
             });
             to.classList.add(vinta ? 'battle-hit' : 'battle-held');
             const wrap = document.getElementById('map-wrapper');
             if (wrap) {
                 wrap.classList.add('battle-shake');
-                battleLater(() => wrap.classList.remove('battle-shake'), 520);
+                battleLater(() => wrap.classList.remove('battle-shake'), 780);
             }
-        }, 620);
+        }, 1000);
 
         // 3) il conto dei caduti, uno per campo: è la parte che resta impressa
         battleLater(() => {
-            fxCasualty(svg, A, info.perditeAttaccante, unit * 2.4, '#ff9b9b', 0);
-            fxCasualty(svg, B, info.perditeDifensore, unit * 2.4, '#ff9b9b', 220);
+            fxCasualty(svg, A, info.perditeAttaccante, unit * 2.9, '#ff9b9b', 0);
+            fxCasualty(svg, B, info.perditeDifensore, unit * 2.9, '#ff9b9b', 260);
+        }, 1250);
 
+        // 4) il verdetto, staccato dai caduti: prima si legge quanto è costata,
+        // poi com'è finita. Arriva tardi apposta — è l'esito, e l'esito deve
+        // farsi aspettare.
+        battleLater(() => {
             const esito = fxEl(svg, 'text', {
-                x: B.x, y: B.y + unit * 3.4,
+                x: B.x, y: B.y + unit * 3.6,
                 'text-anchor': 'middle',
-                'font-size': unit * 1.9,
+                'font-size': unit * 2.3,
                 fill: vinta ? '#ffd479' : '#cfe8cf'
             }, 'fx-verdict');
             esito.textContent = vinta ? 'CONQUISTATA' : 'RESPINTO';
-        }, 780);
+        }, 1750);
 
         battleLater(() => {
             to.classList.remove('battle-hit', 'battle-held');
             clearBattleFx();
-        }, 3600);
+        }, BATTLE_FX_MS);
     }
 
     // ============================================================
@@ -4377,6 +4570,10 @@ document.addEventListener('DOMContentLoaded', () => {
         countPiece,
         playBattleFx,
         clearBattleFx,
+        // Quanto dura la scena (e quanto si aspetta ancora prima di un pop-up):
+        // la plancia non deve indovinarlo con un numero suo.
+        battleFxBusy,
+        battleFxMs: () => BATTLE_FX_MS + BATTLE_FX_SETTLE,
         playTradeFx,
         clearTradeFx,
         isEuropeProvince,
@@ -4384,15 +4581,23 @@ document.addEventListener('DOMContentLoaded', () => {
         clearAttackArrows,
         markTargets,
         clearTargets,
+        // Confini coi regni di giocatori: strato a parte, resta acceso sempre.
+        markBorders,
+        clearBorders,
         provinceScreenPos,
         confirm: askConfirm,
         showFoundation,
         resourceKeyOf,
         getCapitalPathFor,
         computePopularity,
-        // Obiettivi di prestigio (§10): valutazione live + archiviazione dello storico.
+        // Obiettivi di prestigio (§10, binario storico): la valutazione live per
+        // la plancia e per l'IA, più le tre letture che servono a
+        // GameActions.closeCycle — il contesto con cui il modulo puro valuta e
+        // genera, l'archiviazione di un ciclo concluso, il profilo di fine ciclo.
         objectivesFor,
-        archiveCycles: archiveCyclesIfNeeded,
+        objectiveContext,
+        archiveObjectives,
+        objectiveProfile,
         // I fattori misurati (nemiche al confine, guardia, varietà, cibo, tassa):
         // è quel che serve a Popularity.plan per rispondere "quanto costa il
         // livello che voglio?". Lo usa l'IA (js/bot.js) prima di ogni turno.
@@ -4445,6 +4650,11 @@ document.addEventListener('DOMContentLoaded', () => {
             PLAYERS.push(pl);
             initPalette();
             renderPlayerTabs();
+            // Il pannello Editto legge PLAYERS solo quando renderDecreeControls
+            // gira: senza questa chiamata un regno nato a partita in corso (es.
+            // l'invasione mongola) resta invisibile al menu finché non capita
+            // un'altra azione qualsiasi a ridisegnare la mappa.
+            renderDecreeControls();
             return pl;
         },
         advanceGlobalTurn() {

@@ -53,122 +53,169 @@ document.addEventListener('DOMContentLoaded', () => {
     // provincia scelta nel riquadro "concedi attacco", per partner.
     const diploUI = { verso: null, tipo: 'alleanza', consenso: {} };
 
-    // ---------- pannelli: tre colonne, o tendine su schermi stretti ----------
-    // Da 1200px in su i pannelli sono due colonne vere della griglia: la mappa
-    // ha la sua terza colonna tutta per sé e gli inset restano a zero. Sotto,
-    // tornano tendine sovrapposte sulla mappa.
-    // I DUE PANNELLI SI CHIUDONO SEMPRE (richiesta dell'utente): chiuso, il
-    // pannello sparisce e la sua colonna va a zero (classi left-closed /
-    // right-closed su #board-main), così la mappa si prende lo spazio invece
-    // di lasciare un buco. Chiudendoli entrambi resta solo la mappa.
-    // Le linguette stanno dentro la cornice della mappa: sono sempre allo
-    // stesso posto, aperto o chiuso.
+    // ============================================================
+    // LA SCENA: mappa piena, il turno agganciato, i fogli sopra
+    //
+    // (richiesta dell'utente) I pannelloni non si spartiscono più lo schermo con
+    // la mappa. Adesso:
+    //   · la MAPPA è il fondo e prende tutto lo spazio che c'è;
+    //   · il PANNELLO DEL TURNO è una colonna snella a destra, che si apre e si
+    //     chiude con la sua linguetta — chiusa, la mappa si prende anche quella;
+    //   · CORONA, DIPLOMAZIA e MERCATO non sono più colonne: sono PULSANTI del
+    //     dock (dentro la cornice della mappa) che aprono un foglio sull'INTERA
+    //     VISUALE, uno per volta;
+    //   · i COSTI ED EFFETTI sono un POP-UP che si apre e si chiude in qualunque
+    //     momento, anche sopra un foglio, invece di essere una cartella in fondo
+    //     a un pannello che scorre e che una volta aperta resta lì.
+    // Un foglio per volta ed Esc che chiude: è la regola che toglie la
+    // confusione di prima, quando restavano aperte tre cose insieme.
+    // ============================================================
 
-    const leftPanel = $('board-left');
     const rightPanel = $('board-right');
     const mainEl = $('board-main');
     const wideQuery = window.matchMedia('(min-width: 1200px)');
     const isWide = () => wideQuery.matches;
 
-    // La mappa ha una colonna sua: niente da compensare nel viewBox. La chiamata
-    // serve comunque a rifare il fit quando la colonna centrale cambia misura —
-    // ed è proprio quello che succede aprendo o chiudendo un pannello.
+    // La mappa non è più in una griglia a colonne fisse: niente da compensare nel
+    // viewBox. La chiamata serve comunque a rifare il fit quando la mappa cambia
+    // misura — ed è proprio quello che succede aprendo o chiudendo il turno.
     function syncViewInsets() { R.setViewInsets(0, 0); }
 
-    // Le frecce puntano dove va il pannello: aperto, indica la direzione in cui
-    // sparirà; chiuso, quella da cui tornerà.
-    const PANEL_GLYPH = { left: ['◀', '▶'], right: ['▶', '◀'] };
-    const PANEL_NAME = { left: 'della corona', right: 'del turno' };
+    // ---------- la colonna del turno ----------
 
-    function syncPanelTab(panel, tab, side) {
-        const open = !panel.classList.contains('collapsed');
-        tab.textContent = PANEL_GLYPH[side][open ? 0 : 1];
-        tab.title = (open ? 'Nascondi' : 'Mostra') + ' il pannello ' + PANEL_NAME[side];
-        mainEl.classList.toggle(side + '-closed', !open);
+    function rightOpen() { return !rightPanel.classList.contains('collapsed'); }
+
+    function syncRightTab() {
+        const tab = $('board-right-tab');
+        if (!tab) return;
+        const open = rightOpen();
+        // La freccia punta dove va il pannello: aperto, dove sparirà; chiuso, da
+        // dove tornerà.
+        tab.textContent = open ? '▶' : '◀';
+        tab.title = (open ? 'Nascondi' : 'Mostra') + ' il pannello del turno';
+        // Aperto il pannello, la chiamata non serve più: la spegne qui e non al
+        // prossimo render, se no la linguetta continua a pulsare a vuoto.
+        if (open) tab.classList.remove('now');
     }
 
-    function wirePanelToggle(panel, tab, side) {
-        if (!panel || !tab) return;
-        tab.addEventListener('click', () => {
-            panel.classList.toggle('collapsed');
-            syncPanelTab(panel, tab, side);
-            // Aperto o chiuso a mano durante la vista generale: è quello che si
-            // ritrova rientrando nel regno, non lo stato di prima.
-            if (panelsBeforeSpectate) panelsBeforeSpectate[side] = !panel.classList.contains('collapsed');
-            // La mappa ha appena cambiato larghezza: si reinquadra dopo che il
-            // layout si è assestato, altrimenti misura la colonna vecchia.
-            requestAnimationFrame(syncViewInsets);
-        });
-        if (!isWide()) panel.classList.add('collapsed');
-        syncPanelTab(panel, tab, side);
-    }
-
-    // VISTA GENERALE = SOLO LA MAPPA (richiesta dell'utente): entrando in
-    // spettatore i due pannelloni si chiudono e la mappa si prende tutta la
-    // larghezza; la barra in alto resta (turno, viste, velocità dell'IA).
-    // Lo stato di partenza si ricorda, perché chiudere un pannello è anche un
-    // gesto manuale: rientrando nel regno non si deve riaprire quello che il
-    // giocatore aveva chiuso lui.
-    let panelsBeforeSpectate = null;
-
-    function setPanelOpen(panel, side, open) {
-        if (!panel) return;
-        panel.classList.toggle('collapsed', !open);
-        syncPanelTab(panel, $('board-' + side + '-tab'), side);
-    }
-
-    function syncPanelsForSpectate(on) {
-        if (on) {
-            if (!panelsBeforeSpectate) panelsBeforeSpectate = {
-                left: !leftPanel.classList.contains('collapsed'),
-                right: !rightPanel.classList.contains('collapsed')
-            };
-            setPanelOpen(leftPanel, 'left', false);
-            setPanelOpen(rightPanel, 'right', false);
-        } else {
-            const was = panelsBeforeSpectate || { left: isWide(), right: isWide() };
-            panelsBeforeSpectate = null;
-            setPanelOpen(leftPanel, 'left', was.left);
-            setPanelOpen(rightPanel, 'right', was.right);
-        }
+    function setRightOpen(open) {
+        rightPanel.classList.toggle('collapsed', !open);
+        syncRightTab();
+        // La mappa ha appena cambiato larghezza: si reinquadra dopo che il
+        // layout si è assestato, altrimenti misura la colonna vecchia.
         requestAnimationFrame(syncViewInsets);
     }
 
-    wirePanelToggle(leftPanel, $('board-left-tab'), 'left');
-    wirePanelToggle(rightPanel, $('board-right-tab'), 'right');
+    const rightTab = $('board-right-tab');
+    if (rightTab) rightTab.addEventListener('click', () => setRightOpen(!rightOpen()));
+
+    // ---------- i fogli del dock ----------
+
+    const sheetsEl = $('board-sheets');
+    const costsPop = $('bp-costs-pop');
+    const dockButtons = Array.from(document.querySelectorAll('#board-dock .dock-btn[data-sheet]'));
+    let openSheet = null;      // 'corona' | 'diplomazia' | 'mercato' | null
+    let costsOpen = false;
+
+    function syncDock() {
+        dockButtons.forEach(b => b.classList.toggle('on', b.dataset.sheet === openSheet));
+        const costi = $('dock-costi');
+        if (costi) costi.classList.toggle('on', costsOpen);
+    }
+
+    // Apre `name`, o lo chiude se era già quello aperto. null chiude e basta.
+    function showSheet(name) {
+        openSheet = (name && name !== openSheet) ? name : null;
+        if (sheetsEl) {
+            sheetsEl.style.display = openSheet ? '' : 'none';
+            sheetsEl.querySelectorAll('.sheet').forEach(s => {
+                s.style.display = (s.dataset.sheet === openSheet) ? '' : 'none';
+            });
+            // La DIPLOMAZIA non copre tutto: parla con la mappa (i confini si
+            // accendono passando sopra una scheda), quindi le lascia una
+            // striscia scoperta e non oscura il fondo — vedi .sheet-diplo in
+            // board.css. Gli altri fogli restano a tutta visuale.
+            sheetsEl.classList.toggle('peek', openSheet === 'diplomazia');
+        }
+        syncDock();
+        // Un foglio che si apre non deve mostrare i numeri di dieci turni fa:
+        // alcune sezioni si disegnano solo quando sono in vista (costa meno).
+        if (openSheet && currentPlayer()) render();
+    }
+
+    function showCosts(on) {
+        costsOpen = !!on;
+        if (costsPop) costsPop.style.display = costsOpen ? '' : 'none';
+        syncDock();
+        const p = currentPlayer();
+        if (costsOpen && p) renderLegend(p);
+    }
+
+    dockButtons.forEach(btn => btn.addEventListener('click', () => showSheet(btn.dataset.sheet)));
+    if ($('dock-costi')) $('dock-costi').addEventListener('click', () => showCosts(!costsOpen));
+    if ($('sheet-backdrop')) $('sheet-backdrop').addEventListener('click', () => showSheet(null));
+    document.querySelectorAll('#board-sheets .sheet-close')
+        .forEach(b => b.addEventListener('click', () => showSheet(null)));
+    if (costsPop) {
+        const x = costsPop.querySelector('.sheet-close');
+        if (x) x.addEventListener('click', () => showCosts(false));
+    }
+
+    // Esc chiude una cosa per volta, dalla più superficiale: prima il pop-up dei
+    // costi (che può stare sopra un foglio), poi il foglio.
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (costsOpen) { showCosts(false); return; }
+        if (openSheet) showSheet(null);
+    });
+
+    // ---------- stato di partenza: SOLO LA MAPPA (richiesta dell'utente) ----------
+    // Si apre sulla mappa piena col dock dei pulsanti: niente pannelli addosso.
+    // Il turno lo si apre con la linguetta, e quando tocca a te la linguetta si
+    // accende (classe `now`, vedi renderTopbar) così non la si cerca.
+    rightPanel.classList.add('collapsed');
+    syncRightTab();
+    syncDock();
+
+    // VISTA GENERALE = SOLO LA MAPPA: entrando in spettatore si chiude tutto e la
+    // mappa si prende lo schermo; la barra in alto resta (turno, viste, velocità
+    // dell'IA). Lo stato di prima si ricorda, perché chiudere il turno è anche un
+    // gesto manuale: rientrando nel regno non si riapre quel che era chiuso.
+    let rightBeforeSpectate = null;
+
+    function syncPanelsForSpectate(on) {
+        if (on) {
+            if (rightBeforeSpectate === null) rightBeforeSpectate = rightOpen();
+            showSheet(null);
+            showCosts(false);
+            setRightOpen(false);
+        } else {
+            const was = rightBeforeSpectate;
+            rightBeforeSpectate = null;
+            setRightOpen(was === null ? false : was);
+        }
+    }
 
     // ---------- sezioni del pannello destro a fisarmonica ----------
     // Richiesta dell'utente: le sezioni si aprono come un menù — aprendone una
-    // (Commerci, Spie, Le tue province, Il tuo regno) le altre si chiudono, così
-    // il pannello mostra una cosa per volta. La legenda dei costi (#fold-legend)
-    // resta FUORI dal gruppo: sta in fondo e si consulta in qualunque momento
-    // senza chiudere nulla.
+    // (Spie, Le tue province, i "Tutti i bersagli" di attacco e spostamento) le
+    // altre si chiudono, così il pannello mostra una cosa per volta. La legenda
+    // dei costi non è più in questo gruppo perché non è più una cartella: è il
+    // pop-up 📜 del dock, che si apre e si chiude senza toccare nient'altro.
     // Ascolto in fase di CATTURA perché l'evento `toggle` non fa bubbling: così
-    // una sola delega copre anche le cartelle create a ogni render (i "Tutti i
-    // bersagli"/"Tutte le destinazioni" di attacco e spostamento).
-    const ACCORDION_SKIP = 'fold-legend';
+    // una sola delega copre anche le cartelle create a ogni render.
     rightPanel.addEventListener('toggle', (e) => {
         const d = e.target;
         if (!d || d.nodeName !== 'DETAILS' || !d.classList.contains('bp-fold')) return;
-        if (d.id === ACCORDION_SKIP || !d.open) return;
+        if (!d.open) return;
         rightPanel.querySelectorAll('details.bp-fold[open]').forEach(other => {
-            if (other !== d && other.id !== ACCORDION_SKIP) other.open = false;
+            if (other !== d) other.open = false;
         });
     }, true);
 
-    // Al cambio di modalità i pannelli si rimettono nello stato giusto: aperti
-    // in griglia (dove non coprono nulla), chiusi come tendine (dove aperti
-    // nasconderebbero tutta la mappa). Senza questo la classe "collapsed" resta
-    // appiccicata e le linguette raccontano il contrario di quel che si vede.
-    const onWideChange = () => {
-        const wide = isWide();
-        // In vista generale si resta con la sola mappa, larga o stretta che sia.
-        if (spectating) { syncPanelsForSpectate(true); return; }
-        leftPanel.classList.toggle('collapsed', !wide);
-        rightPanel.classList.toggle('collapsed', !wide);
-        syncPanelTab(leftPanel, $('board-left-tab'), 'left');
-        syncPanelTab(rightPanel, $('board-right-tab'), 'right');
-    };
+    // Cambiata la larghezza dello schermo la mappa cambia misura (sotto i 1200px
+    // la colonna del turno diventa una tendina sovrapposta): si reinquadra.
+    const onWideChange = () => { requestAnimationFrame(syncViewInsets); };
     if (wideQuery.addEventListener) wideQuery.addEventListener('change', onWideChange);
     else wideQuery.addListener(onWideChange);
 
@@ -345,7 +392,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // o il bottone ↺ del rapporto di battaglia).
             R.playBattleFx(result);
         }
-        showNotice(result.msg, result.ok);
+        // L'ESITO ARRIVA DOPO (richiesta dell'utente): con una battaglia in
+        // corso il messaggio non compare subito — direbbe com'è finita mentre
+        // le lame stanno ancora correndo. Si aspetta il verdetto sulla mappa
+        // (fx-verdict, ~1,75s in playBattleFx) e si esce insieme a lui.
+        clearTimeout(run._notice);
+        if (result.battle) {
+            run._notice = setTimeout(() => showNotice(result.msg, result.ok), 1900);
+        } else {
+            showNotice(result.msg, result.ok);
+        }
         render();
         // La nascita di una città (o di una capitale) è un fatto di cronaca: si
         // srotola la pergamena (showFoundation in app.js). Dopo il render,
@@ -354,11 +410,13 @@ document.addEventListener('DOMContentLoaded', () => {
             R.showFoundation(result.fondazione);
         }
         // Eco storica di una battaglia: si aspetta che la scena sulla mappa sia
-        // finita (playBattleFx dura ~3,6s), altrimenti la pergamena coprirebbe
-        // proprio il colpo che il giocatore stava guardando.
+        // finita, altrimenti la pergamena coprirebbe proprio il colpo che il
+        // giocatore stava guardando. Quanto duri lo dice app.js (battleFxMs),
+        // qui non si indovina un numero.
         if (result.cronaca && R.showFoundation) {
             clearTimeout(run._eco);
-            run._eco = setTimeout(() => R.showFoundation(result.cronaca), result.battle ? 3900 : 0);
+            const attesa = result.battle ? (R.battleFxMs ? R.battleFxMs() : 3900) : 0;
+            run._eco = setTimeout(() => R.showFoundation(result.cronaca), attesa);
         }
         // Razzie delle terre di nessuno di fine giro (il proprio Fine turno).
         if (result.razzie) reportRaids(result.razzie);
@@ -413,6 +471,11 @@ document.addEventListener('DOMContentLoaded', () => {
             state.className = 'turn-wait';
             endBtn.disabled = true;
         }
+
+        // La plancia si apre sulla sola mappa (richiesta dell'utente): quando
+        // tocca a te la linguetta del turno si accende, così non la si cerca.
+        const tab = $('board-right-tab');
+        if (tab) tab.classList.toggle('now', turnoDi === player.id && !rightOpen());
     }
 
     // ---------- vista generale (spettatore) ----------
@@ -486,6 +549,31 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         syncViewBtns();
+    })();
+
+    // ---------- urla della battaglia ----------
+    // Interruttore del suono (js/audio.js). Come la velocità dell'IA, è una
+    // preferenza di CHI GUARDA: sta nel browser (localStorage), non nella
+    // partita, e non entra nello stato condiviso.
+    (function wireSoundBtn() {
+        const b = $('board-sound');
+        if (!b) return;
+        const A = () => window.RisikoAudio;
+        if (!A()) { b.style.display = 'none'; return; }
+        function sync() {
+            const muto = A().isMuted();
+            b.textContent = muto ? '🔇 Muto' : '🔊 Suono';
+            b.title = muto ? 'Riaccendi le urla della battaglia' : 'Spegni le urla della battaglia';
+            b.classList.toggle('on', !muto);
+        }
+        b.addEventListener('click', () => {
+            const muto = A().toggle();
+            // Riacceso, si dà subito una prova: se no non si sa se ha funzionato
+            // finché non parte un attacco.
+            if (!muto) A().battleCry({ scala: 0.35 });
+            sync();
+        });
+        sync();
     })();
 
     // ---------- velocità dell'IA ----------
@@ -765,8 +853,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Blocchi che esistono solo in una cartella.
+        // I COMMERCI non sono più qui: vivono nel foglio ⚖ Mercato, che si
+        // consulta in qualunque momento. Non si nascondono fuori fase — si
+        // spengono da soli, perché renderTrade misura `inPhase(costruisci)` e
+        // disabilita i comandi quando non è il momento.
         $('fase-schiera').style.display = view === 'schiera' ? '' : 'none';
-        $('fase-commerci').style.display = view === 'costruisci' ? '' : 'none';
         $('fase-spie').style.display = view === 'costruisci' ? '' : 'none';
         $('fase-sposta').style.display = view === 'sposta' ? '' : 'none';
 
@@ -971,14 +1062,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Il piano del regno nella corona: le tre medaglie (5/3/2), la spunta
     // AUTOMATICA dal vivo (R.objectivesFor rivaluta a ogni render) e lo storico
     // dei cicli conclusi, sempre consultabile. Contenuto tutto nostro: niente
-    // escaping. Se il regno non è fra i 10 del catalogo, il blocco sparisce.
+    // escaping. Se il regno non ha un binario storico, il blocco sparisce.
+    // NON archivia più niente da qui: la chiusura di un ciclo è un fatto della
+    // partita, non del render, e la fa GameActions.closeCycle a fine giro —
+    // prima dipendeva da chi apriva la plancia, e fotografava lo stato di
+    // allora invece di quello di fine ciclo.
     const CICLO_ROMANO = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
     function medalClass(pts) { return pts >= 5 ? 'm5' : pts >= 3 ? 'm3' : 'm2'; }
 
     function renderObjectives(player) {
         const box = $('bp-objectives');
         if (!box) return;
-        if (R.archiveCycles) R.archiveCycles();
         const data = R.objectivesFor ? R.objectivesFor(player) : null;
         if (!data) { box.innerHTML = ''; box.style.display = 'none'; return; }
         box.style.display = '';
@@ -1419,12 +1513,119 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     }
 
+    // ============================================================
+    // LE COSTRUZIONI SONO TESSERE-ICONA (richiesta dell'utente)
+    //
+    // "al posto di un elenco di scritte che dicono cosa puoi o non puoi
+    //  costruire, delle icone da cliccare che ti dicono il costo; sempre
+    //  evidenziate se già fattibili."
+    //
+    // Una griglia di tessere invece di righe di testo. Ogni tessera porta la
+    // SAGOMA VERA della pedina — gli stessi `<symbol>` che stanno sulla mappa
+    // (`#pc-…`, iniettati da app.js in `#pc-defs`), tinti col colore del regno,
+    // così quel che si clicca è già quel che si vedrà sulla provincia — il nome
+    // e il costo in **gettoni**, non in una frase.
+    //
+    // Le due regole di lettura, che sono il punto della richiesta:
+    //   · FATTIBILE ADESSO = tessera ACCESA (bordo d'oro). È l'unica cosa da
+    //     cercare con l'occhio: quel che è spento non si può fare e basta.
+    //   · IL GETTONE CHE MANCA È ROSSO. "Perché no" si legge sul costo stesso,
+    //     senza aprire la legenda: due Pietra in rosso dicono tutto.
+    // Il tooltip porta l'effetto completo (`GameRules.EFFECTS`) per chi vuole
+    // il dettaglio; il pop-up 📜 resta per la tabella intera.
+    // ============================================================
+
+    // Quale sagoma per quale voce. Mercenario e Guarnigione non hanno una pedina
+    // propria — sono soldati: a distinguerli è il bollino sulla tessera.
+    const BUILD_SYMBOL = {
+        capitale: 'pc-capitale', citta: 'pc-citta', fortezza: 'pc-fortezza',
+        mercato: 'pc-mercato', barca: 'pc-barca', vascello: 'pc-vascello',
+        generale: 'pc-generale', strada: 'pc-strada',
+        mercenario: 'pc-soldato', guarnigione: 'pc-soldato'
+    };
+    const BUILD_BADGE = { mercenario: '⚔', guarnigione: '⚑' };
+
+    // Le risorse hanno un colore fisso e una sagoma propria (`#res-…`): sono
+    // riconoscibili a 14px. Monete e soldati non ce l'hanno e restano glifi.
+    const COST_SYMBOL = {
+        pietra: 'res-pietra', legno: 'res-legno', grano: 'res-grano',
+        bestiame: 'res-bestiame', argilla: 'res-argilla'
+    };
+    const COST_GLYPH = { monete: '💰', soldati: '⚔' };
+
+    function costChips(cost, missing) {
+        const manca = {};
+        (missing || []).forEach(m => { manca[m.tipo] = true; });
+        return Object.keys(cost || {}).map(k => {
+            const ico = COST_SYMBOL[k]
+                ? '<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#' + COST_SYMBOL[k] + '"></use></svg>'
+                : '<span class="bt-glyph">' + (COST_GLYPH[k] || '•') + '</span>';
+            return '<span class="bt-cost' + (manca[k] ? ' short' : '') + '">' +
+                ico + '<b>' + cost[k] + '</b></span>';
+        }).join('');
+    }
+
+    // Il "perché no" sulla tessera va in due parole: lo spazio è 112px e il
+    // dettaglio completo sta nel tooltip. I messaggi di `canPlacePiece` mettono
+    // la spiegazione dopo i due punti — sulla tessera serve la prima metà.
+    function tileNote(msg) {
+        if (!msg) return '';
+        if (/solo su province sul mare/i.test(msg)) return 'solo sul mare';
+        if (/ha già una Capitale/i.test(msg)) return 'ne hai già una';
+        const testa = msg.split(':')[0].replace(/^Qui c'è/i, 'c\'è').trim();
+        return shorten(testa.charAt(0).toLowerCase() + testa.slice(1));
+    }
+
+    // `why` spegne la tessera e riempie il tooltip; `opts.nota` è la riga corta
+    // che si stampa SULLA tessera — e si mette solo quando il blocco è il POSTO.
+    // Quando invece è il prezzo, a dirlo sono già i gettoni rossi: ripeterlo a
+    // parole sotto l'icona ricostruirebbe l'elenco di scritte che si voleva
+    // togliere (richiesta dell'utente).
+    // `opts`: { label, symbol, badge, effetto, nota } per le voci che non sono
+    // una pedina qualunque (il trasloco della Capitale, una strada a un vicino).
+    function buildTile(player, type, cost, why, missing, onClick, opts) {
+        const o = opts || {};
+        const nome = o.label || pieceName(type);
+        const sym = o.symbol || BUILD_SYMBOL[type] || 'pc-soldato';
+        const badge = o.badge !== undefined ? o.badge : BUILD_BADGE[type];
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'bp-tile ' + (why ? 'no' : 'can');
+        b.innerHTML =
+            '<span class="bt-ico" style="color:' + player.color + '">' +
+            '<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#' + sym + '"></use></svg>' +
+            (badge ? '<i class="bt-badge">' + badge + '</i>' : '') +
+            '</span>' +
+            '<span class="bt-name"></span>' +
+            '<span class="bt-costs">' + costChips(cost, missing) + '</span>' +
+            (o.nota ? '<span class="bt-why"></span>' : '');
+        b.querySelector('.bt-name').textContent = nome;
+        if (o.nota) b.querySelector('.bt-why').textContent = o.nota;
+
+        const effetto = o.effetto !== undefined ? o.effetto : (GR().EFFECTS[type] || '');
+        b.title = nome + ' — ' + (GR().formatCost(cost) || 'gratis') +
+            (effetto ? '\n' + effetto : '') +
+            (why ? '\n\n✕ ' + why : '\n\n✓ puoi farlo qui, adesso');
+
+        if (why) b.disabled = true;
+        else b.addEventListener('click', onClick);
+        return b;
+    }
+
+    function tileGrid() {
+        const grid = document.createElement('div');
+        grid.className = 'bp-tiles';
+        return grid;
+    }
+
     function buildGroup(player, path, connectedSet) {
         const g = group('Costruisci');
         const soldiersHere = spareOf(path);   // il presidio non si spende
         g.insertAdjacentHTML('beforeend',
             '<div class="bp-army"><span class="bp-army-n">' + soldiersHere + '</span>' +
             '<span class="bp-army-l">soldati spendibili qui · uno resta sempre a presidiare</span></div>');
+
+        const grid = tileGrid();
 
         // La prima Capitale (500 monete, 0 uomini) si costruisce come tutto il
         // resto; ma una volta che il regno ne ha una la voce SPARISCE dalle
@@ -1434,22 +1635,23 @@ document.addEventListener('DOMContentLoaded', () => {
         GR().BUILDABLE_ON_PROVINCE.forEach(type => {
             if (type === 'capitale' && capPath) return;   // ne ha già una → niente voce
             const cost = GR().COSTS[type];
-            let why = null;
 
             const place = R.engine.canPlacePiece(path, type);
-            if (!place.ok) why = place.msg;
-
             const max = (typeof PIECES !== 'undefined' && PIECES[type] && PIECES[type].max) || 1;
-            if (!why && R.countPiece(path, type) >= max) why = 'già presente';
+            const gia = R.countPiece(path, type) >= max;
+            // L'AFFORDABILITÀ si calcola SEMPRE, anche quando la tessera è già
+            // spenta per il posto: i gettoni rossi devono dire cosa manca
+            // comunque, se no una Fortezza "già presente" sembrerebbe pagabile.
+            const afford = GR().canAfford(player, cost, soldiersHere);
 
-            if (!why) {
-                const afford = GR().canAfford(player, cost, soldiersHere);
-                if (!afford.ok) why = GR().missingText(afford.missing);
-            }
+            // Prima il POSTO (è un no secco), poi il PREZZO.
+            const why = !place.ok ? place.msg
+                : gia ? 'Qui c\'è già ' + pieceName(type) + '.'
+                    : afford.ok ? null : GR().missingText(afford.missing);
+            const nota = !place.ok ? tileNote(place.msg) : (gia ? 'già presente' : '');
 
-            g.appendChild(actionButton(pieceName(type), GR().formatCost(cost),
-                why ? shorten(why) : null,
-                () => run(GA().build(player, path.id, type))));
+            grid.appendChild(buildTile(player, type, cost, why, afford.missing,
+                () => run(GA().build(player, path.id, type)), { nota }));
         });
 
         // Spostamento della Capitale (500 monete): la vecchia sede diventa Città e
@@ -1458,29 +1660,34 @@ document.addEventListener('DOMContentLoaded', () => {
         // Capitale attuale; è possibile SOLO su una propria Città (regola
         // dell'utente: prima si fonda la Città, poi vi si sposta la Capitale).
         if (capPath && R.engine.owner(path) === player.name && path.id !== capPath.id) {
-            let why = null;
-            if (R.countPiece(path, 'citta') === 0) why = 'serve una tua Città qui';
-            if (!why) {
-                const afford = GR().canAfford(player, GR().COSTS.capitale, soldiersHere);
-                if (!afford.ok) why = GR().missingText(afford.missing);
-            }
-            g.appendChild(actionButton('🏛 Sposta qui la Capitale', GR().formatCost(GR().COSTS.capitale),
-                why ? shorten(why) : null,
-                () => run(GA().moveCapital(player, path.id))));
+            const cost = GR().COSTS.capitale;
+            const afford = GR().canAfford(player, cost, soldiersHere);
+            const senzaCitta = R.countPiece(path, 'citta') === 0;
+            const why = senzaCitta ? 'Il seggio si trasloca solo su una tua Città.'
+                : (afford.ok ? null : GR().missingText(afford.missing));
+            grid.appendChild(buildTile(player, 'capitale', cost, why, afford.missing,
+                () => run(GA().moveCapital(player, path.id)),
+                {
+                    label: 'Sposta qui la Capitale', badge: '⇢',
+                    nota: senzaCitta ? 'serve una tua Città' : '',
+                    effetto: 'Trasloca il seggio su una tua Città: la vecchia sede diventa Città, ' +
+                        'la Città di destinazione viene assorbita dalla Capitale.'
+                }));
         }
 
         // Reclutamento: entrambe restano, ma sono due acquisti opposti (§5.3) — la
-        // Guarnigione è rinforzo puro, il Mercenario resta ma è di ventura.
-        // L'etichetta lo dice.
+        // Guarnigione è rinforzo puro, il Mercenario resta ma è di ventura. Prima
+        // lo diceva un suffisso nell'etichetta; ora lo dicono il bollino sulla
+        // tessera (⚔ ventura, ⚑ rinforzo) e il tooltip, che porta già l'effetto.
         GR().RECRUITABLE.forEach(type => {
             const cost = GR().COSTS[type];
             const afford = GR().canAfford(player, cost, soldiersHere);
-            const suffix = (type === 'mercenario') ? ' (resta, ma è ventura)' : ' (rinforzo, resta)';
-            g.appendChild(actionButton(pieceName(type) + suffix,
-                GR().formatCost(cost),
-                afford.ok ? null : shorten(GR().missingText(afford.missing)),
-                () => run(GA().recruit(player, path.id, type))));
+            grid.appendChild(buildTile(player, type, cost,
+                afford.ok ? null : GR().missingText(afford.missing),
+                afford.missing, () => run(GA().recruit(player, path.id, type))));
         });
+
+        g.appendChild(grid);
 
         if (!connectedSet.has(path.id)) {
             g.insertAdjacentHTML('beforeend',
@@ -1504,16 +1711,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<div class="bp-empty-hint">Nessuna provincia tua confinante da collegare.</div>');
             return g;
         }
-        const cost = gratis ? 'gratuita (' + gratis + ')' : GR().formatCost(GR().COSTS.strada);
+
+        // Stesse tessere delle costruzioni (richiesta dell'utente): una per
+        // vicino, col nome della provincia sotto la sagoma della strada. Una
+        // strada gratuita non ha gettoni da mostrare — il costo è zero e si dice.
+        const cost = GR().COSTS.strada;
+        const afford = gratis ? { ok: true, missing: [] }
+                              : GR().canAfford(player, cost, spareOf(path));
+        if (gratis) {
+            g.insertAdjacentHTML('beforeend',
+                '<div class="bp-empty-hint">Hai ' + gratis +
+                (gratis === 1 ? ' strada gratuita: non costa nulla.'
+                              : ' strade gratuite: non costano nulla.') + '</div>');
+        }
+
+        const grid = tileGrid();
         vicine.forEach(target => {
-            let why = null;
-            if (!gratis) {
-                const afford = GR().canAfford(player, GR().COSTS.strada, spareOf(path));
-                if (!afford.ok) why = shorten(GR().missingText(afford.missing));
-            }
-            g.appendChild(actionButton('→ ' + R.provinceLabel(target), cost, why,
-                () => run(GA().buildRoad(player, path.id, target.id))));
+            grid.appendChild(buildTile(player, 'strada',
+                gratis ? {} : cost,
+                afford.ok ? null : GR().missingText(afford.missing),
+                afford.missing,
+                () => run(GA().buildRoad(player, path.id, target.id)),
+                {
+                    label: R.provinceLabel(target),
+                    badge: gratis ? '★' : null,
+                    effetto: 'Collega ' + R.provinceLabel(path) + ' a ' + R.provinceLabel(target) +
+                        (gratis ? ' — strada gratuita.' : '.')
+                }));
         });
+        g.appendChild(grid);
         return g;
     }
 
@@ -1946,10 +2172,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // senza andare a cercare la sezione. Si mostra una volta per conquista;
     // "Decido dopo" la chiude e lascia il pannello a farla concludere.
     let conquestPromptFor = null;
+    let conquestSeen = null;   // la presa vista al render precedente (vedi sotto)
 
     function showConquestPrompt(player) {
         const c = GA().conquestPending(player);
-        if (!c) { conquestPromptFor = null; return; }
+        if (!c) { conquestPromptFor = null; conquestSeen = null; return; }
         if (!isPlaying(player)) return;
         const key = c.fromId + '>' + c.toId + '@' + R.turn();
         if (conquestPromptFor === key) return;              // già proposta per questa presa
@@ -1957,9 +2184,24 @@ document.addEventListener('DOMContentLoaded', () => {
         // Una modale/pergamena per volta: se qualcosa è già a schermo, si
         // riprova al render successivo senza segnare come mostrata.
         if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) return;
-        // Non coprire la scena della battaglia (svg.battle-focus, ~3,6s): la si
-        // lascia finire e si riprova da soli, così l'avviso non piomba sul colpo.
-        if (document.querySelector('svg.battle-focus')) {
+        // Non coprire la scena della battaglia: la si lascia finire — e si
+        // aspetta anche il respiro dopo (battleFxBusy in app.js tiene conto di
+        // entrambi), così l'avviso non piomba sull'ultimo fotogramma. Si riprova
+        // da soli finché la scena non ha chiuso.
+        // Una presa APPENA comparsa non apre mai la modale al primo colpo:
+        // `attack()` salva e ridisegna la plancia PRIMA di restituire il
+        // risultato, quindi in quel render la scena della battaglia non è ancora
+        // partita e chiedere "è in corso?" direbbe di no — la modale piomberebbe
+        // sul colpo. Si lascia passare un battito e si ricontrolla: a quel punto
+        // playBattleFx è partita e si aspetta che finisca.
+        if (conquestSeen !== key) {
+            conquestSeen = key;
+            clearTimeout(showConquestPrompt._t);
+            showConquestPrompt._t = setTimeout(render, 120);
+            return;
+        }
+        const inCorso = R.battleFxBusy ? R.battleFxBusy() : !!document.querySelector('svg.battle-focus');
+        if (inCorso) {
             clearTimeout(showConquestPrompt._t);
             showConquestPrompt._t = setTimeout(render, 350);
             return;
@@ -2339,6 +2581,134 @@ document.addEventListener('DOMContentLoaded', () => {
     // mai la provincia d'arrivo.
     function tradeBeast(provId) {
         return (R.isEuropeProvince && R.isEuropeProvince(provId)) ? '🫏' : '🐫';
+    }
+
+    // ============================================================
+    // MERCATO — IL POLSO DEL COMMERCIO (#bp-market-pulse, foglio ⚖)
+    //
+    // (richiesta dell'utente) "aprendo il mercato, sarebbe bello un pannello che
+    // elencasse le trattative in corso, i regni con cui hai trattato di più e
+    // altre cose": è questa colonna. I banchi veri (estero 2:1, proposta,
+    // carovane, storico) restano quelli di sempre, #bp-trade, nella colonna
+    // accanto; qui si legge il QUADRO — quante trattative sono aperte, con chi
+    // passano davvero le carovane, cosa hai in magazzino da mettere sul banco.
+    //
+    // Non c'è un registro nuovo da tenere: tutto esce da `commerciStorico` e
+    // dalle due caselle (GameActions.tradeInbox/tradeOutbox), cioè da quello che
+    // il gioco già scrive quando uno scambio parte o si chiude.
+    // ============================================================
+
+    // Il pallino rosso sui pulsanti del dock: quante cose aspettano una TUA
+    // risposta. È l'unica ragione per cui un foglio chiuso deve chiamarti —
+    // senza questo, chiudere i pannelli vorrebbe dire perdersi le proposte.
+    function syncDockBadges(player) {
+        const set = (id, n) => {
+            const el = $(id);
+            if (!el) return;
+            el.textContent = n;
+            el.style.display = n ? '' : 'none';
+        };
+        set('dock-badge-diplomazia', player ? (GA().pactInbox(player) || []).length : 0);
+        set('dock-badge-mercato', player ? (GA().tradeInbox(player) || []).length : 0);
+    }
+
+    function mkBlock(title) {
+        const b = document.createElement('div');
+        b.className = 'mk-block';
+        const h = document.createElement('div');
+        h.className = 'mk-head';
+        h.textContent = title;
+        b.appendChild(h);
+        return b;
+    }
+
+    function renderMarketPulse(player) {
+        const box = $('bp-market-pulse');
+        if (!box) return;
+        // Costa un giro di liste: si disegna solo col foglio aperto.
+        if (openSheet !== 'mercato') { box.innerHTML = ''; return; }
+        box.innerHTML = '';
+
+        const inbox = GA().tradeInbox(player);
+        const outbox = GA().tradeOutbox(player);
+        const log = player.commerciStorico || [];
+
+        // --- 1. le trattative aperte adesso ---
+        const aperte = mkBlock('Trattative in corso');
+        const tiles = document.createElement('div');
+        tiles.className = 'mk-tiles';
+        const tile = (n, lab, hot) =>
+            '<div class="mk-tile' + (hot && n ? ' hot' : '') + '"><b>' + n + '</b><i>' + lab + '</i></div>';
+        tiles.innerHTML =
+            tile(inbox.length, 'in arrivo', true) +
+            tile(outbox.length, 'in attesa') +
+            tile(log.length, 'concluse');
+        aperte.appendChild(tiles);
+        aperte.insertAdjacentHTML('beforeend',
+            '<div class="bp-empty-hint" style="margin-top:8px">' +
+            (inbox.length
+                ? 'Ci sono carovane che aspettano una risposta: le trovi nei banchi qui accanto.'
+                : outbox.length
+                    ? 'Hai proposte in viaggio: la merce offerta è già fuori dal magazzino.'
+                    : 'Nessuna trattativa aperta. Il banco è libero.') +
+            '</div>');
+        box.appendChild(aperte);
+
+        // --- 2. con chi commerci di più ---
+        // Si misura in MERCE MOSSA, non in numero di scambi: due carovane grosse
+        // legano più di cinque scambi da un sacco.
+        const conti = new Map();
+        log.forEach(h => {
+            const k = String(h.conId);
+            const c = conti.get(k) || { id: h.conId, nome: h.conNome, n: 0, merce: 0 };
+            c.n++;
+            c.merce += ((h.dato && h.dato.n) || 0) + ((h.ricevuto && h.ricevuto.n) || 0);
+            c.nome = h.conNome || c.nome;
+            conti.set(k, c);
+        });
+        const rank = Array.from(conti.values()).sort((a, b) => b.merce - a.merce);
+        const partner = mkBlock('Con chi commerci di più');
+        if (!rank.length) {
+            partner.insertAdjacentHTML('beforeend',
+                '<div class="bp-empty-hint">Nessuno, per ora: serve un Mercato e un regno in vista con cui trattare.</div>');
+        } else {
+            const max = rank[0].merce || 1;
+            rank.slice(0, 6).forEach(c => {
+                const chi = R.players().find(p => String(p.id) === String(c.id));
+                const col = (chi && chi.color) || '#8a7a63';
+                const row = document.createElement('div');
+                row.className = 'mk-rank';
+                row.innerHTML =
+                    '<span class="mk-dot" style="background:' + col + '"></span>' +
+                    '<span class="mk-who"></span>' +
+                    '<span class="mk-track"><span class="mk-fill" style="width:' +
+                    Math.round(100 * c.merce / max) + '%;background:' + col + '"></span></span>' +
+                    '<span class="mk-n">' + c.n + '×</span>';
+                row.querySelector('.mk-who').textContent = c.nome || 'Regno ignoto';
+                row.title = c.nome + ': ' + c.n + (c.n === 1 ? ' scambio' : ' scambi') +
+                    ', ' + c.merce + ' unità di merce passate di mano';
+                partner.appendChild(row);
+            });
+        }
+        box.appendChild(partner);
+
+        // --- 3. il magazzino, per sapere cosa mettere sul banco ---
+        const stock = mkBlock('Nel tuo magazzino');
+        const scorte = player.scorte || {};
+        const goods = document.createElement('div');
+        goods.className = 'mk-stock';
+        goods.innerHTML =
+            '<span class="mk-good"><span>Monete</span><b>' + (player.monete || 0) + '</b></span>' +
+            RES().map(k => {
+                const n = scorte[k] || 0;
+                return '<span class="mk-good' + (n ? '' : ' zero') + '"><span>' +
+                    resName(k) + '</span><b>' + n + '</b></span>';
+            }).join('');
+        stock.appendChild(goods);
+        stock.insertAdjacentHTML('beforeend',
+            '<div class="bp-empty-hint" style="margin-top:8px">Quel che ti avanza è quel che puoi ' +
+            'offrire; quel che è a zero è quel che conviene chiedere.</div>');
+        box.appendChild(stock);
     }
 
     function renderTrade(player) {
@@ -3008,15 +3378,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ---------- legenda costi ----------
-    // Cartellina richiudibile: si genera solo da aperta, così il pannello non
-    // paga a ogni render (anche dei bot) un calcolo che nessuno sta guardando.
-
-    $('fold-legend').addEventListener('toggle', () => render());
+    // ---------- costi ed effetti: il pop-up 📜 ----------
+    // (richiesta dell'utente) "un pulsante azionabile in qualsiasi momento che
+    // esce a pop-up, non che io debba scorrere per trovare e che poi rimane
+    // aperto e crea ulteriore confusione": non è più una cartellina in fondo al
+    // pannello che scorre, è il pop-up del dock. Si genera solo da aperto, così
+    // il pannello non paga a ogni render (anche dei bot) un calcolo che nessuno
+    // sta guardando.
 
     function renderLegend(player) {
         const box = $('bp-legend');
-        if (!$('fold-legend').open) { box.innerHTML = ''; return; }
+        if (!box) return;
+        if (!costsOpen) { box.innerHTML = ''; return; }
 
         // La legenda si genera da GameRules.COSTS: costi e testo non possono
         // divergere da quelli che la validazione applica davvero.
@@ -3218,6 +3591,280 @@ document.addEventListener('DOMContentLoaded', () => {
             return noFog || paths.some(pt => R.isVisible(pt.id));
         });
     }
+    // ============================================================
+    // I CONFINI COI REGNI DI GIOCATORI — sulla mappa, sempre
+    //
+    // (richiesta dell'utente) "sulla mappa sempre visibile, sarebbe bello
+    // fossero evidenziati i confini con regni di giocatori": le province ALTRUI
+    // che toccano le tue si segnano col colore di chi le possiede. Il disegno
+    // sta in app.js (Risiko.markBorders, strato #border-marks che resta acceso
+    // anche quando cambiano le fasi); QUI si decide solo CHI marcare, perché è
+    // la plancia a sapere chi sei e cosa vedi oltre la nebbia.
+    //
+    // La regola: di norma solo i regni di GIOCATORI — sono quelli con cui si
+    // tratta davvero, e accendere tutte le frontiere farebbe luce dappertutto.
+    // Col foglio 🕊 aperto si accendono tutte le frontiere in vista (lì stai
+    // proprio guardando la politica), e passando sopra una scheda resta accesa
+    // solo quella.
+    // ============================================================
+
+    let hotKingdomId = null;    // scheda sotto il mouse nel foglio Diplomazia
+
+    // Le province ALTRUI che toccano le tue, regno per regno: { idRegno: [idProv] }.
+    // Serve sia alle schede (quante frontiere avete) sia alla mappa. Le province
+    // sotto nebbia non entrano: il confine non deve svelare quel che non vedi.
+    function borderMap(player) {
+        const mine = R.ownedPaths(player.name);
+        const mineIds = new Set(mine.map(p => p.id));
+        const byName = {};
+        R.players().forEach(p => { byName[p.name] = p; });
+        const noFog = !R.visibleProvinces || !R.visibleProvinces();
+        const out = {};
+        const visti = new Set();
+        mine.forEach(p => {
+            R.engine.landNeighbors(p.id).forEach(nid => {
+                if (mineIds.has(nid) || visti.has(nid)) return;
+                if (!noFog && !R.isVisible(nid)) return;
+                const np = R.engine.path(nid);
+                if (!np) return;
+                const altro = byName[R.engine.owner(np)];
+                if (!altro || altro.id === player.id) return;
+                visti.add(nid);
+                (out[altro.id] = out[altro.id] || []).push(nid);
+            });
+        });
+        return out;
+    }
+
+    function syncBorderMarks(player) {
+        const key = $('map-border-key');
+        if (!R.markBorders) return;
+        // In vista generale non c'è un "tuo" confine da segnare.
+        if (!player || spectating) {
+            R.clearBorders();
+            if (key) { key.style.display = 'none'; key.innerHTML = ''; }
+            return;
+        }
+        const confini = borderMap(player);
+        const quali = R.players().filter(p => {
+            if (!(confini[p.id] || []).length) return false;
+            if (hotKingdomId != null) return p.id === hotKingdomId;
+            if (openSheet === 'diplomazia') return true;
+            return !p.bot;                       // di norma: i regni di GIOCATORI
+        });
+
+        const list = [];
+        quali.forEach(p => confini[p.id].forEach(id => list.push({ id, color: p.color })));
+        R.markBorders(list);
+
+        if (!key) return;
+        if (!quali.length) { key.style.display = 'none'; key.innerHTML = ''; return; }
+        key.style.display = '';
+        key.innerHTML = '<div class="mbk-title">' +
+            (hotKingdomId != null ? 'Confini con questo regno'
+                : openSheet === 'diplomazia' ? 'Confini coi regni in vista'
+                    : 'Confini coi regni di giocatori') + '</div>' +
+            quali.map(p =>
+                '<div class="mbk-row"><span class="mbk-dot" style="background:' + p.color +
+                '"></span><span class="mbk-who"></span><span class="mbk-n">' +
+                confini[p.id].length + '</span></div>').join('');
+        Array.from(key.querySelectorAll('.mbk-who')).forEach((el, i) => { el.textContent = quali[i].name; });
+    }
+
+    // ============================================================
+    // DIPLOMAZIA — IL FOGLIO 🕊: le schede dei regni (#bp-relations)
+    //
+    // (richiesta dell'utente) "sarebbe bello che si aprisse un pannello centrale
+    // che entra più nel dettaglio degli accordi presi, il livello di rapporto che
+    // c'è tra i regni e il resto".
+    //
+    // Una scheda per ogni regno che VEDI: che patti avete e cosa costa
+    // scioglierli, quanto vi rispettate e — soprattutto — PERCHÉ. Il livello di
+    // rapporto non è un voto calato dall'alto: è la somma dei fatti già scritti
+    // nello stato (Diplomacy.standing in js/diplomacy.js, unica formula), e la
+    // scheda li elenca uno per uno col loro segno.
+    //
+    // Le AZIONI non si sdoppiano: proporre, accettare e concedere restano nella
+    // colonna degli araldi (#bp-diplomacy, le tre schede di sempre). Qui c'è
+    // solo il collegamento — "proponi a lui" prepara il modulo di là — e lo
+    // scioglimento, che passa comunque dall'unico bottone breakPactButton.
+    // ============================================================
+
+    function renderRelations(player) {
+        const box = $('bp-relations');
+        if (!box) return;
+        if (openSheet !== 'diplomazia') { box.innerHTML = ''; return; }
+        const D = window.Diplomacy;
+        const visibili = diploKingdomsVisibili(player);
+        box.innerHTML = '';
+        if (!visibili.length) {
+            box.innerHTML = '<div class="bp-empty-hint">Nessun regno in vista con cui trattare. ' +
+                'Chi confina con te compare da sé; per gli altri serve una spia.</div>';
+            return;
+        }
+        const confini = borderMap(player);
+        const myTurn = isPlaying(player);
+        visibili
+            .map(p => ({
+                p,
+                st: D.standing(player, p, { confinanti: (confini[p.id] || []).length > 0 })
+            }))
+            .sort((a, b) => b.st.score - a.st.score)     // prima gli amici, in fondo i nemici
+            .forEach(({ p, st }) =>
+                box.appendChild(relationCard(player, p, st, (confini[p.id] || []), myTurn)));
+    }
+
+    function relationCard(player, altro, st, confini, myTurn) {
+        const D = window.Diplomacy;
+        const card = document.createElement('div');
+        card.className = 'rel-card';
+        card.style.borderLeftColor = altro.color;
+
+        // Sotto il mouse: la mappa accende solo i confini di QUESTO regno.
+        card.addEventListener('mouseenter', () => {
+            hotKingdomId = altro.id;
+            card.classList.add('hot');
+            syncBorderMarks(player);
+        });
+        card.addEventListener('mouseleave', () => {
+            hotKingdomId = null;
+            card.classList.remove('hot');
+            syncBorderMarks(player);
+        });
+
+        // --- chi è, e da che parte pende il rapporto ---
+        const head = document.createElement('div');
+        head.className = 'rel-head';
+        head.innerHTML =
+            '<span class="rel-dot" style="background:' + altro.color + '"></span>' +
+            '<span class="rel-name"></span><span class="rel-kind"></span>' +
+            '<span class="rel-score">' + (st.score > 0 ? '+' : '') + st.score + '</span>';
+        head.querySelector('.rel-name').textContent = altro.name;
+        const kind = head.querySelector('.rel-kind');
+        const bot = (window.Bot && altro.bot) ? window.Bot.strategyOf(altro) : null;
+        kind.textContent = bot ? (bot.nome || 'IA') : 'giocatore';
+        kind.classList.toggle('human', !altro.bot);
+        card.appendChild(head);
+
+        const lv = document.createElement('div');
+        lv.className = 'rel-level l-' + st.level;
+        lv.textContent = st.label;
+        card.appendChild(lv);
+
+        // Barra con lo zero al centro: a destra la fiducia, a sinistra il rancore.
+        const largo = Math.min(50, Math.abs(st.score) / 2);
+        const bar = document.createElement('div');
+        bar.className = 'rel-bar';
+        bar.innerHTML = '<span class="zero"></span><span class="fill ' +
+            (st.score >= 0 ? 'pos' : 'neg') + '" style="' +
+            (st.score >= 0 ? 'left:50%;width:' : 'right:50%;width:') + largo + '%"></span>';
+        card.appendChild(bar);
+
+        // --- i numeri secchi ---
+        const viste = R.ownedPaths(altro.name).filter(p => R.isVisible(p.id)).length;
+        const facts = document.createElement('div');
+        facts.className = 'rel-facts';
+        facts.innerHTML =
+            '<span class="f">province viste <b>' + viste + '</b></span>' +
+            '<span class="f">confini con te <b>' + confini.length + '</b></span>';
+        card.appendChild(facts);
+
+        // --- PERCHÉ il rapporto è quello: i fatti, col loro segno ---
+        const why = document.createElement('div');
+        why.className = 'rel-why';
+        if (!st.why.length) {
+            why.innerHTML = '<div class="w">Nessun precedente fra voi: finora vi siete solo guardati.</div>';
+        } else {
+            why.innerHTML = st.why.map(w =>
+                '<div class="w ' + (w.delta >= 0 ? 'pos' : 'neg') + '"><b>' +
+                (w.delta > 0 ? '+' : '') + w.delta + '</b><span></span></div>').join('');
+            Array.from(why.querySelectorAll('.w span'))
+                .forEach((el, i) => { el.textContent = st.why[i].txt; });
+        }
+        card.appendChild(why);
+
+        // --- i patti in essere, con il loro scioglimento ---
+        const patti = D.pactsWith(player, altro.id);
+        const pacts = document.createElement('div');
+        pacts.className = 'rel-pacts';
+        if (!patti.length) {
+            pacts.innerHTML = '<span class="bp-empty-hint">Nessun patto in essere.</span>';
+        } else {
+            patti.forEach(p => {
+                const chip = document.createElement('span');
+                chip.className = 'rel-pact';
+                chip.innerHTML = '<span class="lab"></span>' +
+                    (p.scad != null ? ' <span class="exp">scade al turno ' + p.scad + '</span>' : '');
+                chip.querySelector('.lab').textContent = D.LABEL[p.tipo] || p.tipo;
+                chip.appendChild(breakPactButton(player, altro, p, myTurn, { label: '✕', className: '' }));
+                pacts.appendChild(chip);
+            });
+        }
+        card.appendChild(pacts);
+
+        // --- scorciatoie: nessuna azione nuova, solo il ponte con gli araldi ---
+        const acts = document.createElement('div');
+        acts.className = 'rel-acts';
+
+        const prop = document.createElement('button');
+        prop.type = 'button'; prop.className = 'bp-mini';
+        // Il nome del regno è già scritto grande in testa alla scheda: ripeterlo
+        // qui allungava il bottone oltre la sua metà di riga.
+        prop.textContent = '🕊 Proponi un patto';
+        prop.title = 'Prepara il modulo degli araldi qui accanto, già intestato a ' + altro.name;
+        prop.addEventListener('click', () => {
+            diploUI.verso = altro.id;
+            renderDiplomacy(player);
+            const araldi = $('bp-diplomacy');
+            if (araldi && araldi.scrollIntoView) araldi.scrollIntoView({ block: 'nearest' });
+        });
+        acts.appendChild(prop);
+
+        if (confini.length) {
+            const look = document.createElement('button');
+            look.type = 'button'; look.className = 'bp-mini';
+            look.textContent = '🔍 Vedi il confine';
+            look.title = 'Chiude il foglio e inquadra la frontiera fra voi';
+            look.addEventListener('click', () => {
+                showSheet(null);
+                R.fitToProvinces(confini);
+            });
+            acts.appendChild(look);
+        }
+        card.appendChild(acts);
+
+        return card;
+    }
+
+    // Il bottone che SCIOGLIE un patto. Vive in un posto solo perché sta in due:
+    // sulla scheda del regno (foglio 🕊) e fra gli araldi. Rompere un'ALLEANZA
+    // costa prestigio e quindi passa da una conferma; i patti leggeri no.
+    function breakPactButton(player, altro, pact, myTurn, opts) {
+        const D = window.Diplomacy;
+        const o = opts || {};
+        const tradisci = D.costsPrestige(pact.tipo);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = o.className === undefined ? 'bp-mini' : o.className;
+        b.textContent = o.label ||
+            ((tradisci ? '⚔ Sciogli ' : '✕ Sciogli ') + (D.LABEL[pact.tipo] || pact.tipo).toLowerCase());
+        b.title = tradisci
+            ? 'Rompere un\'alleanza costa −' + D.BREAK_PRESTIGE + ' prestigio'
+            : 'Si scioglie senza costo';
+        b.disabled = !myTurn || !altro;
+        b.addEventListener('click', () => {
+            if (!altro) return;
+            if (!tradisci) { run(GA().breakPact(player, altro.id, pact.tipo, {})); return; }
+            R.confirm({
+                title: 'Sciogliere l\'alleanza?',
+                text: 'Rompere il patto con ' + altro.name + ' ti costa −' +
+                    D.BREAK_PRESTIGE + ' prestigio. Procedo?',
+                ok: 'Rompi il patto', cancel: 'Lascia stare', tone: 'danger'
+            }, () => run(GA().breakPact(player, altro.id, pact.tipo, {})));
+        });
+        return b;
+    }
+
     function renderDiplomacy(player) {
         const box = $('bp-diplomacy');
         if (!box) return;
@@ -3326,27 +3973,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const acts = document.createElement('div');
             acts.className = 'bp-trade-acts';
-            lista.forEach(p => {
-                const tradisci = D.costsPrestige(p.tipo);
-                const b = document.createElement('button');
-                b.type = 'button'; b.className = 'bp-mini';
-                b.textContent = (tradisci ? '⚔ Sciogli ' : '✕ Sciogli ') + D.LABEL[p.tipo].toLowerCase();
-                b.title = tradisci ? 'Rompere un\'alleanza costa −' + D.BREAK_PRESTIGE + ' prestigio' : 'Si scioglie senza costo';
-                b.disabled = !myTurn;
-                b.addEventListener('click', () => {
-                    if (tradisci) {
-                        R.confirm({
-                            title: 'Sciogliere l\'alleanza?',
-                            text: 'Rompere il patto con ' + (altro ? altro.name : 'questo regno') +
-                                ' ti costa −' + D.BREAK_PRESTIGE + ' prestigio. Procedo?',
-                            ok: 'Rompi il patto', cancel: 'Lascia stare', tone: 'danger'
-                        }, () => run(GA().breakPact(player, altro.id, p.tipo, {})));
-                    } else {
-                        run(GA().breakPact(player, altro.id, p.tipo, {}));
-                    }
-                });
-                acts.appendChild(b);
-            });
+            // Un bottone solo, condiviso con le schede del foglio 🕊
+            // (breakPactButton): la conferma dell'alleanza vive lì dentro.
+            lista.forEach(p => acts.appendChild(breakPactButton(player, altro, p, myTurn)));
             item.appendChild(acts);
 
             // Concessione d'attacco: se c'è un patto di non aggressione, puoi
@@ -3576,7 +4205,10 @@ document.addEventListener('DOMContentLoaded', () => {
         spyChoices = spyPicking ? GA().spyTargets(player) : [];
         renderSpies(player);
         renderTrade(player);
+        renderMarketPulse(player);
         renderDiplomacy(player);
+        renderRelations(player);
+        syncDockBadges(player);
         renderConquest(player);
         renderCapitalChoice(player);
         renderBattle();
@@ -3590,6 +4222,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // aperto è ancora valido.
         syncMapOrders(player);
         renderOrderHud(player);
+        // I confini coi regni di giocatori: strato a parte, non c'entra con le
+        // fasi e resta acceso anche quando i bersagli si spengono.
+        syncBorderMarks(player);
         renderTreasury(player, units, snapshot, connectedSet, pop);
         renderArmy(paths, units, pop, capitalPath, connectedSet);
         renderLegend(player);
@@ -3599,7 +4234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // i suoi + e − esistono solo nella fase 1 vera, e da lì si seleziona
         // una provincia anche mentre si sbircia un'altra cartella.
         if (peeking(player)) {
-            ['fase-schiera', 'fase-commerci', 'fase-spie', 'fase-sposta', 'bp-actions'].forEach(id => freeze($(id)));
+            ['fase-schiera', 'fase-spie', 'fase-sposta', 'bp-actions'].forEach(id => freeze($(id)));
         }
 
         if (!hasFitted && paths.length && R.mapReady()) {

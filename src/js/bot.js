@@ -92,6 +92,16 @@
 
     const KEYS = Object.keys(STRATEGIES);
 
+    // ---------- DOTTRINA: il carattere storico, sopra la strategia ----------
+    // I regni che nascono per evento (js/events.js) non sono regni generici: i
+    // Selgiuchidi hanno tre città da prendere e non firmano coi cristiani, il
+    // Portogallo non si espande via terra, i nordici non scendono in Danimarca e
+    // si contendono solo la Finlandia. Tutto questo vive in js/doctrines.js
+    // (puro, per NOME di regno); qui c'è solo il ponte. Chi non ha dottrina —
+    // cioè quasi tutti — non paga nulla di tutto ciò.
+    const DOC = () => root.Doctrines;
+    function doctrineOf(player) { return DOC() ? DOC().of(player) : null; }
+
     function strategyOf(player) {
         return (player && player.bot && STRATEGIES[player.bot]) || null;
     }
@@ -174,6 +184,11 @@
     const DEFEND_RATIO = 0.7;   // quanta parte dell'esercito nemico si eguaglia
     const DEFENSE_CAP = 12;     // nessuna provincia pretende più uomini di così
     const BETRAY_RELUCTANCE = 0.6;  // §Diplomazia: pedaggio fisso sullo score di un tradimento
+    // DOTTRINA: quanto si sconta l'attacco a un AMICO storico (Selgiuchidi e
+    // Abbasidi, i due regni nordici). Più caro di un tradimento: un patto si
+    // rompe per un buon bottino, un'amicizia di sangue no.
+    const FRIEND_DISCOUNT = 0.25;
+    const FRIEND_TOLL = 0.8;
     function enemyThreat(player, id, salvo) {
         return E().landNeighbors(id).reduce((max, n) => {
             if (n === salvo) return max;
@@ -247,7 +262,7 @@
     // una conquista che toglie una nemica dal confine della Capitale.
     const FOOD_RES = ['grano', 'bestiame'];
 
-    function popState(player, s) {
+    function popState(player, s, og) {
         const cap = R().getCapitalPathFor(player);
         if (!cap || typeof root.Popularity === 'undefined' || !R().popularityFactors) return null;
 
@@ -267,8 +282,11 @@
         const maxSoldiers = Math.min(m.soldiers + reclute + trasferibili,
             m.soldiers + roomAt(cap.id));
 
+        // Un obiettivo aperto può chiedere più Popolarità/Sicurezza di quanta la
+        // strategia già ne persegua (§10): il target vero è il più alto dei due.
+        const target = Math.max(s.popTarget || 3, (og && og.popTarget) || 0);
         const piano = root.Popularity.plan(m, {
-            target: s.popTarget || 3,
+            target,
             maxSoldiers,
             cities: Math.max(1, units.citta + units.capitale)
         });
@@ -352,6 +370,161 @@
         }, 0);
     }
 
+    // ---------- OBIETTIVI DI PRESTIGIO (§10): i bot li perseguono DAVVERO ----------
+    // js/objectives.js porta, su ogni obiettivo del ciclo, un `hint`: la STESSA
+    // richiesta del `check` spezzata in dati che un bot può confrontare con la
+    // mappa (vocabolario in testa a quel file), non una seconda regola. Il
+    // `hint` arriva ORA sulla valutazione stessa (Risiko.objectivesFor), che lo
+    // ricostruisce dal template e dalla soglia dell'assegnazione: non c'è più un
+    // catalogo da ripescare per NOME di regno, perché gli obiettivi sono
+    // generati per capitolo. Si scartano i già completati e quel che resta
+    // diventa spinte concrete:
+    // bersagli d'attacco da preferire, province da presidiare a una soglia,
+    // monete e scorte da non spendere sotto un tetto, un sito di costruzione
+    // preciso. Senza questo un bot gioca bene ma alla cieca — mai il bersaglio
+    // che il foglio degli obiettivi chiede — ed è esattamente la domanda a cui
+    // una partita di prova deve rispondere: sono obiettivi fattibili?
+    function objectiveGoals(player) {
+        if (typeof root.Objectives === 'undefined' || !R().objectivesFor) return [];
+        const ev = R().objectivesFor(player);
+        if (!ev || !ev.items) return [];
+        return ev.items
+            .filter(it => it.hint && !it.completato)
+            .map(it => ({ id: it.id, punti: it.punti, hints: Array.isArray(it.hint) ? it.hint : [it.hint] }));
+    }
+
+    // Quante monete NON toccare perché un obiettivo aperto chiede un tesoro. Solo
+    // negli ultimi turni del ciclo si fa sul serio (`left <= 3`): prima le monete
+    // servono a costruire, un tesoro messo via troppo presto è un regno fermo.
+    function objectiveGoldFloor(goals) {
+        let floor = 0;
+        goals.forEach(g => g.hints.forEach(h => { if (h.gold) floor = Math.max(floor, h.gold); }));
+        if (!floor) return 0;
+        const turn = R().turn ? R().turn() : 1;
+        const left = 10 - ((Math.max(1, turn) - 1) % 10);
+        return left > 3 ? Math.round(floor * 0.4) : floor;
+    }
+
+    // Scorte minime da non svendere perché un obiettivo aperto le vuole in
+    // magazzino. `resourceNeed` le tratta come un bisogno vero: il Mercato non
+    // le vende (bassa `avanza()`) e la banca le compra.
+    function objectiveStockFloor(goals) {
+        const floor = {};
+        goals.forEach(g => g.hints.forEach(h => {
+            if (h.stock && typeof h.min === 'number') floor[h.stock] = Math.max(floor[h.stock] || 0, h.min);
+        }));
+        return floor;
+    }
+
+    // Il livello di Popolarità/Sicurezza che un obiettivo chiede, se più alto di
+    // quello che la strategia già persegue (popState). La Sicurezza non ha un
+    // piano a sé: alzare il target di Popolarità totale spinge le stesse due leve
+    // (tassa, guardia) che la fanno salire, quindi è l'approssimazione giusta.
+    function objectivePopTarget(goals) {
+        let target = 0;
+        goals.forEach(g => g.hints.forEach(h => {
+            if (typeof h.popularity === 'number') target = Math.max(target, h.popularity);
+            if (typeof h.security === 'number') target = Math.max(target, h.security);
+        }));
+        return Math.min(5, target);
+    }
+
+    // Qualunque obiettivo "province ≥ N" rende utile una terra in più anche
+    // fuori da una regione precisa: un piccolo premio piatto su OGNI bersaglio,
+    // proporzionale ai punti in palio.
+    function objectiveProvCountBonus(goals) {
+        let bonus = 0;
+        goals.forEach(g => g.hints.forEach(h => { if (h.provCount) bonus = Math.max(bonus, g.punti * 0.06); }));
+        return bonus;
+    }
+
+    // Quanto vale, in punteggio d'attacco, prendere QUESTA provincia per gli
+    // obiettivi ancora aperti: la somma dei pesi di ogni regione/provincia che la
+    // riguarda (i punti dell'obiettivo, 5/3/2, contano più del generico
+    // `provCount`, che vale per qualunque terra e quindi pesa poco a bersaglio
+    // singolo).
+    function objectiveAttackWeight(og, provId) {
+        if (!og) return 0;
+        let peso = og.provCountBonus || 0;
+        og.goals.forEach(g => g.hints.forEach(h => {
+            if (h.region && h.region.has(provId)) peso += g.punti * 0.5;
+            if (h.province === provId) peso += g.punti * 0.7;
+            if (h.provinces && h.provinces.indexOf(provId) >= 0) peso += g.punti * 0.6;
+        }));
+        return peso;
+    }
+
+    // A quale provincia (già mia) un obiettivo chiede una soglia di soldati:
+    // radunare un'oste per il Papa, tenere un avamposto, difendere Tyrol. Il
+    // MASSIMO fra tutti gli obiettivi che la riguardano, così due richieste sulla
+    // stessa provincia non si sommano. `garrisonAny` (una costa qualunque del
+    // set, non tutte) sceglie quella già mia più avanti verso la soglia.
+    function objectiveGarrisonNeeds(player, goals) {
+        const need = new Map();
+        const mine = id => ownerAt(id) === player.name;
+        goals.forEach(g => g.hints.forEach(h => {
+            if (h.province && typeof h.min === 'number' && h.min > 0 && mine(h.province)) {
+                need.set(h.province, Math.max(need.get(h.province) || 0, h.min));
+            }
+            if (h.provinces && typeof h.min === 'number' && h.min > 0) {
+                h.provinces.filter(mine).forEach(id => need.set(id, Math.max(need.get(id) || 0, h.min)));
+            }
+            if (h.garrisonAny && h.region) {
+                let best = null;
+                h.region.forEach(id => {
+                    if (!mine(id)) return;
+                    if (!best || troopsAt(id) > troopsAt(best)) best = id;
+                });
+                if (best) need.set(best, Math.max(need.get(best) || 0, h.garrisonAny));
+            }
+            if (h.shipGarrison) {
+                let best = null;
+                E().ownedPaths(player.name).forEach(p => {
+                    if (!E().ships(p).length) return;
+                    if (!best || troopsAt(p.id) > troopsAt(best)) best = p.id;
+                });
+                if (best) need.set(best, Math.max(need.get(best) || 0, h.shipGarrison));
+            }
+            if (h.city && typeof h.min === 'number' && h.min > 0) {
+                // Un `at` esplicito (es. Kiev) vale solo finché non è mio: se non
+                // lo possiedo ancora non c'è niente da presidiare lì, e ricadere
+                // su una Città qualunque garrigerebbe il posto sbagliato.
+                const at = h.at ? (mine(h.at) ? h.at : null)
+                    : (E().ownedPaths(player.name).find(p => (unitsAt(p.id) || {}).citta) || {}).id;
+                if (at) need.set(at, Math.max(need.get(at) || 0, h.min));
+            }
+        }));
+        return need;
+    }
+
+    // La provincia dove un obiettivo vuole la Città PROPRIO lì (es. Kiev per la
+    // Rus'), se ne ha una in sospeso. `siteFor` la usa come sito forzato: se è
+    // fra i siti papabili (mia, libera, si può pagare) la sceglie, altrimenti
+    // ricade sul punteggio generico.
+    function objectiveCityAt(goals) {
+        let at = null;
+        goals.forEach(g => g.hints.forEach(h => { if (h.city && h.at) at = h.at; }));
+        return at;
+    }
+
+    // Tutto quel che serve al resto del turno, calcolato una volta sola: gli
+    // obiettivi aperti cambiano poco durante un turno di un bot, quindi non c'è
+    // bisogno di rileggerli a ogni azione (come invece `st`, che una conquista
+    // può cambiare da un momento all'altro).
+    function objectiveState(player) {
+        const goals = objectiveGoals(player);
+        if (!goals.length) return null;
+        return {
+            goals,
+            provCountBonus: objectiveProvCountBonus(goals),
+            garrisonNeeds: objectiveGarrisonNeeds(player, goals),
+            goldFloor: objectiveGoldFloor(goals),
+            stockFloor: objectiveStockFloor(goals),
+            popTarget: objectivePopTarget(goals),
+            cityAt: objectiveCityAt(goals)
+        };
+    }
+
     // ---------- FASE 1 · schieramento ----------
 
     // Ripartisce N reclute fra le province secondo i pesi, col metodo dei resti
@@ -368,7 +541,7 @@
         return out.filter(o => o.n > 0);
     }
 
-    function deployPlan(player, s, st) {
+    function deployPlan(player, s, st, og) {
         let pool = player.recluteDaSchierare || 0;
         if (!pool) return [];
         const prov = survey(player);
@@ -405,6 +578,22 @@
                 const n = Math.min(p.scoperta, pool, roomAt(p.id));
                 if (n > 0) { piano.push({ id: p.id, n }); pool -= n; }
             });
+        if (!pool) return piano;
+
+        // OBIETTIVI (§10): province che un obiettivo aperto vuole vedere a una
+        // soglia precisa di soldati (un'oste da radunare per il Papa, un
+        // avamposto da tenere). Vale una provincia intera anche qui, e spesso è
+        // la parte più facile del foglio: bastano reclute, non conquiste.
+        if (og && og.garrisonNeeds && og.garrisonNeeds.size) {
+            Array.from(og.garrisonNeeds.entries())
+                .sort((a, b) => b[1] - a[1])
+                .forEach(([id, min]) => {
+                    if (!pool) return;
+                    const manca = min - troopsAt(id);
+                    const n = Math.min(Math.max(0, manca), pool, roomAt(id));
+                    if (n > 0) { piano.push({ id, n }); pool -= n; }
+                });
+        }
         if (!pool) return piano;
 
         const fronte = prov.filter(p => p.fronte);
@@ -559,7 +748,7 @@
     // significa rinunciare alla costruzione anche quando un'altra provincia del
     // regno l'avrebbe pagata senza problemi. È lo stesso inciampo che teneva i
     // bot senza Mercato (4 soldati) per tutta la partita.
-    function siteFor(player, type, s) {
+    function siteFor(player, type, s, og) {
         const serve = (GR().COSTS[type] || {}).soldati || 0;
         const insediamento = (type === 'capitale' || type === 'citta' || type === 'fortezza');
         let prov = survey(player).filter(p => {
@@ -578,6 +767,13 @@
             prov = paganti;
         }
         if (!prov.length) return null;
+        // OBIETTIVI (§10): la Città che un obiettivo vuole PROPRIO in una
+        // provincia (es. Kiev per la Rus') si costruisce lì se è fra i siti
+        // papabili; altrimenti si ricade sul punteggio generico.
+        if (type === 'citta' && og && og.cityAt) {
+            const forced = prov.find(p => p.id === og.cityAt);
+            if (forced) return forced;
+        }
         if (type === 'capitale') {
             // Il punteggio si calcola UNA volta per provincia: dentro il
             // comparatore verrebbe rifatto a ogni confronto, e ognuno costa una
@@ -677,6 +873,87 @@
             seaPreyFrom(player, p.id).length > 0);
     }
 
+    // ---------- IL MARE DEI COLONIALI (dottrina `coloniale`, js/doctrines.js) ----------
+    // Il Portogallo non prende terra ai vicini: la sua espansione è oltremare
+    // (regola dell'utente). Due gambe, tutte e due sulle azioni che il giocatore
+    // ha già — nessuna scorciatoia:
+    //   - la NAVE (barca) porta le prime teste di ponte in Africa, e a farlo sono
+    //     shipPlan/bestAttack come per qualunque altro regno costiero;
+    //   - il VELIERO (§9.2) apre le ROTTE LUNGHE: si salpa in una direzione e si
+    //     naviga di decennio in decennio finché non si avvista una costa dove
+    //     scendere. È l'unico modo di arrivare in America, e costa quanto vale
+    //     (4000 monete): un regno che non fa la guerra ci arriva col commercio.
+    // Una rotta per volta: finché una spedizione è in mare non se ne arma un'altra.
+    const OCEAN = 'vascello';
+    const COLONY_CREW = 6;   // ciurma minima perché una rotta lunga abbia senso
+    function isColonial(player) {
+        return !!(DOC() && DOC().isColonial(doctrineOf(player)));
+    }
+    function oceanHullAt(player) {
+        return E().ownedPaths(player.name)
+            .find(p => E().ships(p).some(h => h.tipo === OCEAN)) || null;
+    }
+    // Dove armare il Veliero: la costa più popolosa che può ospitarlo e pagarlo.
+    function colonyShipPlan(player) {
+        if (!isColonial(player)) return null;
+        if ((player.spedizioni || []).length || oceanHullAt(player)) return null;
+        let best = null;
+        survey(player).forEach(p => {
+            if (E().ships(p.path).some(h => h.tipo === OCEAN)) return;
+            if (!E().canPlacePiece(p.path, OCEAN).ok) return;   // non è costiera
+            if (!canBuild(player, OCEAN, p.id)) return;
+            if (p.mobili < 3) return;                           // nessuna ciurma da imbarcare
+            if (!best || p.truppe > best.truppe) best = { id: p.id, truppe: p.truppe };
+        });
+        return best;
+    }
+    // Salpare: la ciurma è quel che può lasciare la provincia senza scoprirla
+    // (holdFloor), fino alla capienza dello scafo. La rotta la dà la dottrina e
+    // si alterna di decennio in decennio: a mezzogiorno l'Africa, a ponente
+    // l'oceano.
+    function colonyLaunch(player) {
+        if (!isColonial(player)) return null;
+        if ((player.spedizioni || []).length) return null;
+        const porto = oceanHullAt(player);
+        if (!porto) return null;
+        const truppe = E().countPiece(porto, 'soldato');
+        const mobili = Math.max(0, Math.min(GR().spendableTroops(truppe),
+            truppe - holdFloor(player, porto.id)));
+        const carico = Math.min(E().shipCapacity(OCEAN), mobili);
+        // Una ciurma di tre uomini non fonda niente: sbarcherebbe sotto la soglia
+        // di rischio della strategia e resterebbe a navigare finché il mare non se
+        // la prende (§9.2). Meglio aspettare che il porto si riempia.
+        if (carico < COLONY_CREW) return null;
+        return { fromId: porto.id, dir: DOC().routeAt(doctrineOf(player), R().turn()), carico };
+    }
+    // Approdo: fra le coste avvistate si scende su quella che si può tenere. Una
+    // costa VUOTA vale più di una difesa da spezzare — si viene a fondare, non a
+    // fare la guerra — e su un partner di non aggressione o su un amico di
+    // dottrina non si sbarca affatto.
+    function colonyLandings(player, s) {
+        const out = [];
+        if (!isColonial(player)) return out;
+        const doc = doctrineOf(player);
+        (player.spedizioni || []).forEach(exp => {
+            let best = null;
+            GA().expeditionTargets(player, exp).forEach(t => {
+                if (t.mia) return;                       // tornare a casa non è una colonia
+                if (DOC().forbids(doc, t.id)) return;
+                const altro = (t.owner && t.owner !== 'Neutrale')
+                    ? R().players().find(p => p.name === t.owner) : null;
+                if (altro && D() && D().grantsNonAggression(player, altro)) return;
+                if (altro && DOC().isFriend(doc, t.owner)) return;
+                const p100 = RisikoBattle.winForecast(exp.carico,
+                    (t.troops || 0) + (t.fort || 0), t.esponente, exp.merc || 0, t.merc || 0).p;
+                if (p100 < s.soglia) return;
+                const punti = p100 + (altro ? 0 : 0.3);
+                if (!best || punti > best.punti) best = { expId: exp.id, toId: t.id, punti };
+            });
+            if (best) out.push(best);
+        });
+        return out;
+    }
+
     // TRASLOCARE il seggio (GameActions.moveCapital, 500 monete). Una Capitale
     // scelta bene al turno 1 può diventare pessima al turno 10: il regno cresce da
     // una parte sola e la vecchia sede si ritrova sul confine, con `P_conf` a zero
@@ -684,10 +961,10 @@
     // quando il guadagno è netto e i soldi non servono ad altro.
     // La vecchia sede diventa Città — non si perde niente, anzi si guadagna un
     // secondo esattore (§7).
-    function capitalPlan(player, s, st) {
+    function capitalPlan(player, s, st, og) {
         if (!st || !GA().moveCapital) return null;
         const costo = (GR().COSTS.capitale || {}).monete || 500;
-        if ((player.monete || 0) < costo + coinReserve(player, s)) return null;
+        if ((player.monete || 0) < costo + coinReserve(player, s, og)) return null;
 
         const prov = survey(player);
         const sede = prov.find(p => p.id === st.cap.id);
@@ -799,10 +1076,10 @@
     // che si vuole costruire, mentre l'Argilla a 1 può bloccare una Città da mille
     // monete. Si tiene sempre un margine su ciò che si dà via: svuotare una scorta
     // per riempirne un'altra sposta soltanto il problema.
-    function bankPlan(player, s, st) {
+    function bankPlan(player, s, st, og) {
         if (!GA().hasMarket(player)) return null;
         const scorte = player.scorte || {};
-        const need = resourceNeed(player, s, st);
+        const need = resourceNeed(player, s, st, og);
 
         const dai = GR().RES.slice()
             .sort((a, b) => ((scorte[b] || 0) - need[b] * 4) - ((scorte[a] || 0) - need[a] * 4))[0];
@@ -840,7 +1117,7 @@
     // la Pietra è la strada, la strada è la provincia collegata, e la provincia
     // collegata è il Benessere (§8) e il raccolto (§4). Quel che abbonda non si
     // desidera più: da lì in poi è merce di scambio.
-    function resourceNeed(player, s, st) {
+    function resourceNeed(player, s, st, og) {
         const scorte = (player && player.scorte) || {};
         const need = {};
         GR().RES.forEach(k => { need[k] = 0; });
@@ -879,11 +1156,31 @@
             if ((scorte.legno || 0) < serveLegno) need.legno = Math.max(need.legno, 0.9);
         }
 
+        // Il LEGNAME DEL VELIERO: un regno COLONIALE (js/doctrines.js) ne vuole
+        // dieci per la rotta lunga (§9.2), e il Veliero non sta in `s.build` più
+        // di quanto ci stia la barca. Senza questa riga il Portogallo aspetterebbe
+        // per sempre un legname che nessuno gli procura.
+        if (isColonial(player) && !(player.spedizioni || []).length && !oceanHullAt(player)) {
+            GR().RES.forEach(k => {
+                const serve = (GR().COSTS[OCEAN] || {})[k] || 0;
+                if (serve && (scorte[k] || 0) < serve) need[k] = Math.max(need[k], 1);
+            });
+        }
+
         // L'abbondanza raffredda il desiderio, ma non cancella un fabbisogno già
         // contato: dieci Pietra con dieci province da collegare restano poche.
         GR().RES.forEach(k => {
             if ((scorte[k] || 0) >= 8) need[k] = Math.max(0, need[k] - 0.6);
         });
+
+        // OBIETTIVI (§10): una scorta che un obiettivo aperto vuole in magazzino
+        // e non c'è ancora è un bisogno vero — così il Mercato non la svende
+        // (bassa `avanza()`, vedi tradePlan) e la banca la compra per prima.
+        if (og && og.stockFloor) {
+            Object.keys(og.stockFloor).forEach(k => {
+                if ((scorte[k] || 0) < og.stockFloor[k]) need[k] = Math.max(need[k], 1);
+            });
+        }
         return need;
     }
 
@@ -909,10 +1206,10 @@
     // L'oro e le risorse si confrontano solo passando da un valore comune
     // (goodValue): senza, "200 monete" e "2 pietra" non sono paragonabili, e la
     // merce chiesta in oro va cercata nel tesoro, non nelle scorte.
-    function tradeAnswers(player, s, st) {
+    function tradeAnswers(player, s, st, og) {
         const mosse = [];
         const soglia = (s && s.baratto) || 1.1;
-        const need = resourceNeed(player, s, st);
+        const need = resourceNeed(player, s, st, og);
         // Il magazzino si scala mano a mano: le risposte si decidono tutte insieme
         // ma si eseguono una per una, e accettare la prima carovana può togliere
         // proprio l'oro che serviva alla seconda. Senza questo conto il bot
@@ -948,7 +1245,7 @@
     // Manda fino a TRADE_MAX_PENDING proposte, tenendo il conto della merce già
     // impegnata: l'offerta lascia SUBITO il magazzino come pegno, quindi promettere
     // due volte la stessa Pietra vuol dire vedersi rifiutare la seconda carovana.
-    function tradePlan(player, s, st) {
+    function tradePlan(player, s, st, og) {
         if (!GA().hasMarket(player)) return [];
         const spazio = GR().TRADE_MAX_PENDING - GA().tradeOutbox(player).length;
         if (spazio < 1) return [];
@@ -963,10 +1260,10 @@
             p.id !== player.id && !inAttesa.has(p.id) && E().ownedPaths(p.name).length);
         if (!altri.length) return [];
 
-        const need = resourceNeed(player, s, st);
+        const need = resourceNeed(player, s, st, og);
         const cassa = { monete: player.monete || 0 };
         GR().RES.forEach(k => { cassa[k] = (player.scorte || {})[k] || 0; });
-        const riserva = coinReserve(player, s);
+        const riserva = coinReserve(player, s, og);
 
         const avanza = () => GR().RES
             .filter(k => cassa[k] >= 5 && need[k] < 0.3)
@@ -1032,8 +1329,9 @@
     // `extra` (facoltativo) = soldati che si potrebbero AGGIUNGERE alla provincia
     // di partenza comprando mercenari: serve a chiedersi "quale attacco si
     // sbloccherebbe se spendessi?" prima di spendere davvero (vedi mercenaryPlan).
-    function bestAttack(player, s, st, extra) {
+    function bestAttack(player, s, st, extra, og) {
         let best = null;
+        const doc = doctrineOf(player);
         const cap = st ? st.cap : R().getCapitalPathFor(player);
         const guardiaPiano = guardWanted(st, s);
         const rinforzo = Math.max(0, extra || 0);
@@ -1073,6 +1371,17 @@
                 // di "opportunisti a scaglioni": ogni carattere ha la sua soglia.
                 const tradimento = !!(t.patto && !t.consenso);
                 if (tradimento && (s.tradimento || 0) <= 0) return;
+                // DOTTRINA (js/doctrines.js): tre porte chiuse prima ancora di
+                // fare i conti. Una terra su cui il regno non mette piede (la
+                // Danimarca dei nordici); un regno che non si espande via terra
+                // (il Portogallo: le sue conquiste sono sbarchi, non confini); un
+                // conservatore che coi regni non se la prende, tranne il nemico
+                // dichiarato e le proprie mete (la Bulgaria e l'Ungheria).
+                if (doc) {
+                    if (DOC().forbids(doc, t.id)) return;
+                    if (DOC().onlySea(doc) && !t.viaMare) return;
+                    if (DOC().keepsPeaceWith(doc, t.owner, t.id)) return;
+                }
                 const u = unitsAt(t.id) || {};
                 // Il premio dice QUANTO vale la provincia, non quanto è facile.
                 // La voce più pesante è la Popolarità: togliere una nemica dal
@@ -1092,12 +1401,33 @@
                 // l'Inghilterra passa la Manica e i Fatimidi Gibilterra invece di
                 // restare fermi. Senza, un attacco di mare aveva premio ~1 e perdeva
                 // sempre contro qualsiasi conquista di terra.
+                // OBIETTIVI (§10): una provincia che il foglio degli obiettivi
+                // chiede vale un premio a sé, tanto più grosso quanto più punti
+                // mette in palio — è così che un bot "prova davvero" a fare la
+                // Reconquista invece di conquistare la prima provincia debole.
+                // DOTTRINA: una META vale più di ogni altra cosa finché non è
+                // tua (le tre città dei Selgiuchidi, la Bulgaria dei Bulgari, la
+                // Finlandia dei nordici), e un NEMICO DICHIARATO si colpisce
+                // prima di chiunque altro.
                 const premio = 1 + (u.capitale ? 1.2 : 0) + (u.citta ? 0.6 : 0) + (u.fortezza ? 0.4 : 0)
                     + popValueOf(st, t.id, t.viaMare) * 6
                     + grudgeAgainst(player, t.id) * 1.5
-                    + (t.viaMare ? 0.8 : 0);
-                const peso = (t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori;
+                    + (t.viaMare ? 0.8 : 0)
+                    + objectiveAttackWeight(og, t.id)
+                    + (doc ? DOC().metaWeight(doc, t.id) : 0);
+                const peso = ((t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori)
+                    * (doc ? DOC().enemyWeight(doc, t.owner) : 1);
                 let score = (p100 - s.soglia + 0.1) * premio * peso;
+                // L'AMICO DI DOTTRINA non si attacca — "a meno che non sia
+                // assolutamente conveniente" (regola dell'utente): stesso
+                // meccanismo del tradimento, ma con un pedaggio più caro, così
+                // solo un bottino enorme lo giustifica. L'eccezione è una META:
+                // è per la Finlandia che Norvegia e Svezia si guarderanno male,
+                // e per Aleppo che i Selgiuchidi passeranno sugli Abbasidi.
+                if (doc && DOC().isFriend(doc, t.owner) && !DOC().isMeta(doc, t.id)) {
+                    score = score * FRIEND_DISCOUNT - FRIEND_TOLL;
+                    if (score <= 0) return;
+                }
                 // Il tradimento paga un pedaggio: lo score si sconta per la
                 // propensione del carattere e per una riluttanza fissa (la fiducia
                 // rotta, il rancore che ne nasce). Così un partner si attacca solo
@@ -1147,7 +1477,7 @@
     // si potrà costruire per venti turni — e il risultato era un regno che non
     // spendeva mai niente e intanto restava fermo. Se non c'è niente a portata la
     // riserva è zero: i soldi servono a essere spesi.
-    function coinReserve(player, s) {
+    function coinReserve(player, s, og) {
         const scorte = player.scorte || {};
         let riserva = 0;
         (s.build || []).forEach(type => {
@@ -1159,26 +1489,40 @@
             if (GR().RES.some(k => (cost[k] || 0) > (scorte[k] || 0))) return;
             if (!riserva || monete < riserva) riserva = monete;
         });
+        // OBIETTIVI (§10): un tesoro che un obiettivo aperto chiede è oro da non
+        // spendere, non solo da accumulare — negli ultimi turni del ciclo diventa
+        // il pavimento vero (objectiveGoldFloor).
+        if (og && og.goldFloor) riserva = Math.max(riserva, og.goldFloor);
+        // DOTTRINA COLONIALE: le 4000 monete del Veliero si mettono da parte solo
+        // quando il legname c'è già — stessa regola di sopra ("la prossima
+        // costruzione RAGGIUNGIBILE"): tenerle da parte prima vorrebbe dire non
+        // comprare mai il legname con cui renderlo raggiungibile.
+        if (isColonial(player) && !(player.spedizioni || []).length && !oceanHullAt(player)) {
+            const costo = GR().COSTS[OCEAN] || {};
+            if (!GR().RES.some(k => (costo[k] || 0) > (scorte[k] || 0))) {
+                riserva = Math.max(riserva, costo.monete || 0);
+            }
+        }
         return riserva;
     }
 
-    function mercenaryPlan(player, s, st) {
+    function mercenaryPlan(player, s, st, og) {
         const quanti = s.mercenari || 0;
         if (!quanti) return null;
         const prezzo = GR().COSTS.mercenario.monete;
-        const budget = Math.floor(Math.max(0, (player.monete || 0) - coinReserve(player, s)) / prezzo);
+        const budget = Math.floor(Math.max(0, (player.monete || 0) - coinReserve(player, s, og)) / prezzo);
         const tetto = Math.min(quanti, budget);
         if (tetto < 1) return null;
 
         // Se un attacco lo porta già a casa così, i mercenari sono soldi buttati.
-        if (bestAttack(player, s, st, 0)) return null;
+        if (bestAttack(player, s, st, 0, og)) return null;
 
         // Che cosa si sbloccherebbe spendendo tutto il comprabile? Una domanda
         // sola: `bestAttack` costa una scansione di tutto il regno, e chiederla
         // una volta per ogni numero da 1 al tetto sarebbe lo stesso conto fatto
         // cinque volte. Trovato il bersaglio, il numero minimo che basta si
         // calcola sulla formula, senza rifare il giro.
-        const b = bestAttack(player, s, st, tetto);
+        const b = bestAttack(player, s, st, tetto, og);
         if (!b) return null;
         const mercOra = GA().mercOf(b.fromId);
         const truppeOra = troopsAt(b.fromId);
@@ -1206,7 +1550,7 @@
 
     // ---------- FASE 4 · spostamento ----------
 
-    function movePlan(player, s, st) {
+    function movePlan(player, s, st, og) {
         const prov = survey(player);
         const cap = st ? st.cap : R().getCapitalPathFor(player);
         // Guardia che tiene conto dell'invasore: se preme sulla Capitale, l'ultimo
@@ -1250,6 +1594,22 @@
             if (n > 0) return { fromId: retro.id, toId: scoperta.id, n };
         }
 
+        // OBIETTIVI (§10): la provincia con la lacuna più grande verso una soglia
+        // richiesta (un'oste da radunare, un avamposto da tenere) si rinforza
+        // prima del fronte generico — è la stessa priorità di deployPlan, qui
+        // per l'ultimo movimento del turno.
+        if (og && og.garrisonNeeds && og.garrisonNeeds.size) {
+            let target = null, manca = 0;
+            og.garrisonNeeds.forEach((min, id) => {
+                const m = min - troopsAt(id);
+                if (m > manca) { manca = m; target = id; }
+            });
+            if (target && target !== retro.id && GA().ownAdjacent(player, retro.id).has(target)) {
+                const n = Math.min(partenti(retro), manca, roomAt(target));
+                if (n > 0) return { fromId: retro.id, toId: target, n };
+            }
+        }
+
         const fronte = prov.filter(p => p.fronte)
             .sort((a, b) => (b.minaccia - b.truppe) - (a.minaccia - a.truppe))[0];
         if (!fronte || fronte.id === retro.id) return null;
@@ -1282,45 +1642,136 @@
         return (other.pattiProposte || []).some(o => String(o.da) === String(player.id)) ||
                (player.pattiProposte || []).some(o => String(o.da) === String(other.id));
     }
-    // Risposte agli araldi arrivati: si accettano i patti che convengono. Un patto
-    // leggero si prende salvo che il proponente sia una preda; un'alleanza solo se
-    // il proponente non è preda ed è forte abbastanza da valere l'impegno.
+    // ---------- LA GUERRA È LA REGOLA, LA DIPLOMAZIA L'ECCEZIONE ----------
+    // (regola dell'utente: "essendo un gioco di guerra, si deve fare la guerra").
+    // Un'IA non manda araldi di alleanza a chiunque incontri. Tre muri, in ordine:
+    //   1. LA FEDE. Fra famiglie diverse non si firma niente — né si chiede né si
+    //      accetta. Gli unici patti che scavalcano la fede sono quelli stretti da
+    //      un EVENTO (le crociate: ctx.pact in game-actions, che non passa di qui).
+    //   2. LA DOTTRINA (js/doctrines.js). Un nemico dichiarato non si tratta mai;
+    //      un amico storico si tratta sempre, fede o no.
+    //   3. IL BISOGNO, e solo quello. Si compra pace da chi al confine è più forte
+    //      di noi, non da chiunque passi; e mai oltre PACT_MAX patti in essere —
+    //      un regno che ha firmato con mezzo mondo non fa più guerra a nessuno.
+    const PACT_MAX = 2;           // patti attivi al massimo (l'amico di dottrina è a parte)
+    const PACT_NEED = 1.2;        // quanto più forte dev'essere il fronte per comprarne la pace
+    const PACT_MIN_THREAT = 4;    // sotto questo, la minaccia non vale un araldo
+
+    // La FAMIGLIA di fede di un regno: quella della sua Capitale (§Religione).
+    // Senza Capitale — un regno appena nato, o che l'ha appena persa — vale la
+    // fede DICHIARATA dalla dottrina, e in ultimo la fede della maggioranza delle
+    // sue province: un impero non diventa apolide perché gli hanno preso il seggio.
+    function faithFamilyOf(player) {
+        if (typeof Religions === 'undefined' || !player) return null;
+        const fede = R().stateReligionOf ? R().stateReligionOf(player) : null;
+        if (fede) return Religions.familyOf(fede);
+        const dichiarata = DOC() ? DOC().faithOf(doctrineOf(player)) : null;
+        if (dichiarata) return dichiarata;
+        const conta = new Map();
+        E().ownedPaths(player.name).forEach(p => {
+            const f = Religions.familyOf(E().religion(p));
+            if (f) conta.set(f, (conta.get(f) || 0) + 1);
+        });
+        let best = null;
+        conta.forEach((n, f) => { if (!best || n > best.n) best = { f, n }; });
+        return best ? best.f : null;
+    }
+
+    // Si può anche solo PARLARE di patti con questo regno?
+    function canDealWith(player, other) {
+        if (!player || !other) return false;
+        const mio = doctrineOf(player), suo = doctrineOf(other);
+        if (DOC()) {
+            const miaFede = faithFamilyOf(player), suaFede = faithFamilyOf(other);
+            // La dottrina prima di tutto: una fede nemica chiude la porta anche a
+            // chi la fede generica lascerebbe passare, e viceversa un amico
+            // storico la tiene aperta comunque.
+            if (DOC().blocksFaith(mio, suaFede) || DOC().blocksFaith(suo, miaFede)) return false;
+            if (DOC().isEnemy(mio, other.name) || DOC().isEnemy(suo, player.name)) return false;
+            if (DOC().isFriend(mio, other.name) || DOC().isFriend(suo, player.name)) return true;
+            if (!miaFede || !suaFede) return true;   // fede ignota: non s'inventa un muro
+            return miaFede === suaFede;
+        }
+        const a = faithFamilyOf(player), b = faithFamilyOf(other);
+        return (!a || !b) ? true : a === b;
+    }
+    // Un'amicizia di dottrina basta che la dichiari UNA delle due parti: la
+    // Castiglia non ha dottrina, ma il Portogallo la nomina amica, e deve poter
+    // firmare con lei anche se agli occhi di Castiglia è solo un vicino debole
+    // (regola dell'utente: "i portoghesi accetteranno patti con la Castiglia").
+    function isDoctrineFriend(player, other) {
+        if (!DOC() || !player || !other) return false;
+        return DOC().isFriend(doctrineOf(player), other.name) ||
+               DOC().isFriend(doctrineOf(other), player.name);
+    }
+
+    // Risposte agli araldi arrivati: si accettano i patti che convengono, e solo
+    // da chi si può trattare. Un patto leggero si prende salvo che il proponente
+    // sia una preda; un'alleanza solo se il proponente non è preda ed è forte
+    // abbastanza da valere l'impegno. L'amico di dottrina si accetta e basta.
     function diploAnswers(player, s) {
         if (!D()) return [];
+        const partner = D().partnersOf(player, R().players()).length;
         return (player.pattiProposte || []).slice().map(off => {
             const mitt = R().players().find(p => p.id === off.da);
             if (!mitt || !E().ownedPaths(mitt.name).length) return { id: off.id, kind: 'decline' };
+            if (!canDealWith(player, mitt)) return { id: off.id, kind: 'decline' };
+            const amico = isDoctrineFriend(player, mitt);
+            if (!amico && partner >= PACT_MAX) return { id: off.id, kind: 'decline' };
             const preda = isJuicyPrey(player, s, mitt);
             const forte = kingdomStrength(mitt) >= kingdomStrength(player) * 0.6;
-            const accetta = D().costsPrestige(off.tipo) ? (!preda && forte) : !preda;
+            const accetta = amico || (D().costsPrestige(off.tipo) ? (!preda && forte) : !preda);
             return { id: off.id, kind: accetta ? 'accept' : 'decline' };
         });
     }
-    // Proposta "per bisogno": il vicino-regno più minaccioso su un mio confine, con
-    // cui non sono già in pace e che non è una preda, si compra con la non
-    // belligeranza. Un solo araldo per turno.
+
+    // Un solo araldo per turno, e solo per due ragioni.
+    //   L'AMICO DI DOTTRINA: l'unico patto che un regno cerca senza esservi
+    //   costretto (i Selgiuchidi si alleano con gli Abbasidi, il Portogallo firma
+    //   la non belligeranza con la Castiglia).
+    //   LA PAURA: un fronte dove il vicino è nettamente più forte di noi. Non "un
+    //   vicino armato" — uno che ci schiaccia: la pace si compra quando serve, se
+    //   no si combatte.
     function diploProposals(player, s) {
         if (!D()) return null;
-        const minaccia = new Map();   // id regno -> spendibili massimi al confine
+        const doc = doctrineOf(player);
+        if (doc && doc.pattoAmico) {
+            const amico = (doc.amici || [])
+                .map(n => R().players().find(p => p.name === n))
+                .find(p => p && E().ownedPaths(p.name).length &&
+                    !D().pactsWith(player, p.id).length && !pendingBetween(player, p));
+            if (amico) return { toId: amico.id, tipo: doc.pattoAmico };
+        }
+        if (D().partnersOf(player, R().players()).length >= PACT_MAX) return null;
+
+        // Per ogni regno confinante: quanto è forte LUI sul confine e quanto siamo
+        // forti NOI di fronte a lui.
+        const fronti = new Map();
         E().ownedPaths(player.name).forEach(pt => {
+            const mia = E().countPiece(pt, 'soldato');
             E().landNeighbors(pt.id).forEach(n => {
                 const owner = ownerAt(n);
                 if (!owner || owner === player.name) return;
                 const other = R().players().find(p => p.name === owner);
                 if (!other) return;   // neutrale: non si tratta
                 const forza = GR().spendableTroops(E().countPiece(pathOf(n), 'soldato'));
-                minaccia.set(other.id, Math.max(minaccia.get(other.id) || 0, forza));
+                const f = fronti.get(other.id) || { minaccia: 0, mia: 0 };
+                f.minaccia = Math.max(f.minaccia, forza);
+                f.mia = Math.max(f.mia, mia);
+                fronti.set(other.id, f);
             });
         });
         let target = null, best = 0;
-        minaccia.forEach((forza, id) => {
+        fronti.forEach((f, id) => {
             const other = R().players().find(p => p.id === id);
             if (!other) return;
-            if (forza < 3) return;                              // minaccia trascurabile
+            if (f.minaccia < PACT_MIN_THREAT) return;           // minaccia trascurabile
+            if (f.minaccia < f.mia * PACT_NEED) return;         // reggo il confine: si combatte
+            if (!canDealWith(player, other)) return;            // fede o dottrina: non si tratta
             if (D().grantsNonAggression(player, other)) return; // già in pace
             if (pendingBetween(player, other)) return;          // araldo già in viaggio
             if (isJuicyPrey(player, s, other)) return;          // preferisco attaccarlo
-            if (forza > best) { best = forza; target = other; }
+            if (f.minaccia > best) { best = f.minaccia; target = other; }
         });
         return target ? { toId: target.id, tipo: 'nonBelligeranza' } : null;
     }
@@ -1346,6 +1797,11 @@
         if (!s) return;
         if (!E().ownedPaths(player.name).length) return;   // regno annientato: niente da fare
 
+        // Gli obiettivi di prestigio (§10) ancora aperti, letti UNA volta per
+        // turno: cambiano poco da un'azione all'altra, a differenza di `st` (che
+        // una conquista o una strada aggiornano di continuo).
+        const og = objectiveState(player);
+
         // Turno ripreso a metà (pagina ricaricata mentre giocava l'IA): prima si
         // chiude la conquista in sospeso, poi si riparte dalla fase in cui è
         // rimasto — non dalla prima, che il motore rifiuterebbe.
@@ -1360,21 +1816,21 @@
         // sceglie il livello più redditizio che regge il target, quindi le tasse
         // scendono quando il popolo mugugna e RISALGONO da sé appena Sicurezza e
         // Benessere se lo possono permettere.
-        let st = popState(player, s);
+        let st = popState(player, s, og);
         if (st && st.piano.tax !== player.tassazione) {
             yield GA().setTax(player, st.piano.tax);
-            st = popState(player, s);
+            st = popState(player, s, og);
         }
 
         // --- FASE 1 · schieramento ---
         if (GA().phaseOf(player) === 'schiera') {
-            if (GA().boundTotal(player)) { yield GA().deployAllBound(player); st = popState(player, s); }
-            for (const passo of deployPlan(player, s, st)) {
+            if (GA().boundTotal(player)) { yield GA().deployAllBound(player); st = popState(player, s, og); }
+            for (const passo of deployPlan(player, s, st, og)) {
                 if (!(player.recluteDaSchierare > 0)) break;
                 const n = Math.min(passo.n, player.recluteDaSchierare, roomAt(passo.id));
                 if (n > 0) yield GA().deploy(player, passo.id, n);
             }
-            st = popState(player, s);
+            st = popState(player, s, og);
         }
         yield* advanceTo(player, 'costruisci');
 
@@ -1386,7 +1842,7 @@
         // strada resta in magazzino per un turno intero. Si fa la spesa, poi si
         // costruisce.
         if (GA().phaseOf(player) === 'costruisci') {
-            const banca = bankPlan(player, s, st);
+            const banca = bankPlan(player, s, st, og);
             if (banca) yield GA().tradeWithBank(player, banca.dai, banca.prendi, banca.n);
         }
 
@@ -1395,10 +1851,10 @@
         // Capitale, e spostarla dopo aver costruito significa costruire dal punto
         // sbagliato.
         if (GA().phaseOf(player) === 'costruisci') {
-            const trasloco = capitalPlan(player, s, st);
+            const trasloco = capitalPlan(player, s, st, og);
             if (trasloco) {
                 yield GA().moveCapital(player, trasloco.provId);
-                st = popState(player, s);
+                st = popState(player, s, og);
             }
         }
 
@@ -1418,13 +1874,13 @@
                     const gratis = (player.stradeGratis || 0) > 0;
                     if (!gratis && !canBuild(player, 'strada', road.a)) break;
                     yield GA().buildRoad(player, road.a, road.b);
-                    st = popState(player, s);       // una strada cambia il Benessere
+                    st = popState(player, s, og);       // una strada cambia il Benessere
                 }
                 continue;
             }
             if (type === 'capitale' && R().getCapitalPathFor(player)) continue;
             if (!wantsBuild(player, type, st)) continue;
-            const sito = siteFor(player, type, s);
+            const sito = siteFor(player, type, s, og);
             if (!sito || !canBuild(player, type, sito.id)) continue;
             yield GA().build(player, sito.id, type);
             costruite++;
@@ -1435,7 +1891,7 @@
         if (GA().phaseOf(player) === 'costruisci' && st) {
             for (const key of welfarePlan(player, s, st)) {
                 yield GA().buildWelfare(player, key);
-                st = popState(player, s);   // ogni miglioria cambia il Benessere
+                st = popState(player, s, og);   // ogni miglioria cambia il Benessere
             }
         }
 
@@ -1447,7 +1903,18 @@
             const nave = shipPlan(player, s, st);
             if (nave && canBuild(player, BOAT, nave.id)) {
                 yield GA().build(player, nave.id, BOAT);
-                st = popState(player, s);
+                st = popState(player, s, og);
+            }
+        }
+
+        // VELIERO (§9.2): solo un regno COLONIALE (js/doctrines.js) lo arma, e
+        // solo per la rotta lunga — è la nave con cui il Portogallo va a fondare
+        // colonie in Africa e oltre l'oceano.
+        if (GA().phaseOf(player) === 'costruisci') {
+            const oceano = colonyShipPlan(player);
+            if (oceano) {
+                yield GA().build(player, oceano.id, OCEAN);
+                st = popState(player, s, og);
             }
         }
 
@@ -1456,10 +1923,10 @@
         // manca si compra, quel che avanza si vende. Tutto dentro la fase
         // costruzioni, come per l'umano.
         if (GA().phaseOf(player) === 'costruisci') {
-            for (const m of tradeAnswers(player, s, st)) {
+            for (const m of tradeAnswers(player, s, st, og)) {
                 yield m.kind === 'accept' ? GA().acceptTrade(player, m.id) : GA().refuseTrade(player, m.id);
             }
-            for (const prop of tradePlan(player, s, st)) {
+            for (const prop of tradePlan(player, s, st, og)) {
                 yield GA().proposeTrade(player, prop.toId, prop.offro, prop.chiedo);
             }
             // Diplomazia (§Diplomazia): prima si risponde agli araldi arrivati,
@@ -1475,7 +1942,7 @@
         // Mercenari: monete convertite in muscoli per questo turno soltanto, e
         // solo se chiudono un attacco che senza di loro non si farebbe.
         if (GA().phaseOf(player) === 'costruisci') {
-            const merc = mercenaryPlan(player, s, st);
+            const merc = mercenaryPlan(player, s, st, og);
             for (let k = 0; merc && k < merc.n; k++) {
                 yield GA().recruit(player, merc.provId, 'mercenario');
             }
@@ -1483,9 +1950,25 @@
         yield* advanceTo(player, 'attacca');
 
         // --- FASE 3 · attacchi ---
+        // Prima di tutto le SPEDIZIONI già in mare (dottrina coloniale): una
+        // ciurma che ha avvistato una costa dove può reggersi scende lì. Va prima
+        // degli attacchi perché una colonia fondata è terra guadagnata senza
+        // toccare i confini di casa.
+        if (GA().phaseOf(player) === 'attacca') {
+            for (const app of colonyLandings(player, s)) {
+                yield GA().expeditionLand(player, app.expId, app.toId);
+            }
+            // E subito dopo SALPA il Veliero appena armato, PRIMA degli attacchi:
+            // se lo si lasciasse lì, `bestAttack` se ne servirebbe come di uno
+            // scafo qualunque per il primo sbarco a tiro, e la rotta lunga non
+            // partirebbe mai. La divisione dei compiti è quella del §9.2: la
+            // Nave per le coste vicine, il Veliero per l'oceano.
+            const rotta = colonyLaunch(player);
+            if (rotta) yield GA().launchExpedition(player, rotta.fromId, rotta.dir, rotta.carico);
+        }
         const maxAttacchi = GA().phaseOf(player) === 'attacca' ? s.maxAttacchi : 0;
         for (let k = 0; k < maxAttacchi; k++) {
-            const best = bestAttack(player, s, st);
+            const best = bestAttack(player, s, st, undefined, og);
             if (!best) break;
             const engaged = engagedFor(best, s);
             // Il 7º argomento è il TRADIMENTO (§Diplomazia): serve solo quando il
@@ -1498,13 +1981,14 @@
                 const occupanti = Math.max(1, Math.round(pend.superstiti * s.avanzata));
                 yield GA().resolveConquest(player, occupanti);
             }
-            st = popState(player, s);      // una conquista cambia confini e risorse
+            st = popState(player, s, og);      // una conquista cambia confini e risorse
         }
+
         yield* advanceTo(player, 'sposta');
 
         // --- FASE 4 · spostamento ---
         if (!player.spostamentoFatto) {
-            const mossa = movePlan(player, s, popState(player, s));
+            const mossa = movePlan(player, s, popState(player, s, og), og);
             if (mossa) yield GA().finalMove(player, mossa.fromId, mossa.toId, mossa.n);
         }
     }

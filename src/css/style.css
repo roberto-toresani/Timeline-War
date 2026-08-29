@@ -500,9 +500,13 @@ svg path.haze {
 /* ============================================================
    SCENA DELLA BATTAGLIA (vedi playBattleFx in js/app.js)
    Il colpo si legge in tre battute: la mappa si abbassa e restano accese le
-   due province, una lama corre da attaccante a difensore, l'impatto scuote la
-   mappa e stacca i numeri dei caduti. Durate corte apposta: la scossa dura
-   meno di mezzo secondo, il tempo di registrare il colpo senza infastidire.
+   due province, un'ondata di lame corre da attaccante a difensore, l'impatto
+   scuote la mappa e stacca i numeri dei caduti.
+   DURATE (scelta dell'utente: la scena si deve VEDERE) — la carica dura un
+   secondo pieno, l'impatto scuote per tre quarti, i caduti restano su due
+   secondi e mezzo e il verdetto arriva staccato, in coda. I tempi degli
+   elementi li scrive playBattleFx (app.js) con BATTLE_FX_MS: chi tocca questi
+   secondi guardi anche là, o le due metà della scena si sfasano.
    ============================================================ */
 
 svg.battle-focus path.state {
@@ -521,8 +525,8 @@ svg.battle-focus .piece-marker,
 svg.battle-focus .road-marker { opacity: .25; }
 
 /* la provincia colpita: lampo caldo se cade, verde se regge */
-svg path.battle-hit  { animation: battle-hit-flash .5s ease-out 2; }
-svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
+svg path.battle-hit  { animation: battle-hit-flash .55s ease-out 3; }
+svg path.battle-held { animation: battle-held-flash .55s ease-out 3; }
 
 @keyframes battle-hit-flash  { 50% { fill: #ffd479 !important; } }
 @keyframes battle-held-flash { 50% { fill: #9fd39f !important; } }
@@ -531,8 +535,8 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
 .battle-fx.fx-charge {
     stroke-dasharray: 100;
     stroke-dashoffset: 100;
-    animation: fx-charge-draw .6s ease-in forwards, fx-fade .5s ease-out 1.9s forwards;
-    filter: drop-shadow(0 0 3px rgba(0, 0, 0, .8));
+    animation: fx-charge-draw 1s ease-in forwards, fx-fade .7s ease-out 3.1s forwards;
+    filter: drop-shadow(0 0 4px rgba(0, 0, 0, .85));
 }
 
 @keyframes fx-charge-draw { to { stroke-dashoffset: 0; } }
@@ -541,15 +545,16 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
 /* la lama che corre lungo la traiettoria */
 .battle-fx.fx-blade {
     fill: #ffe9c0;
-    animation: fx-blade-run .6s ease-in forwards, fx-fade .3s ease-out .62s forwards;
-    filter: drop-shadow(0 0 4px rgba(0, 0, 0, .9));
+    animation: fx-blade-run 1s ease-in forwards, fx-fade .35s ease-out 1.02s forwards;
+    filter: drop-shadow(0 0 5px rgba(0, 0, 0, .9));
     transform-box: fill-box;
     transform-origin: center;
 }
 
 @keyframes fx-blade-run {
-    from { transform: translate(0, 0) scale(.7); }
-    to   { transform: translate(var(--dx), var(--dy)) scale(1.25); }
+    0%   { transform: translate(0, 0) scale(.6); }
+    60%  { transform: translate(calc(var(--dx) * .62), calc(var(--dy) * .62)) scale(1.4); }
+    100% { transform: translate(var(--dx), var(--dy)) scale(1.7); }
 }
 
 /* onde d'urto sull'impatto */
@@ -557,12 +562,12 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
     opacity: 0;
     transform-box: fill-box;
     transform-origin: center;
-    animation: fx-blast-out .75s ease-out forwards;
+    animation: fx-blast-out 1.1s ease-out forwards;
 }
 
 @keyframes fx-blast-out {
-    0%   { opacity: .95; transform: scale(.35); }
-    100% { opacity: 0;   transform: scale(3.2); }
+    0%   { opacity: 1; transform: scale(.3); }
+    100% { opacity: 0; transform: scale(4.2); }
 }
 
 /* I caduti: numero rosso che sale e svanisce. Misure in em, non in px: il
@@ -579,14 +584,14 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
        e il numero schizzerebbe via invece di gonfiarsi sul posto. */
     transform-box: fill-box;
     transform-origin: center;
-    animation: fx-rise 1.7s ease-out forwards;
+    animation: fx-rise 2.5s ease-out forwards;
 }
 
 @keyframes fx-rise {
     0%   { opacity: 0; transform: translateY(0) scale(.6); }
-    18%  { opacity: 1; transform: translateY(-.3em) scale(1.15); }
-    70%  { opacity: 1; transform: translateY(-.7em) scale(1); }
-    100% { opacity: 0; transform: translateY(-1.2em) scale(1); }
+    12%  { opacity: 1; transform: translateY(-.3em) scale(1.3); }
+    80%  { opacity: 1; transform: translateY(-.8em) scale(1.05); }
+    100% { opacity: 0; transform: translateY(-1.3em) scale(1.05); }
 }
 
 /* verdetto sotto la provincia contesa */
@@ -601,22 +606,25 @@ svg path.battle-held { animation: battle-held-flash .5s ease-out 2; }
        e il numero schizzerebbe via invece di gonfiarsi sul posto. */
     transform-box: fill-box;
     transform-origin: center;
-    animation: fx-verdict-in .35s ease-out forwards, fx-fade .6s ease-in 2.1s forwards;
+    animation: fx-verdict-in .5s ease-out forwards, fx-fade .7s ease-in 2.7s forwards;
 }
 
 @keyframes fx-verdict-in {
-    from { opacity: 0; transform: scale(.7); }
-    to   { opacity: 1; transform: scale(1); }
+    0%   { opacity: 0; transform: scale(.6); }
+    65%  { opacity: 1; transform: scale(1.18); }
+    100% { opacity: 1; transform: scale(1); }
 }
 
-/* scossa della mappa all'impatto: corta e piccola, non deve dare fastidio */
-#map-wrapper.battle-shake { animation: battle-shake .45s cubic-bezier(.36, .07, .19, .97); }
+/* Scossa della mappa all'impatto. Più lunga e più ampia di prima (richiesta
+   dell'utente: lo scontro deve vedersi), ma sempre entro i 10px: oltre, la
+   mappa smette di sembrare scossa e sembra rotta. */
+#map-wrapper.battle-shake { animation: battle-shake .7s cubic-bezier(.36, .07, .19, .97); }
 
 @keyframes battle-shake {
-    10%, 90% { transform: translate(-2px, 1px); }
-    20%, 80% { transform: translate(4px, -2px); }
-    30%, 50%, 70% { transform: translate(-6px, 2px); }
-    40%, 60% { transform: translate(6px, -1px); }
+    10%, 90% { transform: translate(-3px, 2px); }
+    20%, 80% { transform: translate(6px, -3px); }
+    30%, 50%, 70% { transform: translate(-9px, 3px); }
+    40%, 60% { transform: translate(9px, -2px); }
 }
 
 /* Chi ha chiesto meno movimento vede lo stesso i numeri, senza scosse né corse. */

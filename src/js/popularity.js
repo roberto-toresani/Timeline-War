@@ -98,33 +98,40 @@
     // a Popolarità 1 (−2 reclute, −2 risorse: raccolto zero) prima ancora di avere
     // i mezzi per rimediare. La grazia gli dà i decenni per costruirseli, poi
     // svanisce e il regno regge sulle proprie gambe. Vale per tutti — umano e IA.
-    // Ancorata al turno GLOBALE (il gioco parte dal turno 1, js/chronicle.js): è
-    // l'ETÀ del mondo, non del singolo regno.
-    const GRACE_START = 2;   // punti di Popolarità nei primissimi turni
+    // Ancorata all'ETÀ DEL REGNO, non a quella del mondo (regola dell'utente): un
+    // regno che nasce a partita in corso — l'Orda mongola del turno 25, i
+    // Selgiuchidi, il Portogallo (js/events.js) — è giovane quanto lo era un regno
+    // d'inizio partita al turno 1, e senza strade né migliorie precipiterebbe subito
+    // a Popolarità 1. `nato` è il turno di fondazione (1 per chi c'è dall'inizio),
+    // quindi per loro la grazia è la stessa, solo spostata avanti nel calendario.
+    const GRACE_START = 2;   // punti di Popolarità nei primissimi turni di vita
     const GRACE_EVERY = 3;   // ogni quanti turni cala di 1
-    const GRACE_LAST = 5;    // ultimo turno con grazia: dal 6 in poi è zero (regola dell'utente)
-    // Andamento: turni 1-3: +2 · 4-5: +1 · 6+: 0. Il tetto GRACE_LAST tronca la
-    // coda che la sola scala darebbe (turno 6), così la grazia dura al MASSIMO fino
-    // al turno 5.
-    function graceBonus(turn) {
+    const GRACE_LAST = 5;    // ultimo turno di vita con grazia: dal 6º in poi è zero (regola dell'utente)
+    // Andamento: turni di vita 1-3: +2 · 4-5: +1 · 6+: 0. Il tetto GRACE_LAST tronca
+    // la coda che la sola scala darebbe (6º turno), così la grazia dura al MASSIMO
+    // per i primi cinque decenni del regno.
+    function graceBonus(turn, nato) {
         if (turn === undefined || turn === null) return 0;
         const t = Math.max(1, Math.floor(turn));
-        if (t > GRACE_LAST) return 0;
-        return Math.max(0, GRACE_START - Math.floor((t - 1) / GRACE_EVERY));
+        const n = Math.max(1, Math.floor(nato || 1));
+        const eta = t - n + 1;                 // 1 = il turno in cui il regno nasce
+        if (eta < 1 || eta > GRACE_LAST) return 0;
+        return Math.max(0, GRACE_START - Math.floor((eta - 1) / GRACE_EVERY));
     }
 
     // La formula del §8 per intero. `m` sono i fattori misurati:
     //   { enemyBorders, soldiers, hasGeneral, varieta, foodProv, sanita, felicita,
-    //     tax, turn }
+    //     tax, turn, nato }
     // Il totale è clampato 1–5: il livello 0 non esiste nella tabella effetti.
-    // `turn` porta la grazia dell'insediamento: chi non lo passa non la riceve.
+    // `turn` (col turno di fondazione `nato`) porta la grazia dell'insediamento:
+    // chi non lo passa non la riceve.
     function score(m) {
         const meas = m || {};
         const dif = defence(meas);
         const ben = welfare(meas);
         const tax = TAX_LEVELS[meas.tax] ? meas.tax : 'normale';
         const tassa = taxScore(tax);
-        const grazia = graceBonus(meas.turn);
+        const grazia = graceBonus(meas.turn, meas.nato);
         const base = roundRule((dif.valore + ben.valore + tassa) / 3);
         const totale = Math.max(1, clamp05(base + grazia));
         return {

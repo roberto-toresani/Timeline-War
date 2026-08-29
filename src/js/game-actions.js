@@ -15,6 +15,7 @@
     const E = () => root.Risiko.engine;
     const D = () => root.Diplomacy;   // DIPLOMAZIA (alleanze): la relazione pura
     const EV = () => root.Events;     // EVENTI STORICI (crociate, mongoli, peste…)
+    const OB = () => root.Objectives; // OBIETTIVI (§10): il binario storico dei regni
     const GR = () => root.GameRules;
 
     const fail = (msg) => ({ ok: false, msg });
@@ -387,6 +388,15 @@
             pl.schierateTurno = {};
             pl.prestigioCiclo = 0;
             pl.puntiOro = 0;
+            // Il BINARIO STORICO riparte dal primo capitolo: una partita nuova
+            // non eredita il punto a cui era arrivata la storia di quella prima.
+            pl.capitolo = 1;
+            pl.intensita = 'avanzare';
+            pl.obiettiviCiclo = null;
+            pl.obiettiviStorico = [];
+            pl.cicliStorico = [];
+            pl.obiettiviAvvisi = [];
+            pl.puntiPrestigio = 0;
             pl.temporanei = {};
             pl.offerte = [];
             pl.spie = [];
@@ -408,8 +418,14 @@
         // partita nuova non eredita orde o pestilenze da quella prima.
         if (R().setEventi) R().setEventi({ attivi: [], fatti: [] });
 
-        // Giocano solo i regni che hanno almeno una provincia.
+        // Giocano solo i regni che hanno almeno una provincia. L'ordine di turno
+        // si sorteggia (Fisher-Yates) a ogni avvio: chi parte non è sempre lo
+        // stesso regno (regola dell'utente).
         const ordine = players.filter(pl => E().ownedPaths(pl.name).length).map(pl => pl.id);
+        for (let i = ordine.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [ordine[i], ordine[j]] = [ordine[j], ordine[i]];
+        }
         R().setTurnState(ordine.length ? ordine[0] : null, ordine, 0);
         beginTurn();
         E().refresh();
@@ -477,6 +493,96 @@
 
     // FASE 3 (§2): scadono i temporanei, passa il turno. Chiuso il giro,
     // avanza il turno globale (l'anno) e ruota chi apre il round (§2.1).
+    // ---------- OBIETTIVI: la chiusura di un ciclo (§10, js/objectives.js) ----------
+    // Il calendario è entrato in un ciclo nuovo. Qui, e SOLO qui, si fanno i
+    // conti del ciclo che si chiude: si congela la spunta (una fotografia VERA,
+    // non una rivalutazione a posteriori come faceva il render della plancia),
+    // si scrive il profilo del regno, si muove il puntatore sul binario e si
+    // genera l'assegnazione del ciclo nuovo. Sta nel blocco `giroFinito` di
+    // endTurn DOPO eventi, scismi, razzie e rifornimenti, così la fotografia è
+    // lo stato con cui il ciclo nuovo comincia davvero.
+    const PROFILE_MAX = 12;
+
+    // Le assegnazioni IN CORSO, lette prima che il calendario si muova. Da
+    // `advanceGlobalTurn` in poi il ciclo è quello nuovo, e qualunque render
+    // che passi di lì (un evento, uno scisma, una razzia: tutti ridisegnano)
+    // rigenererebbe l'assegnazione per il ciclo nuovo, cancellando le soglie
+    // con cui il ciclo che si chiude era cominciato. Si fotografa prima.
+    function grabAssignments() {
+        const m = {};
+        R().players().forEach(p => { m[p.id] = p.obiettiviCiclo || null; });
+        return m;
+    }
+
+    function closeCycle(nuovoCiclo, assegnazioni) {
+        if (!OB() || !R().objectiveContext) return null;
+        const chiuso = nuovoCiclo - 1;
+        const esiti = [];
+        R().players().forEach(player => {
+            const ctx = R().objectiveContext(player);
+            const grabbed = assegnazioni ? assegnazioni[player.id] : null;
+            const a = grabbed || player.obiettiviCiclo;
+            // 1. i conti del ciclo che si chiude. Si valuta l'ASSEGNAZIONE, cioè
+            //    le soglie con cui il ciclo era cominciato; senza (regno appena
+            //    nato, salvataggio vecchio) si ricade sul binario.
+            const suo = a && Array.isArray(a.items) && a.items.length && a.ciclo === chiuso;
+            const snap = suo ? OB().evaluate(a, ctx) : OB().evaluate(player.name, ctx, chiuso);
+            if (snap && !player.obiettiviStorico.some(h => h.ciclo === snap.ciclo)) {
+                R().archiveObjectives(player, snap);
+            }
+            // 2. il profilo su cui si misura la performance del regno.
+            const prof = R().objectiveProfile(player);
+            prof.ciclo = chiuso;
+            prof.capitolo = player.capitolo || chiuso;
+            prof.obiettiviFatti = snap ? snap.items.filter(i => i.completato).length : 0;
+            player.cicliStorico.push(prof);
+            while (player.cicliStorico.length > PROFILE_MAX) player.cicliStorico.shift();
+            // 3. IL PUNTATORE. Chi ha compiuto il capitolo passa al pezzo di
+            //    storia successivo; chi non ce l'ha fatta lo rifà a voce più
+            //    bassa; chi è crollato torna indietro. Il ritmo del ciclo appena
+            //    chiuso allunga o accorcia il passo delle soglie.
+            const prec = player.cicliStorico.length > 1
+                ? player.cicliStorico[player.cicliStorico.length - 2] : null;
+            const ritmo = OB().ritmoDa(prof, prec);
+            const mossa = OB().passo({
+                primarioFatto: !!(snap && snap.items[0] && snap.items[0].completato),
+                fatti: prof.obiettiviFatti,
+                intensita: player.intensita,
+                province: prof.province,
+                provincePrec: prec ? prec.province : null,
+                capitalePersa: !!(prec && prec.capitale && !prof.capitale),
+                capitolo: player.capitolo || chiuso,
+                ciclo: nuovoCiclo,
+                capitoli: OB().chapterCount(player.name)
+            });
+            player.capitolo = mossa.capitolo;
+            player.intensita = mossa.intensita;
+            // La storia ACCELERA: se il capitolo che tocca ora è già stato
+            // superato dai fatti — la sua meta è oltre l'ancora più ambiziosa —
+            // si passa al successivo invece di riproporlo con un numero più
+            // grande. È il caso del regno che ha corso: gli si dà il pezzo dopo,
+            // non lo stesso pezzo gonfiato.
+            let salti = 0;
+            while (salti++ < 4
+                && player.capitolo < OB().chapterCount(player.name)
+                && player.capitolo < nuovoCiclo + OB().FRENO
+                && OB().superato(player.name, player.capitolo, ctx)) {
+                player.capitolo++;
+            }
+            // 4. l'assegnazione del ciclo nuovo, calibrata sullo stato di adesso.
+            player.obiettiviCiclo = OB().generate(player.name, ctx, {
+                ciclo: nuovoCiclo, capitolo: player.capitolo,
+                intensita: player.intensita, ritmo: ritmo,
+                turno: R().turn(), calibra: true
+            });
+            if (snap) esiti.push({
+                regno: player.name, punti: snap.punti, puntiMax: snap.puntiMax,
+                motivo: mossa.motivo, capitolo: player.capitolo, intensita: player.intensita
+            });
+        });
+        return { ciclo: chiuso, esiti: esiti };
+    }
+
     function endTurn() {
         const ordine = R().ordine();
         if (!ordine.length) return fail('La partita non è stata avviata.');
@@ -500,7 +606,10 @@
         let scadute = 0;
         let razzie = null;
         let scismi = null;
+        let cicli = null;
         if (giroFinito) {
+            const turnoPrima = R().turn();
+            const assPrima = OB() ? grabAssignments() : null;
             R().advanceGlobalTurn();
             // Nuovo decennio: gli EVENTI STORICI (js/events.js) scattano e
             // ticchettano PRIMA di scismi, razzie e rifornimenti — così un'orda
@@ -524,6 +633,14 @@
             // le perdite in battaglia (garrisonNeutrals è additivo, regola
             // dell'utente): una neutrale bastonata non torna a quota da sola.
             neutrali = garrisonNeutrals();
+            // Il calendario può essere entrato in un CICLO nuovo (§10): si
+            // chiudono i conti di quello appena finito e si assegnano gli
+            // obiettivi del prossimo. Ultimo della catena apposta: la
+            // fotografia deve vedere orde, scismi e razzie già applicati.
+            if (OB()) {
+                const cicloOra = OB().cycleOfTurn(R().turn());
+                if (cicloOra > OB().cycleOfTurn(turnoPrima)) cicli = closeCycle(cicloOra, assPrima);
+            }
             // Un evento può aver aggiunto un regno all'ordine (spawnKingdom): rileggo
             // la lista VIVA, così il nuovo regno entra nel giro invece di essere
             // clobberato dalla copia locale catturata a inizio funzione. L'append è
@@ -548,7 +665,7 @@
             ? ' Le terre di nessuno ne riprendono ' + razzie.perse + '.' : '';
         return done((giroFinito ? 'Giro completato: nuovo turno.' : 'Turno passato.') + nota + notaN + notaC + notaR,
             { produzione: res.produzione, neutrali, scadute,
-              razzie: (razzie && razzie.razzie) || [], scismi: scismi || [] });
+              razzie: (razzie && razzie.razzie) || [], scismi: scismi || [], cicli });
     }
 
     // ---------- EVENTI STORICI (js/events.js) ----------
@@ -620,10 +737,17 @@
     }
 
     // CROCIATE — raduna un'oste drenando le VERE truppe del regno (§5): non è
-    // evocata, gli uomini escono dalle province, prima da `da` (la partenza
-    // voluta), poi dalla Capitale, poi dalle più capienti, lasciando ovunque il
-    // presidio minimo. La ventura parte in quota (§5.3). Ritorna { soldati, merc,
-    // fromId, fromLabel } o null se il regno non esiste / non ha uomini da dare.
+    // evocata. Da dove si preleva, in ordine: `da` (una provincia fissa, es.
+    // Eastern Thrace per Bisanzio — è già dove l'obiettivo bi2 chiede di
+    // radunare); altrimenti `regione` (le province candidate dell'obiettivo di
+    // "preparazione", es. MED_FR per fr1: "raduna 10 uomini su una costa
+    // mediterranea") — fra quelle si sceglie quella dove il giocatore ha DAVVERO
+    // ammassato più uomini, cioè dove ha eseguito l'obiettivo; se in nessuna
+    // c'è un solo soldato (l'obiettivo non è stato preparato) si ripiega sulla
+    // provincia più piena di tutto il regno. La Capitale non ha corsie
+    // preferenziali: è solo una provincia come le altre nel conteggio. Presidio
+    // minimo ovunque, ventura in quota (§5.3). Ritorna { soldati, merc, fromId,
+    // fromLabel } o null se il regno non esiste / non ha uomini da dare.
     function eventMuster(regnoName, opts) {
         const o = opts || {};
         const forza = Math.max(0, Math.floor(o.forza || 0));
@@ -631,8 +755,18 @@
         if (!regno || forza <= 0) return null;
         const owned = E().ownedPaths(regnoName);
         if (!owned.length) return null;
-        const capital = R().getCapitalPathFor ? R().getCapitalPathFor(regno) : null;
-        const rank = p => (o.da && p.id === o.da) ? 3 : (capital && p.id === capital.id) ? 2 : 1;
+        let da = o.da || null;
+        if (!da && o.regione) {
+            const regione = (o.regione instanceof Set) ? o.regione : new Set(o.regione);
+            let best = null, bestN = 0;
+            owned.forEach(p => {
+                if (!regione.has(p.id)) return;
+                const n = GR().spendableTroops(E().countPiece(p, 'soldato'));
+                if (n > bestN) { bestN = n; best = p; }
+            });
+            if (best) da = best.id;
+        }
+        const rank = p => (da && p.id === da) ? 1 : 0;
         const ordered = owned.slice().sort((a, b) => {
             const dr = rank(b) - rank(a);
             if (dr) return dr;
@@ -653,7 +787,7 @@
             soldati += take; merc += mercVia; restano -= take;
         });
         if (soldati <= 0) return null;
-        const fromPath = (o.da && E().path(o.da)) || capital || ordered[0];
+        const fromPath = (da && E().path(da)) || ordered[0];
         return { soldati, merc,
             fromId: fromPath ? fromPath.id : null,
             fromLabel: fromPath ? R().provinceLabel(fromPath) : null };
@@ -710,18 +844,68 @@
         return true;
     }
 
-    // MONGOLI — crea un NUOVO regno a partita in corso (l'Orda che sorge dalle
-    // steppe) e lo infila nell'ordine dei turni, attivo dal giro dopo. Gli posa le
-    // province di partenza con un esercito del suo colore; una provincia neutrale
-    // viene semplicemente insediata (le costruzioni, se ci fossero, restano e
-    // cambiano colore, come in conquista). Il regno nasce con `bot:null`: lo gioca
-    // l'admin. spec: { name, color, bot, province:[{id, soldati, merc, capitale}] }.
+    // MONGOLI, SELGIUCHIDI, PORTOGALLO, BULGARIA, REGNI NORDICI — crea un NUOVO
+    // regno a partita in corso e lo infila nell'ordine dei turni, attivo dal giro
+    // dopo. Gli posa le province di partenza con un esercito del suo colore; una
+    // provincia neutrale viene semplicemente insediata (le costruzioni, se ci
+    // fossero, restano e cambiano colore, come in conquista). `bot` è la strategia
+    // che lo governa (null = lo gioca l'admin, come l'Orda).
+    // spec: { name, color, bot, province:[{id, soldati, merc, capitale}],
+    //         soloLibere, ripiego, minProvince, monete, scorte, annuncio }.
+    //
+    // DOVE nasce davvero (regola dell'utente): un regno nuovo non piove addosso a
+    // chi c'è. `soloLibere` scarta le province già di un regno; `ripiego` cerca
+    // per ognuna scartata una terra di nessuno CONFINANTE con le province di
+    // partenza; `minProvince` è la soglia sotto la quale il regno NON nasce
+    // affatto — se il posto è occupato, quella storia non accade. Nessuna
+    // Capitale in regalo: come ogni regno se la costruisce da sé (§Capitale).
     function eventSpawnKingdom(spec) {
         const s = spec || {};
         if (!R().addKingdom) return null;
-        const pl = R().addKingdom({ name: s.name, color: s.color, bot: s.bot || null });
-        if (!pl) return null;
+
+        const libera = id => { const p = E().path(id); return !!p && !E().owner(p); };
+        const spots = [];
+        const presi = new Set();
+        const scartate = [];
         (s.province || []).forEach(spot => {
+            if (!spot || !E().path(spot.id)) return;
+            if (!s.soloLibere || libera(spot.id)) { spots.push(spot); presi.add(spot.id); }
+            else scartate.push(spot);
+        });
+        if (s.ripiego) {
+            scartate.forEach(spot => {
+                let alt = null;
+                (s.province || []).some(base => {
+                    alt = (E().landNeighbors(base.id) || [])
+                        .find(n => !presi.has(n) && libera(n)) || null;
+                    return !!alt;
+                });
+                if (alt) { spots.push(Object.assign({}, spot, { id: alt })); presi.add(alt); }
+            });
+        }
+        if (spots.length < (s.minProvince || 1)) return null;
+
+        // Un regno con questo NOME c'è già? Si riusa il suo record invece di
+        // crearne un gemello: il nome è la chiave con cui lo riconoscono dottrine
+        // (js/doctrines.js) e obiettivi (§10), e due record omonimi le
+        // manderebbero in confusione. Capita quando si ricarica la mappa iniziale
+        // e si ricomincia con una partita nuova: il calendario riparte da zero
+        // (`eventi` azzerato) ma l'anagrafica dei regni resta.
+        const pl = R().players().find(p => p.name === s.name) ||
+            R().addKingdom({ name: s.name, color: s.color, bot: s.bot || null });
+        if (!pl) return null;
+        pl.bot = s.bot || null;
+        // FONDAZIONE: nasce ADESSO, anche se il record è riusato (stessa mappa
+        // ricaricata). Da qui la GRAZIA DELL'INSEDIAMENTO (§8) gli conta i suoi
+        // primi decenni come li ha contati a chi c'era dal turno 1: un regno che
+        // sorge al 25º turno è giovane, non in ritardo.
+        pl.nato = R().turn();
+        // Il tesoro e il magazzino di partenza (il Portogallo nasce ricco e con
+        // del legname: è il mare la sua storia). Senza, valgono i valori del §11
+        // che normalizePlayer ha già messo.
+        if (typeof s.monete === 'number') pl.monete = s.monete;
+        if (s.scorte) Object.keys(s.scorte).forEach(k => { pl.scorte[k] = s.scorte[k]; });
+        spots.forEach(spot => {
             const path = spot && E().path(spot.id);
             if (!path) return;
             E().setOwner(path, pl.name);
@@ -742,6 +926,19 @@
         if (ordine.length && ordine.indexOf(pl.id) === -1) {
             ordine.push(pl.id);
             R().setTurnState(R().turnoDi(), ordine, R().primoDelGiro());
+        }
+        // L'ANNUNCIO ai soli CONFINANTI: la mappa non cambia mai di nascosto per
+        // chi ce l'ha davanti agli occhi, ma un regno lontano non deve saperlo (è
+        // la stessa nebbia che tiene segreta l'Orda finché non arriva). Chi non
+        // vuole annuncio non mette `annuncio` nella spec: nasce in silenzio.
+        if (s.annuncio) {
+            const vicini = new Set();
+            spots.forEach(spot => (E().landNeighbors(spot.id) || []).forEach(n => {
+                const np = E().path(n);
+                const chi = np && E().owner(np);
+                if (chi && chi !== pl.name) vicini.add(chi);
+            }));
+            if (vicini.size) eventNotify(Array.from(vicini), s.annuncio);
         }
         return pl;
     }

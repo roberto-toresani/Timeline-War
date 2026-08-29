@@ -28,6 +28,11 @@
         regione: 'europa'   // dove nascono i regni (vedi REGIONS)
     };
 
+    // Regni che il sorteggio dell'umano NON pesca mai (regola dell'utente): sono
+    // regni nati per EVENTO (js/events.js) e non regni d'inizio partita. Il nome è
+    // la chiave, come per dottrine e obiettivi. Restano assegnabili a mano per id.
+    const NON_SORTEGGIABILI = ['Mongoli'];
+
     // DOVE NASCONO I REGNI (scelta dell'utente: "tutti in Europa, al massimo
     // Arabia e Nord Africa"). La mappa non ha un campo "continente", quindi la
     // regione è definita a rettangoli sulle coordinate dell'SVG: ogni provincia
@@ -272,14 +277,30 @@
             const one = players.find(p => p.id === o.umano);
             umani = one ? [one] : [];
         } else {
-            const n = Math.max(1, Math.min((o.umani | 0) || 1, inGioco.length));
-            umani = shuffle(inGioco.slice(), rand).slice(0, n);
+            // Il sorteggio pesca fra i regni SORTEGGIABILI: l'Orda mongola resta
+            // fuori (regola dell'utente). È un regno di conquista che nasce per
+            // evento al turno 25 e che gioca l'admin — se resta sulla mappa da una
+            // partita precedente, l'estrazione potrebbe darlo al giocatore al posto
+            // di un regno d'inizio partita. Chiederlo per id (`o.umano`/`o.umani`)
+            // resta possibile: qui si esclude solo il caso.
+            const sorteggiabili = inGioco.filter(p => NON_SORTEGGIABILI.indexOf(p.name) < 0);
+            const pool = sorteggiabili.length ? sorteggiabili : inGioco;
+            const n = Math.max(1, Math.min((o.umani | 0) || 1, pool.length));
+            umani = shuffle(pool.slice(), rand).slice(0, n);
         }
         const umanoIds = new Set(umani.map(p => p.id));
         if (root.Bot) {
             if (tuttiUmani) players.forEach(pl => { pl.bot = null; });
             else root.Bot.assignStrategies(players, umanoIds, rand);
         }
+        // ...e nemmeno una strategia: l'Orda la gioca l'ADMIN (`bot:null`, come
+        // quando nasce per evento). Se un regno d'evento è rimasto sulla mappa da
+        // una partita precedente, assegnargli un profilo lo farebbe partire a
+        // conquistare dal turno 1 al posto di restare in mano all'admin.
+        NON_SORTEGGIABILI.forEach(nome => {
+            const pl = players.find(p => p.name === nome);
+            if (pl) pl.bot = null;
+        });
 
         // Il calendario riparte dall'anno 1000 (turno 1), ma la mappa resta com'è.
         if (R().resetHistory) R().resetHistory();
@@ -292,6 +313,11 @@
         // più all'avvio: nasce dalla costruzione della Capitale (build() fa
         // `stradeGratis += 1`), quindi darla anche qui ne regalerebbe due.
         players.forEach(pl => { pl.stradeGratis = 0; pl.tassazione = 'normale'; });
+        // Partita nuova = tutti fondati adesso: il turno di fondazione torna a 1,
+        // così la grazia dell'insediamento (§8) riparte per tutti. Senza, un regno
+        // rimasto sulla mappa da una partita precedente e nato per evento (es. i
+        // Mongoli, `nato` 25) non ne prenderebbe più.
+        players.forEach(pl => { pl.nato = 1; });
 
         // Codice d'invito a tutti PRIMA del salvataggio: il link della plancia
         // deve funzionare subito. Generarlo dopo il save lo lascerebbe solo in
