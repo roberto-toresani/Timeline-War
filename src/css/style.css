@@ -458,6 +458,9 @@ svg path.haze {
    si distingue dalla propria cronaca senza gridare come l'inchiostro rosso. */
 #ui-foundation .uf-scroll.uf-editto { --kingdom: #8a6d1f; }
 #ui-foundation .uf-scroll.uf-naufragio { --kingdom: #2e4a63; }
+/* La leva degli obiettivi (§10): sono uomini che accorrono per un'impresa
+   compiuta — verde d'alloro, non l'oro di chi comanda da fuori. */
+#ui-foundation .uf-scroll.uf-leva { --kingdom: #3f6b3a; }
 
 #ui-foundation .uf-text {
     font-size: 1.05rem;
@@ -1684,7 +1687,16 @@ svg.map-interacting #decor-coast-layer { display: none; }
     opacity: 0.75;
     font-variant-numeric: tabular-nums;
 }
-.pop-welfare-btn.ok:hover { background: rgba(192, 160, 98, 0.2); border-color: var(--gold-bright); }
+/* Costruibile ADESSO = tasto con una faccia propria, come .bp-act nella plancia:
+   dentro il foglio 👑 un bottone col fondo più scuro del pannello si legge come
+   una casella, non come un comando. */
+.pop-welfare-btn.ok {
+    background: var(--btn-face);
+    border-color: var(--gold-edge);
+    color: var(--gold-bright);
+    box-shadow: inset 0 1px 0 rgba(255, 233, 168, .12), 0 1px 2px rgba(0, 0, 0, .45);
+}
+.pop-welfare-btn.ok:hover { background: var(--btn-face-hover); border-color: var(--gold-bright); }
 /* Costruita: dorata piena, come una tassa attiva */
 .pop-welfare-btn.built {
     background: var(--gold-edge);

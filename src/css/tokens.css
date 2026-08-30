@@ -49,6 +49,15 @@
        qui, la decide la griglia a tre colonne di board.css (un terzo ciascuno). */
     --board-radius: 10px;
 
+    /* FACCIA DEI BOTTONI DI COMANDO.
+       I fogli (.sheet) hanno per fondo --bg-panel-solid, cioè esattamente il
+       fondo che avevano .bp-mini e .bp-act: dentro un foglio il bottone spariva
+       nella pagina e restava un filo di bordo. Un tasto che avvia un comando
+       deve staccarsi dal suo sfondo, quindi ha una faccia propria — più chiara
+       e calda del pannello — e un bordo d'oro. */
+    --btn-face: linear-gradient(180deg, #52402a, #3b2d1d);
+    --btn-face-hover: linear-gradient(180deg, #6d5636, #4d3b25);
+
     /* editor: colonna fissa di sinistra. Il body si scosta di altrettanto, quindi
        questa è l'unica manopola per allargare/stringere il pannello. Proporzionale
        alla finestra: su schermi con scaling alto una misura fissa si mangiava

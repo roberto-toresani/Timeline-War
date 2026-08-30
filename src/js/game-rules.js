@@ -153,11 +153,24 @@
     const NEUTRAL_START = 2;
     const NEUTRAL_EVERY = 10;   // turni
     const NEUTRAL_STEP = 1;
+    // ...E SI FERMA A 6 (regola dell'utente). La crescita non è infinita: arrivata
+    // a 6 soldati una terra di nessuno resta lì per il resto della partita. Il
+    // numero non è estetico, è il rovescio della regola delle razzie: con 6 uomini
+    // una neutrale ne spende 5 (§5), e 5 ≥ 3 × difensori regge solo contro UN
+    // difensore. Cioè una provincia presidiata da 2 uomini in su non può più
+    // essere razziata da nessuno, mai, per il resto della partita: l'attrito
+    // delle terre di nessuno ha un tetto conoscibile in anticipo e nel tardo
+    // gioco non diventa un secondo fronte. Chi alza il tetto alza anche la
+    // soglia di presidio sicuro (neutralSafeGarrison), che è la stessa regola
+    // letta dall'altra parte.
+    const NEUTRAL_MAX = 6;
 
-    // I turni partono da 1 (js/chronicle.js): turni 1-10 → 2 soldati, 11-20 → 3, ecc.
+    // I turni partono da 1 (js/chronicle.js): turni 1-10 → 2 soldati, 11-20 → 3,
+    // ecc., fino al tetto di NEUTRAL_MAX (dal turno 41 in poi: sempre 6).
     function neutralGarrison(turn) {
         const t = Math.max(1, Math.floor(turn || 1));
-        return NEUTRAL_START + Math.floor((t - 1) / NEUTRAL_EVERY) * NEUTRAL_STEP;
+        const n = NEUTRAL_START + Math.floor((t - 1) / NEUTRAL_EVERY) * NEUTRAL_STEP;
+        return Math.min(NEUTRAL_MAX, n);
     }
 
     // RAZZIE DELLE TERRE DI NESSUNO (regola dell'utente). Una neutrale marcia
@@ -435,7 +448,7 @@
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
         WELFARE, WELFARE_COST, WELFARE_INDEX,
         welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
-        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, neutralGarrison, PRESTIGE_ENABLED,
+        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, PRESTIGE_ENABLED,
         NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,
         GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,

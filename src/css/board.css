@@ -1373,6 +1373,34 @@ svg path.state.spied {
 
 .moh-acts .moh-go:hover { background: var(--gold-bright); }
 
+/* ALLEATO A TIRO (§Diplomazia): sulla provincia di un alleato la fase d'attacco
+   offre due strade, e non stanno su una riga sola — tre bottoni in 216px non si
+   leggono. "Marcia in aiuto" prende una riga tutta sua, sopra le altre due, e si
+   veste di verde: è l'unica azione del cursore che non fa male a nessuno. */
+
+.moh-acts { flex-wrap: wrap; }
+
+.moh-acts .moh-help {
+    flex: 1 0 100%;
+    order: -1;
+    border-color: var(--ok-soft);
+    color: var(--ok-soft);
+}
+
+.moh-acts .moh-help:hover { background: var(--ok-bg); color: var(--gold-bright); }
+
+/* Colpire chi ti ha dato la parola non è una carica come le altre: il bottone
+   d'oro diventa rosso, così il tradimento non parte per abitudine. */
+.moh-acts .moh-go.betray {
+    background: var(--danger);
+    border-color: var(--danger-text);
+    color: #ffe9e9;
+}
+
+.moh-acts .moh-go.betray:hover { background: var(--danger-text); color: #3a1010; }
+
+.bp-ally-fold > summary { color: var(--ok-soft); }
+
 /* ---------- frecce d'attacco (fase 3) ----------
    Disegnate da showAttackArrows in app.js dentro #attack-arrows. Il tratteggio
    che scorre dà la direzione senza bisogno di leggere niente.
@@ -1650,18 +1678,27 @@ svg path.state.spied {
     min-height: 30px;
     max-width: 100%;
     line-height: 1;
-    background: var(--bg-panel-solid);
-    border: 1px solid var(--rule-strong);
+    background: var(--btn-face);
+    border: 1px solid var(--gold-edge);
     border-radius: 5px;
-    color: var(--gold);
+    color: var(--gold-bright);
     font-family: inherit;
     font-size: 1.05rem;
     cursor: pointer;
     padding: 4px 8px;
+    box-shadow: inset 0 1px 0 rgba(255, 233, 168, .12), 0 1px 2px rgba(0, 0, 0, .45);
 }
 
-.bp-mini:hover:not(:disabled) { border-color: var(--gold-edge); background: rgba(224, 192, 151, .14); }
-.bp-mini:disabled { opacity: .35; cursor: not-allowed; }
+.bp-mini:hover:not(:disabled) { border-color: var(--gold-bright); background: var(--btn-face-hover); }
+/* Spento = piatto, senza faccia: la differenza fra "si può fare" e "non si può"
+   dev'essere il RILIEVO, non solo un filo di opacità. */
+.bp-mini:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+    background: rgba(0, 0, 0, .22);
+    border-color: var(--rule);
+    box-shadow: none;
+}
 
 /* bottoncino testuale a tutta riga (es. "torna alla fase in corso") */
 .bp-mini.wide {
@@ -1692,23 +1729,28 @@ svg path.state.spied {
     gap: 8px;
     width: 100%;
     text-align: left;
-    background: var(--bg-panel-solid);
-    border: 1px solid var(--rule-strong);
+    background: var(--btn-face);
+    border: 1px solid var(--gold-edge);
     border-radius: 6px;
-    color: var(--parchment-dim);
+    color: var(--gold-bright);
     font-family: inherit;
     font-size: 1.08rem;
     padding: 11px 13px;
     margin-bottom: 7px;
     cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 233, 168, .12), 0 1px 2px rgba(0, 0, 0, .45);
 }
 
-.bp-act:hover:not(:disabled) { border-color: var(--gold-edge); color: var(--gold); }
+.bp-act:hover:not(:disabled) { border-color: var(--gold-bright); background: var(--btn-face-hover); }
 
 .bp-act:disabled {
     cursor: not-allowed;
     opacity: .55;
     border-style: dashed;
+    border-color: var(--rule-strong);
+    background: rgba(0, 0, 0, .22);
+    color: var(--parchment-dim);
+    box-shadow: none;
 }
 
 /* Il bottone d'azione VA A CAPO invece di tagliare: il costo di una Fortezza è
@@ -2365,6 +2407,26 @@ svg path.state.spied {
     background: var(--ok-bg); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
     border-radius: 12px; padding: 2px 9px; white-space: nowrap;
 }
+/* LA LEVA (§10): quel che gli obiettivi compiuti valgono in UOMINI a inizio
+   del ciclo prossimo. Spenta finché non si è compiuto niente — un +0 acceso
+   prometterebbe una ricompensa che non c'è. */
+.bo-leva {
+    display: flex; align-items: baseline; gap: 8px;
+    margin: 0 0 10px; padding: 6px 9px; border-radius: 7px;
+    border: 1px solid var(--gold-edge); background: rgba(0, 0, 0, .14);
+    opacity: .6;
+}
+.bo-leva.on {
+    opacity: 1; background: var(--ok-bg);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+.bo-leva-num {
+    font-family: 'Cinzel', serif; font-weight: 600; font-size: 1.25rem; line-height: 1;
+    color: var(--gold-bright); font-variant-numeric: tabular-nums;
+}
+.bo-leva-txt { color: var(--parchment); font-size: .84rem; line-height: 1.35; }
+.bo-leva-txt em { color: var(--parchment-muted); font-style: normal; }
+
 .bo-head {
     display: flex; justify-content: space-between; align-items: baseline;
     margin: 0 0 8px;
@@ -2416,6 +2478,7 @@ svg path.state.spied {
 .bh-cycle { margin-bottom: 8px; }
 .bh-head { color: var(--gold); font-size: .85rem; margin-bottom: 4px; }
 .bh-head .bh-score { color: var(--parchment-muted); font-variant-numeric: tabular-nums; }
+.bh-head .bh-leva { color: var(--ok-soft); font-variant-numeric: tabular-nums; }
 .bh-item { display: flex; gap: 7px; align-items: baseline; font-size: .82rem; color: var(--parchment-muted); padding: 1px 0; }
 .bh-item.done { color: var(--parchment); }
 .bh-mark { flex: 0 0 1em; }

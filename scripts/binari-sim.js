@@ -11,12 +11,17 @@ const O = require("../src/js/objectives.js");
 function sequenzaDi(name) {
     const seq = [];
     const push = id => { if (id && seq.indexOf(id) < 0) seq.push(id); };
-    (O.BINARI[name] || []).forEach(cap => cap.voci.forEach(v => {
-        const a = v.arg || {};
+    const daArg = a => {
+        if (!a) return;
         if (a.set) O.SETS[a.set].forEach(push);
         if (a.id) push(a.id);
         if (a.ids) a.ids.forEach(push);
-        if (a.capo && a.capo.arg && a.capo.arg.set) O.SETS[a.capo.arg.set].forEach(push);
+    };
+    (O.BINARI[name] || []).forEach(cap => cap.voci.forEach(v => {
+        const a = v.arg || {};
+        daArg(a);
+        if (a.capo) daArg(a.capo.arg);
+        if (a.altri) a.altri.forEach(p => daArg(p.arg));
     }));
     for (let i = 0; i < 60; i++) push('Terra_' + i);
     return seq;
@@ -35,6 +40,9 @@ function ctxDi(seq, st) {
         hasMercato: () => st.mercato, hasCity: () => citta.length > 0, hasFortress: () => false,
         cityIds: () => citta,
         shipIds: () => navi, shipCount: () => st.navi,
+        // Metà della flotta è d'altura: basta a far vedere se un capitolo che
+        // chiede un Veliero (Inghilterra VI) è alla portata di chi corre e no.
+        shipCountOf: k => k === 'vascello' ? Math.floor(st.navi / 2) : Math.ceil(st.navi / 2),
         monete: st.monete,
         scorteOf: () => st.scorte,
         connectedCount: () => Math.min(ids.length, st.collegate),
@@ -42,7 +50,11 @@ function ctxDi(seq, st) {
         isConnected: id => idSet.has(id),
         roadCount: () => st.strade,
         isCoastal: (id) => ids.indexOf(id) % 3 === 0,
-        popularity: () => st.popolarita, sicurezza: () => st.sicurezza
+        popularity: () => st.popolarita, sicurezza: () => st.sicurezza,
+        // Il Benessere segue la rete (§8: varietà collegata e cibo): nel banco di
+        // prova lo si stima dai tipi di risorsa collegati, non dalla Popolarità
+        // totale — se no un capitolo che chiede di governare sembrerebbe gratis.
+        benessere: () => Math.min(5, Math.max(st.sicurezza, st.tipi))
     };
 }
 

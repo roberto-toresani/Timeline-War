@@ -416,15 +416,18 @@
         return floor;
     }
 
-    // Il livello di Popolarità/Sicurezza che un obiettivo chiede, se più alto di
-    // quello che la strategia già persegue (popState). La Sicurezza non ha un
-    // piano a sé: alzare il target di Popolarità totale spinge le stesse due leve
-    // (tassa, guardia) che la fanno salire, quindi è l'approssimazione giusta.
+    // Il livello di Popolarità/Sicurezza/Benessere che un obiettivo chiede, se
+    // più alto di quello che la strategia già persegue (popState). Le due
+    // componenti non hanno un piano a sé: alzare il target di Popolarità totale
+    // spinge le leve che le fanno salire (tassa e guardia per la Sicurezza,
+    // strade e risorse collegate per il Benessere — che `roadWorth` e
+    // `popValueOf` già inseguono), quindi è l'approssimazione giusta.
     function objectivePopTarget(goals) {
         let target = 0;
         goals.forEach(g => g.hints.forEach(h => {
             if (typeof h.popularity === 'number') target = Math.max(target, h.popularity);
             if (typeof h.security === 'number') target = Math.max(target, h.security);
+            if (typeof h.welfare === 'number') target = Math.max(target, h.welfare);
         }));
         return Math.min(5, target);
     }
@@ -1332,6 +1335,10 @@
     function bestAttack(player, s, st, extra, og) {
         let best = null;
         const doc = doctrineOf(player);
+        // Il rapporto con un regno si calcola UNA volta per chiamata: bestAttack
+        // gira su tutte le province per tutti i bersagli, e standing ricostruisce
+        // le sue liste a ogni lettura.
+        const relCache = new Map();
         const cap = st ? st.cap : R().getCapitalPathFor(player);
         const guardiaPiano = guardWanted(st, s);
         const rinforzo = Math.max(0, extra || 0);
@@ -1418,6 +1425,11 @@
                 const peso = ((t.owner === 'Neutrale' || !ownerAt(t.id)) ? s.pesoNeutrali : s.pesoGiocatori)
                     * (doc ? DOC().enemyWeight(doc, t.owner) : 1);
                 let score = (p100 - s.soglia + 0.1) * premio * peso;
+                // IL RAPPORTO (§Diplomazia): un vicino con cui si sta bene si
+                // colpisce meno volentieri, uno che ci ha già derubati di più.
+                // Sul binario storico (nemico dichiarato o meta della dottrina)
+                // il fattore vale 1 e la storia va avanti comunque.
+                score *= relationFactor(player, s, doc, t, relCache);
                 // L'AMICO DI DOTTRINA non si attacca — "a meno che non sia
                 // assolutamente conveniente" (regola dell'utente): stesso
                 // meccanismo del tradimento, ma con un pedaggio più caro, così
@@ -1682,6 +1694,9 @@
         if (!player || !other) return false;
         const mio = doctrineOf(player), suo = doctrineOf(other);
         if (DOC()) {
+            // Chi non firma NIENTE con nessuno (l'Orda) chiude la porta prima di
+            // qualunque conto: non c'è fede, amicizia o bisogno che la riapra.
+            if (DOC().signsNothing(mio) || DOC().signsNothing(suo)) return false;
             const miaFede = faithFamilyOf(player), suaFede = faithFamilyOf(other);
             // La dottrina prima di tutto: una fede nemica chiude la porta anche a
             // chi la fede generica lascerebbe passare, e viceversa un amico
@@ -1774,6 +1789,118 @@
             if (f.minaccia > best) { best = f.minaccia; target = other; }
         });
         return target ? { toId: target.id, tipo: 'nonBelligeranza' } : null;
+    }
+
+    // ============================================================
+    // IL RAPPORTO PESA SULL'ATTACCO — MA LA STORIA PESA DI PIÙ
+    // (regola dell'utente: "l'IA può combinare i propri obiettivi storici con lo
+    // stato di amicizia. Ma i mongoli attaccheranno la Russia anche se ci hanno
+    // scambiato qualcosa, e lo stesso vale per i Selgiuchidi contro i cristiani e
+    // i bizantini").
+    //
+    // Il livello di rapporto (Diplomacy.standing, l'unica formula) entra nel
+    // punteggio d'attacco come un MOLTIPLICATORE: si colpisce meno volentieri chi
+    // ha la tua stessa fede, chi ti manda carovane, chi ti ha mandato uomini al
+    // fronte; più volentieri chi ti ha già strappato province o rotto la parola.
+    // Non è un divieto — un bottino grosso vince comunque — ed è il pezzo che
+    // mancava perché la diplomazia si vedesse anche fuori dai patti firmati.
+    //
+    // LA DEROGA È IL PUNTO: sul BINARIO STORICO il rapporto non conta niente. Un
+    // nemico DICHIARATO dalla dottrina (`nemici`) e una META della dottrina
+    // (`mete`, che per l'Orda sono le tappe della marcia) si attaccano allo stesso
+    // modo qualunque cosa sia successo fra i due regni. Un'orda che si ferma
+    // davanti alla Rus' perché ci ha fatto commercio non arriva in Europa, e i
+    // Selgiuchidi che risparmiano Bisanzio non fanno la storia che devono fare.
+    //
+    // Il CARATTERE modula quanto pesa: chi tradisce facilmente (predone,
+    // opportunista) bada poco ai buoni rapporti; un costruttore ci bada molto.
+    // Si riusa `s.tradimento`, che è già la scala della slealtà — un secondo
+    // numero per profilo direbbe la stessa cosa con un altro nome.
+    const REL_WEIGHT = 0.6;      // quanto un rapporto ottimo raffredda l'attacco
+    const REL_SPITE  = 0.35;     // quanto un rapporto pessimo lo scalda
+
+    function standingWith(player, other, viaMare, cache) {
+        if (!D() || !D().standing || !other) return 0;
+        const k = other.name;
+        if (cache.has(k)) return cache.get(k);
+        const st = D().standing(player, other, {
+            confinanti: !viaMare,
+            turno: R().turn(),
+            fedeMia: R().stateReligionOf ? R().stateReligionOf(player) : null,
+            fedeSua: R().stateReligionOf ? R().stateReligionOf(other) : null
+        });
+        cache.set(k, st.score);
+        return st.score;
+    }
+
+    // Il moltiplicatore da applicare al punteggio d'attacco. 1 = il rapporto non
+    // dice niente (bersaglio neutrale, nessun precedente, oppure la deroga
+    // storica).
+    function relationFactor(player, s, doc, t, cache) {
+        if (!t.owner || t.owner === 'Neutrale') return 1;     // le terre di nessuno non hanno diplomazia
+        // LA DEROGA STORICA: il binario passa sopra il rapporto.
+        if (doc && (DOC().isEnemy(doc, t.owner) || DOC().isMeta(doc, t.id))) return 1;
+        const other = R().players().find(p => p.name === t.owner);
+        if (!other) return 1;
+        const rel = standingWith(player, other, t.viaMare, cache);
+        if (!rel) return 1;
+        if (rel > 0) {
+            const cura = REL_WEIGHT * (1 - (s.tradimento || 0) * 0.6);
+            return Math.max(0.25, 1 - cura * (rel / 100));
+        }
+        return 1 + REL_SPITE * (-rel / 100);
+    }
+
+    // ============================================================
+    // ALLEATI: CHIEDERE UOMINI E MANDARNE (§Diplomazia)
+    //
+    // È la parte dell'alleanza che si vede sulla mappa, e un bot non ha bisogno
+    // di ragionamenti nuovi per usarla: sa già dov'è scoperto (survey.scoperta,
+    // cioè quanto gli manca per reggere il pavimento §5.4/istinto di difesa) e sa
+    // già quanti uomini gli avanzano (survey.mobili). Da lì:
+    //   CHIEDE dove il confine cede, e lo chiede all'alleato che PUÒ arrivarci
+    //     (un grido d'aiuto a chi non confina con quella provincia è rumore).
+    //   MANDA quel che gli avanza DOPO gli attacchi: gli uomini che restano in
+    //     casa a far niente valgono di più al fronte di un amico.
+    // Uno per turno per parte, come gli araldi dei patti: due alleati che si
+    // travasano truppe a ogni tornata sarebbero un solo esercito con due nomi.
+    // ============================================================
+    const HELP_KEEP = 2;     // uomini che restano comunque, oltre il pavimento
+
+    function helpAskPlan(player) {
+        if (!D() || !GA().helpOutbox) return null;
+        const alleati = D().partnersOf(player, R().players(), 'rinforzi');
+        if (!alleati.length) return null;
+        // La provincia più scoperta rispetto al suo pavimento: è lì che serve.
+        let worst = null;
+        survey(player).forEach(p => {
+            if (p.scoperta > 0 && (!worst || p.scoperta > worst.scoperta)) worst = p;
+        });
+        if (!worst) return null;
+        const gia = GA().helpOutbox(player);
+        const chi = alleati.find(a =>
+            E().landNeighbors(worst.id).some(n => ownerAt(n) === a.name) &&
+            !gia.some(h => String(h.prov) === String(worst.id) && String(h.a) === String(a.id)));
+        return chi ? { toId: chi.id, provId: worst.id } : null;
+    }
+
+    function helpSendPlan(player) {
+        if (!D() || !GA().helpInbox) return null;
+        const inbox = GA().helpInbox(player);
+        if (!inbox.length) return null;
+        const mie = survey(player);
+        for (const h of inbox) {
+            const chi = R().players().find(p => String(p.id) === String(h.da));
+            if (!chi || !D().allowsReinforce(player, chi)) continue;
+            if (ownerAt(h.prov) !== chi.name) continue;      // quel fronte non è più suo
+            const base = mie
+                .filter(p => E().landNeighbors(p.id).indexOf(h.prov) >= 0 && p.mobili > HELP_KEEP)
+                .sort((a, b) => b.mobili - a.mobili)[0];
+            if (!base) continue;
+            const n = Math.min(base.mobili - HELP_KEEP, Math.max(1, Math.floor(base.mobili / 2)));
+            if (n > 0) return { fromId: base.id, toId: h.prov, n };
+        }
+        return null;
     }
 
     // ============================================================
@@ -1937,6 +2064,10 @@
             }
             const patto = diploProposals(player, s);
             if (patto) yield GA().proposePact(player, patto.toId, patto.tipo);
+            // E, se un confine cede, si chiede aiuto all'alleato che ci arriva
+            // (§Diplomazia): un araldo per turno, come i patti.
+            const sos = helpAskPlan(player);
+            if (sos) yield GA().askReinforcements(player, sos.toId, sos.provId);
         }
 
         // Mercenari: monete convertite in muscoli per questo turno soltanto, e
@@ -1982,6 +2113,15 @@
                 yield GA().resolveConquest(player, occupanti);
             }
             st = popState(player, s, og);      // una conquista cambia confini e risorse
+        }
+
+        // Quel che avanza DOPO gli attacchi marcia in aiuto di un alleato che
+        // l'ha chiesto (§Diplomazia). Va in coda alla fase apposta: prima si
+        // combatte la propria guerra, poi si regalano gli uomini che restano — e
+        // questo non consuma lo spostamento di fine turno, che resta per sé.
+        if (GA().phaseOf(player) === 'attacca') {
+            const aiuto = helpSendPlan(player);
+            if (aiuto) yield GA().sendReinforcements(player, aiuto.fromId, aiuto.toId, aiuto.n);
         }
 
         yield* advanceTo(player, 'sposta');

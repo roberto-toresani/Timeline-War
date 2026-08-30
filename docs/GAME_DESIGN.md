@@ -262,10 +262,17 @@ L'effetto sul combattimento è nel **§9**.
 ### 5.4 Terre di nessuno: presidio e razzie **[REGOLA, utente]**
 Nessuna provincia neutrale è vuota, e nessuna è un avversario in più: sono un **attrito**.
 
-- **Presidio**: 2 soldati, **+1 ogni 10 turni** (`GameRules.neutralGarrison`). Il presidio si
+- **Presidio**: 2 soldati, **+1 ogni 10 turni fino a un massimo di 6**
+  (`GameRules.neutralGarrison`, tetto `NEUTRAL_MAX`). Il presidio si
   alza soltanto, e una provincia conquistata esce dal conteggio perché non è più neutrale.
   La crescita è lenta apposta: a un uomo ogni 5 turni le terre di nessuno diventavano
   imprendibili a metà partita, e l'espansione si fermava per aritmetica invece che per guerra.
+  **E si ferma** [REGOLA, utente]: dal turno 41 in poi ogni terra di nessuno resta a 6 uomini
+  per il resto della partita. Il 6 non è un numero estetico, è il rovescio della regola delle
+  razzie qui sotto: 6 uomini ne spendono 5 (§5), e 5 non basta a schiacciare 3-contro-1 due
+  difensori. Cioè **una provincia presidiata da 2 uomini non potrà più essere razziata da
+  nessuno, mai**: l'attrito delle neutrali ha un tetto conoscibile in anticipo, e nel tardo
+  gioco non diventa un secondo fronte.
 - **Razzie**: a fine giro una neutrale può marciare contro un vicino, ma **solo** se
   - il vicino è di **fede diversa** (§ religioni: la stessa fede non si tocca), **e**
   - è in **schiacciante inferiorità: 3 attaccanti per ogni difensore**
@@ -276,7 +283,9 @@ Nessuna provincia neutrale è vuota, e nessuna è un avversario in più: sono un
   strappava una provincia difesa da 2, e nessun confine reggeva. Ora la razzia è la punizione
   per una **porta lasciata aperta**, non un secondo fronte.
 - Vinta la razzia, la provincia **torna neutrale** coi superstiti; le costruzioni restano e
-  cambiano colore, come in ogni conquista.
+  cambiano colore, come in ogni conquista. Torna neutrale **anche la sua fede**: prende la
+  confessione della neutrale che l'ha razziata e si **libera dal vincolo di conquista**
+  (§9), tornando soggetta agli scismi come ogni altra terra di nessuno.
 - Il rovescio della regola — quanti uomini bastano perché quel confine sia chiuso — è
   `GameRules.neutralSafeGarrison`, ed è quello che **l'IA usa per difendersi prima** che la
   razzia accada: ci schiera fin lì, e non scende sotto quel pavimento né attaccando né
@@ -597,6 +606,24 @@ poco a chi vince e polverizza chi perde**. Ogni media porta un tiro casuale `z ~
   già dello stesso credo) e sopravvive al salvataggio; cade solo se un altro regno riconquista la
   provincia, che allora prende la fede del nuovo padrone. Serve a non veder cambiare colore a una
   provincia appena presa solo perché ricade nel rettangolo geografico di uno scisma.
+- **[REGOLA] …ma il vincolo lega alla CORONA, non a un istante**. È la stessa regola letta fino
+  in fondo, ed è dove si perdeva:
+  - una provincia vincolata segue la fede di stato **corrente** del suo regno, anche se quella
+    cambia dopo (scisma sulla Capitale, trasloco del seggio, promozione di una Capitale presa):
+    il riallineamento è **immediato** quando il seggio si muove o si costruisce, e comunque a
+    ogni giro completo;
+  - il vincolo **non protegge la Capitale**: uno scisma raggiunge il seggio anche quando siede
+    su una provincia conquistata (presa a un nemico, o Città di conquista su cui si è
+    traslocato). Senza questa eccezione quel regno — e con lui tutto il suo impero, che lo
+    segue — restava fuori da ogni scisma per il resto della partita;
+  - il vincolo **si scioglie** appena la provincia smette di avere un padrone: razziata da una
+    terra di nessuno, restituita per editto, o rifondata da un regno che nasce (§eventi). Una
+    neutrale non è agganciata a nessuna corona, quindi torna soggetta agli scismi;
+  - un **passaggio di mano per editto** (provincia assegnata o consegnata) converte e vincola
+    come una conquista: non esiste una porta di servizio da cui una provincia cambia padrone
+    senza cambiare fede;
+  - una **partita nuova riparte dalle confessioni del Mille**: gli scismi stanno sul calendario,
+    quindi il turno 1 non può ereditare la Riforma della partita precedente.
 - **[REGOLA] Poche confessioni definitive** (leggibilità): cattolici, protestanti, ortodossi;
   sunniti, sciiti; induisti, buddhisti; animisti e pagani nelle terre remote; culti nativi nelle
   Americhe. I sotto-scismi storici (anglicani, calvinisti, vecchi credenti, wahhabiti) sono stati
@@ -793,6 +820,16 @@ stato della partita e **ispirati al contesto storico** del regno rappresentato.
 ma il massimo resta 10 e l'eccesso è perso. **Raggiungere 10 in un ciclo → 1 Punto Prestigio d'Oro.**
 I punti prestigio "normali" sono per-ciclo (ci si riparte ogni 10 turni); i **punti d'oro** sono
 permanenti e decretano il vincitore.
+
+### La LEVA: un obiettivo compiuto vale UOMINI **[REGOLA]**
+Il prestigio è una promessa lontana — si incassa a fine partita — e da solo non basta a far
+inseguire gli obiettivi. Perciò ogni obiettivo compiuto paga **subito**, in soldati: **tanti
+uomini quanti erano i suoi punti** (Primario 5 · Secondario 3 · Terziario 2, quindi al massimo
+**10 per ciclo**), che entrano nelle **reclute libere** e si schierano dove si vuole **a partire
+dal primo turno del ciclo successivo**.
+
+È di proposito un **handicap**, come il punteggio: dieci uomini sono mezzo ciclo di reclutamento
+per un regno da sei province e un'inezia per chi ne ha trenta. Vale per tutti, giocatori e IA.
 
 ### Prossimo passo
 Progettare **esempi concreti di obiettivi** (per civiltà/situazione di gioco): è lì che si gioca

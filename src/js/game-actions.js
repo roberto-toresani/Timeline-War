@@ -258,6 +258,15 @@
                 // confine cattolico lascia dietro di sé una provincia musulmana.
                 // Nessun lock: torna neutrale e resta soggetta agli scismi come le
                 // altre terre di nessuno.
+                // Il vincolo di conquista (data-fede-conq) si SCIOGLIE qui: era
+                // l'aggancio alla corona di chi la teneva, e quella corona non la
+                // tiene più. Senza questa riga la provincia restava agganciata a
+                // un regno che non la possiede — nessuno scisma la toccava mai
+                // più (applySchisms salta le province vincolate) e nemmeno
+                // syncConquestFaiths poteva rimediare, perché una terra di
+                // nessuno non ha proprietario a cui riallinearla: la fede ci
+                // restava congelata per il resto della partita.
+                E().setReligionLock(tp, false);
                 if (nf && E().religion(tp) !== nf) {
                     conversione = { da: E().religion(tp) || null, a: nf, label: Religions.label(nf) };
                     E().setReligion(tp, nf);
@@ -418,6 +427,14 @@
         // partita nuova non eredita orde o pestilenze da quella prima.
         if (R().setEventi) R().setEventi({ attivi: [], fatti: [] });
 
+        // ...e con lui la mappa delle FEDI: gli scismi (Religions.SCHISMS) sono
+        // sul calendario, quindi una partita che riparte dal turno 1 deve
+        // ripartire dalle confessioni del Mille. Senza, la Riforma della partita
+        // precedente restava scritta sulle province e quella nuova nasceva già
+        // spaccata, con gli scismi a venire che non trovavano più nulla da
+        // spezzare (e i vincoli di conquista di regni che non esistono più).
+        if (R().resetReligions) R().resetReligions();
+
         // Giocano solo i regni che hanno almeno una provincia. L'ordine di turno
         // si sorteggia (Fisher-Yates) a ogni avvio: chi parte non è sempre lo
         // stesso regno (regola dell'utente).
@@ -527,8 +544,31 @@
             //    nato, salvataggio vecchio) si ricade sul binario.
             const suo = a && Array.isArray(a.items) && a.items.length && a.ciclo === chiuso;
             const snap = suo ? OB().evaluate(a, ctx) : OB().evaluate(player.name, ctx, chiuso);
+            let leva = 0;
             if (snap && !player.obiettiviStorico.some(h => h.ciclo === snap.ciclo)) {
-                R().archiveObjectives(player, snap);
+                const rec = R().archiveObjectives(player, snap);
+                // 1-bis. LA LEVA (regola dell'utente): un obiettivo compiuto vale
+                //     altrettanti SOLDATI, versati nel serbatoio delle reclute
+                //     LIBERE. Le libere si sommano a quelle avanzate e non
+                //     scadono (beginTurn), quindi il regno se le ritrova pronte
+                //     nella fase «schiera» del suo PRIMO turno del ciclo nuovo —
+                //     questo giro si è appena chiuso, il prossimo che apre è già
+                //     quello. Vale per tutti: i bot le spendono da sé, perché
+                //     deployPlan legge lo stesso serbatoio.
+                leva = OB().leva ? OB().leva(snap) : 0;
+                if (leva > 0) {
+                    player.recluteDaSchierare = (player.recluteDaSchierare || 0) + leva;
+                    if (rec) rec.leva = leva;
+                    if (!Array.isArray(player.obiettiviAvvisi)) player.obiettiviAvvisi = [];
+                    player.obiettiviAvvisi.push({
+                        ciclo: chiuso, leva: leva,
+                        punti: snap.punti, puntiMax: snap.puntiMax,
+                        fatti: snap.items.filter(i => i.completato)
+                            .map(i => ({ titolo: i.titolo, punti: i.punti })),
+                        turno: R().turn(), letto: false
+                    });
+                    while (player.obiettiviAvvisi.length > 8) player.obiettiviAvvisi.shift();
+                }
             }
             // 2. il profilo su cui si misura la performance del regno.
             const prof = R().objectiveProfile(player);
@@ -576,7 +616,7 @@
                 turno: R().turn(), calibra: true
             });
             if (snap) esiti.push({
-                regno: player.name, punti: snap.punti, puntiMax: snap.puntiMax,
+                regno: player.name, punti: snap.punti, puntiMax: snap.puntiMax, leva: leva,
                 motivo: mossa.motivo, capitolo: player.capitolo, intensita: player.intensita
             });
         });
@@ -625,6 +665,8 @@
             // ...e le alleanze a tempo giunte a scadenza si sciolgono da sé,
             // gratis, avvisando entrambi i firmatari (§Diplomazia).
             expirePacts();
+            // ...e i gridi d'aiuto rimasti senza risposta si spengono (§Diplomazia).
+            expireHelpRequests();
             // Le terre di nessuno di fede diversa razziano PRIMA del rifornimento,
             // così colpiscono a piena forza (§ religione).
             razzie = neutralRaids(R().turn());
@@ -713,6 +755,8 @@
             // MONGOLI: crea un nuovo regno a partita in corso, gli posa le province
             // di partenza con un esercito e lo infila nell'ordine dei turni.
             spawnKingdom: (spec) => eventSpawnKingdom(spec),
+            // Le ONDATE dell'Orda: un'armata di rinforzo cala sulla punta della marcia.
+            reinforce: (regno, opts) => eventReinforce(regno, opts),
             // --- mutatori ancora da implementare (peste, Cent'Anni) ---
             despawnKingdom: () => eventTodo('despawnKingdom'),
             dropArmy: () => eventTodo('dropArmy'),
@@ -833,6 +877,73 @@
         };
     }
 
+    // EVENTI — L'ARMATA DI RINFORZO (le ondate dell'Orda, regola dell'utente).
+    // `forza` uomini raggiungono un regno d'evento e si versano sulla PUNTA della
+    // sua marcia: la sua provincia più vicina, in confini di terra, alla prima
+    // tappa non ancora conquistata (`verso` è l'asse della marcia, da
+    // Doctrines.march). Dieci uomini posati in retrovia non sfondano niente — è la
+    // punta che deve pesare.
+    // Il FRONTE si ordina con UNA sola onda a ritroso DALLE mete ancora libere: le
+    // province del regno si accodano man mano che l'onda le tocca (le più vicine
+    // per prime, a pari distanza prima la più piena: si ammassa, non si sparge), e
+    // in coda le province che l'onda non raggiunge affatto. Senza asse — o con
+    // l'asse tutto conquistato — resta l'ordine per truppe, cioè il pugno del regno.
+    // L'armata si VERSA lungo quel fronte: una provincia non tiene più di
+    // `pieceMax('soldato')` uomini (30), quindi ciò che non entra nella punta scende
+    // sulla provincia dietro invece di svanire. Il travaso si misura sul conteggio
+    // vero prima/dopo, così il tetto resta uno solo — quello del deposito — e non se
+    // ne scrive una seconda copia qui.
+    // Ritorna { regno, forza, posati, prov, provLabel, dove:[{prov,n}] } o null.
+    function eventReinforce(regnoName, opts) {
+        const o = opts || {};
+        const forza = Math.max(0, Math.floor(o.forza || 0));
+        const regno = R().players().find(p => p.name === regnoName);
+        if (!regno || forza <= 0) return null;
+        const owned = E().ownedPaths(regnoName);
+        if (!owned.length) return null;
+        const mie = new Map(owned.map(p => [p.id, p]));
+        const truppe = p => E().countPiece(p, 'soldato');
+        const perPiene = lista => lista.slice().sort((a, b) => truppe(b) - truppe(a));
+
+        const mete = (o.verso || []).filter(id => !mie.has(id) && E().path(id));
+        const fronte = [];
+        const accodate = new Set();
+        if (mete.length) {
+            const visti = new Set(mete);
+            let onda = mete.slice();
+            while (onda.length) {
+                const prossima = [];
+                const tocche = [];
+                onda.forEach(id => (E().landNeighbors(id) || []).forEach(n => {
+                    if (visti.has(n)) return;
+                    visti.add(n);
+                    if (mie.has(n)) tocche.push(mie.get(n));
+                    else prossima.push(n);
+                }));
+                perPiene(tocche).forEach(p => { fronte.push(p); accodate.add(p.id); });
+                onda = prossima;
+            }
+        }
+        perPiene(owned).forEach(p => { if (!accodate.has(p.id)) fronte.push(p); });
+
+        let restano = forza;
+        const dove = [];
+        fronte.forEach(path => {
+            if (restano <= 0) return;
+            const prima = truppe(path);
+            E().addPiece(path, 'soldato', restano);
+            const messi = truppe(path) - prima;      // il deposito clampa da sé sul tetto
+            if (messi <= 0) return;
+            E().redrawProvince(path);
+            dove.push({ prov: path.id, n: messi });
+            restano -= messi;
+        });
+        if (!dove.length) return null;
+        const punta = E().path(dove[0].prov);
+        return { regno: regnoName, forza, posati: forza - restano,
+            prov: dove[0].prov, provLabel: punta ? R().provinceLabel(punta) : null, dove };
+    }
+
     // CROCIATE — lega due regni con un patto (bondPact scrive su ENTRAMBI). Salta
     // se un regno non esiste più o non ha province.
     function eventPact(aName, bName, tipo) {
@@ -910,6 +1021,11 @@
             if (!path) return;
             E().setOwner(path, pl.name);
             E().setArmyColor(path, pl.color);
+            // Un regno nuovo FONDA, non conquista: la provincia (una terra di
+            // nessuno) non resta agganciata alla corona di chi la teneva un tempo.
+            // Senza, una vecchia conquista poi razziata rinascerebbe qui vincolata
+            // a un regno che non c'entra nulla, e nessuno scisma la toccherebbe più.
+            E().setReligionLock(path, false);
             const cur = E().countPiece(path, 'soldato');
             const want = Math.max(0, Math.floor(spot.soldati || 0));
             if (want !== cur) E().addPiece(path, 'soldato', want - cur);
@@ -1189,7 +1305,13 @@
         let extra = '';
         if (type === 'citta') { player.scorte.pietra += 1; extra = ' (+1 Pietra)'; }
         // La Capitale dà una strada gratuita (§6): la si spende col pulsante Strada.
-        if (type === 'capitale') { player.stradeGratis = (player.stradeGratis || 0) + 1; extra = ' (hai 1 strada gratuita)'; }
+        if (type === 'capitale') {
+            player.stradeGratis = (player.stradeGratis || 0) + 1; extra = ' (hai 1 strada gratuita)';
+            // Prima di questo momento il regno non aveva religione di stato: le
+            // province già conquistate non erano agganciate a nessuna corona.
+            // Adesso ce n'è una, e chi porta il vincolo la segue (§religione).
+            if (R().syncStateFaiths) R().syncStateFaiths();
+        }
 
         // Città e Capitale non sono solo pedine: sono fatti di cronaca. Nome vero
         // della città e anno dentro il decennio del turno (js/chronicle.js) -> la
@@ -1321,6 +1443,12 @@
         if (E().countPiece(newPath, 'capitale') === 0) E().addPiece(newPath, 'capitale', 1);
         E().setArmyColor(newPath, player.color);
         E().redrawProvince(newPath);
+        // La fede di STATO è quella della Capitale: spostando il seggio può
+        // essere cambiata in questo istante, e le province conquistate seguono la
+        // CORONA (§la fede segue la spada). Riallinearle qui e non aspettare il
+        // prossimo giro completo: fino ad allora la mappa delle fedi mostrerebbe
+        // un impero che non esiste più.
+        if (R().syncStateFaiths) R().syncStateFaiths();
     }
 
     // Sposta la Capitale su una provincia propria (500 monete). La vecchia sede
@@ -2009,6 +2137,160 @@
         return done('Consenti a ' + altro.name + ' di attaccare ' + labelOf(provId) + ' senza rompere il patto.', { prov: provId });
     }
 
+    // ============================================================
+    // A COSA SERVE DAVVERO UN'ALLEANZA: CHIEDERE E MANDARE RINFORZI
+    // (regola dell'utente: "nella meccanica dell'alleanza non si capisce cosa si
+    // possa effettivamente fare oltre a concedere uno stato ad un altro regno").
+    //
+    // Il privilegio 'rinforzi' (che l'alleanza comprende, e che il patto omonimo
+    // dà da solo) apriva finora una sola porta, e stretta: lo spostamento di FINE
+    // turno verso un alleato confinante — uno per turno, in concorrenza con la
+    // manovra propria. Due cose mancavano, e sono queste:
+    //
+    //   1. CHIEDERE. `askReinforcements` manda all'alleato una richiesta che dice
+    //      DOVE servono gli uomini. È un messaggio, non un obbligo: vive come le
+    //      proposte di patto (sul record di chi la riceve) e si spegne da sé
+    //      quando i rinforzi arrivano o dopo HELP_TTL turni. Dove sta cedendo il
+    //      fronte lo sa il difensore, non chi lo guarda da lontano.
+    //   2. MANDARE, in FASE D'ATTACCO. `sendReinforcements` è l'altra cosa che si
+    //      può fare da una provincia di confine oltre a caricare: invece di
+    //      colpire l'alleato, gli si marcia in aiuto. Non consuma lo spostamento
+    //      di fine turno (che resta per la propria manovra) e non ha un tetto di
+    //      volte: il tetto è che quegli uomini DIVENTANO SUOI e non tornano.
+    //
+    // Chi riceve segna l'aiuto in `aiuti`, che Diplomacy.standing legge come il
+    // fatto positivo più caro: sono uomini, non merce.
+    // ============================================================
+    const HELP_TTL = 5;          // una richiesta d'aiuto invecchia in mezzo ciclo
+    const HELP_MAX = 12;
+    function helpInbox(player) {
+        if (!Array.isArray(player.richiesteAiuto)) player.richiesteAiuto = [];
+        return player.richiesteAiuto;
+    }
+    // Le richieste che questo regno ha MANDATO: come tradeOutbox, si trovano
+    // scorrendo le caselle altrui — una richiesta esiste in un posto solo.
+    function helpOutbox(player) {
+        const out = [];
+        R().players().forEach(p => {
+            if (String(p.id) === String(player.id)) return;
+            helpInbox(p).forEach(h => {
+                if (String(h.da) === String(player.id)) out.push(Object.assign({ a: p.id, aNome: p.name }, h));
+            });
+        });
+        return out;
+    }
+
+    // "Mandami uomini QUI." Serve l'accesso militare (alleanza o patto dei
+    // rinforzi) e una provincia PROPRIA: si chiede aiuto per casa propria.
+    function askReinforcements(player, toId, provId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const altro = R().players().find(p => String(p.id) === String(toId));
+        if (!altro) return fail('Regno sconosciuto.');
+        if (!D().allowsReinforce(player, altro)) {
+            return fail('Con ' + altro.name + ' non hai un\'alleanza né un patto di rinforzi: ' +
+                'nessuno dei due può marciare in aiuto dell\'altro.');
+        }
+        const path = E().path(provId);
+        if (!path || E().owner(path) !== player.name) return fail('Puoi chiedere aiuto solo per una tua provincia.');
+        const inbox = helpInbox(altro);
+        if (inbox.some(h => String(h.da) === String(player.id) && String(h.prov) === String(provId))) {
+            return fail('Hai già chiesto rinforzi a ' + altro.name + ' per ' + labelOf(provId) + '.');
+        }
+        inbox.push({
+            id: newTradeId(), da: player.id, daNome: player.name,
+            prov: provId, turno: R().turn()
+        });
+        while (inbox.length > HELP_MAX) inbox.shift();
+        pushPactNotice(altro, { tipo: 'aiuto', prov: provId, conNome: player.name });
+        E().refresh(); E().save();
+        return done('Hai chiesto a ' + altro.name + ' rinforzi per ' + labelOf(provId) + '.', { prov: provId });
+    }
+
+    // Ritira una richiesta (o la spegne quando il fronte è passato).
+    function cancelHelp(player, toId, provId) {
+        const altro = R().players().find(p => String(p.id) === String(toId));
+        if (!altro) return fail('Regno sconosciuto.');
+        const inbox = helpInbox(altro);
+        const i = inbox.findIndex(h => String(h.da) === String(player.id) && String(h.prov) === String(provId));
+        if (i < 0) return fail('Questa richiesta non c\'è più.');
+        inbox.splice(i, 1);
+        E().refresh(); E().save();
+        return done('Richiesta di rinforzi a ' + altro.name + ' ritirata.', { prov: provId });
+    }
+
+    // Le richieste vecchie si spengono a giro finito, come le carovane senza
+    // risposta: un grido d'aiuto di mezzo secolo fa non è più una notizia.
+    function expireHelpRequests() {
+        const turno = R().turn();
+        let scadute = 0;
+        R().players().forEach(p => {
+            const inbox = helpInbox(p);
+            for (let i = inbox.length - 1; i >= 0; i--) {
+                if (turno - (inbox[i].turno || 0) >= HELP_TTL) { inbox.splice(i, 1); scadute++; }
+            }
+        });
+        return scadute;
+    }
+
+    // MARCIARE IN AIUTO invece che addosso (fase 'attacca'). Gli uomini passano
+    // all'alleato: entrano nella sua provincia senza cambiarne proprietario né
+    // colore, esattamente come nel rinforzo di fine turno (finalMove) — la regola
+    // è la stessa, e quindi anche la ventura (§5.3) viaggia con la sua quota.
+    function sendReinforcements(player, fromId, toId, n) {
+        const turnErr = requirePhase(player, 'attacca'); if (turnErr) return turnErr;
+        const from = E().path(fromId), to = E().path(toId);
+        if (!from || !to) return fail('Provincia sconosciuta.');
+        if (E().owner(from) !== player.name) return fail('I rinforzi partono da una tua provincia.');
+        const altro = R().players().find(p => p.name === E().owner(to));
+        if (!altro || String(altro.id) === String(player.id)) {
+            return fail('I rinforzi si mandano a un ALTRO regno: fra province tue c\'è lo spostamento.');
+        }
+        if (!D().allowsReinforce(player, altro)) {
+            return fail('Puoi marciare in aiuto solo di un alleato (o di chi ti ha concesso i rinforzi).');
+        }
+        if (!E().areLandAdjacent(fromId, toId)) {
+            return fail('I rinforzi passano solo per un confine di terra: ' + R().provinceLabel(to) +
+                ' non tocca ' + R().provinceLabel(from) + '.');
+        }
+        const mobili = spare(from);
+        n = Math.floor(n);
+        if (!(n > 0)) return fail('Indica quanti soldati mandare.');
+        if (!mobili) return garrisonFail(from);
+        if (n > mobili) {
+            return fail('Da ' + R().provinceLabel(from) + ' possono partire al massimo ' + mobili +
+                ': uno resta sempre a presidiare.');
+        }
+        const room = roomFor(to);
+        if (n > room) return fail(R().provinceLabel(to) + ' regge solo altri ' + room + ' soldati.');
+
+        const mercPrima = E().merc(from);
+        const mercMossi = mercLeaving(from, n);
+        E().addPiece(from, 'soldato', -n);
+        E().setMerc(from, mercPrima - mercMossi);
+        consumePlaced(player, fromId, n);
+        E().addPiece(to, 'soldato', n);
+        E().addMerc(to, mercMossi);
+        E().redrawProvince(from);
+        E().redrawProvince(to);
+
+        // Il fatto diplomatico: chi riceve se lo segna (Diplomacy.standing lo
+        // legge come il credito più caro) e lo scopre a inizio turno con la
+        // pergamena, come ogni altra notizia d'araldo.
+        if (!Array.isArray(altro.aiuti)) altro.aiuti = [];
+        altro.aiuti.push({ chi: player.name, prov: toId, uomini: n, turno: R().turn() });
+        while (altro.aiuti.length > HELP_MAX * 2) altro.aiuti.shift();
+        pushPactNotice(altro, { tipo: 'rinforzi', prov: toId, conNome: player.name, uomini: n });
+        // Se erano stati chiesti proprio lì, la richiesta è esaudita.
+        const inbox = helpInbox(player);
+        for (let i = inbox.length - 1; i >= 0; i--) {
+            if (String(inbox[i].da) === String(altro.id) && String(inbox[i].prov) === String(toId)) inbox.splice(i, 1);
+        }
+
+        E().refresh(); E().save();
+        return done(n + (n === 1 ? ' soldato marcia' : ' soldati marciano') + ' in aiuto di ' + altro.name +
+            ' a ' + R().provinceLabel(to) + ': ora sono suoi.', { fromId, toId });
+    }
+
     // Un'alleanza a tempo scaduta si scioglie da sé — GRATIS (niente prestigio):
     // gira a giro completato (endTurn), come expireTrades. Avvisa entrambi.
     function expirePacts() {
@@ -2052,6 +2334,10 @@
             owner: E().owner(p) || 'Neutrale',
             patto: pattoNonAgg,
             alleanza: !!(difP && D().areAllied(player, difP)),
+            // ACCESSO MILITARE (§Diplomazia): su questa provincia si può marciare
+            // in AIUTO invece che addosso. Viaggia col bersaglio come il terreno,
+            // così la plancia offre il secondo bottone senza rifare il conto.
+            rinforzabile: !!(difP && D().allowsReinforce(player, difP) && !viaMare),
             consenso: pattoNonAgg && difP ? consentIndex(difP, player.id, p.id) >= 0 : false,
             troops: E().countPiece(p, 'soldato'),
             // Quanti di quei difensori sono di ventura (§5.3): viaggia col
@@ -2150,6 +2436,24 @@
     // provincia presa ospita la Capitale del difensore, quella resta in piedi
     // (le costruzioni non si radono) e cambia colore — cioè da quel momento
     // `stateReligionOf` potrebbe trovare LEI e leggere la fede del vinto.
+    // Il passaggio di mano SENZA battaglia (un editto che assegna o consegna una
+    // provincia). La regola della fede è la stessa della conquista — non può
+    // esserci una porta di servizio da cui una provincia cambia padrone senza
+    // cambiare fede: al giro dopo syncConquestFaiths troverebbe una provincia
+    // agganciata alla corona sbagliata, o non agganciata affatto. "nuovo" null =
+    // torna terra di nessuno: si scioglie il vincolo e la provincia torna
+    // soggetta agli scismi come ogni altra neutrale.
+    // La fede del nuovo padrone si legge PRIMA del passaggio di mano (stesso
+    // motivo di applyBattleOutcome): se la provincia che cambia mano ospita una
+    // Capitale, un attimo dopo getCapitalPathFor troverebbe QUELLA e leggerebbe
+    // la fede sbagliata.
+    function handOver(nuovo, to, fede) {
+        if (!nuovo) { E().setReligionLock(to, false); return null; }
+        const conv = convertOnConquest(nuovo, to, fede);
+        if (fede) E().setReligionLock(to, true);
+        return conv;
+    }
+
     function convertOnConquest(winner, to, fede) {
         if (typeof Religions === 'undefined' || !fede) return null;
         const prima = E().religion(to);
@@ -2187,6 +2491,26 @@
         if (winner && Array.isArray(winner.rancore) && winner.rancore.length) {
             winner.rancore = winner.rancore.filter(g => g.prov !== provId);  // ripresa: torto saldato
         }
+    }
+
+    // ---------- LE ARMI CHE HAI SUBITO (aggressioni) ----------
+    // Il RANCORE è il registro dei BOT e tiene solo le prede grosse: una
+    // provincia spoglia non muove la loro vendetta. La DIPLOMAZIA invece ha
+    // bisogno di tutto (regola dell'utente: "se ci sono stati tentativi di
+    // attacchi, invasioni o conquiste passate"), perché un attacco RESPINTO non
+    // toglie niente dalla mappa ma cambia per sempre come guardi quel vicino.
+    // Quindi due registri, e non uno solo allargato: hanno due lettori diversi e
+    // due criteri diversi. Questo vive sul record di chi l'ha SUBITO, come il
+    // rancore, e lo legge Diplomacy.standing.
+    const AGGRO_MAX = 24;
+    function recordAggression(defender, to, aggressorName, esito) {
+        if (!defender) return;                                   // neutrale: non ha memoria
+        if (!Array.isArray(defender.aggressioni)) defender.aggressioni = [];
+        defender.aggressioni.push({
+            chi: aggressorName, prov: to.id, esito,
+            peso: grudgeWorth(to), turno: R().turn()
+        });
+        while (defender.aggressioni.length > AGGRO_MAX) defender.aggressioni.shift();
     }
 
     // `mercIn` = quanti dei superstiti che entrano nella provincia presa sono di
@@ -2329,6 +2653,13 @@
             if (ci >= 0) difRegno.permessiAttacco.splice(ci, 1);
             else breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
         }
+
+        // L'ATTO DI GUERRA SI REGISTRA COMUNQUE VADA (§Diplomazia): la provincia
+        // si legge ora, ancora del difensore e con le sue costruzioni in piedi,
+        // così `peso` dice quanto valeva davvero. Vinto o respinto, il vicino se
+        // lo ricorda — è la differenza fra il rancore (che vuole le prede grosse,
+        // per i bot) e il rapporto diplomatico (che conta ogni colpo portato).
+        recordAggression(difRegno, to, player.name, res.attackerWins ? 'presa' : 'respinto');
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
         E().addPiece(from, 'soldato', -engaged);
@@ -2782,16 +3113,31 @@
 
     function moveTargets(player, fromId) {
         const seen = new Set();
-        const card = (p, viaMare, scafi) => ({
+        const card = (p, viaMare, scafi, alleato) => ({
             id: p.id, label: R().provinceLabel(p),
             troops: E().countPiece(p, 'soldato'),
             // Come per gli sbarchi (§9.2): via terra o via nave. Un rinforzo via
             // mare porta al massimo il CARICO dello scafo, oltre al presidio (§5).
             viaMare: !!viaMare,
+            alleato: !!alleato,
             scafi: viaMare ? scafi.slice() : [],
             scafo: viaMare ? scafi[scafi.length - 1] : null,
             carico: viaMare ? E().shipCapacity(scafi[scafi.length - 1]) : null
         });
+
+        // Chi può RICEVERE rinforzi da me (§Diplomazia, privilegio 'rinforzi', che
+        // l'alleanza comprende), per nome di regno. La risposta si chiede una volta
+        // sola: la portata di un Veliero tocca decine di province, e cercare il
+        // record del proprietario per ognuna rifarebbe cento volte lo stesso giro.
+        const allyMemo = new Map();
+        const canReinforce = (owner) => {
+            if (!owner || owner === player.name) return false;
+            if (allyMemo.has(owner)) return allyMemo.get(owner);
+            const altro = R().players().find(pl => pl.name === owner);
+            const ok = !!(altro && D().allowsReinforce(player, altro));
+            allyMemo.set(owner, ok);
+            return ok;
+        };
 
         const out = [];
         // Via terra: le CONFINANTI mie (requisito dell'utente: un solo confine).
@@ -2808,22 +3154,18 @@
             if (seen.has(id)) return;
             const p = E().path(id);
             if (!p) return;
-            const owner = E().owner(p);
-            if (!owner || owner === player.name) return;
-            const altro = R().players().find(pl => pl.name === owner);
-            if (altro && D().allowsReinforce(player, altro)) {
-                seen.add(id);
-                const c = card(p, false, null);
-                c.alleato = true;
-                out.push(c);
-            }
+            if (!canReinforce(E().owner(p))) return;
+            seen.add(id);
+            out.push(card(p, false, null, true));
         });
 
-        // Via mare: con una nave ancorata qui si rinforza una PROPRIA costiera
-        // entro portata (regola dell'utente, il caso tipico è dopo uno sbarco:
-        // la nave è ora sulla costa presa e riparte da lì). È un rinforzo, non
-        // un attacco — la meta dev'essere già tua. A parità di meta si tengono
-        // tutti gli scafi che ci arrivano, il più capiente fa da default.
+        // Via mare: con una nave ancorata qui si rinforza una costiera entro
+        // portata (regola dell'utente, il caso tipico è dopo uno sbarco: la nave
+        // è ora sulla costa presa e riparte da lì). È un rinforzo, non un
+        // attacco — la meta dev'essere già TUA, oppure di un ALLEATO che ti ha
+        // aperto il corridoio (§Diplomazia): il mare è la via naturale per
+        // soccorrere chi non confina con te. A parità di meta si tengono tutti
+        // gli scafi che ci arrivano, il più capiente fa da default.
         const from = E().path(fromId);
         if (from && E().owner(from) === player.name) {
             const best = new Map();
@@ -2833,16 +3175,19 @@
                 E().seaReach(fromId, r).forEach(id => {
                     if (seen.has(id)) return;                       // già confinante via terra
                     const p = E().path(id);
-                    if (!p || E().owner(p) !== player.name) return; // solo province MIE
-                    let list = best.get(id);
-                    if (!list) { list = []; best.set(id, list); }
-                    if (list.indexOf(h.tipo) < 0) {
-                        list.push(h.tipo);
-                        list.sort((a, b) => E().shipCapacity(a) - E().shipCapacity(b));
+                    if (!p) return;
+                    const owner = E().owner(p);
+                    const mia = owner === player.name;
+                    if (!mia && !canReinforce(owner)) return;       // mie, o dell'alleato
+                    let rec = best.get(id);
+                    if (!rec) { rec = { tipi: [], alleato: !mia }; best.set(id, rec); }
+                    if (rec.tipi.indexOf(h.tipo) < 0) {
+                        rec.tipi.push(h.tipo);
+                        rec.tipi.sort((a, b) => E().shipCapacity(a) - E().shipCapacity(b));
                     }
                 });
             });
-            best.forEach((tipi, id) => out.push(card(E().path(id), true, tipi)));
+            best.forEach((rec, id) => out.push(card(E().path(id), true, rec.tipi, rec.alleato)));
         }
 
         return out.sort((a, b) => a.label.localeCompare(b.label));
@@ -2875,18 +3220,17 @@
         if (fromId === toId) return fail('Partenza e arrivo sono la stessa provincia.');
 
         // La meta è una PROPRIA provincia, oppure — col privilegio 'rinforzi'
-        // (§Diplomazia) — un ALLEATO confinante via terra a cui inviare rinforzi
-        // (i soldati diventano suoi). Il rinforzo a un alleato è solo via terra:
-        // niente sbarco su costa altrui.
+        // (§Diplomazia) — un ALLEATO a cui inviare rinforzi (i soldati diventano
+        // suoi). All'alleato si arriva per lo stesso paio di strade con cui si
+        // raggiunge una provincia propria: il confine di terra, o una nave
+        // ancorata alla partenza (regola dell'utente) — un alleato oltremare
+        // è proprio quello che ha più bisogno d'essere soccorso.
         const toMine = E().owner(to) === player.name;
         let allyTo = null;
         if (!toMine) {
             allyTo = R().players().find(pl => pl.name === E().owner(to));
             if (!allyTo || !D().allowsReinforce(player, allyTo)) {
-                return fail('Lo spostamento avviene fra due province tue, o come rinforzo a un alleato confinante.');
-            }
-            if (!E().areLandAdjacent(fromId, toId)) {
-                return fail('Puoi inviare rinforzi solo a un alleato che confina via terra.');
+                return fail('Lo spostamento avviene fra due province tue, o come rinforzo a un alleato.');
             }
         }
 
@@ -2896,7 +3240,7 @@
         // `scafoVoluto` fissa la nave quando è il giocatore a sceglierla; senza, si
         // prende il meno capiente che basti (non si sciupa un Veliero dove arriva
         // una Nave).
-        const viaMare = toMine && !E().areLandAdjacent(fromId, toId);
+        const viaMare = !E().areLandAdjacent(fromId, toId);
         let scafo = null;
 
         const mobili = spare(from);
@@ -2947,8 +3291,10 @@
         }
         // La nave viaggia con gli uomini: lascia la partenza e ancora all'arrivo
         // a carico vuoto, come nello sbarco (§9.2). Le navi sono di chi possiede
-        // la provincia, quindi basta spostare lo scafo.
-        if (viaMare && scafo) {
+        // la provincia, quindi basta spostare lo scafo — ed è per questo che in un
+        // porto ALLEATO lo scafo non ci resta: ancorarlo là lo regalerebbe. Scarica
+        // gli uomini e torna all'ormeggio di partenza.
+        if (viaMare && scafo && !allyTo) {
             E().removeShip(from, scafo.tipo);
             E().addShip(to, scafo.tipo, 0);
         }
@@ -2959,8 +3305,9 @@
         E().refresh();
         E().save();
         const testa = allyTo
-            ? n + (n === 1 ? ' soldato inviato' : ' soldati inviati') + ' in rinforzo a ' + allyTo.name +
-              ' (' + R().provinceLabel(to) + '): ora sono suoi.'
+            ? n + (n === 1 ? ' soldato inviato' : ' soldati inviati') + (viaMare ? ' via nave' : '') +
+              ' in rinforzo a ' + allyTo.name + ' (' + R().provinceLabel(to) + '): ora sono suoi.' +
+              (viaMare ? ' La nave rientra a ' + R().provinceLabel(from) + '.' : '')
             : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') + (viaMare ? ' via nave' : '') +
               ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.';
         return done(testa + ' Lo spostamento del turno è speso.', { fromId, toId });
@@ -3095,10 +3442,13 @@
             } else if (to) {
                 // CONSEGNA: le truppe si posano e basta. Serve quando la provincia
                 // è già del regno (rinforzo) o quando l'admin vuole regalarla.
+                let convConsegna = null;
                 if (o.modo === 'consegna' && target && !suaGia) {
+                    const fedeNuova = R().stateReligionOf ? R().stateReligionOf(target) : null;
                     E().setOwner(to, target.name);
                     E().setArmyColor(to, target.color);
                     pruneRoadsTouching(to.id);
+                    convConsegna = handOver(target, to, fedeNuova);   // la fede segue la spada (§religione)
                 }
                 E().addPiece(to, 'soldato', mossi);
                 E().addMerc(to, mercMossi);   // la ventura arriva con gli uomini (§5.3)
@@ -3109,6 +3459,10 @@
                     ? mossi + (mossi === 1 ? ' uomo trasferito da ' : ' uomini trasferiti da ') +
                       R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.'
                     : mossi + ' uomini compaiono in ' + R().provinceLabel(to) + '.';
+                if (convConsegna) {
+                    msg += ' ' + R().provinceLabel(to) + ' si converte alla fede di ' +
+                           target.name + ': ' + convConsegna.label + '.';
+                }
                 // L'avvertimento che conta: soldati su una provincia che non è del
                 // regno non sono suoi, e non ci potrà fare niente.
                 if (target && E().owner(to) !== target.name) {
@@ -3122,12 +3476,17 @@
         } else if (o.azione === 'provincia') {
             if (!to) return fail('Indica la provincia da assegnare.');
             const prima = E().owner(to);
+            const fedeNuova = target && R().stateReligionOf ? R().stateReligionOf(target) : null;
             E().setOwner(to, target ? target.name : null);
             E().setArmyColor(to, target ? target.color : null);
             pruneRoadsTouching(to.id);
+            const convProv = handOver(target, to, fedeNuova);   // la fede segue la spada (§religione)
             E().redrawProvince(to);
             tocchi.push(to.id);
             msg = R().provinceLabel(to) + (target ? ' passa a ' + target.name + '.' : ' torna terra di nessuno.');
+            if (convProv) {
+                msg += ' Si converte alla fede di ' + target.name + ': ' + convProv.label + '.';
+            }
             // Cambia padrone: lo deve sapere anche chi la perde.
             const perdente = prima ? players.find(p => p.name === prima) : null;
             if (perdente && (!target || perdente.id !== target.id)) {
@@ -3194,6 +3553,9 @@
         // patti; concedere l'attacco a un proprio territorio; far scadere le
         // alleanze a tempo (chiamata da endTurn come expireTrades).
         proposePact, acceptPact, declinePact, breakPact, grantAttack, expirePacts, pactInbox,
+        // A cosa serve l'alleanza: chiedere rinforzi (indicando DOVE servono) e
+        // marciare in aiuto in fase d'attacco invece di colpire.
+        askReinforcements, cancelHelp, sendReinforcements, helpInbox, helpOutbox, expireHelpRequests,
         conquestPending, resolveConquest,
         moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,

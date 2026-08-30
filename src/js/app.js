@@ -163,6 +163,28 @@ document.addEventListener('DOMContentLoaded', () => {
         // regni IA, ma non fa male tenerlo per tutti (un umano semplicemente lo
         // ignora).
         if (!Array.isArray(p.rancore)) p.rancore = [];
+        // AGGRESSIONI SUBITE (§Diplomazia, il livello di rapporto): [{chi, prov,
+        // esito, peso, turno}] — TUTTO quel che un altro regno ti ha portato
+        // addosso, non solo le prede grosse: le province strappate (`presa`) e
+        // anche i colpi RESPINTI (`respinto`), che il rancore non registra perché
+        // ai bot non servono. Lo scrive l'unico punto in cui una battaglia si
+        // risolve (game-actions.attack); lo legge Diplomacy.standing.
+        // Un salvataggio anteriore a questo registro lo eredita dal rancore: le
+        // province preziose già perdute non spariscono dal rapporto.
+        if (!Array.isArray(p.aggressioni)) {
+            p.aggressioni = (Array.isArray(p.rancore) ? p.rancore : []).map(g => ({
+                chi: g.chi, prov: g.prov, esito: 'presa', peso: g.peso || 1, turno: g.turno || 1
+            }));
+        }
+        // AIUTI RICEVUTI (§Diplomazia): [{chi, prov, uomini, turno}] — i rinforzi
+        // che un alleato ti ha mandato al fronte. È il rovescio positivo delle
+        // aggressioni, e l'unico fatto diplomatico che costa uomini a chi lo compie.
+        if (!Array.isArray(p.aiuti)) p.aiuti = [];
+        // RICHIESTE D'AIUTO RICEVUTE (§Diplomazia): [{id, da, daNome, prov, turno}]
+        // — "mandami uomini QUI". Vivono sul record di chi le riceve, come le
+        // offerte di commercio e le proposte di patto: una richiesta esiste in un
+        // posto solo. Si spengono quando i rinforzi arrivano o quando scadono.
+        if (!Array.isArray(p.richiesteAiuto)) p.richiesteAiuto = [];
         // SPEDIZIONI OLTREMARE (§9.2, rotte lunghe): [{id, dir, carico, merc, x, y,
         // turno}] — i Velieri in rotta lunga, in mare aperto fuori da ogni
         // provincia. Ognuno porta con sé posizione (x,y in coordinate SVG), la
@@ -896,6 +918,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mapPaintMode === 'fede') refreshMapDisplay();
     }
 
+    // Rimette la mappa delle fedi com'era al Mille: ogni provincia torna al suo
+    // seed (eccezione per nome, poi blocco regionale — gli stessi due passi di
+    // initMap) e nessuna resta agganciata alla corona di un regno (data-fede-conq).
+    // La chiama GameActions.startGame, dov'è il calendario a tornare al turno 1:
+    // senza, una partita nuova cominciava nel 1000 con l'Inghilterra protestante,
+    // perché la Riforma dalla partita PRECEDENTE era rimasta scritta sulla mappa —
+    // e da lì in poi gli scismi del calendario non avevano più niente da spezzare.
+    function resetReligions() {
+        const svg = document.querySelector('svg');
+        if (!svg || typeof Religions === 'undefined') return 0;
+        let n = 0;
+        provincePaths(svg).forEach(p => {
+            p.removeAttribute('data-fede-conq');
+            let b = null; try { b = p.getBBox(); } catch (e) { b = null; }
+            const cx = b ? b.x + b.width / 2 : 0;
+            const cy = b ? b.y + b.height / 2 : 0;
+            const faith = Religions.seedFaith(provinceLabel(p), cx, cy);
+            if (!faith) return;
+            if (religionKeyOf(p) !== faith) n++;
+            p.setAttribute('data-religione', faith);
+        });
+        refreshMapDisplay();
+        return n;
+    }
+
     // Religione di STATO di un regno = fede della provincia della sua Capitale.
     // Nessuna Capitale → nessuna religione di stato (null).
     function stateReligionOf(player) {
@@ -1233,20 +1280,20 @@ document.addEventListener('DOMContentLoaded', () => {
             // altrimenti si mostra la quantità, e solo se vale la pena.
             const badge = (e.badge !== undefined) ? e.badge : (e.count > 1 ? e.count : null);
             if (badge !== null) {
-                const bx = x + size * 0.9, by = y + size * 0.1, br = size * 0.42;
+                const bx = x + size * 0.86, by = y + size * 0.14, br = size * 0.32;
                 const c = document.createElementNS(SVG_NS, 'circle');
                 c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
                 c.setAttribute('fill', '#fff');
                 // Anello scuro come il contorno delle pedine: il numero deve
                 // leggersi anche sopra una provincia del colore del giocatore.
                 c.setAttribute('stroke', PIECE_INK);
-                c.setAttribute('stroke-width', size * 0.11);
+                c.setAttribute('stroke-width', size * 0.085);
                 add(c);
                 const t = document.createElementNS(SVG_NS, 'text');
                 t.setAttribute('x', bx); t.setAttribute('y', by);
                 t.setAttribute('text-anchor', 'middle');
                 t.setAttribute('dominant-baseline', 'central');
-                t.setAttribute('font-size', br * 1.5);
+                t.setAttribute('font-size', br * 1.45);
                 t.setAttribute('font-weight', 'bold');
                 t.setAttribute('font-family', 'sans-serif');
                 t.setAttribute('fill', 'currentColor');
@@ -1287,18 +1334,18 @@ document.addEventListener('DOMContentLoaded', () => {
         use.setAttribute('width', size); use.setAttribute('height', size);
         add(use);
         // Il carico a bordo, nel pallino, come su ogni scafo (§9.2).
-        const bx = x + size * 0.9, by = y + size * 0.1, br = size * 0.42;
+        const bx = x + size * 0.86, by = y + size * 0.14, br = size * 0.32;
         const c = document.createElementNS(SVG_NS, 'circle');
         c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
         c.setAttribute('fill', '#fff');
         c.setAttribute('stroke', PIECE_INK);
-        c.setAttribute('stroke-width', size * 0.11);
+        c.setAttribute('stroke-width', size * 0.085);
         add(c);
         const t = document.createElementNS(SVG_NS, 'text');
         t.setAttribute('x', bx); t.setAttribute('y', by);
         t.setAttribute('text-anchor', 'middle');
         t.setAttribute('dominant-baseline', 'central');
-        t.setAttribute('font-size', br * 1.5);
+        t.setAttribute('font-size', br * 1.45);
         t.setAttribute('font-weight', 'bold');
         t.setAttribute('font-family', 'sans-serif');
         t.setAttribute('fill', 'currentColor');
@@ -2622,7 +2669,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         const neutrali = 'Le terre di nessuno partono con ' + GameRules.NEUTRAL_START +
-            ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' + GameRules.NEUTRAL_EVERY + ' turni).';
+            ' soldati (+' + GameRules.NEUTRAL_STEP + ' ogni ' + GameRules.NEUTRAL_EVERY +
+            ' turni, fino a ' + GameRules.NEUTRAL_MAX + ').';
         // Numero di regni umani da sorteggiare (2+): partita mista, gli altri all'IA.
         const nUmani = (umani | 0) >= 2 ? (umani | 0) : 0;
         const opts = nUmani
@@ -3309,9 +3357,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         let roads = 0;                          // strade con ENTRAMBI gli estremi miei
         ROADS.forEach(r => { if (idSet.has(r.a) && idSet.has(r.b)) roads++; });
-        let pop = 0, sic = 0;                   // Popolarità e Sicurezza (§8, serve la Capitale)
-        try { const cap = getCapitalPathFor(player); if (cap) { const p = computePopularity(player, cap, connected); pop = p.totale; sic = p.sicurezza; } }
-        catch (e) { pop = 0; sic = 0; }
+        // Popolarità e le sue due componenti misurabili (§8, serve la Capitale).
+        // Il Benessere sta accanto alla Sicurezza perché è l'altra metà della
+        // formula e si muove con leve diverse: la Sicurezza si compra con la
+        // guardia, il Benessere solo collegando risorse e cibo (§4).
+        let pop = 0, sic = 0, ben = 0;
+        try {
+            const cap = getCapitalPathFor(player);
+            if (cap) { const p = computePopularity(player, cap, connected); pop = p.totale; sic = p.sicurezza; ben = p.benessere; }
+        } catch (e) { pop = 0; sic = 0; ben = 0; }
         return {
             owns: id => idSet.has(id),
             ownedIds: () => ids,
@@ -3323,6 +3377,13 @@ document.addEventListener('DOMContentLoaded', () => {
             cityIds: () => paths.filter(p => countPiece(p, 'citta') > 0).map(p => p.id),
             shipIds: () => paths.filter(p => { const s = p.getAttribute('data-ships'); return s && s.split(',').filter(Boolean).length > 0; }).map(p => p.id),
             shipCount: () => paths.reduce((n, p) => { const s = p.getAttribute('data-ships'); return n + (s ? s.split(',').filter(Boolean).length : 0); }, 0),
+            // Scafi di un TIPO solo (barca | vascello): un Veliero non è una
+            // nave più grande, è l'unica che attraversi un oceano (§9.2).
+            shipCountOf: kind => paths.reduce((n, p) => {
+                const s = p.getAttribute('data-ships');
+                if (!s) return n;
+                return n + s.split(',').filter(Boolean).filter(v => v.split(':')[0] === kind).length;
+            }, 0),
             monete: player.monete || 0,
             scorteOf: res => (player.scorte && player.scorte[res]) || 0,
             connectedCount: () => connOwned,
@@ -3331,7 +3392,8 @@ document.addEventListener('DOMContentLoaded', () => {
             roadCount: () => roads,
             isCoastal: id => { const el = document.getElementById(id); return el ? isCoastalProvince(el) : false; },
             popularity: () => pop,
-            sicurezza: () => sic
+            sicurezza: () => sic,
+            benessere: () => ben
         };
     }
 
@@ -3385,16 +3447,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // Archivia la spunta di un ciclo concluso e somma i punti TENUTI a fine
     // ciclo. Unico punto che tocca `puntiPrestigio`: lo chiamano la migrazione
     // qui sopra e GameActions.closeCycle.
+    // Torna il record archiviato: closeCycle ci timbra sopra la LEVA (i soldati
+    // versati per gli obiettivi compiuti, §10) — che NON si scrive qui, perché
+    // questa funzione la chiama anche la migrazione dei salvataggi vecchi, e un
+    // ciclo ricostruito a posteriori non ha mai versato uomini a nessuno.
     function archiveObjectives(player, snap) {
         if (!Array.isArray(player.obiettiviStorico)) player.obiettiviStorico = [];
-        player.obiettiviStorico.push({
+        const rec = {
             ciclo: snap.ciclo, capitolo: snap.capitolo, tema: snap.tema,
             epoca: snap.epoca, intensita: snap.intensita,
-            punti: snap.punti, puntiMax: snap.puntiMax,
+            punti: snap.punti, puntiMax: snap.puntiMax, leva: 0,
             items: snap.items.map(i => ({ tier: i.tier, titolo: i.titolo, punti: i.punti, completato: i.completato }))
-        });
+        };
+        player.obiettiviStorico.push(rec);
         if (typeof player.puntiPrestigio !== 'number') player.puntiPrestigio = 0;
         player.puntiPrestigio += snap.punti;
+        return rec;
     }
 
     // La fotografia di fine ciclo su cui si misura la performance: quel che
@@ -3712,6 +3780,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Capitale (quindi nessuna fede di stato) resta come sta. Va chiamata ad ogni
     // giro completo (applySchisms, sotto), non solo quando scatta uno scisma nuovo:
     // così ripara anche il disallineamento di una partita già in corso.
+    // Una provincia è il SEGGIO di un regno se ha un proprietario e ci sta sopra
+    // la pedina Capitale. Non si passa da getCapitalPathFor (che cerca per colore
+    // partendo dal record del giocatore): qui la domanda è al contrario — data la
+    // provincia, è una Capitale? — e serve dentro cicli su tutte e 628.
+    function isCapitalSeat(path) {
+        return !!(path && path.getAttribute('data-owner') && countPiece(path, 'capitale') > 0);
+    }
+
     function syncConquestFaiths(paths) {
         if (typeof Religions === 'undefined') return 0;
         const stateFaith = new Map();
@@ -3764,7 +3840,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         // La fede fissata dalla conquista non si scisma per
                         // GEOGRAFIA: la sua sorte è legata alla Capitale del suo
                         // regno, e ci pensa syncConquestFaiths qui sotto.
-                        if (p.getAttribute('data-fede-conq')) return;
+                        // ECCEZIONE: la provincia che OSPITA il seggio. Una
+                        // Capitale può benissimo stare su una terra conquistata
+                        // (presa a un nemico e promossa, o traslocata su una
+                        // Città di conquista): se il vincolo valesse anche lì,
+                        // quel regno resterebbe fuori da ogni scisma per sempre —
+                        // e con lui, via syncConquestFaiths, tutto il suo impero.
+                        // Era il modo in cui la regola si perdeva a metà partita.
+                        if (p.getAttribute('data-fede-conq') && !isCapitalSeat(p)) return;
                         if (religionKeyOf(p) !== rule.from) return;
                         if (scoped) {
                             const c = center.get(p);
@@ -4190,12 +4273,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // ATTACCO / SPOSTAMENTO: il retino sui bersagli, un filo d'oro sull'origine.
+        // Una voce di `ids` può essere una stringa (il colore è quello della fase)
+        // oppure {id, kind}: serve alla fase d'attacco, dove le province di un
+        // ALLEATO si accendono col retino d'oro dello spostamento invece che con
+        // l'arancio della carica (§Diplomazia, marciare in aiuto). Il colore dice
+        // subito che quel confine non è un fronte.
         const from = fromId && document.getElementById(fromId);
         if (from) paintEdge(layer, from, '#ffe9a8', 0.9);
-        (ids || []).forEach(id => {
+        (ids || []).forEach(v => {
+            const id = (v && v.id) || v;
+            const k = (v && v.kind) || kind;
             const p = document.getElementById(id);
             if (!p || p === from) return;
-            paintHatch(layer, p, kind === 'sposta' ? 'sposta' : 'attacca');
+            paintHatch(layer, p, k === 'sposta' ? 'sposta' : 'attacca');
             p.classList.add('order-clickable');
             markedTargets.push(p);
         });
@@ -4610,6 +4700,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // fede e applicazione degli scismi (chiamata da game-actions).
         faithOf(id) { const p = document.getElementById(id); return p ? religionKeyOf(p) : ''; },
         stateReligionOf,
+        resetReligions,
+        // Riallinea ORA le province conquistate alla fede di stato del loro regno
+        // (la stessa passata che applySchisms fa a ogni giro). La chiama chi
+        // sposta, promuove o costruisce una Capitale: da quel momento la fede di
+        // stato è un'altra, e l'impero deve seguirla nello stesso istante — non
+        // al prossimo giro completo, con la mappa che nel frattempo mente.
+        syncStateFaiths() {
+            const svg = document.querySelector('svg');
+            if (!svg) return 0;
+            const n = syncConquestFaiths(provincePaths(svg));
+            if (n) refreshMapDisplay();
+            return n;
+        },
         provincesByFamily,
         applySchisms,
         setMapPaint(mode) {

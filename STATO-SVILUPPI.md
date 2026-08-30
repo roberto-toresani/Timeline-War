@@ -27,6 +27,14 @@ e in particolare al momento del commit.
   **vista mappa per fede** (bottone ☩, colora per religione invece che per regno).
   Ganci pronti per gli obiettivi di prestigio "conquista N province cristiane/arabe"
   (`Risiko.provincesByFamily`, `Religions.sameFamily`).
+  **La fede segue la spada, e il vincolo lega alla corona**: una provincia conquistata prende
+  la religione di stato del vincitore e resta agganciata alla sua Capitale — riallineata
+  **subito** quando il seggio si costruisce, si sposta o si promuove (`Risiko.syncStateFaiths`)
+  e comunque a ogni giro. Lo scisma raggiunge la Capitale **anche** quando siede su terra
+  conquistata; il vincolo si scioglie appena la provincia perde il padrone (razzia neutrale,
+  editto, regno che nasce); un passaggio di mano per editto converte come una conquista; e una
+  **partita nuova riparte dalle confessioni del Mille** (`Risiko.resetReligions` in
+  `startGame`), invece di ereditare la Riforma di quella precedente.
 - **Popolarità e Prestigio** — definiti a design; prestigio convertibile in punti d'oro.
 - **Figure di gioco (pedine)** — aggiunte con editor sulla mappa (WIP). Ogni pedina è
   **scontornata di nero** (strato di contorno in `data/piece_icons.js`, costanti `PC_INK`
@@ -161,9 +169,11 @@ e in particolare al momento del commit.
   turno si entra nel regno successivo, con la **sua** nebbia — dieci regni non vogliono dire
   vedere tutta la mappa (per quello resta il 🌍). Un cambio regno a mano non viene rimbalzato
   indietro: si riprende a seguire al turno dopo.
-- **Terre di nessuno presidiate (nuovo)** — ogni provincia neutrale ha **2 soldati** (turni
-  1-5), e ogni **5 turni** la quota sale di 1 (`GameRules.neutralGarrison`, applicata da
-  `GameActions.garrisonNeutrals` all'avvio e a ogni giro completo).
+- **Terre di nessuno presidiate** — ogni provincia neutrale ha **2 soldati** (turni 1-10) e
+  ogni **10 turni** la quota sale di 1, **fino a un massimo di 6** (`GameRules.neutralGarrison`,
+  tetto `NEUTRAL_MAX`; applicata da `GameActions.garrisonNeutrals` all'avvio e a ogni giro
+  completo). Dal turno 41 non crescono più: col 3-contro-1 delle razzie, **2 uomini di
+  presidio chiudono un confine per il resto della partita**.
 - **Il calendario parte dal turno 1 (nuovo)** — turno 1 = 1000-1009, turno 2 = 1010-1019
   (`Chronicle.FIRST_TURN`). Prima si partiva dal turno 0.
 - **Guardare l'IA senza essere trascinati (nuovo)** — la **telecamera non si muove più da
@@ -275,6 +285,14 @@ e in particolare al momento del commit.
   riusano. Spie e partenze dello spostamento restano un tratto leggero (sono decine di
   province). C'è la pagina di confronto `src/_diag-highlight.html` (tasti 0-6) che ha
   fatto scegliere fra le alternative. §9.
+
+- **La LEVA degli obiettivi** (§10): un obiettivo compiuto non paga solo in prestigio — che
+  è una promessa lontana, e oggi sospesa — ma in **uomini**. Tanti soldati quanti erano i suoi
+  punti (5 · 3 · 2, max 10 per ciclo), versati nelle reclute libere e schierabili dal **primo
+  turno del ciclo successivo**. Conto puro in `Objectives.leva`, versamento in
+  `GameActions.closeCycle`, pergamena "La leva risponde alla corona" a inizio ciclo, riga
+  della leva nel foglio 👑 e nello storico. Vale anche per i bot, che leggono lo stesso
+  serbatoio.
 
 ## In lavorazione (WIP)
 

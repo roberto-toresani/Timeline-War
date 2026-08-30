@@ -17,7 +17,7 @@
 //  filone storico guida tutto.
 //
 //  Un capitolo è un blocco di TRE voci — Primario 5 · Secondario 3 · Terziario 2
-//  (la forma che il catalogo ha sempre avuto). Ogni voce è un TEMPLATE (19
+//  (la forma che il catalogo ha sempre avuto). Ogni voce è un TEMPLATE (21
 //  archetipi coprono tutto) più argomenti JSON puri, quindi un'assegnazione si
 //  SERIALIZZA e vive nel salvataggio: `test` e `hint` si ricostruiscono al volo.
 //
@@ -33,6 +33,12 @@
 //  dell'utente 2026-08-26), riparametrizzati senza cambiarne una soglia:
 //  l'ancora `avanzare` di ogni voce È il numero scritto a mano. Il testo del
 //  foglio resta la fonte di verità.
+//
+//  Dal capitolo III in poi il foglio non arriva: i capitoli lunghi si scrivono
+//  regno per regno seguendo docs/BINARI_STORICI.md (l'Inghilterra è il primo
+//  binario steso fino all'VIII). Le ancore nuove non hanno un foglio dietro, ma
+//  la stessa regola: `avanzare` è quel che si chiede a un regno in salute,
+//  `resistere` quel che si chiede a uno che le sta prendendo.
 // ============================================================================
 (function (root) {
     'use strict';
@@ -61,8 +67,32 @@
     const ISLANDS = new Set(['Sicily', 'Sardinia']);
     // Ciclo II: le province di Terra Santa prese dai crociati (Francia/Bisanzio), da riconquistare.
     const HOLY_LAND = new Set(['Palestine', 'Aleppo', 'Lebanon', 'Syria']);
+    // L'Irlanda intera: quattro province, il capitolo V inglese (prenderla tutta
+    // è caro, ed è il punto — è la conquista che fa mollare la presa sul continente).
+    const IRELAND = new Set(['Leinster', 'Ulster', 'Munster', 'Connaught']);
+    // Le terre angioine sul continente, Fiandre ESCLUSE: il capitolo III inglese
+    // chiede una provincia di Francia *e* le Fiandre, quindi le due richieste
+    // devono poter cadere su province diverse.
+    const FRANCIA = new Set(['Normandy', 'Brittany', 'Picardy', 'Maine_Anjou', 'Poitou',
+        'Guyenne', 'Aquitaine', 'Burgundy']);
+    // Il Nuovo Mondo: la costa atlantica delle Tredici Colonie, dove approda la
+    // rotta lunga del Veliero (§9.2) e dove l'Inghilterra fonda il suo insediamento.
+    const AMERICA = new Set(['Maine', 'New_Hampshire', 'Massachusetts', 'Connecticut', 'New_York',
+        'New_Jersey', 'Delaware', 'Maryland', 'Virginia', 'North_Carolina', 'South_Carolina',
+        'Georgia', 'Florida']);
+    // L'Oriente: le coste dell'India e quelle africane sulla rotta delle Indie.
+    // Un solo insieme apposta — la meta è "verso oriente", e la storia si scrive
+    // dove il mare porta la spedizione.
+    const INDIE = new Set(['Sindh', 'Gujarat', 'Bombay', 'Travancore', 'Madras', 'Andhra',
+        'Orissa', 'Bengal', 'Ceylon',
+        'Senegal', 'Gambia', 'Guinea', 'Ivory_Coast', 'Ghana', 'Nigeria', 'Niger_Delta', 'Gabon',
+        'North_Angola', 'South_Angola', 'Namaqualand', 'Cape_Colony', 'Eastern_Cape', 'Zululand',
+        'Mocambique', 'Zanzibar', 'Kenya', 'Somaliland']);
 
-    const SETS = { ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT, ISLANDS, HOLY_LAND };
+    const SETS = {
+        ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT,
+        ISLANDS, HOLY_LAND, IRELAND, FRANCIA, AMERICA, INDIE
+    };
 
     // "una provincia" / "3 province": il testo di un obiettivo cambia col numero,
     // e a soglia 1 la forma plurale suonerebbe da macchina.
@@ -150,6 +180,22 @@
             }
         },
         navi: { misura: c => c.shipCount(), hint: (a, n) => ({ ships: n }) },
+        // Navi di un TIPO preciso: il Veliero non è una barca più grande, è
+        // l'unica chiglia che attraversa un oceano (§9.2), e un capitolo che
+        // chiede il Nuovo Mondo deve poter chiedere prima quella.
+        naviTipo: {
+            misura: (c, a) => c.shipCountOf(a.tipo),
+            hint: (a, n) => ({ ships: n, shipType: a.tipo })
+        },
+        // Una Città dentro una REGIONE, con almeno n uomini. È il gemello di
+        // `citta` con `at`: là il posto è una provincia sola (Kiev), qui è un
+        // pezzo di mondo — «fonda un insediamento nel Nuovo Mondo» non può
+        // nominare la provincia, perché quale sia lo decide dove approda la nave.
+        cittaRegione: {
+            misura: (c, a) => c.cityIds().reduce((m, id) =>
+                SETS[a.set].has(id) ? Math.max(m, c.soldiersOn(id)) : m, -1),
+            hint: (a, n) => ({ city: true, min: n, region: SETS[a.set] })
+        },
         // Una provincia con una nave ancorata e almeno n uomini a difenderla.
         naveGuarnigione: {
             misura: c => c.shipIds().reduce((m, id) => Math.max(m, c.soldiersOn(id)), -1),
@@ -157,6 +203,11 @@
         },
         popolarita: { misura: c => c.popularity(), tetto: () => 5, hint: (a, n) => ({ popularity: n }) },
         sicurezza: { misura: c => c.sicurezza(), tetto: () => 5, hint: (a, n) => ({ security: n }) },
+        // Il BENESSERE (§8): l'altra metà della Popolarità, e l'unica che non si
+        // compra con la guardia — sale collegando risorse e cibo (§4). Un
+        // capitolo che lo chiede sta chiedendo di governare, non di vincere: è il
+        // contrappeso giusto a un secolo speso a conquistare.
+        benessere: { misura: c => c.benessere(), tetto: () => 5, hint: (a, n) => ({ welfare: n }) },
         // Combinato: una parte SCALABILE (`capo`) più parti fisse (`altri`) che
         // vanno tutte soddisfatte. Finché le fisse non lo sono la misura è -1,
         // così l'obiettivo non risulta mai completo; per la calibrazione conta
@@ -312,6 +363,10 @@
                   testo: n => `Costruisci una barca e difendi la provincia con ${n} uomini.`,
                   check: n => `una provincia con una nave e soldati ≥ ${n}` }
             ] },
+            // Ciclo II — lo SBARCO resta la mira primaria (regola dell'utente); il
+            // raduno a Home Counties gli sta sotto ed è quel che lo rende possibile,
+            // non quel che lo sostituisce. La guerra vera comincia comunque al IV:
+            // qui l'Inghilterra mette il piede sulla riva, non conquista la Francia.
             { ciclo: 2, epoca: '1100-1199', tema: 'L’impero angioino', voci: [
                 { id: 'in2-1', tipo: 'navale', titolo: 'Sbarco in Normandia',
                   tmpl: 'regione', arg: { set: 'NORMANDY_FR', viaSea: true },
@@ -328,6 +383,141 @@
                   n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
                   testo: n => `Collega alla Capitale almeno ${n} province con strade.`,
                   check: n => `province collegate ≥ ${n}` }
+            ] },
+            // Ciclo III — non si conquista niente di nuovo: si TIENE quel che si
+            // è preso, e si tiene in due posti precisi (le Fiandre e una terra di
+            // Francia), perché una testa di ponte sola è una testa di ponte persa.
+            { ciclo: 3, epoca: '1200-1299', tema: 'Le teste di ponte', voci: [
+                { id: 'in3-1', tipo: 'espansione', titolo: 'Fiandre e Francia',
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'provincia', arg: { id: 'Flanders' } },
+                      altri: [{ tmpl: 'regioneGuarnigione', arg: { set: 'FRANCIA' }, soglia: 5 }]
+                  },
+                  n: { resistere: 4, avanzare: 8, eccedere: 12, passo: 2 },
+                  testo: n => `Tieni le Fiandre con ${n} uomini e una provincia di Francia con almeno 5.`,
+                  check: n => `Flanders con soldati ≥ ${n} e una provincia francese con soldati ≥ 5` },
+                { id: 'in3-2', tipo: 'espansione', titolo: 'L’isola alle spalle',
+                  tmpl: 'regione', arg: { set: 'BRITISH' },
+                  n: { resistere: 6, avanzare: 8, eccedere: 10, passo: 1 },
+                  testo: n => `Non lasciare sguarnita l’isola: possiedi ${n} province britanniche.`,
+                  check: n => `province britanniche possedute ≥ ${n}` },
+                { id: 'in3-3', tipo: 'crescita', titolo: 'Governare, non solo tenere',
+                  tmpl: 'popolarita', arg: {},
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
+                  check: n => `Popolarità ≥ ${n}` }
+            ] },
+            // Ciclo IV — i Cent'Anni: qui comincia la guerra vera, e la posta è
+            // l'Aquitania. Prenderla non basta: va difesa, se no il capitolo si
+            // chiude aperto com'era.
+            { ciclo: 4, epoca: '1300-1399', tema: 'I Cent’Anni', voci: [
+                { id: 'in4-1', tipo: 'espansione', titolo: 'L’Aquitania',
+                  tmpl: 'provincia', arg: { id: 'Aquitaine' },
+                  n: { resistere: 4, avanzare: 8, eccedere: 12, passo: 2 },
+                  testo: n => `Conquista l’Aquitania e difendila con ${n} uomini.`,
+                  check: n => `possiedi Aquitaine con soldati ≥ ${n}` },
+                { id: 'in4-2', tipo: 'espansione', titolo: 'Le terre di Francia',
+                  tmpl: 'regione', arg: { set: 'FRANCIA' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Tieni ${pl(n, 'una provincia', 'province')} sul continente francese.`,
+                  check: n => `province francesi possedute ≥ ${n}` },
+                { id: 'in4-3', tipo: 'espansione', titolo: 'L’esercito in campo',
+                  tmpl: 'guarnigioni', arg: { soglia: 5 },
+                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
+                  testo: n => `Tieni ${n} province difese con almeno 5 uomini ciascuna.`,
+                  check: n => `${n} province con soldati ≥ 5 ciascuna` }
+            ] },
+            // Ciclo V — l'Irlanda intera, e una Città a tenerla. È il capitolo
+            // più caro del binario ed è voluto (regola dell'utente): prenderla
+            // tutta costa l'esercito che sta in Francia, quindi è QUI che
+            // l'Inghilterra molla il continente. Il legno serve al capitolo dopo:
+            // un Veliero ne vuole 10 (GameRules.COSTS.vascello).
+            { ciclo: 5, epoca: '1400-1499', tema: 'L’Irlanda', voci: [
+                { id: 'in5-1', tipo: 'espansione', titolo: 'Conquistare l’Irlanda',
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'regione', arg: { set: 'IRELAND' } },
+                      altri: [{ tmpl: 'cittaRegione', arg: { set: 'IRELAND' }, soglia: 0 }]
+                  },
+                  n: { resistere: 2, avanzare: 4, eccedere: 4, passo: 1 },
+                  testo: n => `Conquista ${n} delle 4 province irlandesi e costruisci una Città in Irlanda.`,
+                  check: n => `province irlandesi possedute ≥ ${n} e una Città in Irlanda` },
+                { id: 'in5-2', tipo: 'economia', titolo: 'Il legname per la flotta',
+                  tmpl: 'scorte', arg: { res: 'legno' },
+                  n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
+                  testo: n => `Immagazzina ${n} scorte di legno.`,
+                  check: n => `scorte di legno ≥ ${n}` },
+                // Qui c'era «possiedi 9 province britanniche», che a un regno
+                // arrivato al capitolo V era già in tasca da venti turni (regola
+                // dell'utente): un Terziario non deve essere un obiettivo vecchio
+                // rifatto. Il Benessere invece si perde davvero mentre si
+                // conquista — l'esercito che sbarca in Irlanda è quello che non
+                // sta costruendo strade.
+                { id: 'in5-3', tipo: 'crescita', titolo: 'Il regno che prospera',
+                  tmpl: 'benessere', arg: {},
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Tieni il Benessere del regno al livello ${n}.`,
+                  check: n => `Benessere ≥ ${n}` }
+            ] },
+            // Ciclo VI — il Veliero, entro la fine del secolo. È l'unica chiglia
+            // che attraversi un oceano (§9.2): senza, i due capitoli successivi
+            // non esistono.
+            { ciclo: 6, epoca: '1500-1599', tema: 'La flotta dei Tudor', voci: [
+                { id: 'in6-1', tipo: 'navale', titolo: 'Il Veliero',
+                  tmpl: 'naviTipo', arg: { tipo: 'vascello' },
+                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
+                  testo: n => n > 1 ? `Vara ${n} Velieri entro la fine del secolo.`
+                                    : 'Costruisci un Veliero entro la fine del secolo.',
+                  check: n => `Velieri posseduti ≥ ${n}` },
+                { id: 'in6-2', tipo: 'economia', titolo: 'Il tesoro dell’ammiragliato',
+                  tmpl: 'oro', arg: {},
+                  n: { resistere: 1000, avanzare: 2000, eccedere: 3500, passo: 500 },
+                  testo: n => `Conserva ${n} monete d’oro per la flotta.`,
+                  check: n => `monete ≥ ${n}` },
+                { id: 'in6-3', tipo: 'navale', titolo: 'Il porto difeso',
+                  tmpl: 'naveGuarnigione', arg: {},
+                  n: { resistere: 4, avanzare: 6, eccedere: 9, passo: 1 },
+                  testo: n => `Difendi con ${n} uomini la provincia dove è ancorata una nave.`,
+                  check: n => `una provincia con una nave e soldati ≥ ${n}` }
+            ] },
+            // Ciclo VII — il Nuovo Mondo. La rotta lunga porta il Veliero oltre
+            // l'Atlantico (§9.2) e la storia si chiude solo quando su quella
+            // costa nasce una Città: sbarcare è arrivare, fondare è restare.
+            { ciclo: 7, epoca: '1600-1699', tema: 'Il Nuovo Mondo', voci: [
+                { id: 'in7-1', tipo: 'crescita', titolo: 'L’insediamento',
+                  tmpl: 'cittaRegione', arg: { set: 'AMERICA' },
+                  n: { resistere: 0, avanzare: 2, eccedere: 5, passo: 1 },
+                  testo: n => n > 0 ? `Fonda una Città nel Nuovo Mondo e difendila con ${n} uomini.`
+                                    : 'Fonda una Città nel Nuovo Mondo.',
+                  check: n => n > 0 ? `una Città in America con soldati ≥ ${n}` : 'una Città in America' },
+                { id: 'in7-2', tipo: 'navale', titolo: 'Le colonie',
+                  tmpl: 'regione', arg: { set: 'AMERICA', viaSea: true },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Sbarca in America e possiedi ${pl(n, 'una provincia', 'province')}.`,
+                  check: n => `province americane possedute ≥ ${n}` },
+                { id: 'in7-3', tipo: 'economia', titolo: 'Il denaro della compagnia',
+                  tmpl: 'oro', arg: {},
+                  n: { resistere: 800, avanzare: 1500, eccedere: 2500, passo: 300 },
+                  testo: n => `Conserva ${n} monete d’oro.`,
+                  check: n => `monete ≥ ${n}` }
+            ] },
+            // Ciclo VIII — a oriente: l'India, o le coste d'Africa lungo la sua
+            // rotta. Quale delle due lo decide il mare, non il capitolo.
+            { ciclo: 8, epoca: '1700-1799', tema: 'Le Indie', voci: [
+                { id: 'in8-1', tipo: 'navale', titolo: 'La rotta d’Oriente',
+                  tmpl: 'regione', arg: { set: 'INDIE', viaSea: true },
+                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  testo: n => `Manda il Veliero a oriente: conquista ${pl(n, 'una provincia', 'province')} fra India e coste d’Africa.`,
+                  check: n => `province in India o sulle coste africane ≥ ${n}` },
+                { id: 'in8-2', tipo: 'navale', titolo: 'La flotta d’altura',
+                  tmpl: 'naviTipo', arg: { tipo: 'vascello' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  testo: n => `Tieni ${pl(n, 'un Veliero', 'Velieri')} in servizio.`,
+                  check: n => `Velieri posseduti ≥ ${n}` },
+                { id: 'in8-3', tipo: 'crescita', titolo: 'Le spezie sulle tavole',
+                  tmpl: 'benessere', arg: {},
+                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
+                  testo: n => `Tieni il Benessere del regno al livello ${n}.`,
+                  check: n => `Benessere ≥ ${n}` }
             ] }
         ],
         'Sacro Romano Impero': [
@@ -585,7 +775,8 @@
     // non costruire mai. (La banda dell'autore fa comunque da tetto a entrambi.)
     const CRESCITA = new Set(['regione', 'regioneGuarnigione', 'province', 'provincia',
         'provCount', 'guarnigioni', 'guarnigioniCostiere', 'strade', 'collegate',
-        'tipiCollegati', 'mercato', 'citta', 'navi', 'naveGuarnigione']);
+        'tipiCollegati', 'mercato', 'citta', 'cittaRegione', 'navi', 'naviTipo',
+        'naveGuarnigione']);
     // Un combinato eredita la natura della sua parte scalabile.
     function cresce(tmpl, arg) {
         if (tmpl === 'tutti') return cresce(arg.capo.tmpl, arg.capo.arg || {});
@@ -767,8 +958,25 @@
         };
     }
 
+    // ------------------------------------------------------------------------
+    //  LA LEVA (regola dell'utente): un obiettivo compiuto non paga solo in
+    //  prestigio — una promessa lontana, e per giunta oggi sospesa
+    //  (GameRules.PRESTIGE_ENABLED) — ma in UOMINI, subito. Chi porta a casa un
+    //  obiettivo riceve tanti soldati quanti erano i suoi punti (5 · 3 · 2, cioè
+    //  al massimo 10 per ciclo) da schierare dal PRIMO TURNO del ciclo successivo.
+    //  È di proposito un handicap, come il punteggio: dieci uomini sono mezzo
+    //  ciclo di reclutamento per un regno da sei province e un'inezia per chi ne
+    //  ha trenta. Qui sta solo il CONTO (modulo puro); a versare gli uomini è
+    //  GameActions.closeCycle, l'unico punto che chiude un ciclo.
+    const LEVA_PER_PUNTO = 1;
+    function leva(snap) {
+        if (!snap || typeof snap.punti !== 'number') return 0;
+        return Math.max(0, Math.round(snap.punti * LEVA_PER_PUNTO));
+    }
+
     const api = {
         BINARI, TEMPLATES, SETS, TIERS, INTENSITA, FRENO, CROLLO_PROV, K_TIER,
+        LEVA_PER_PUNTO, leva,
         cycleOfTurn, chapter, chapterCount, soglia, ritmoDa, passo, superato,
         generate, evaluate
     };

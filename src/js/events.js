@@ -18,7 +18,7 @@
 //     onEnd(ctx)   { … } }           // una volta, quando la finestra si chiude
 //
 // IL CICLO DI VITA vive nel descrittore: onStart/onRound/onEnd chiamano i
-// mutatori di `ctx` (ctx.spawnKingdom, ctx.notify, ctx.decimate…), che sono
+// mutatori di `ctx` (ctx.spawnKingdom, ctx.reinforce, ctx.notify, ctx.decimate…), che sono
 // funzioni di game-actions. Così ogni set-piece si legge tutto in un posto solo,
 // ma le scritture restano concentrate in game-actions. I PIANIFICATORI qui sotto
 // (marcia dell'orda, propagazione del contagio) sono invece PURI: l'evento li
@@ -63,15 +63,27 @@
     // neutrali fino all'Europa è lungo un continente ed è presidiato
     // (neutralGarrison cresce col turno): a 15 per stato l'Orda ci si scioglieva
     // dentro prima di vedere il Volga.
+    // DOVE va, e con che passo, sta in due posti soli: il BINARIO (Uralsk →
+    // Rostov → cuore dell'Europa centrale) è la marcia della sua dottrina
+    // (js/doctrines.js), le ONDATE sono qui sotto in `rinforzo`.
     const INVASIONE_MONGOLA = {
         name: 'Mongoli',
+        turno: 25,          // il decennio in cui si leva (e da cui si contano le ondate)
+        fino: 100,          // la finestra resta aperta: l'Orda non smette di arrivare
         color: '#6b2b2b',   // rosso-bruno di steppa, distinto dai 10 regni
         bot: 'predone',
         province: [
             { id: 'Urga', soldati: 25 },       // il cuore dell'Orda
             { id: 'Uliastai', soldati: 25 },
             { id: 'Buryatia', soldati: 25 }
-        ]
+        ],
+        // LE ONDATE (regola dell'utente): ogni 10 turni una nuova armata di 10
+        // uomini raggiunge l'Orda, perché l'impatto sia quello devastante che fu.
+        // Non è un'evocazione dal nulla come le reclute: sono i tumen che
+        // continuano ad arrivare dalla steppa alle spalle della marcia — e per
+        // questo calano sulla PUNTA della marcia (ctx.reinforce), non sparse per il
+        // regno: dieci uomini in retrovia non sfondano niente.
+        rinforzo: { ogni: 10, forza: 10 }
     };
 
     // ============================================================
@@ -223,7 +235,8 @@
             onStart(ctx) { ctx.spawnKingdom(NORVEGIA); ctx.spawnKingdom(SVEZIA); }
         },
         {
-            id: 'invasione-mongola', turn: 25, fino: null, tipo: 'mongoli',
+            id: 'invasione-mongola', turn: INVASIONE_MONGOLA.turno, fino: INVASIONE_MONGOLA.fino,
+            tipo: 'mongoli',
             titolo: 'L\'Orda Mongola',
             testo: 'Dalle steppe d\'Oriente si leva l\'Orda: i popoli del feltro sono uniti, e i loro cavalli guardano a Occidente.',
             nota: '',
@@ -231,6 +244,18 @@
                 // Nasce il regno mongolo in Mongolia. Nessuna pergamena globale: la
                 // nebbia deve tenerlo segreto finché non arriva ai confini di qualcuno.
                 ctx.spawnKingdom(INVASIONE_MONGOLA);
+            },
+            // LE ONDATE. L'evento resta attivo per il resto della partita e ogni
+            // `ogni` decenni cala un'armata sulla PUNTA della marcia — la provincia
+            // dell'Orda più vicina alla prima tappa non ancora conquistata. L'asse
+            // si chiede alla DOTTRINA (js/doctrines.js: Doctrines.march), che è il
+            // posto dove il binario storico è già scritto: due elenchi di province
+            // in due file finirebbero per divergere al primo ritocco.
+            onRound(ctx) {
+                const r = INVASIONE_MONGOLA.rinforzo;
+                if (!r || (ctx.turn - INVASIONE_MONGOLA.turno) % r.ogni !== 0) return;
+                const asse = (root.Doctrines && root.Doctrines.march(INVASIONE_MONGOLA.name)) || [];
+                ctx.reinforce(INVASIONE_MONGOLA.name, { forza: r.forza, verso: asse });
             }
         },
         {
