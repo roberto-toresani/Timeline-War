@@ -11,6 +11,16 @@ const MultiplayerSync = (function () {
     let stateListeners = [];
     let pushTimer = null;
     let docRef = null;
+    // Ultimo stato ricevuto da Firestore, per ri-emetterlo a chi si iscrive DOPO.
+    // L'onSnapshot iniziale scatta appena la pagina si connette, spesso PRIMA che
+    // app.js registri il suo applyCloudState (initMap gira su DOMContentLoaded, la
+    // prima consegna di Firestore può arrivare prima o dopo — è una corsa). Senza
+    // replay, un viewer che arriva "tardi" non vedeva mai la partita in corso:
+    // restava su "Partita non avviata" coi regni di default finché l'admin non
+    // toccava qualcosa (che faceva ri-scattare l'onSnapshot). Era il motivo per
+    // cui il link d'invito, online, apriva la schermata vuota.
+    let lastState = null;
+    let hasState = false;
     let authReadyResolve;
     const authReady = new Promise(res => { authReadyResolve = res; });
 
@@ -25,8 +35,9 @@ const MultiplayerSync = (function () {
         });
 
         docRef.onSnapshot(snap => {
-            const data = snap.exists ? snap.data() : null;
-            stateListeners.forEach(cb => cb(data));
+            lastState = snap.exists ? snap.data() : null;
+            hasState = true;
+            stateListeners.forEach(cb => cb(lastState));
         }, err => {
             console.error('Errore lettura stato condiviso:', err);
         });
@@ -46,6 +57,9 @@ const MultiplayerSync = (function () {
 
     function onStateChange(cb) {
         stateListeners.push(cb);
+        // Se lo snapshot è già arrivato, glielo diamo subito: chi si iscrive dopo
+        // la prima consegna deve comunque vedere la partita in corso.
+        if (hasState) cb(lastState);
     }
 
     function pushState(stateObj) {

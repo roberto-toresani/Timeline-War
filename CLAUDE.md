@@ -70,6 +70,14 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   di `assets/world_map_optimized.svg` in `app.js` è solo un fallback che di norma non scatta.
 - Lo stato di gioco vive in un unico documento Firestore `games/main`: chiunque lo legge in
   tempo reale (sola lettura), solo l'admin (UID in `firebase-config.js`) può scriverlo.
+  - **`MultiplayerSync` ricorda l'ULTIMO snapshot e lo ri-emette** ai listener che si
+    iscrivono dopo la prima consegna (`lastState`/`hasState` in `sync.js`). Senza, c'era
+    una corsa: l'`onSnapshot` iniziale di Firestore scatta appena la pagina si connette,
+    spesso PRIMA che `app.js` registri `applyCloudState` (che gira su `DOMContentLoaded`).
+    Un viewer arrivato "tardi" restava così su "Partita non avviata" coi regni di default
+    (`mergePlayerData` non riceveva mai i dati) finché l'admin non toccava qualcosa —
+    online era il motivo per cui il link d'invito apriva la schermata vuota invece del
+    regno assegnato.
 - `app.js` gestisce turni, giocatori, selezione province, colori e la UI.
 - **Due pagine, un solo motore**: `play.html` carica lo stesso `app.js` di `index.html` e si
   dichiara con `<body data-mode="player">`. app.js resta una singola closure e in coda espone
