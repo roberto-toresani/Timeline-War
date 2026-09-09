@@ -8,9 +8,18 @@ rules_version = '2';
 // lo stesso valore va messo anche in ADMIN_UID dentro firebase-config.js.
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Stato di gioco condiviso. Scrittura APERTA a tutti (regola dell'utente): in
+    // una partita multi-giocatore ogni player gioca dal proprio browser e deve
+    // poter scrivere le sue mosse (schiera/costruisci/attacca/fine turno). Le
+    // regole di turno e fase sono validate lato client (game-actions.js): un
+    // giocatore agisce solo nel suo turno. Il compromesso e' la sicurezza — chi ha
+    // un link potrebbe in teoria riscrivere lo stato — accettabile tra persone
+    // conosciute (i codici invito gia' non sono segreti). L'UID admin resta usato
+    // solo per i PERMESSI lato client (chi muove i bot, chi vede l'editor), non
+    // piu' per l'enforcement della scrittura.
     match /games/main {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == "Tfe6wZkLlaZh35gRqhopmxkjCFv1";
+      allow write: if true;
     }
 
     // Presenza dei giocatori: quale regno ha "preso" un giocatore aprendo il suo

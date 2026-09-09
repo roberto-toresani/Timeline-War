@@ -69,7 +69,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - La mappa è **embeddata** come stringa in `data/embedded_map.js` (`RAW_SVG_CONTENT`); il fetch
   di `assets/world_map_optimized.svg` in `app.js` è solo un fallback che di norma non scatta.
 - Lo stato di gioco vive in un unico documento Firestore `games/main`: chiunque lo legge in
-  tempo reale (sola lettura), solo l'admin (UID in `firebase-config.js`) può scriverlo.
+  tempo reale E lo **scrive** (regola dell'utente). In multiplayer ogni giocatore gioca dal
+  proprio browser e scrive le sue mosse; le regole di **turno e fase** le impone
+  `game-actions.js` lato client (un giocatore agisce solo nel suo turno), non `firestore.rules`
+  (`allow write: if true`). I turni sono sequenziali, quindi le scritture dell'intero
+  documento non si accavallano — ma **l'admin non deve modificare la mappa dall'editor
+  durante la partita**, o il suo salvataggio sovrascriverebbe la mossa in corso. `pushState`
+  in `sync.js` non è più protetto da `isAdmin`; l'UID admin (`firebase-config.js`) resta usato
+  solo per i **permessi lato client** — chi muove i bot (`Bot.run`), chi vede l'editor — non
+  per l'enforcement della scrittura. Compromesso: nessuna sicurezza server-side (chi ha un
+  link potrebbe riscrivere lo stato), accettabile tra persone conosciute.
   - **`MultiplayerSync` ricorda l'ULTIMO snapshot e lo ri-emette** ai listener che si
     iscrivono dopo la prima consegna (`lastState`/`hasState` in `sync.js`). Senza, c'era
     una corsa: l'`onSnapshot` iniziale di Firestore scatta appena la pagina si connette,

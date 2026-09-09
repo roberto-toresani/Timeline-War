@@ -97,8 +97,14 @@ const MultiplayerSync = (function () {
         })).catch(err => console.error('Errore salvataggio presenza:', err));
     }
 
+    // Scrive lo stato condiviso. NON più protetto da isAdmin (regola dell'utente):
+    // in multiplayer ogni giocatore scrive le sue mosse dal proprio browser (le
+    // regole di turno/fase le impone game-actions.js lato client). I turni sono
+    // sequenziali — agisce un giocatore per volta — quindi le scritture dell'intero
+    // documento non si accavallano; l'admin durante la partita non deve però
+    // modificare la mappa dall'editor, o il suo salvataggio sovrascriverebbe.
     function pushState(stateObj) {
-        if (!isConfigured || !docRef || !isAdmin) return;
+        if (!isConfigured || !docRef) return;
         clearTimeout(pushTimer);
         pushTimer = setTimeout(() => {
             docRef.set(Object.assign({}, stateObj, {
