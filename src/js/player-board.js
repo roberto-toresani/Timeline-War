@@ -218,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Il canale `chat` (sync.js) ri-emette l'ultimo elenco a chi si iscrive dopo la
     // prima consegna: un nuovo messaggio ridipinge subito la chat, anche a metà
     // attesa fra i turni, senza passare da un refresh dello stato di gioco.
-    if (window.MultiplayerSync && MultiplayerSync.onChatChange) {
+    if (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.onChatChange) {
         MultiplayerSync.onChatChange(msgs => {
             chatMessages = Array.isArray(msgs) ? msgs : [];
             const p = currentPlayer();
@@ -4376,7 +4376,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- riga d'invio ---
         const inp = $('chat-input');
         const send = $('chat-send');
-        const canWrite = !!(window.MultiplayerSync && MultiplayerSync.sendChat);
+        const canWrite = typeof MultiplayerSync !== 'undefined' && !!MultiplayerSync.sendChat;
         if (inp) {
             inp.disabled = !canWrite;
             const k = channelKingdom(chatChannel);
@@ -4398,7 +4398,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!inp || !me) return;
         const text = (inp.value || '').trim();
         if (!text) return;
-        if (!window.MultiplayerSync || !MultiplayerSync.sendChat) {
+        if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) {
             showNotice('Chat non disponibile: Firebase non è configurato.');
             return;
         }
@@ -4444,9 +4444,9 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
     function botChatter(botPlayer, result) {
         if (!botPlayer || !result || !result.conquistata) return;
-        if (!window.MultiplayerSync || !MultiplayerSync.sendChat) return;
+        if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) return;
         // Solo chi muove i bot scrive (evita doppioni fra i browser).
-        if (window.MultiplayerSync.isConfigured && !window.MultiplayerSync.isAdmin) return;
+        if (MultiplayerSync.isConfigured && !MultiplayerSync.isAdmin) return;
         // Nebbia: se chi guarda non vede la provincia presa, silenzio.
         if (result.toId && R.isVisible && !R.isVisible(result.toId) &&
             (!result.fromId || !R.isVisible(result.fromId))) return;
