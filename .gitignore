@@ -17,3 +17,7 @@ __pycache__/
 
 # File di lock temporanei di Excel
 ~$*.xlsx
+
+# Pagine di lavoro (diagnostica e dev-drive): non vanno nel deploy pubblico
+src/_dev-*
+src/_diag-*
