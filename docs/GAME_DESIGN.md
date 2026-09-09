@@ -265,6 +265,12 @@ Nessuna provincia neutrale è vuota, e nessuna è un avversario in più: sono un
 - **Presidio**: 2 soldati, **+1 ogni 10 turni fino a un massimo di 6**
   (`GameRules.neutralGarrison`, tetto `NEUTRAL_MAX`). Il presidio si
   alza soltanto, e una provincia conquistata esce dal conteggio perché non è più neutrale.
+  - **Terre lontane** [REGOLA, utente]: Americhe, Asia (Cina, India, Sud-Est asiatico,
+    corridoio mongolo) e Africa sub-sahariana restano a **2** fino al 5º ciclo (turno 50)
+    e salgono a **3** dal 6º (turno 51), poi si fermano — così la conquista navale col
+    Veliero e la marcia dell'Orda non sono troppo dure. Classificazione geografica
+    (`GameRules.isFarProvince`); il core (Europa, Mediterraneo, Nord Africa, Arabia,
+    Persia, Rus' occidentale) segue la crescita normale.
   La crescita è lenta apposta: a un uomo ogni 5 turni le terre di nessuno diventavano
   imprendibili a metà partita, e l'espansione si fermava per aritmetica invece che per guerra.
   **E si ferma** [REGOLA, utente]: dal turno 41 in poi ogni terra di nessuno resta a 6 uomini
@@ -343,7 +349,7 @@ provincia, come le altre costruzioni). Vivono in `data-welfare` sulla provincia;
 | Teatro | 3 Pietra |
 | Palchi e arene | 3 Legno |
 | Taverna | 3 Argilla |
-| Festa del sole | 3 Grano |
+| Sagra del grano | 3 Grano |
 | Fiera del bestiame | 3 Bestiame |
 
 **Manutenzione [REGOLA, utente].** Ogni **5 turni globali** (sincronizzati: turni multipli di 5)
@@ -363,6 +369,21 @@ l'umano vede l'esito nella **pergamena** a inizio turno. `GameActions.maintainWe
 Effetto pratico: la manutenzione è **banale** per i tipi di risorsa che produci, una **tassa 2:1
 via banca** per quelli che non produci — quindi conviene costruire ampio **solo nella propria base
 di risorse** (è la stessa logica con cui l'IA sceglie, `welfarePlan` in `bot.js`).
+
+**Perché costruire Sanità: la Peste Nera.** L'indice Sanità non alza solo il Benessere — è
+anche l'unica difesa contro l'evento storico della peste (turno 35-39, `js/events.js`):
+`GameRules.plagueTier` legge le stesse 0-5 migliorie sulla Capitale e decide quanti uomini
+cadono ogni decennio (Capitale e/o provincia più popolosa) e se il raccolto di chi muore
+salta quel turno. Sotto le 2 migliorie l'epidemia è pesante, a 3 resta un colpo solo senza
+fermare il raccolto, a 4-5 il regno non perde nessuno.
+
+**Perché costruire Felicità: la Festa.** Il rovescio positivo, e permanente (non un evento
+a calendario): `GameRules.joyTier` legge le stesse 0-5 migliorie di Felicità e concede, da
+2 in su, uno sconto di 1 unità su 1-2 tipi di risorsa (sorteggiati a ogni turno) per ogni
+costruzione che li richieda — tranne quelle con un solo tipo di risorsa (Strada, Nave,
+le stesse migliorie §6.1), che non scontano mai. Da 4 migliorie in su si aggiungono anche
+100 monete per ogni acquisto pagato. Sanità e Felicità costano le stesse 5 risorse: è una
+scelta fra assicurarsi e godersela, non una somma comoda di entrambe.
 
 ---
 

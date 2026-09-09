@@ -1922,6 +1922,9 @@ svg path.state.spied {
 /* Come ha reso la ventura: è la parte di esito che il giocatore non può dedurre
    dai numeri mostrati sopra, quindi sta su una riga sua (§5.3). */
 .bb-merc { margin-top: 6px; font-size: .85rem; color: var(--parchment-muted); font-style: italic; }
+/* Il BOTTINO di conquista (GameRules.CONQUEST_BOUNTY): monete incassate sul
+   campo, non deducibili dai numeri della battaglia — riga sua, come la fede. */
+.bb-loot { margin-top: 6px; font-size: .85rem; color: var(--gold-coin); font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) {
     .bp-battle, .bb-bar span { animation: none; }
@@ -2472,6 +2475,44 @@ svg path.state.spied {
 }
 .bo-mark { color: var(--parchment-dim); }
 .bo-item.done .bo-mark { color: var(--ok); }
+
+/* Progresso verso il completamento (regola dell'utente): a che punto sei. */
+.bo-prog { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.bo-prog-bar {
+    flex: 1; height: 6px; border-radius: 4px; overflow: hidden;
+    background: rgba(0, 0, 0, .28); border: 1px solid var(--gold-edge);
+}
+.bo-prog-bar > span {
+    display: block; height: 100%; border-radius: 4px; transition: width .3s ease;
+    background: linear-gradient(90deg, #a9800f, #e6c34e);
+}
+.bo-prog.near .bo-prog-bar > span { background: linear-gradient(90deg, #c19216, #f0d36a); }
+.bo-item.done .bo-prog-bar > span {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 65%, transparent), var(--ok));
+}
+.bo-prog-num {
+    font-variant-numeric: tabular-nums; font-size: .72rem; color: var(--parchment-muted);
+    white-space: nowrap; text-align: right;
+}
+.bo-prog-num em { color: var(--parchment-dim); font-style: normal; font-size: .66rem; margin-left: 5px; }
+.bo-item.done .bo-prog-num em { color: var(--ok-soft); }
+
+/* "Vedi sulla mappa" (§10): chiude il foglio 👑 e accende le province del
+   gruppo dell'obiettivo. Piccolo link d'oro, non un bottone d'azione. */
+.bo-map {
+    margin-top: 6px;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 999px;
+    background: transparent; border: 1px solid var(--gold-edge);
+    color: var(--gold); font-family: inherit; font-size: .72rem;
+    cursor: pointer; transition: background .12s ease, color .12s ease;
+}
+.bo-map:hover { background: var(--gold-edge); color: var(--bg-panel-solid); }
+
+/* Il velo d'oro dello spotlight pulsa piano, così l'occhio lo trova. */
+.obj-spot { animation: obj-spot-pulse 1.6s ease-in-out infinite; }
+@keyframes obj-spot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .obj-spot { animation: none; } }
 
 /* Storico degli obiettivi (cicli conclusi) — sempre consultabile. */
 .bo-history { margin-top: 10px; }

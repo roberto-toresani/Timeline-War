@@ -31,6 +31,13 @@
 //                è così che l'Orda va a occidente invece che in Cina
 //   nessunPatto  non firma niente con nessuno, mai (l'Orda: la sua storia è
 //                arrivare, non trattare)
+//   senzaFede    non ha una religione propria: ASSIMILA quella delle terre che
+//                conquista e non converte nessuno (l'Orda)
+//   soloMete     non conquista NIENT'ALTRO che le proprie mete (le tappe della
+//                marcia comprese) e le province che gli sono state strappate.
+//                È il freno dei regni che seguono una storia sola: l'Orda che
+//                deve correre a occidente invece di mangiarsi la Cina, i
+//                Bulgari che vogliono la Bulgaria e poi basta
 //   vietate      province su cui non si mette piede (la Danimarca dei nordici)
 //   conservatore preso ciò che voleva, attacca solo terre di nessuno e i nemici
 //   soloMare     non si espande via terra: difende, commercia e va per mare
@@ -50,7 +57,7 @@
     // vale qui (vedi isFriend + isMeta in bot.js).
     const FINLANDIA = ['Ostrobothnia', 'Oulu', 'Kuopio', 'Uusimaa'];
 
-    // LA MARCIA DELL'ORDA (1240) — il binario storico dei Mongoli, in tappe
+    // LA MARCIA DELL'ORDA (1200) — il binario storico dei Mongoli, in tappe
     // ORDINATE da oriente a occidente (regola dell'utente): si attraversa la
     // steppa, si entra in Europa da URALSK, si scende sul Don a ROSTOV, si sfonda
     // nel CUORE dell'Europa centrale. Ogni tappa ha il suo peso, e i pesi crescono
@@ -71,13 +78,43 @@
         // il cuore dell'Europa centrale, per la via dei Galiziani
         { peso: 10, prov: ['Kharkov', 'Kursk', 'Kiev', 'Volhynia', 'East_Galicia',
             'Lesser_Poland', 'West_Galicia', 'Silesia', 'Bohemia', 'Moravia',
-            'East_Slovakia', 'Central_Hungary', 'Northern_Transylvania'] }
+            'East_Slovakia', 'Central_Hungary', 'Northern_Transylvania'] },
+        // LA BRANCA DI PERSIA (regola dell'utente: "verso medio oriente e russia").
+        // Storicamente l'Orda si spacca in due: un'ala scende sull'Iran e sulla
+        // Mesopotamia. Pesa MENO della porta d'Europa apposta — il Volga viene
+        // prima — e sta in coda all'elenco perché `Doctrines.march` restituisce
+        // l'asse in fila e le ondate di rinforzo devono continuare a cadere sulla
+        // punta OCCIDENTALE, non su quella persiana. Catena verificata sul grafo:
+        // Syrdarya→Khiva→Turkmenia→Khorasan/Mazandaran→Tabriz→Mosul→Baghdad.
+        { peso: 4, prov: ['Khiva', 'Turkmenia', 'Khorasan', 'Mazandaran',
+            'Tabriz', 'Persian_Kurdistan', 'Mosul', 'Baghdad'] }
+    ];
+
+    // LA MARCIA SELGIUCHIDE (1080) — la missione dei Turchi, in tappe ordinate
+    // (regola dell'utente): sostenere gli Abbasidi nelle crociate, LIBERARE LA
+    // TERRA SANTA dai cristiani, poi puntare su COSTANTINOPOLI e di lì entrare in
+    // Europa. I pesi dicono la priorità quando due strade sono aperte insieme: la
+    // Terra Santa (8) viene prima della strada d'Anatolia (5), e Costantinopoli
+    // (10) è il premio che vale più di tutto. L'ordine in cui si arriva lo impone
+    // la geografia — dall'altopiano non si tocca il Bosforo senza attraversare la
+    // Frigia. Catena verificata sul grafo: Diyarbakir→Aleppo→Syria/Lebanon→
+    // Palestine; Adana→Konya→Hudavendigar→Eastern_Thrace→Thracia europea.
+    const MARCIA_SELGIUCHIDE = [
+        { peso: 4, prov: ['Ankara', 'Adana', 'Aleppo', 'Deir_Ez_Zor'] },   // l'altopiano e la porta di Siria
+        { peso: 8, prov: ['Syria', 'Lebanon', 'Palestine'] },              // la Terra Santa
+        { peso: 5, prov: ['Konya', 'Kastamonu', 'Hudavendigar', 'Aydin'] },// la strada di Costantinopoli
+        { peso: 10, prov: ['Eastern_Thrace'] },                            // Costantinopoli
+        { peso: 7, prov: ['Western_Thrace', 'Northern_Thrace'] }           // e di lì, l'Europa
     ];
 
     const DOCTRINES = {
         // 1080 — l'onda turca da oriente. Musulmani convinti: con cristiani e
         // ortodossi non si tratta, si combatte. Con gli Abbasidi, che sono della
-        // loro fede, ci si allea e si commercia.
+        // loro fede, ci si allea e si combatte al loro fianco nelle crociate —
+        // l'alleanza vale anche come corridoio militare, quindi gli mandano uomini
+        // al fronte come ogni alleato (§Diplomazia, sendReinforcements).
+        // La missione è una MARCIA (MARCIA_SELGIUCHIDE qui sopra): Terra Santa,
+        // poi Costantinopoli, poi l'Europa. Bisanzio è il nemico vero.
         'Sultanato Selgiuchide': {
             bot: 'espansione',
             fede: 'musulmani',
@@ -86,9 +123,7 @@
             pattoAmico: 'alleanza',
             nemici: ['Impero Bizantino'],
             pesoNemici: 1.8,
-            // Le tre città del secondo ciclo: è lì che si combattono le crociate.
-            mete: ['Aleppo', 'Adana', 'Ankara'],
-            pesoMete: 4
+            marcia: MARCIA_SELGIUCHIDE
         },
 
         // 1150 — nasce in mezzo alla lotta fra Castiglia e Fatimidi, e ne resta
@@ -112,9 +147,12 @@
             rotte: ['S', 'W']            // a mezzogiorno l'Africa, a ponente l'oceano (EXPED_DIRS)
         },
 
-        // 1180 — i Bulgari risorgono sul basso Danubio. Presa la Bulgaria si
-        // chiudono in difesa: l'unico nemico vero è l'Ungheria; con bizantini,
-        // russi e chiunque altro si può firmare.
+        // 1180 — i Bulgari risorgono sul basso Danubio. NON sono un regno
+        // espansionista (regola dell'utente): prendono la provincia di Bulgaria e
+        // poi basta — si rafforzano, costruiscono e commerciano. `soloMete` è
+        // quel "e poi basta": nemmeno una terra di nessuno in più. L'unico regno
+        // con cui non firmano è l'Ungheria; con bizantini, russi e chiunque altro
+        // si tratta.
         'Regno di Bulgaria': {
             bot: 'costruttore',
             fede: 'cristiani',
@@ -122,7 +160,7 @@
             pesoNemici: 1.6,
             mete: ['Bulgaria'],
             pesoMete: 5,
-            conservatore: true
+            soloMete: true
         },
 
         // 1230 — i due regni scandinavi. Non sono in conflitto: si espandono a
@@ -154,9 +192,21 @@
         'Mongoli': {
             bot: 'predone',
             nessunPatto: true,
+            // I popoli del feltro non portano un dio con sé: prendono quello delle
+            // terre in cui entrano (regola dell'utente). Da qui due cose, che sono
+            // la stessa: l'Orda non converte NIENTE — la provincia presa tiene i
+            // suoi dèi (game-actions.js, imposedFaithOf) — e la sua fede di stato
+            // è quella della MAGGIORANZA delle sue province, che cambia da sé man
+            // mano che l'impero cambia forma (app.js, stateReligionOf).
+            senzaFede: true,
             nemici: ['Kievan Ru\'s', 'Ducato di Ungheria', 'Ducato di Polonia'],
             pesoNemici: 1.8,
-            marcia: MARCIA_MONGOLA
+            marcia: MARCIA_MONGOLA,
+            // NIENTE Cina, Corea, Siberia (regola dell'utente): l'Orda deve
+            // arrivare in Europa il prima possibile, e ogni provincia presa alle
+            // sue spalle è un decennio perso. `soloMete` la inchioda al binario —
+            // e il binario, a occidente, finisce dentro Rus', Polonia e Ungheria.
+            soloMete: true
         }
     };
 
@@ -227,9 +277,21 @@
         return isEnemy(d, who) ? (d.pesoNemici || 1.8) : 1;
     }
     function onlySea(d) { return !!(d && d.soloMare); }
+    // Chi segue una storia sola non conquista nient'altro: solo le proprie mete
+    // (e le tappe della marcia). Chi lo legge — bot.js — ci aggiunge l'unica
+    // deroga sensata: riprendersi quel che gli è stato strappato.
+    function onlyGoals(d) { return !!(d && d.soloMete); }
     // L'ORDA non firma niente con nessuno: la sua storia è arrivare, non trattare.
     // Lo legge bot.js in canDealWith, prima ancora della fede.
     function signsNothing(d) { return !!(d && d.nessunPatto); }
+    // Un regno SENZA FEDE PROPRIA: non converte e non professa — assimila. Accetta
+    // una dottrina, un record di regno o un nome, perché a chiederlo sono app.js
+    // (che fede professa) e game-actions.js (che fede impone), che hanno in mano
+    // il regno e non la sua dottrina.
+    function faithless(who) {
+        const d = (who && typeof who === 'object' && who._idx) ? who : of(who);
+        return !!(d && d.senzaFede);
+    }
     // L'ASSE della marcia: le province delle tappe in fila, da oriente a
     // occidente. Serve a chi deve sapere DOVE punta un'orda senza rifarsi la
     // geografia per conto suo (js/events.js: l'armata di rinforzo cala sulla punta
@@ -258,7 +320,7 @@
     root.Doctrines = {
         DOCTRINES,
         of, isMeta, forbids, isFriend, isEnemy, blocksFaith, faithOf,
-        metaWeight, enemyWeight, onlySea, signsNothing, march, isColonial, routeAt, keepsPeaceWith
+        metaWeight, enemyWeight, onlySea, onlyGoals, signsNothing, faithless, march, isColonial, routeAt, keepsPeaceWith
     };
 
 })(typeof window !== 'undefined' ? window : this);

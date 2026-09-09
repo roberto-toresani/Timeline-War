@@ -458,6 +458,9 @@ svg path.haze {
    si distingue dalla propria cronaca senza gridare come l'inchiostro rosso. */
 #ui-foundation .uf-scroll.uf-editto { --kingdom: #8a6d1f; }
 #ui-foundation .uf-scroll.uf-naufragio { --kingdom: #2e4a63; }
+/* Peste: non è impresa di nessun regno né decreto di chi governa il mondo —
+   un verde-nero malato, distinto da tutti gli altri toni della pergamena. */
+#ui-foundation .uf-scroll.uf-peste { --kingdom: #33402c; }
 /* La leva degli obiettivi (§10): sono uomini che accorrono per un'impresa
    compiuta — verde d'alloro, non l'oro di chi comanda da fuori. */
 #ui-foundation .uf-scroll.uf-leva { --kingdom: #3f6b3a; }
@@ -1069,10 +1072,13 @@ svg.map-interacting #decor-coast-layer { display: none; }
     background: rgba(30, 30, 30, 0.95);
     color: #e6b422;
     /* Gold */
-    padding: 14px 22px;
+    /* Targhetta del passaggio del mouse: dice il nome e basta, quindi non deve
+       coprire la provincia che si sta guardando. Era 2.7rem — grande quanto un
+       titolo — ed è dimezzata (richiesta dell'utente), padding compreso. */
+    padding: 6px 11px;
     border: 1px solid var(--gold-edge);
     border-radius: 4px;
-    font-size: 2.7rem;
+    font-size: 1.3rem;
     font-weight: bold;
     pointer-events: none;
     /* Let clicks pass through */

@@ -26,33 +26,50 @@
 // (come SeaRoutes.sail calcola e game-actions applica).
 //
 // Il calendario si aggiunge un evento per volta. Oggi contiene: la Prima
-// Crociata (turno 11), l'Orda Mongola (25) e i REGNI CHE NASCONO a partita in
-// corso — Selgiuchidi (9), Portogallo (16), Bulgaria (19), Norvegia e Svezia (24).
+// Crociata (turno 11), l'Orda Mongola (21), la crociata inglese (21), la
+// Peste Nera (35-39) e i REGNI CHE NASCONO a partita in corso — Selgiuchidi
+// (9), Portogallo (16), Bulgaria (19), Norvegia e Svezia (24).
 // ============================================================
 (function (root) {
     'use strict';
 
-    // PRIMA CROCIATA (ciclo 2). Le mete sono SCAMBIATE rispetto alla marcia
-    // storica per volere dell'utente: Bisanzio, da Costantinopoli (Eastern_Thrace),
-    // punta a Gerusalemme (Palestine); la Francia ad Aleppo. `forza` è la taglia di
-    // ciascuna oste, radunata drenando le VERE truppe del regno (§5): non è evocata.
-    // Bisanzio ha una provincia fissa (`da`): è la stessa Eastern Thrace che
-    // l'obiettivo bi2 chiede di riempire di uomini. La Francia invece ha una
+    // PRIMA CROCIATA (ciclo 2, turno 11). Solo la FRANCIA marcia su Aleppo
+    // (regola dell'utente: Bisanzio NON ha più la chiamata del Papa — il suo
+    // obiettivo storico è cambiato, e Gerusalemme la prenderà l'Inghilterra nel
+    // ciclo 3, vedi CROCIATA_INGLESE). `forza` è la taglia dell'oste, radunata
+    // drenando le VERE truppe del regno (§5): non è evocata. La Francia ha una
     // `regione` di candidate — le stesse tre coste di MED_FR in objectives.js
     // (obiettivo fr1, "raduna 10 uomini su una costa mediterranea"): l'oste parte
     // da quella dove il giocatore ha DAVVERO ammassato l'esercito, non da un
     // punto fisso. Tenere questo elenco allineato a objectives.js se cambia.
+    // Una gamba sola, quindi niente più patto di vista fra i due crociati.
     const PRIMA_CROCIATA = {
         forza: 10,
         spedizioni: [
-            { regno: 'Impero Bizantino', da: 'Eastern_Thrace', meta: 'Palestine' }, // → Gerusalemme
             { regno: 'Regno di Francia', regione: ['Provence', 'Languedoc', 'Rhone'], meta: 'Aleppo' }
-        ],
-        alleati: ['Regno di Francia', 'Impero Bizantino'],
-        patto: 'vista'   // solo vista condivisa: si vedono in Terra Santa, ma possono farsi guerra
+        ]
     };
 
-    // INVASIONE MONGOLA (ciclo 3). L'Orda sorge nella Mongolia storica — Urga
+    // CROCIATA INGLESE (ciclo 3, turno 21). Gli uomini che l'Inghilterra ha
+    // radunato a Home Counties alla FINE del ciclo 2 (obiettivo in2-2, "La
+    // chiamata del Papa") salpano all'INIZIO del ciclo 3 e sbarcano all'assalto
+    // di Gerusalemme (Palestine) — regola dell'utente: è l'Inghilterra, non più
+    // Bisanzio, a portare la croce in Terra Santa. `da` è fisso su Home Counties,
+    // la stessa provincia che l'obiettivo chiede di riempire; `forza` è la taglia
+    // dell'oste (drena da Home Counties per primo, poi dal resto del regno se là
+    // non bastano — il trasporto è del Papa, §editto). L'evento scatta al
+    // passaggio al turno 21, prima che chiunque giochi il ciclo 3.
+    const CROCIATA_INGLESE = {
+        forza: 10,
+        regno: 'Regno di Inghilterra',
+        da: 'Home_Counties',
+        meta: 'Palestine'   // → Gerusalemme
+    };
+
+    // INVASIONE MONGOLA (turno 21 = 1200, scelta dell'utente: si leva presto
+    // apposta, così entra in contatto coi popoli d'Occidente entro quattro o
+    // cinque decenni invece di arrivare a partita quasi finita).
+    // L'Orda sorge nella Mongolia storica — Urga
     // (Ulaanbaatar), Uliastai, Buryatia — tutte neutrali e lontanissime a est: la
     // nebbia le tiene nascoste ai regni europei finché non si avvicina. Nasce come
     // regno vero (colore, ordine dei turni) e **la gioca l'IA** come ogni altro
@@ -64,11 +81,14 @@
     // (neutralGarrison cresce col turno): a 15 per stato l'Orda ci si scioglieva
     // dentro prima di vedere il Volga.
     // DOVE va, e con che passo, sta in due posti soli: il BINARIO (Uralsk →
-    // Rostov → cuore dell'Europa centrale) è la marcia della sua dottrina
-    // (js/doctrines.js), le ONDATE sono qui sotto in `rinforzo`.
+    // Rostov → cuore dell'Europa centrale, più l'ala di Persia) è la marcia della
+    // sua dottrina (js/doctrines.js), le ONDATE sono qui sotto in `rinforzo`.
+    // Fuori dal binario non conquista nulla (`soloMete` nella dottrina): niente
+    // Cina, niente Corea, niente Siberia — ogni provincia presa alle spalle è un
+    // decennio tolto alla corsa verso occidente.
     const INVASIONE_MONGOLA = {
         name: 'Mongoli',
-        turno: 25,          // il decennio in cui si leva (e da cui si contano le ondate)
+        turno: 21,          // 1200: il decennio in cui si leva (e da cui si contano le ondate)
         fino: 100,          // la finestra resta aperta: l'Orda non smette di arrivare
         color: '#6b2b2b',   // rosso-bruno di steppa, distinto dai 10 regni
         bot: 'predone',
@@ -77,14 +97,72 @@
             { id: 'Uliastai', soldati: 25 },
             { id: 'Buryatia', soldati: 25 }
         ],
-        // LE ONDATE (regola dell'utente): ogni 10 turni una nuova armata di 10
-        // uomini raggiunge l'Orda, perché l'impatto sia quello devastante che fu.
-        // Non è un'evocazione dal nulla come le reclute: sono i tumen che
-        // continuano ad arrivare dalla steppa alle spalle della marcia — e per
-        // questo calano sulla PUNTA della marcia (ctx.reinforce), non sparse per il
-        // regno: dieci uomini in retrovia non sfondano niente.
-        rinforzo: { ogni: 10, forza: 10 }
+        // LE ONDATE (regola dell'utente): le 75 armate di partenza non bastano ad
+        // arrivare in Europa e in Medio Oriente, quindi OGNI 5 turni, fino al 1350,
+        // l'Orda riceve un bonus in DUE parti:
+        //   reclute      10 truppe LIBERE che l'IA schiera dove serve (§5.1: reclute
+        //                da schierare — non calano sulla punta, le dispone il bot)
+        //   perProvincia 1 uomo su OGNI provincia posseduto, AUTOMATICAMENTE: cresce
+        //                con l'impero, così più l'Orda si allarga più regge il fronte
+        // `finoAl` (turno 35 = 1349) è l'ultimo decennio in cui piovono rinforzi.
+        rinforzo: { ogni: 5, reclute: 10, perProvincia: 1, finoAl: 35 },
+        // IL GRANDE PASSO DEL 1350 (turno 36, regola dell'utente): dopo un secolo e
+        // mezzo di marcia l'Orda si ferma. Da qui niente più rinforzi, la dottrina
+        // di marcia si spegne (`dottrinaSospesa`, letta da bot.js) e la strategia
+        // passa a `costruttore`: l'Orda diventa STANZIALE — difende ciò che ha e
+        // torna a poter trattare, invece di sfondare a occidente all'infinito.
+        stanziale: { turno: 36, bot: 'costruttore' }
     };
+
+    // LA PESTE NERA (turno 35 = 1340-1349: la Peste Nera dilaga in Europa fra il
+    // 1347 e il 1351, e il decennio compresso la contiene). A differenza
+    // dell'Orda non è scriptata su una geografia: colpisce OGNI regno IN GIOCO,
+    // comprese le corone appena sorte — Selgiuchidi, Portogallo, Bulgaria,
+    // Norvegia, Svezia e l'Orda stessa, che nella storia vera fu proprio una
+    // delle porte da cui la peste entrò in Europa (l'assedio di Caffa, 1347).
+    // Resta attiva per `fino` turni — le ondate di ritorno del secondo Trecento
+    // — e OGNI turno, per OGNI regno, il conto è GameRules.plagueTier(sanita):
+    // quante migliorie di SANITÀ (§6.1) ha sulla Capitale decide quanti uomini
+    // cadono e se il raccolto di chi muore salta quel turno. Non è una
+    // conquista né un premio: è un peso uguale per tutti, e l'unica leva che il
+    // giocatore ha per alleggerirlo è costruire ospedali — prima che bussi, o
+    // mentre imperversa (dura abbastanza per poterci ancora rimediare).
+    const PESTE = { turno: 35, fino: 39 };
+
+    // LA PESTE — un giro: per ogni regno ANCORA IN GIOCO (ha province) legge le
+    // migliorie di Sanità sulla sua Capitale e applica il piano che ne esce
+    // (GameRules.plagueTier). Un regno senza Capitale (o senza province) non ha
+    // nulla da cui leggere sanita, quindi va già al tier 0 — ma `ctx.decimate`
+    // senza owned paths ritorna null da sé, quindi qui basta il filtro iniziale.
+    // `esordio` cambia solo il tono della pergamena: il primo colpo annuncia
+    // l'epidemia, i successivi ne raccontano il seguito.
+    function plagueRound(ctx, esordio) {
+        const GR = root.GameRules;
+        if (!GR) return;
+        (ctx.R.players() || []).forEach(regno => {
+            if (!ctx.map.ownedPaths(regno.name).length) return;
+            const cap = ctx.R.getCapitalPathFor(regno);
+            const attive = cap ? ctx.map.welfare(cap).filter(e => !e.dormant).map(e => e.key) : [];
+            const sanita = GR.welfareCount(attive, 'sanita');
+            const piano = GR.plagueTier(sanita);
+            if (!piano) return;
+            const esito = ctx.decimate(regno.name, piano);
+            if (!esito || !esito.colpiti.length) return;
+            const dettagli = esito.colpiti
+                .map(c => (c.capitale ? 'la Capitale' : c.label) +
+                    ' (' + c.persi + (c.persi === 1 ? ' uomo' : ' uomini') + ')')
+                .join(' e ');
+            const bloccaTxt = piano.bloccaRaccolta
+                ? ' Le loro risorse non si raccolgono questo turno.' : '';
+            ctx.notify(regno.name, {
+                tipo: 'peste',
+                titolo: esordio ? 'La Morte Nera' : 'La peste continua',
+                testo: (esordio ? 'La peste nera dilaga nel regno: cadono ' : 'La peste continua a mietere: cadono ')
+                    + dettagli + '.' + bloccaTxt,
+                nota: 'Più migliorie di Sanità sulla Capitale, meno vittime — 4 bastano a fermarla.'
+            });
+        });
+    }
 
     // ============================================================
     // I REGNI CHE NASCONO A PARTITA IN CORSO (regola dell'utente).
@@ -172,14 +250,17 @@
 
     // 1230 — I DUE REGNI DEL NORD. Due corone distinte e NON in guerra fra loro:
     // salgono verso il settentrione, non scendono in Danimarca, e si contendono
-    // solo la Finlandia (js/doctrines.js). Otto uomini a testa: nascono da una
-    // provincia sola e le terre di nessuno di questo decennio sono presidiate.
+    // solo la Finlandia (js/doctrines.js). DIECI uomini a testa (regola
+    // dell'utente): nascono da una provincia sola, le terre di nessuno di questo
+    // decennio ne hanno già quattro, e con otto non si espandevano affatto. Come
+    // ogni regno nato per evento hanno la grazia dell'insediamento (§8), che si
+    // conta dal loro turno di fondazione (player.nato).
     const NORVEGIA = {
         name: 'Regno di Norvegia',
         color: '#5a6b7c',            // grigio ardesia dei fiordi
         bot: 'espansione',
         soloLibere: true, ripiego: true, minProvince: 1,
-        province: [{ id: 'Western_Norway', soldati: 8 }],
+        province: [{ id: 'Western_Norway', soldati: 10 }],
         annuncio: {
             tipo: 'regno',
             titolo: 'La corona di Norvegia',
@@ -192,7 +273,7 @@
         color: '#00629b',            // blu acciaio del Baltico
         bot: 'espansione',
         soloLibere: true, ripiego: true, minProvince: 1,
-        province: [{ id: 'Gotaland', soldati: 8 }],
+        province: [{ id: 'Gotaland', soldati: 10 }],
         annuncio: {
             tipo: 'regno',
             titolo: 'La corona di Svezia',
@@ -245,57 +326,75 @@
                 // nebbia deve tenerlo segreto finché non arriva ai confini di qualcuno.
                 ctx.spawnKingdom(INVASIONE_MONGOLA);
             },
-            // LE ONDATE. L'evento resta attivo per il resto della partita e ogni
-            // `ogni` decenni cala un'armata sulla PUNTA della marcia — la provincia
-            // dell'Orda più vicina alla prima tappa non ancora conquistata. L'asse
-            // si chiede alla DOTTRINA (js/doctrines.js: Doctrines.march), che è il
-            // posto dove il binario storico è già scritto: due elenchi di province
-            // in due file finirebbero per divergere al primo ritocco.
+            // LE ONDATE e IL GRANDE PASSO DEL 1350. Fino al 1349 (finoAl) ogni
+            // `ogni` decenni cala un'ondata di rinforzi (reclute libere + un uomo
+            // su ogni provincia). Dal 1350 (stanziale.turno) l'Orda si ferma: si
+            // spegne la dottrina di marcia e la strategia passa a quella moderata,
+            // una volta sola.
             onRound(ctx) {
-                const r = INVASIONE_MONGOLA.rinforzo;
-                if (!r || (ctx.turn - INVASIONE_MONGOLA.turno) % r.ogni !== 0) return;
-                const asse = (root.Doctrines && root.Doctrines.march(INVASIONE_MONGOLA.name)) || [];
-                ctx.reinforce(INVASIONE_MONGOLA.name, { forza: r.forza, verso: asse });
+                const m = INVASIONE_MONGOLA;
+                if (ctx.turn >= m.stanziale.turno) {
+                    const orda = ctx.R.players().find(p => p.name === m.name);
+                    if (orda && !orda.dottrinaSospesa) {
+                        orda.dottrinaSospesa = true;   // bot.js: da qui gioca senza dottrina
+                        orda.bot = m.stanziale.bot;    // difensiva e moderata
+                    }
+                    return;
+                }
+                const r = m.rinforzo;
+                if (!r || ctx.turn > r.finoAl) return;
+                if ((ctx.turn - m.turno) % r.ogni !== 0) return;
+                ctx.reinforce(m.name, { reclute: r.reclute, perProvincia: r.perProvincia });
             }
         },
         {
             id: 'prima-crociata', turn: 11, fino: null, tipo: 'crociata',
             titolo: 'La Prima Crociata',
-            testo: 'Da Chiaravalle il Papa bandisce la crociata: Franchi e Bizantini marciano sulla Terra Santa.',
+            testo: 'Da Chiaravalle il Papa bandisce la crociata: i Franchi marciano sulla Terra Santa.',
             nota: '',
             // Orchestrazione (regola dell'utente: nel descrittore, con ctx). Raduna
-            // le due osti, le sbarca all'assalto, lega i due regni, avvisa entrambi.
+            // l'oste franca, la sbarca all'assalto, avvisa il regno.
+            onStart(ctx) { crusadeHost(ctx, PRIMA_CROCIATA.spedizioni[0], PRIMA_CROCIATA.forza, 'La Prima Crociata'); }
+        },
+        {
+            id: 'crociata-inglese', turn: 21, fino: null, tipo: 'crociata',
+            titolo: 'La crociata inglese',
+            testo: 'L\'oste radunata a Home Counties salpa per la Terra Santa: l\'Inghilterra muove su Gerusalemme.',
+            nota: '',
             onStart(ctx) {
-                const d = PRIMA_CROCIATA;
-                const esiti = [];
-                d.spedizioni.forEach(sp => {
-                    const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, forza: d.forza });
-                    if (!host) return;                  // regno morto o senza uomini: la gamba salta
-                    const esito = ctx.assault(sp.regno, sp.meta, host);
-                    if (esito) esiti.push(esito);
-                });
-                // Solo vista condivisa fra i due: condividono la visuale in Terra Santa.
-                ctx.pact(d.alleati[0], d.alleati[1], d.patto);
-                // Pergamena a ciascun protagonista, dal suo punto di vista.
-                esiti.forEach(e => {
-                    const testo = e.rinforzo
-                        ? 'La nostra oste rinforza ' + e.metaLabel + ' in Terra Santa.'
-                        : (e.vinta
-                            ? 'La nostra oste espugna ' + e.metaLabel + ': ' + e.superstiti +
-                              (e.superstiti === 1 ? ' superstite tiene la città' : ' superstiti tengono la città') +
-                              (e.conversione ? ', convertita alla nostra fede' : '') + '.'
-                            : 'La nostra oste s\'infrange sotto le mura di ' + e.metaLabel +
-                              ': la spedizione è perduta.');
-                    ctx.notify(e.regno, {
-                        tipo: 'crociata',
-                        titolo: 'La Prima Crociata',
-                        testo,
-                        nota: 'Franchi e Bizantini si legano: condividono la visuale in Terra Santa.'
-                    });
-                });
+                const d = CROCIATA_INGLESE;
+                crusadeHost(ctx, { regno: d.regno, da: d.da, meta: d.meta }, d.forza, 'La crociata inglese');
             }
+        },
+        {
+            id: 'peste-nera', turn: PESTE.turno, fino: PESTE.fino, tipo: 'peste',
+            titolo: 'La Morte Nera',
+            testo: 'Dalle vie dei mercanti la peste dilaga fino in Europa: falcidia le corone, feroce con chi non ha ospedali.',
+            nota: '',
+            onStart(ctx) { plagueRound(ctx, true); },
+            onRound(ctx) { plagueRound(ctx, false); }
         }
     ];
+
+    // Raduna un'oste da un regno e la sbarca all'assalto della sua meta,
+    // avvisando il regno con la pergamena dal suo punto di vista. Cuore comune
+    // a tutte le crociate: una gamba = una chiamata di questa funzione.
+    function crusadeHost(ctx, sp, forza, titolo) {
+        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, forza });
+        if (!host) return null;             // regno morto o senza uomini: la crociata non parte
+        const e = ctx.assault(sp.regno, sp.meta, host);
+        if (!e) return null;
+        const testo = e.rinforzo
+            ? 'La nostra oste rinforza ' + e.metaLabel + ' in Terra Santa.'
+            : (e.vinta
+                ? 'La nostra oste espugna ' + e.metaLabel + ': ' + e.superstiti +
+                  (e.superstiti === 1 ? ' superstite tiene la città' : ' superstiti tengono la città') +
+                  (e.conversione ? ', convertita alla nostra fede' : '') + '.'
+                : 'La nostra oste s\'infrange sotto le mura di ' + e.metaLabel +
+                  ': la spedizione è perduta.');
+        ctx.notify(e.regno, { tipo: 'crociata', titolo, testo, nota: '' });
+        return e;
+    }
 
     // Gli eventi che SCATTANO a questo turno (onStart). Come Religions.schismsAt.
     function startingAt(turn) {
@@ -313,9 +412,10 @@
     function byId(id) { return EVENTS.find(e => e.id === id) || null; }
 
     // ---------- PIANIFICATORI PURI (crescono con gli eventi) ----------
-    // Qui andranno hordeAdvance(stato, mappa) → bersagli, plagueSpread(stato) →
-    // nuovi focolai, warLockBetween(a, b, eventi) → bool. Restano funzioni pure:
-    // ricevono lo stato, restituiscono un piano, non toccano niente.
+    // Qui andranno hordeAdvance(stato, mappa) → bersagli, warLockBetween(a, b,
+    // eventi) → bool. Restano funzioni pure: ricevono lo stato, restituiscono
+    // un piano, non toccano niente. (La peste non ha bisogno di un pianificatore
+    // a parte: il suo piano è GameRules.plagueTier, letto da plagueRound qui sopra.)
 
     root.Events = {
         EVENTS,

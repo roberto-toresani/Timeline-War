@@ -118,9 +118,10 @@ function simula(name, destino) {
             intensita: intensita, capitolo: capitolo, ciclo: ciclo + 1, capitoli: capitoli
         });
         capitolo = mossa.capitolo; intensita = mossa.intensita;
-        let salti = 0;
-        while (salti++ < 4 && capitolo < capitoli && capitolo < (ciclo + 1) + O.FRENO
-               && O.superato(name, capitolo, ctx)) capitolo++;
+        // Un solo scatto per ciclo (vedi GameActions.closeCycle): un regno che
+        // corre recupera un capitolo di ritardo per volta, non un'epoca intera.
+        if (capitolo < capitoli && capitolo < (ciclo + 1) + O.FRENO
+            && O.superato(name, capitolo, ctx)) capitolo++;
         ass = O.generate(name, ctx, { ciclo: ciclo + 1, capitolo, intensita, ritmo, calibra: true });
     }
     console.log('   → prestigio accumulato: ' + punti + ' su 100');

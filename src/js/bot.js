@@ -100,7 +100,16 @@
     // (puro, per NOME di regno); qui c'è solo il ponte. Chi non ha dottrina —
     // cioè quasi tutti — non paga nulla di tutto ciò.
     const DOC = () => root.Doctrines;
-    function doctrineOf(player) { return DOC() ? DOC().of(player) : null; }
+    // Un regno può SOSPENDERE la sua dottrina a partita in corso (l'Orda dal 1350,
+    // js/events.js: si ferma, difende e torna a trattare). Da qui in poi gioca come
+    // un regno qualunque — nessuna marcia, nessun nemico dichiarato, nessun divieto
+    // di patti — con la sola strategia di STRATEGIES. È l'UNICO ponte alla dottrina,
+    // quindi spegnerlo qui la spegne dappertutto in bot.js (marchTip la ripesca per
+    // nome: va gattato anche là).
+    function doctrineOf(player) {
+        if (player && player.dottrinaSospesa) return null;
+        return DOC() ? DOC().of(player) : null;
+    }
 
     function strategyOf(player) {
         return (player && player.bot && STRATEGIES[player.bot]) || null;
@@ -1378,16 +1387,24 @@
                 // di "opportunisti a scaglioni": ogni carattere ha la sua soglia.
                 const tradimento = !!(t.patto && !t.consenso);
                 if (tradimento && (s.tradimento || 0) <= 0) return;
-                // DOTTRINA (js/doctrines.js): tre porte chiuse prima ancora di
+                // DOTTRINA (js/doctrines.js): le porte chiuse, prima ancora di
                 // fare i conti. Una terra su cui il regno non mette piede (la
                 // Danimarca dei nordici); un regno che non si espande via terra
                 // (il Portogallo: le sue conquiste sono sbarchi, non confini); un
                 // conservatore che coi regni non se la prende, tranne il nemico
-                // dichiarato e le proprie mete (la Bulgaria e l'Ungheria).
+                // dichiarato e le proprie mete.
+                // E il freno più stretto di tutti, `soloMete`: chi segue una
+                // storia sola non conquista NIENT'ALTRO — l'Orda che deve correre
+                // a occidente non si mangia la Cina alle spalle, i Bulgari presa
+                // la Bulgaria non prendono altro. L'unica deroga è riprendersi
+                // quel che gli è stato strappato (il rancore, che vale solo per
+                // le province che contavano): difendersi non è espandersi.
                 if (doc) {
                     if (DOC().forbids(doc, t.id)) return;
                     if (DOC().onlySea(doc) && !t.viaMare) return;
                     if (DOC().keepsPeaceWith(doc, t.owner, t.id)) return;
+                    if (DOC().onlyGoals(doc) && !DOC().isMeta(doc, t.id) &&
+                        !grudgeAgainst(player, t.id)) return;
                 }
                 const u = unitsAt(t.id) || {};
                 // Il premio dice QUANTO vale la provincia, non quanto è facile.
@@ -1561,6 +1578,66 @@
     }
 
     // ---------- FASE 4 · spostamento ----------
+
+    // ---------- LA COLONNA DELLA MARCIA (dottrina `marcia`) ----------
+    // Un'orda che tiene il grosso dell'esercito in Mongolia non arriva in Europa.
+    // La conquista porta avanti solo i superstiti della punta — che si assottiglia
+    // di provincia in provincia, perché ognuna presa ne trattiene almeno uno — e
+    // le retrovie restano piene di uomini che non hanno più niente da attaccare
+    // (`soloMete` chiude loro anche la Cina). Lo spostamento di fine turno, che
+    // per tutti è UNO SOLO fra province confinanti, diventa allora la COLONNA:
+    // il grosso che avanza di una provincia verso la PUNTA della marcia. Nessun
+    // potere speciale — è la stessa GameActions.finalMove del giocatore.
+    //
+    // La punta è la prima tappa del binario non ancora nostra (lo stesso criterio
+    // con cui le ondate di rinforzo scelgono dove calare, js/events.js); la
+    // direzione la dà una BFS di distanze in confini di terra da quella provincia:
+    // si sposta chi ha più uomini verso il vicino che è più vicino alla meta.
+    function marchTip(player) {
+        if (player && player.dottrinaSospesa) return null;   // dottrina sospesa: niente marcia
+        const asse = DOC() ? DOC().march(player.name) : [];
+        if (!asse.length) return null;
+        return asse.find(id => ownerAt(id) !== player.name) || null;
+    }
+    function landDistancesFrom(id) {
+        const dist = new Map([[id, 0]]);
+        const q = [id];
+        for (let i = 0; i < q.length; i++) {
+            const d = dist.get(q[i]) + 1;
+            E().landNeighbors(q[i]).forEach(n => {
+                if (!dist.has(n)) { dist.set(n, d); q.push(n); }
+            });
+        }
+        return dist;
+    }
+    function marchMove(player, s, st) {
+        const tip = marchTip(player);
+        if (!tip) return null;
+        const dist = landDistancesFrom(tip);
+        const cap = st ? st.cap : R().getCapitalPathFor(player);
+        const guardia = capitalGuard(player, s, st, cap);
+        // Dalla Capitale non si sguarnisce, come in movePlan: la Popolarità del
+        // regno sta lì dentro anche mentre si marcia.
+        const partenti = p => (cap && p.id === cap.id)
+            ? Math.max(0, Math.min(p.spare, p.truppe - guardia))
+            : p.mobili;
+        let best = null;
+        survey(player).forEach(p => {
+            const via = partenti(p);
+            if (via < 1) return;
+            const dFrom = dist.has(p.id) ? dist.get(p.id) : Infinity;
+            GA().ownAdjacent(player, p.id).forEach(n => {
+                const dTo = dist.has(n) ? dist.get(n) : Infinity;
+                if (!(dTo < dFrom)) return;                 // si marcia solo in avanti
+                const quanti = Math.min(via, roomAt(n));
+                if (quanti < 1) return;
+                // Il grosso per primo; a parità di uomini, il passo più avanzato.
+                const punti = quanti * 10 - dTo;
+                if (!best || punti > best.punti) best = { fromId: p.id, toId: n, n: quanti, punti };
+            });
+        });
+        return best;
+    }
 
     function movePlan(player, s, st, og) {
         const prov = survey(player);
@@ -2128,7 +2205,10 @@
 
         // --- FASE 4 · spostamento ---
         if (!player.spostamentoFatto) {
-            const mossa = movePlan(player, s, popState(player, s, og), og);
+            const stm = popState(player, s, og);
+            // Chi ha una MARCIA muove la colonna verso la punta; se non c'è un
+            // passo avanti da fare, vale lo spostamento di sempre.
+            const mossa = marchMove(player, s, stm) || movePlan(player, s, stm, og);
             if (mossa) yield GA().finalMove(player, mossa.fromId, mossa.toId, mossa.n);
         }
     }
@@ -2255,6 +2335,11 @@
         STRATEGIES, KEYS,
         isBot, strategyOf, labelOf, assignStrategies,
         run, stop, playTurn,
+        // Diagnostica/banco di prova (NON usato dal gioco): il cervello del turno
+        // e il regno di turno, per un driver headless che li faccia girare in
+        // modo sincrono (scripts/_dev-sim.html). Sono riferimenti alle stesse
+        // funzioni interne: non cambiano nulla del comportamento.
+        turnScript, botOfTurn,
         isRunning: () => active,
         speed(ms) { if (ms > 0) velocita = ms; return velocita; },
         onEvent: null

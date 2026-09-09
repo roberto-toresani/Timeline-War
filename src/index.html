@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=83">
-    <link rel="stylesheet" href="css/style.css?v=94">
+    <link rel="stylesheet" href="css/style.css?v=95">
 </head>
 
 <body>
@@ -233,7 +233,11 @@
     <script src="js/religions.js?v=83"></script>
     <!-- Eventi storici (crociate, mongoli, peste, Cent'Anni): calendario puro,
          letto da game-actions. Prima di app.js, come religions.js. -->
-    <script src="js/events.js?v=93"></script>
+    <script src="js/events.js?v=94"></script>
+    <!-- Cronache storiche: vignette di colore che scattano sulla SITUAZIONE del
+         regno (la marina inglese, il feudo francese, i teutonici). Puro, letto
+         da player-board. Nessun effetto sulla mappa. -->
+    <script src="js/chronicles.js?v=1"></script>
     <script src="js/terrain.js?v=83"></script>
     <script src="js/map-decor.js?v=83"></script>
     <script src="js/battle.js?v=83"></script>
@@ -242,7 +246,7 @@
     <script src="js/audio.js?v=83"></script>
     <script src="js/kingdom-stats.js?v=83"></script>
     <script src="js/popularity.js?v=83"></script>
-    <script src="js/game-rules.js?v=83"></script>
+    <script src="js/game-rules.js?v=100"></script>
     <!-- PRIMA di app.js: `const TAX_LEVELS = Popularity.TAX_LEVELS` sta in cima
          alla closure di app.js e non è protetto da guardia — se questo file non
          c'è, app.js muore e con lui tutto il gioco. -->
@@ -253,11 +257,11 @@
     <script src="js/spies.js?v=83"></script>
     <!-- Diplomazia (alleanze): puro, serve a game-actions/app/bot. Prima di app.js. -->
     <script src="js/diplomacy.js?v=97"></script>
-    <script src="js/doctrines.js?v=83"></script>
+    <script src="js/doctrines.js?v=101"></script>
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
-    <script src="js/objectives.js?v=94"></script>
-    <script src="js/app.js?v=97"></script>
-    <script src="js/game-actions.js?v=97"></script>
+    <script src="js/objectives.js?v=99"></script>
+    <script src="js/app.js?v=102"></script>
+    <script src="js/game-actions.js?v=104"></script>
     <script src="js/bot.js?v=97"></script>
     <script src="js/setup.js?v=83"></script>
     <script src="js/start-map.js?v=83"></script>

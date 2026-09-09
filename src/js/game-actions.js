@@ -16,6 +16,7 @@
     const D = () => root.Diplomacy;   // DIPLOMAZIA (alleanze): la relazione pura
     const EV = () => root.Events;     // EVENTI STORICI (crociate, mongoli, peste…)
     const OB = () => root.Objectives; // OBIETTIVI (§10): il binario storico dei regni
+    const DC = () => root.Doctrines;  // DOTTRINE: il carattere storico di certi regni
     const GR = () => root.GameRules;
 
     const fail = (msg) => ({ ok: false, msg });
@@ -67,6 +68,32 @@
             }
             else player.scorte[k] -= cost[k];
         });
+    }
+
+    // Come pay(), ma per un ACQUISTO vero — una costruzione, una strada, una
+    // miglioria NUOVA, un reclutamento (§Felicità, "Festa"): se la Festa di
+    // questo turno (GameRules.joyTier, letto dalla Felicità come plagueTier
+    // legge la Sanità) dà un bonus in monete a questa soglia, lo versa qui,
+    // nell'unico punto che tocca entrambi. NON lo chiamano: moveCapital (non
+    // costruisce nulla di nuovo, sposta il seggio), la riattivazione di una
+    // miglioria dormiente (è manutenzione arretrata, non una costruzione), e
+    // le strade GRATUITE (non c'è alcun pagamento a cui affiancare un premio).
+    function payConstruction(player, cost, path) {
+        pay(player, cost, path);
+        if (player.festaCostruzioneBonus > 0) player.monete += player.festaCostruzioneBonus;
+    }
+
+    // Sorteggia `n` tipi di risorsa DISTINTI fra i 5 di GameRules.RES — i "tipi
+    // favoriti" della Festa di oggi (§Felicità). Usata una volta a turno da
+    // beginTurn, mai a ogni lettura del costo: il sorteggio deve restare fermo
+    // per tutto il turno, non ballare a ogni render dei tasselli.
+    function pickResources(n) {
+        const pool = GR().RES.slice();
+        const out = [];
+        while (out.length < n && pool.length) {
+            out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+        }
+        return out;
     }
 
     // ---------- serbatoi delle reclute (§5.1) ----------
@@ -157,21 +184,31 @@
     // Una provincia conquistata non è più neutrale, quindi esce da qui da sola.
     function garrisonNeutrals(opts) {
         const turn = R().turn();
-        const target = GR().neutralGarrison(turn);
         const seed = !!(opts && opts.seed);
-        // crescita del decennio: 0 di norma, 1 nel giro che scavalca una soglia.
-        const grow = target - GR().neutralGarrison(turn - 1);
-        let province = 0, soldati = 0;
+        let province = 0, soldati = 0, target = 0;
         E().allPaths().forEach(path => {
             if (E().owner(path)) return;
+            // Le terre lontane (Americhe, Asia, Africa sub-sahariana — corridoio
+            // mongolo compreso) crescono più tardi: 2 fino al 5º ciclo, poi 3 dal
+            // 6º (GameRules.isFarProvince/neutralGarrison, regola dell'utente). La
+            // quota e la crescita del decennio si calcolano PER PROVINCIA in base
+            // alla sua zona, non una volta sola per tutta la mappa.
+            const c = E().provinceCenter(path);
+            const far = !!(c && GR().isFarProvince(c.x, c.y));
+            const tgt = GR().neutralGarrison(turn, far);
+            // crescita del decennio: 0 di norma, 1 nel giro che scavalca una soglia.
+            const grow = tgt - GR().neutralGarrison(turn - 1, far);
             const cur = E().countPiece(path, 'soldato');
             // seed: sale fino a target. A regime: aggiunge solo `grow`, sempre
             // entro target (non si supera la quota) e capienza.
-            const delta = Math.min(seed ? target - cur : grow, target - cur, roomFor(path));
+            const delta = Math.min(seed ? tgt - cur : grow, tgt - cur, roomFor(path));
             if (delta <= 0) return;
             E().addPiece(path, 'soldato', delta);
             E().redrawProvince(path);
-            province++; soldati += delta;
+            // `target` = la quota più alta fra le province che sono DAVVERO cresciute,
+            // così l'avviso di fine giro ("salgono a N") resta veritiero: in un giro
+            // di crescita del core dice 6, nel turno 51 (crescono solo le lontane) 3.
+            province++; soldati += delta; target = Math.max(target, tgt);
         });
         return { target, province, soldati };
     }
@@ -258,14 +295,11 @@
                 // confine cattolico lascia dietro di sé una provincia musulmana.
                 // Nessun lock: torna neutrale e resta soggetta agli scismi come le
                 // altre terre di nessuno.
-                // Il vincolo di conquista (data-fede-conq) si SCIOGLIE qui: era
-                // l'aggancio alla corona di chi la teneva, e quella corona non la
-                // tiene più. Senza questa riga la provincia restava agganciata a
-                // un regno che non la possiede — nessuno scisma la toccava mai
-                // più (applySchisms salta le province vincolate) e nemmeno
-                // syncConquestFaiths poteva rimediare, perché una terra di
-                // nessuno non ha proprietario a cui riallinearla: la fede ci
-                // restava congelata per il resto della partita.
+                // Il vincolo di conquista (data-fede-conq) si SCIOGLIE qui, per
+                // pulizia: `setOwner(tp, null)` sopra è già ciò che conta davvero
+                // — applySchisms e syncKingdomFaiths guardano il PROPRIETARIO, non
+                // più questo flag, e una terra di nessuno (nessun proprietario)
+                // torna da sola pura geografia.
                 E().setReligionLock(tp, false);
                 if (nf && E().religion(tp) !== nf) {
                     conversione = { da: E().religion(tp) || null, a: nf, label: Religions.label(nf) };
@@ -464,8 +498,29 @@
         const capital = R().getCapitalPathFor(player);
         const collegate = connectedOf(player);
         const pop = capital ? R().computePopularity(player, capital, collegate).totale : null;
+        // PESTE (js/events.js): eventDecimate ha segnato le province dove sono
+        // caduti uomini questo giro — la loro risorsa non si raccoglie. Letto e
+        // svuotato qui, così vale una volta sola, per QUESTA produzione.
+        const bloccoPeste = new Set(player.pesteBlocco || []);
+        player.pesteBlocco = [];
         const prod = GR().turnProduction(snapshotOf(player), collegate, units,
-            player.tassazione, pop);
+            player.tassazione, pop, bloccoPeste);
+
+        // FELICITÀ (§6.1, "Festa" — regola dell'utente, simmetrica alla Peste ma
+        // di segno opposto): quante migliorie di Felicità il regno ha sulla
+        // Capitale (0-5, stessa lettura di popularityFactors) decide il piano di
+        // oggi (GameRules.joyTier). Si sorteggiano i TIPI di risorsa scontati
+        // sulle costruzioni di questo turno (`festaRisorse`, letto da
+        // GameRules.costFor) e il bonus in monete per ogni acquisto pagato
+        // (`festaCostruzioneBonus`, versato da payConstruction) — un tiro solo
+        // a inizio turno, non a ogni costruzione: così il prezzo mostrato sui
+        // tasselli resta STABILE per tutto il turno invece di cambiare a ogni
+        // render.
+        const attiveFelicita = capital ? E().welfare(capital).filter(e => !e.dormant).map(e => e.key) : [];
+        const felicita = GR().welfareCount(attiveFelicita, 'felicita');
+        const festa = GR().joyTier(felicita);
+        player.festaRisorse = festa ? pickResources(festa.favoriti) : [];
+        player.festaCostruzioneBonus = festa ? festa.bonusCostruzione : 0;
 
         player.monete += prod.monete;
         GR().RES.forEach(k => { player.scorte[k] += prod.risorse[k]; });
@@ -545,6 +600,21 @@
             const suo = a && Array.isArray(a.items) && a.items.length && a.ciclo === chiuso;
             const snap = suo ? OB().evaluate(a, ctx) : OB().evaluate(player.name, ctx, chiuso);
             let leva = 0;
+            // UN TAPPO DA TOGLIERE. Fra advanceGlobalTurn e questo punto passano
+            // eventi, scismi e razzie, e più d'uno RIDISEGNA: il render della
+            // plancia rivaluta gli obiettivi (Risiko.objectivesFor), vede il ciclo
+            // nuovo e archivia d'ufficio quello appena chiuso (backfillCycles, la
+            // migrazione dei salvataggi vecchi) — senza leva, perché una
+            // ricostruzione a posteriori non versa uomini a nessuno. Il record
+            // provvisorio faceva poi da tappo alla guardia qui sotto e LA LEVA NON
+            // ARRIVAVA MAI. La fotografia vera è questa: si butta quella di
+            // ripiego, punti di prestigio compresi, e si riarchivia davvero.
+            const prov = player.obiettiviStorico.findIndex(h => h.ciclo === chiuso && h.backfill);
+            if (prov >= 0) {
+                const vecchio = player.obiettiviStorico.splice(prov, 1)[0];
+                player.puntiPrestigio = Math.max(0,
+                    (player.puntiPrestigio || 0) - (vecchio.punti || 0));
+            }
             if (snap && !player.obiettiviStorico.some(h => h.ciclo === snap.ciclo)) {
                 const rec = R().archiveObjectives(player, snap);
                 // 1-bis. LA LEVA (regola dell'utente): un obiettivo compiuto vale
@@ -601,10 +671,16 @@
             // superato dai fatti — la sua meta è oltre l'ancora più ambiziosa —
             // si passa al successivo invece di riproporlo con un numero più
             // grande. È il caso del regno che ha corso: gli si dà il pezzo dopo,
-            // non lo stesso pezzo gonfiato.
-            let salti = 0;
-            while (salti++ < 4
-                && player.capitolo < OB().chapterCount(player.name)
+            // non lo stesso pezzo gonfiato. **Un solo scatto per chiusura di
+            // ciclo** (regola dell'utente: un regno può correre, ma gli
+            // obiettivi restano plausibili e storicamente attendibili). Più
+            // capitoli di fila condividono la stessa regione (NORMANDY_FR ricorre
+            // in fr3-fr5): conquistarla presto renderebbe `superato` vero più
+            // volte in fila, e prima questo ciclo li scavalcava tutti in un colpo
+            // solo — la Francia dei Cent'Anni che si ritrova a chiedere i confini
+            // sul Reno di Richelieu due secoli prima del tempo. Con un salto solo
+            // il regno recupera un capitolo di ritardo per ciclo, non un'epoca.
+            if (player.capitolo < OB().chapterCount(player.name)
                 && player.capitolo < nuovoCiclo + OB().FRENO
                 && OB().superato(player.name, player.capitolo, ctx)) {
                 player.capitolo++;
@@ -731,9 +807,8 @@
 
     // La superficie stretta e DICHIARATA che gli agganci usano per toccare lo
     // stato. Cresce man mano che si specificano i singoli eventi: i mutatori
-    // pesanti sono per ora dei segnaposto che falliscono a voce alta, così un
-    // evento che li usi prima del tempo si vede subito (il calendario è vuoto,
-    // quindi oggi nessuno di questi viene chiamato).
+    // non ancora serviti restano segnaposto che falliscono a voce alta, così un
+    // evento che li usi prima del tempo si vede subito.
     function eventTodo(nome) {
         throw new Error('ctx.' + nome + ' non ancora implementato (impianto eventi).');
     }
@@ -757,10 +832,13 @@
             spawnKingdom: (spec) => eventSpawnKingdom(spec),
             // Le ONDATE dell'Orda: un'armata di rinforzo cala sulla punta della marcia.
             reinforce: (regno, opts) => eventReinforce(regno, opts),
-            // --- mutatori ancora da implementare (peste, Cent'Anni) ---
+            // PESTE: applica il piano di GameRules.plagueTier a un regno (Capitale
+            // e/o provincia più popolosa) e segna le province colpite per il
+            // blocco della raccolta di questo turno (§eventi, beginTurn).
+            decimate: (regno, piano) => eventDecimate(regno, piano),
+            // --- mutatori ancora da implementare (Cent'Anni) ---
             despawnKingdom: () => eventTodo('despawnKingdom'),
             dropArmy: () => eventTodo('dropArmy'),
-            decimate: () => eventTodo('decimate'),
             convert: () => eventTodo('convert'),
             giveProvince: () => eventTodo('giveProvince'),
             setWarLock: () => eventTodo('setWarLock')
@@ -878,6 +956,17 @@
     }
 
     // EVENTI — L'ARMATA DI RINFORZO (le ondate dell'Orda, regola dell'utente).
+    // Due modi, secondo cosa arriva nelle `opts`:
+    //
+    //  A) BONUS DI CRESCITA ({reclute, perProvincia}, le ondate attuali dell'Orda):
+    //     `reclute` truppe LIBERE si sommano al serbatoio del regno (§5.1: le
+    //     schiera l'IA dove serve, non calano sulla punta), e `perProvincia` uomini
+    //     si posano AUTOMATICAMENTE su OGNI provincia posseduto — un bonus che cresce
+    //     con l'impero. Il deposito clampa sul tetto (§pieceMax), quindi una
+    //     provincia già piena semplicemente non ne accoglie di più.
+    //     Ritorna { regno, reclute, perProvincia, dove:[{prov,n}] }.
+    //
+    //  B) ONDATA SULLA PUNTA ({forza, verso}, la vecchia armata concentrata):
     // `forza` uomini raggiungono un regno d'evento e si versano sulla PUNTA della
     // sua marcia: la sua provincia più vicina, in confini di terra, alla prima
     // tappa non ancora conquistata (`verso` è l'asse della marcia, da
@@ -896,13 +985,32 @@
     // Ritorna { regno, forza, posati, prov, provLabel, dove:[{prov,n}] } o null.
     function eventReinforce(regnoName, opts) {
         const o = opts || {};
-        const forza = Math.max(0, Math.floor(o.forza || 0));
         const regno = R().players().find(p => p.name === regnoName);
-        if (!regno || forza <= 0) return null;
+        if (!regno) return null;
         const owned = E().ownedPaths(regnoName);
         if (!owned.length) return null;
-        const mie = new Map(owned.map(p => [p.id, p]));
         const truppe = p => E().countPiece(p, 'soldato');
+
+        // --- A) BONUS DI CRESCITA: reclute libere + un uomo per provincia ---
+        const reclute = Math.max(0, Math.floor(o.reclute || 0));
+        const perProv = Math.max(0, Math.floor(o.perProvincia || 0));
+        if (reclute > 0 || perProv > 0) {
+            if (reclute > 0) regno.recluteDaSchierare = (regno.recluteDaSchierare || 0) + reclute;
+            const dove = [];
+            if (perProv > 0) owned.forEach(path => {
+                const prima = truppe(path);
+                E().addPiece(path, 'soldato', perProv);   // il deposito clampa sul tetto
+                const messi = truppe(path) - prima;
+                if (messi > 0) { E().redrawProvince(path); dove.push({ prov: path.id, n: messi }); }
+            });
+            if (dove.length) E().redrawRoads();
+            return { regno: regnoName, reclute, perProvincia: perProv, dove };
+        }
+
+        // --- B) ONDATA SULLA PUNTA (forza/verso) ---
+        const forza = Math.max(0, Math.floor(o.forza || 0));
+        if (forza <= 0) return null;
+        const mie = new Map(owned.map(p => [p.id, p]));
         const perPiene = lista => lista.slice().sort((a, b) => truppe(b) - truppe(a));
 
         const mete = (o.verso || []).filter(id => !mie.has(id) && E().path(id));
@@ -942,6 +1050,57 @@
         const punta = E().path(dove[0].prov);
         return { regno: regnoName, forza, posati: forza - restano,
             prov: dove[0].prov, provLabel: punta ? R().provinceLabel(punta) : null, dove };
+    }
+
+    // PESTE (e ogni altro evento che falcidia un regno) — applica il PIANO
+    // dell'evento (oggi GameRules.plagueTier, letto dal numero di migliorie di
+    // Sanità sulla Capitale): `piano.capitale` uomini cadono in Capitale,
+    // `piano.popolosa` nella provincia con più soldati — esclusa la Capitale se
+    // `piano.escludeCapitale` (altrimenti la ricerca è su TUTTO il regno, ed è
+    // lecito che la più popolosa SIA la Capitale). Il presidio minimo (§5) vale
+    // anche qui: le perdite non svuotano mai una provincia. Cadono per primi i
+    // mercenari (§5.3), come in battaglia. Se `piano.bloccaRaccolta`, le
+    // province colpite finiscono in `player.pesteBlocco`, letto e svuotato da
+    // `beginTurn` alla prossima produzione di questo regno. Ritorna
+    // { regno, colpiti:[{prov,label,persi,capitale}] } o null se non è morto
+    // nessuno davvero (province già al presidio minimo).
+    function eventDecimate(regnoName, piano) {
+        const p = piano || {};
+        const regno = R().players().find(pl => pl.name === regnoName);
+        if (!regno) return null;
+        const owned = E().ownedPaths(regnoName);
+        if (!owned.length) return null;
+        const capital = R().getCapitalPathFor(regno);
+        const colpiti = [];
+
+        function strike(path, want, isCapital) {
+            if (!path || want <= 0) return;
+            const disp = GR().spendableTroops(E().countPiece(path, 'soldato'));
+            const persi = Math.min(want, disp);
+            if (persi <= 0) return;
+            const mercPrima = E().merc(path);
+            E().addPiece(path, 'soldato', -persi);
+            E().setMerc(path, mercPrima - persi);   // i mercenari cadono per primi (§5.3)
+            E().redrawProvince(path);
+            colpiti.push({ prov: path.id, label: R().provinceLabel(path), persi, capitale: !!isCapital });
+        }
+
+        if (p.capitale > 0) strike(capital, p.capitale, true);
+
+        const pool = owned.filter(pp => !(p.escludeCapitale && capital && pp.id === capital.id));
+        let target = null, best = -1;
+        pool.forEach(pp => {
+            const n = E().countPiece(pp, 'soldato');
+            if (n > best) { best = n; target = pp; }
+        });
+        if (p.popolosa > 0) strike(target, p.popolosa, !!(capital && target && target.id === capital.id));
+
+        if (!colpiti.length) return null;
+        if (p.bloccaRaccolta) {
+            regno.pesteBlocco = Array.from(new Set(
+                (regno.pesteBlocco || []).concat(colpiti.map(c => c.prov))));
+        }
+        return { regno: regnoName, colpiti };
     }
 
     // CROCIATE — lega due regni con un patto (bondPact scrive su ENTRAMBI). Salta
@@ -1267,7 +1426,7 @@
     // Costruisce su UNA provincia propria (§6).
     function build(player, provId, type) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
-        const cost = GR().COSTS[type];
+        const cost = GR().costFor(type, player);   // §Felicità: sconto della Festa, se attiva
         if (!cost) return fail('Non si può costruire questo.');
         if (GR().BUILDABLE_ON_PROVINCE.indexOf(type) < 0) return fail('Questa voce non si costruisce su una provincia.');
 
@@ -1297,7 +1456,7 @@
         const afford = GR().canAfford(player, cost, spare(path));
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
-        pay(player, cost, path);
+        payConstruction(player, cost, path);
         E().addPiece(path, type, +1);
         E().setArmyColor(path, player.color);
 
@@ -1334,6 +1493,63 @@
             Object.assign({ prov: provId }, fondazione ? { fondazione } : null));
     }
 
+    // ---------- DEMOLIZIONE (regola dell'utente) ----------
+    // Giustifica l'invasione di una provincia con un Mercato o una nave quando ne
+    // hai già uno tuo: altrimenti l'insediamento preso è morto (Mercato duplicato,
+    // §Mercato) o inutile. Si demolisce e si recupera QUALCOSA — mai il pieno
+    // valore, altrimenti conquistare varrebbe più che costruire da zero:
+    //   Mercato → 2 uomini + 100 monete.  Nave/Vascello → 1 uomo + 1 Legno.
+    // Solo in fase 'costruisci' (come ogni altra voce di questa fase) e solo
+    // sulle proprie province — non è un atto di guerra, è amministrazione.
+    function destroyMarket(player, provId) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const path = E().path(provId);
+        if (!path) return fail('Provincia sconosciuta.');
+        if (E().owner(path) !== player.name) return fail('Puoi demolire solo nelle tue province.');
+        if (E().countPiece(path, 'mercato') <= 0) return fail('Qui non c\'è nessun Mercato da demolire.');
+
+        // Il presidio massimo (§5/pieceMax) non si scavalca: se la provincia è già
+        // al completo di soldati, gli uomini recuperati che non ci stanno si perdono.
+        const n = Math.min(2, roomFor(path));
+        E().addPiece(path, 'mercato', -1);
+        if (n > 0) { E().addPiece(path, 'soldato', n); E().setArmyColor(path, player.color); }
+        player.monete = (player.monete || 0) + 100;
+
+        E().redrawProvince(path);
+        E().refresh();
+        E().save();
+        return done('Mercato demolito in ' + R().provinceLabel(path) + ': +100 monete' +
+            (n > 0 ? ' e +' + n + (n === 1 ? ' uomo.' : ' uomini.')
+                   : ' (nessun uomo: la provincia è già al completo).'),
+            { prov: provId });
+    }
+
+    // Solo la Nave (barca): il Vascello costa 4000 monete e serve alle rotte
+    // lunghe (§9.2) — recuperarne un decimo con la stessa leva della Nave
+    // svaluterebbe l'investimento. Non si demolisce.
+    function destroyShip(player, provId, tipo) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        if (tipo !== 'barca') return fail('Solo la Nave si demolisce, non il Vascello.');
+        const path = E().path(provId);
+        if (!path) return fail('Provincia sconosciuta.');
+        if (E().owner(path) !== player.name) return fail('Puoi demolire solo nelle tue province.');
+        if (!E().ships(path).some(s => s.tipo === tipo)) {
+            return fail('Qui non c\'è nessuna nave da demolire.');
+        }
+
+        const n = Math.min(1, roomFor(path));
+        E().removeShip(path, tipo);
+        if (n > 0) { E().addPiece(path, 'soldato', n); E().setArmyColor(path, player.color); }
+        player.scorte.legno = (player.scorte.legno || 0) + 1;
+
+        E().redrawProvince(path);
+        E().refresh();
+        E().save();
+        return done('Nave demolita in ' + R().provinceLabel(path) +
+            ': +1 Legno' + (n > 0 ? ' e +1 uomo.' : ' (nessun uomo: la provincia è già al completo).'),
+            { prov: provId });
+    }
+
     // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità. Si costruiscono SULLA Capitale,
     // costano 3 unità di una risorsa e alzano il Benessere (§8). Vivono in
     // data-welfare sulla provincia-capitale (E().welfare): spostare la Capitale le
@@ -1362,12 +1578,15 @@
                 { prov: cap.id });
         }
 
+        // Una sola risorsa (§6.1): la Festa non la sconta mai (§Felicità, chi
+        // chiede un tipo solo non sconta — altrimenti si azzererebbe), ma
+        // costruirla vale comunque il bonus in monete al suo tier.
         const cost = GR().welfareCost(key);
         // Non costano soldati: il presidio minimo non c'entra (soldiersHere = 0).
         const afford = GR().canAfford(player, cost, 0);
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
-        pay(player, cost, cap);
+        payConstruction(player, cost, cap);
         E().addWelfare(cap, key, R().turn());   // il turno di costruzione: manutenzione (§6.1)
         E().refresh();
         E().save();
@@ -1532,10 +1751,13 @@
 
         const gratis = (player.stradeGratis || 0) > 0;
         if (!gratis) {
+            // Un solo tipo di risorsa (pietra): la Festa non la sconta mai
+            // (§Felicità), ma pagarla vale comunque il bonus in monete al suo
+            // tier — GRATIS non passa di qui, non c'è alcun pagamento da premiare.
             const cost = GR().COSTS.strada;
             const afford = GR().canAfford(player, cost, spare(A));
             if (!afford.ok) return fail('Non puoi permettertela: ' + GR().missingText(afford.missing) + '.');
-            pay(player, cost, A);
+            payConstruction(player, cost, A);
             E().redrawProvince(A);
         } else {
             player.stradeGratis--;
@@ -1561,7 +1783,7 @@
         if (!path) return fail('Provincia sconosciuta.');
         if (E().owner(path) !== player.name) return fail('Puoi reclutare solo nelle tue province.');
 
-        const cost = GR().COSTS[type];
+        const cost = GR().costFor(type, player);   // §Felicità: sconto della Festa, se attiva
         const afford = GR().canAfford(player, cost, spare(path));
         if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
 
@@ -1569,7 +1791,7 @@
         const room = roomFor(path);
         if (n > room) return fail(R().provinceLabel(path) + ' non regge altri soldati.');
 
-        pay(player, cost, path);
+        payConstruction(player, cost, path);
         E().addPiece(path, 'soldato', n);
         E().setArmyColor(path, player.color);
 
@@ -1794,6 +2016,31 @@
             { prov: mercato.id });
     }
 
+    // L'ISOLA E IL MARE (regola dell'utente): un regno separato dal mare dal suo
+    // partner — nessun confine di TERRA fra i due — può spedirgli una RISORSA solo
+    // se una sua nave, entro la portata (§9.2), raggiunge una provincia con CITTÀ o
+    // CAPITALE del destinatario: è il porto-mercato dove far sbarcare la merce.
+    function landAdjacentKingdoms(aName, bName) {
+        const bIds = E().ownedPaths(bName).map(p => p.id);
+        return E().ownedPaths(aName).some(pa => bIds.some(id => E().areLandAdjacent(pa.id, id)));
+    }
+    function shipReachesMarketOf(player, altro) {
+        const markets = E().ownedPaths(altro.name)
+            .filter(p => E().countPiece(p, 'citta') > 0 || E().countPiece(p, 'capitale') > 0)
+            .map(p => p.id);
+        if (!markets.length) return false;
+        return E().ownedPaths(player.name).some(from => {
+            const hulls = E().ships(from);
+            if (!hulls.length) return false;
+            return hulls.some(h => {
+                const r = E().shipRange(h.tipo);
+                if (!(r > 0)) return false;
+                const reach = E().seaReach(from.id, r);
+                return markets.some(id => reach.has(id));
+            });
+        });
+    }
+
     // Manda una proposta a un altro regno. La merce offerta esce subito (pegno).
     function proposeTrade(player, toId, offro, chiedo) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
@@ -1819,6 +2066,15 @@
         }
         if (haveGood(player, off) < off.n) {
             return fail('Non hai ' + GR().goodsText(off) + ' da offrire.');
+        }
+        // Isola: per spedire una RISORSA a un partner d'oltremare serve una nave
+        // che tocchi un suo porto-mercato (città/capitale). L'oro non è merce da
+        // stiva e non passa di qui.
+        if (off.tipo !== 'monete' && !landAdjacentKingdoms(player.name, altro.name)
+            && !shipReachesMarketOf(player, altro)) {
+            return fail('Sei separato dal mare da ' + altro.name +
+                ': serve una tua nave che raggiunga una sua città o capitale per spedirvi ' +
+                GR().goodsText(off) + '.');
         }
 
         const aperte = tradeOutbox(player).length;
@@ -2413,6 +2669,33 @@
         return pick;
     }
 
+    // Come `hullForLanding`, ma può armare PIÙ scafi dello stesso tipo per portare
+    // più uomini in un solo assalto (regola dell'utente: si costruiscono due navi
+    // proprio per imbarcare di più). Raggruppa gli scafi ancorati per tipo, conta
+    // quanti ne arrivano a `toId` (tutti gli scafi di un tipo hanno la stessa
+    // portata, quindi o arrivano tutti o nessuno) e sceglie il tipo MENO capiente
+    // la cui flotta basta a caricare `engaged`. Restituisce { tipo, num, cap } —
+    // `num` è quanti scafi salpano davvero (⌈engaged/cap⌉, mai più del necessario:
+    // non parte una nave che non porta nessuno) — oppure null se nessuna flotta basta.
+    function hullsForLanding(from, toId, engaged, voluto) {
+        const byType = new Map();
+        E().ships(from).forEach(h => {
+            if (voluto && h.tipo !== voluto) return;
+            const r = E().shipRange(h.tipo);
+            if (!(r > 0) || !E().seaReach(from.id, r).has(toId)) return;
+            byType.set(h.tipo, (byType.get(h.tipo) || 0) + 1);
+        });
+        let pick = null;
+        byType.forEach((count, tipo) => {
+            const cap = E().shipCapacity(tipo);
+            if (cap * count < engaged) return;           // la flotta di quel tipo non basta
+            if (!pick || cap < pick.cap) {
+                pick = { tipo, cap, num: Math.max(1, Math.ceil(engaged / cap)) };
+            }
+        });
+        return pick;
+    }
+
     // Attacco (§9): risolve con battle.js e applica l'esito alla mappa.
     // `scafoVoluto` (facoltativo): con che nave si parte, quando è il giocatore a
     // sceglierlo dalla plancia. Senza, il motore prende quella che basta.
@@ -2427,7 +2710,10 @@
     // ESATTA del conquistatore, cioè la sua religione di stato (quella della sua
     // Capitale, §religione). Vale per ogni regno, non solo per i cristiani: la
     // mappa delle fedi si muove con i confini, in tutte le direzioni. Senza
-    // Capitale non c'è religione di stato, quindi non c'è conversione.
+    // Capitale non c'è religione di stato, quindi non c'è conversione — e non ce
+    // n'è nemmeno per chi una fede propria non ce l'ha (l'Orda: assimila, non
+    // converte — vedi imposedFaithOf, che è dove la fede del conquistatore si
+    // legge una volta per tutte).
     // Sta dentro la regola di conquista perché valga ovunque si conquisti:
     // attacco via terra, sbarco, sbarco d'editto. Restituisce { da, a, label }
     // per chi deve raccontarlo, null se non c'è stata conversione.
@@ -2439,7 +2725,7 @@
     // Il passaggio di mano SENZA battaglia (un editto che assegna o consegna una
     // provincia). La regola della fede è la stessa della conquista — non può
     // esserci una porta di servizio da cui una provincia cambia padrone senza
-    // cambiare fede: al giro dopo syncConquestFaiths troverebbe una provincia
+    // cambiare fede: al giro dopo syncKingdomFaiths troverebbe una provincia
     // agganciata alla corona sbagliata, o non agganciata affatto. "nuovo" null =
     // torna terra di nessuno: si scioglie il vincolo e la provincia torna
     // soggetta agli scismi come ogni altra neutrale.
@@ -2452,6 +2738,23 @@
         const conv = convertOnConquest(nuovo, to, fede);
         if (fede) E().setReligionLock(to, true);
         return conv;
+    }
+
+    // La fede che un regno IMPONE conquistando: la sua religione di stato — tranne
+    // per chi non ne ha una propria (l'Orda, `senzaFede` in js/doctrines.js:
+    // regola dell'utente, i Mongoli assimilano invece di convertire). Quello non
+    // impone niente: la provincia presa tiene i suoi dèi, e siccome qui esce null
+    // non le si mette nemmeno il VINCOLO di conquista (data-fede-conq) — che è un
+    // aggancio alla fede della corona, e sarebbe una conversione differita, fatta
+    // dal riallineamento del giro dopo invece che dalla spada.
+    // È la sola porta da cui la fede di un conquistatore entra in una provincia:
+    // attacco via terra, sbarco, sbarco d'editto, editto che assegna o consegna.
+    // Da non confondere con Risiko.stateReligionOf, che dice quel che un regno
+    // PROFESSA (per l'Orda: la fede assimilata dalle terre che tiene).
+    function imposedFaithOf(winner) {
+        if (!winner) return null;
+        if (DC() && DC().faithless(winner)) return null;
+        return R().stateReligionOf ? R().stateReligionOf(winner) : null;
     }
 
     function convertOnConquest(winner, to, fede) {
@@ -2517,7 +2820,7 @@
     // ventura (§5.3). La ventura del difensore la si legge qui: se perde tutto
     // sparisce con lui, se regge perde i suoi caduti per primi.
     function applyBattleOutcome(winner, to, res, defTroops, mercIn) {
-        const fedeVincitore = R().stateReligionOf ? R().stateReligionOf(winner) : null;
+        const fedeVincitore = imposedFaithOf(winner);
         const mercDif = E().merc(to);
         // CONQUISTA DI UNA CAPITALE NEMICA (§Capitale): si legge PRIMA delle
         // mutazioni, quando `to` è ancora del difensore, se la provincia presa
@@ -2557,6 +2860,18 @@
                 E().addPiece(to, 'citta', 1);
                 E().redrawProvince(to);
                 if (!winner.bot) winner.capitalePresa = { toId: to.id };
+            }
+            // IL BOTTINO (regola dell'utente): ogni provincia presa paga subito
+            // GameRules.CONQUEST_BOUNTY monete. Sta qui, nell'unico punto della
+            // regola di conquista, così vale per l'attacco di terra, lo sbarco,
+            // l'approdo di una spedizione e lo sbarco d'editto senza quattro
+            // copie — e i bot lo incassano senza un ramo apposta. L'importo si
+            // appende al risultato della battaglia (`res`), che i chiamanti già
+            // portano in giro: è così che il rapporto può dirlo al giocatore.
+            const bottino = GR().CONQUEST_BOUNTY || 0;
+            if (bottino > 0) {
+                winner.monete = (winner.monete || 0) + bottino;
+                res.bottino = bottino;
             }
             return conv;
         }
@@ -2614,16 +2929,23 @@
                 (partenti === 1 ? ' soldato' : ' soldati') + ': uno resta sempre a presidiare.');
         }
 
-        // Lo sbarco ha un secondo tetto: il CARICO dello scafo (§9.2). È questo,
-        // più del raggio, a impedire di rovesciare un'armata oltremare in un turno.
+        // Lo sbarco ha un secondo tetto: il CARICO della FLOTTA (§9.2). Con più
+        // scafi dello stesso tipo si imbarca di più — è questo, più del raggio, a
+        // impedire di rovesciare un'armata oltremare in un turno. `scafo` diventa
+        // { tipo, cap, num }: quanti scafi salpano davvero.
         if (viaMare) {
-            scafo = hullForLanding(from, toId, engaged, scafoVoluto);
+            scafo = hullsForLanding(from, toId, engaged, scafoVoluto);
             if (!scafo) {
-                const capienza = E().ships(from)
+                // Capienza massima disponibile: la flotta più capiente di un tipo
+                // solo che arriva fin lì (nº scafi × carico).
+                const perTipo = new Map();
+                E().ships(from)
                     .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
                     .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); })
-                    .reduce((m, h) => Math.max(m, E().shipCapacity(h.tipo)), 0);
-                return fail('Nessuna nave può portare ' + engaged + ' uomini fin lì: al massimo ' +
+                    .forEach(h => perTipo.set(h.tipo, (perTipo.get(h.tipo) || 0) + 1));
+                let capienza = 0;
+                perTipo.forEach((n, tipo) => { capienza = Math.max(capienza, n * E().shipCapacity(tipo)); });
+                return fail('Nessuna flotta può portare ' + engaged + ' uomini fin lì: al massimo ' +
                     capienza + ' per sbarco.');
             }
         }
@@ -2671,14 +2993,18 @@
         // Se l'attacco fallisce non arriva nessuno — sono morti tutti con gli altri.
         const mercArrivati = res.attackerWins ? Math.max(0, mercImp - res.losses) : 0;
 
-        // LO SBARCO È LA NAVE STESSA (§9.2): lo scafo lascia la sua provincia e
-        // approda in quella attaccata, comunque vada. Non si torna indietro —
-        // o si conquista, o si perdono uomini E nave. Chi possiede la provincia
-        // possiede le navi che ci stanno: se l'assalto fallisce lo scafo è già
-        // sulla spiaggia del difensore, e diventa suo senza bisogno di dirlo.
+        // LO SBARCO È LA NAVE STESSA (§9.2): gli scafi imbarcati lasciano la loro
+        // provincia e approdano in quella attaccata, comunque vada. Non si torna
+        // indietro — o si conquista, o si perdono uomini E navi. Chi possiede la
+        // provincia possiede le navi che ci stanno: se l'assalto fallisce gli scafi
+        // sono già sulla spiaggia del difensore, e diventano suoi senza dirlo.
+        // TUTTI gli scafi che hanno portato uomini condividono la sorte: sbarcare
+        // con due navi e perdere le perde entrambe (non ne resta una in porto).
         if (viaMare && scafo) {
-            E().removeShip(from, scafo.tipo);
-            E().addShip(to, scafo.tipo, 0);
+            for (let i = 0; i < scafo.num; i++) {
+                E().removeShip(from, scafo.tipo);
+                E().addShip(to, scafo.tipo, 0);
+            }
         }
 
         let msg;
@@ -2710,7 +3036,10 @@
             msg = (viaMare ? 'Sbarco riuscito a ' : 'Conquistata ') + R().provinceLabel(to) + ': ' +
                 res.attackerSurvivors + (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
                 ' (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.' +
-                (viaMare ? ' La nave è ora ancorata lì: la prossima portata si misura da quella costa.' : '') +
+                (res.bottino ? ' Il bottino frutta ' + res.bottino + ' monete.' : '') +
+                (viaMare ? (scafo.num > 1
+                    ? ' Le ' + scafo.num + ' navi sono ora ancorate lì: la prossima portata si misura da quella costa.'
+                    : ' La nave è ora ancorata lì: la prossima portata si misura da quella costa.') : '') +
                 (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
         } else {
             applyBattleOutcome(player, to, res, defTroops, 0);
@@ -2726,11 +3055,13 @@
                   (caduti === 1 ? ' caduto' : ' caduti') + '), al difensore restano ' +
                   res.defenderSurvivors + '.'
                 : R().provinceLabel(to) + ' ha retto: le ' + engaged +
-                  ' truppe impegnate sono perdute' + (viaMare ? ' con la nave' : '') +
+                  ' truppe impegnate sono perdute' + (viaMare ? (scafo.num > 1 ? ' con le navi' : ' con la nave') : '') +
                   ', al difensore restano ' + res.defenderSurvivors + '.';
             if (viaMare) {
-                msg += ' La ' + (scafo.tipo === 'vascello' ? 'nave da guerra' : 'nave') +
-                    ' è finita in mano al difensore.';
+                msg += scafo.num > 1
+                    ? ' Le ' + scafo.num + ' navi sono finite in mano al difensore.'
+                    : ' La ' + (scafo.tipo === 'vascello' ? 'nave da guerra' : 'nave') +
+                      ' è finita in mano al difensore.';
             }
         }
 
@@ -2762,6 +3093,7 @@
             // Ventura in campo (§5.3): quanti per parte e quanti ne sono arrivati.
             mercImpegnati: mercImp, mercDifensore: mercDif, mercArrivati,
             viaMare, scafo: viaMare && scafo ? scafo.tipo : null,
+            scafiUsati: viaMare && scafo ? scafo.num : 0,
             fromId, toId, fromLabel, toLabel,
             attaccante: player.name, difensore,
             coloreAttaccante: player.color,
@@ -2769,6 +3101,7 @@
             perditeAttaccante, perditeDifensore,
             superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
             conquistata: res.attackerWins,
+            bottino: res.bottino || 0,
             richiedeConquista: !!player.conquista
         });
     }
@@ -2953,6 +3286,7 @@
             msg = 'Spedizione approdata a ' + toLabel + ': ' + res.attackerSurvivors +
                 (res.attackerSurvivors === 1 ? ' superstite conquista' : ' superstiti conquistano') +
                 ' la costa (' + res.losses + ' caduti). Le costruzioni restano, ora sono tue.' +
+                (res.bottino ? ' Il bottino frutta ' + res.bottino + ' monete.' : '') +
                 (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
         } else {
             applyBattleOutcome(player, to, res, defTroops, 0);
@@ -2984,7 +3318,8 @@
             coloreDifensore: (R().players().find(p => p.name === difensore) || {}).color || null,
             perditeAttaccante, perditeDifensore,
             superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
-            conquistata: res.attackerWins, richiedeConquista: false
+            conquistata: res.attackerWins, bottino: res.bottino || 0,
+            richiedeConquista: false
         });
     }
 
@@ -3116,6 +3451,9 @@
         const card = (p, viaMare, scafi, alleato) => ({
             id: p.id, label: R().provinceLabel(p),
             troops: E().countPiece(p, 'soldato'),
+            // Chi governa la meta: serve solo all'alleato, ed è il nome che la
+            // plancia deve dire prima di regalargli dei soldati.
+            owner: E().owner(p) || null,
             // Come per gli sbarchi (§9.2): via terra o via nave. Un rinforzo via
             // mare porta al massimo il CARICO dello scafo, oltre al presidio (§5).
             viaMare: !!viaMare,
@@ -3428,7 +3766,8 @@
                     perditeAttaccante: res.attackerWins ? res.losses : mossi,
                     perditeDifensore: res.attackerWins ? defTroops : (defTroops - res.defenderSurvivors),
                     superstiti: res.attackerWins ? res.attackerSurvivors : res.defenderSurvivors,
-                    conquistata: res.attackerWins, richiedeConquista: false, conversione
+                    conquistata: res.attackerWins, bottino: res.bottino || 0,
+                    richiedeConquista: false, conversione
                 };
                 msg = res.attackerWins
                     ? 'Sbarco riuscito a ' + R().provinceLabel(to) + ': ' + res.attackerSurvivors +
@@ -3444,7 +3783,7 @@
                 // è già del regno (rinforzo) o quando l'admin vuole regalarla.
                 let convConsegna = null;
                 if (o.modo === 'consegna' && target && !suaGia) {
-                    const fedeNuova = R().stateReligionOf ? R().stateReligionOf(target) : null;
+                    const fedeNuova = imposedFaithOf(target);
                     E().setOwner(to, target.name);
                     E().setArmyColor(to, target.color);
                     pruneRoadsTouching(to.id);
@@ -3476,7 +3815,7 @@
         } else if (o.azione === 'provincia') {
             if (!to) return fail('Indica la provincia da assegnare.');
             const prima = E().owner(to);
-            const fedeNuova = target && R().stateReligionOf ? R().stateReligionOf(target) : null;
+            const fedeNuova = imposedFaithOf(target);
             E().setOwner(to, target ? target.name : null);
             E().setArmyColor(to, target ? target.color : null);
             pruneRoadsTouching(to.id);
@@ -3543,6 +3882,7 @@
         decree,
         deploy, deployBound, deployAllBound, undeploy,
         build, buildWelfare, maintainWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
+        destroyMarket, destroyShip,
         launchExpedition, expeditionTargets, expeditionLand, steerExpedition, advanceExpeditions,
         EXPED_DIRS, EXPED_DIR_LABEL,
         sendSpy, spyTargets, spiesOf,

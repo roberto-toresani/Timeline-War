@@ -22,6 +22,66 @@ il regno è arrivato nella *propria* storia. Chi compie un capitolo passa al suc
 non ce la fa lo rifà a intensità minore; chi crolla arretra. Un regno lento arriva al
 capitolo III al quinto ciclo, e va bene così — è la sua storia che è andata più piano.
 
+## La scala dell'ambizione
+
+**Un capitolo tardo non può chiedere una cosa che era già fattibile nei primi cicli**
+(regola dell'utente). Al ciclo 6 o 7 un regno ha venti province, migliaia di monete e una
+flotta: sentirsi chiedere «prendi 2 province del Maghreb» — che poteva fare al ciclo 2 —
+non è un obiettivo, è già fatto. La scala:
+
+| ciclo | che cosa può chiedere la mira primaria |
+|---|---|
+| I-II | la propria terra: 1-3 province vicine, il primo Mercato, la prima Città, le prime strade |
+| III-IV | la regione confinante, o unificare la propria; guarnigioni che cominciano a costare (5-6 uomini) |
+| V | un **teatro intero**: tutta una regione, non una parte |
+| VI | il primo **cancello di spesa** — il Veliero (4000 monete), la Fortezza (2000 più sei risorse), la seconda o terza Città |
+| VII-VIII | quel che può fare solo un **impero**: teatri lontani raggiunti per mare, più Città o Fortezze insieme, tesori da migliaia |
+
+Il modo concreto di rispettarla è il combinato `tutti`: al ciclo VII non si chiede «quella
+regione», si chiede «quella regione **e** una Città dentro» — conquistare non basta più,
+bisogna restarci.
+
+**E il capo del combinato dev'essere la parte SENZA tetto.** Una regione che possiedi già è
+un tetto (`tetto` nel template): la soglia non può crescerci sopra, e l'obiettivo nasce già
+compiuto. Quel che scala senza limite sono gli insediamenti che devi ancora costruire —
+perciò nei capitoli «tieni quel che hai» il capo è `fortezze` o `cittaCount` e la regione
+sta fra le richieste fisse, non viceversa. Verificato: con un regno che possiede la propria
+regione d'origine e il teatro vicino, 3 Città e una Fortezza, **nessuno** dei 30 primari dei
+cicli VI-VIII nasce già compiuto (prima erano 9 su 30).
+
+## Quel che un capitolo non può dare per scontato: un EVENTO
+
+**Nessun capitolo si appoggia all'invasione mongola** (regola dell'utente). L'Orda nasce al
+turno 21 (§Eventi) ma deve attraversare mezzo mondo, e non è detto che arrivi in tempo — né
+che nasca affatto, se il posto dove dovrebbe comparire è occupato. Un capitolo che chiedesse
+di «fermare l'Orda» sarebbe compiuto o impossibile per ragioni che non dipendono dal
+giocatore. I capitoli difensivi chiedono perciò quel che il giocatore controlla —
+presidiare i confini, tenere unito il regno, erigere una Fortezza — e il **testo non nomina
+mai un invasore che potrebbe non presentarsi**. Un rinforzo dei confini va benissimo; «resisti
+all'Orda» no. Lo stesso vale per ogni potenza che il gioco non mette sulla mappa (Ottomani,
+Ilkhanato, Timuridi): al più danno il **nome** a un capitolo, mai la sua condizione di vittoria.
+
+I capitoli riscritti per questa regola:
+
+| regno | ciclo | era | ora |
+|---|---|---|---|
+| Ducato di Polonia | III | «L'Orda a Legnica» | **La frammentazione** — il ducato si spartisce fra i duchi |
+| Ducato di Ungheria | III | «Mohi» | **Le fortezze di pietra** — l'incastellamento di Béla IV |
+| Kievan Rus' | III | «Il giogo» | **L'ascesa di Mosca** — fra i principati divisi |
+| Kievan Rus' | V | «La fine del giogo» | **Oltre il Volga** |
+| Califfato Fatimide | IV | «Ain Jalut» | **I mamelucchi** — il Levante armato |
+| Califfato Abbaside | III | «1258, il sacco di Baghdad» | **Il cuore della Mesopotamia** |
+| Califfato Abbaside | IV | «L'Ilkhanato» | **L'altopiano persiano** |
+| Califfato Abbaside | V | «Timur» | **La Persia in armi** |
+| Ducato di Ungheria | VI | «Mohács» | **Il regno in armi** |
+| Califfato Fatimide | VI | «La marea ottomana» | **La cittadella del Cairo** |
+| Sacro Romano Impero | VIII | «Ricacciare l'Ottomano» | **La marcia d'Oriente** |
+
+Le **crociate** restano nominate (Francia I, Inghilterra II, Bisanzio I, Fatimidi III): sono
+un evento che *sbarca direttamente* sulla sua meta invece di attraversare il mondo, e
+soprattutto quegli obiettivi chiedono comunque una cosa che il giocatore controlla —
+radunare uomini su una costa, possedere N province — non che la crociata riesca.
+
 **Un Terziario non è un obiettivo vecchio rifatto** (regola dell'utente). Chiedere al capitolo
 V «possiedi 9 province britanniche» a un regno a cui il capitolo I ne chiedeva 7 non chiede
 niente: quel traguardo è in tasca da venti turni. Il contrappeso giusto a un secolo speso a
@@ -46,11 +106,22 @@ collegando risorse e cibo (§4, §8). Nel binario inglese ricorrono a III, V e V
 | `riprendi` | riconquistare ciò che ti hanno tolto | `provincia`, dal `rancore` |
 | `arricchisci` | un tesoro degno | `oro` |
 | `regna` | Popolarità / Sicurezza / Benessere | `popolarita`, `sicurezza`, `benessere` |
-| `converti <REGIONE>` | province della tua confessione | `fede` *(da scrivere)* |
+| `converti <REGIONE>` | province della tua confessione | `fede` |
+| `presidia la Capitale` | ovunque sia ADESSO, non una provincia fissa | `capitale` |
+| *(modificatore)* `dietro le mura` | possiedi una Fortezza | `fortezza`, combinato con `tutti` |
+| `fonda N città` | quante Città, non una sola | `cittaCount` · `cittaRegioneCount` per «N nel Nuovo Mondo» |
+| `erigi N fortezze` | quante Fortezze | `fortezze` |
 
-Resta da scrivere un template solo, `fede` (converti). La `spedizione` invece non ne vuole uno
-suo: quel che conta non è che una nave sia in mare, ma dove SCENDE — e quello lo dicono già
-`regione` + `viaSea` sulla meta d'oltremare, come nei capitoli VII e VIII inglesi.
+Tutti i template del vocabolario sono scritti. La `spedizione` non ne vuole uno suo: quel che
+conta non è che una nave sia in mare, ma dove SCENDE — e quello lo dicono già `regione` +
+`viaSea` sulla meta d'oltremare, come nei capitoli VII e VIII inglesi. `fede` (converti) misura
+quante province di una regione sono ADESSO della tua famiglia di fede di stato — non guarda la
+fede di partenza, guarda quella di oggi, per conquista o per scisma. `capitale` risolve
+"presidia la Capitale" (Polonia VIII, Ungheria VI): la Capitale si costruisce, si sposta e si
+conquista, quindi un capitolo non può nominare una provincia fissa — legge `ctx.capitalId()`,
+qualunque essa sia in quel momento. `fortezza` è booleano come `mercato` ("possiedi una
+Fortezza") e serve da solo o combinato con `capitale` via `tutti`, per gli ultimi capitoli di un
+binario che finisce sotto assedio.
 
 ---
 
@@ -103,9 +174,10 @@ suo: quel che conta non è che una nave sia in mare, ma dove SCENDE — e quello
 
 ## Regno di Inghilterra — *dall'isola all'impero, e ritorno all'isola*
 
-**È il primo binario steso per intero** (capitoli I-VIII scritti in `objectives.js`, revisione
-dell'utente del 2026-08-29). La sua forma è il modello per gli altri nove: il continente si
-prende presto e leggero, si perde a metà partita, e la storia continua per mare.
+**È stato il primo binario steso per intero** (capitoli I-VIII, revisione dell'utente del
+2026-08-29) e la sua forma è rimasta il modello per gli altri nove, scritti a ruota (tutti e
+dieci i binari coprono ora i capitoli I-VIII in `objectives.js`): il continente si prende presto
+e leggero, si perde a metà partita, e la storia continua per mare.
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
@@ -194,20 +266,36 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | IX | 1800-1899 | Il dualismo | `fonda PANNONIA` |
 | X | 1900-1999 | Il Trianon | `tieni PANNONIA` |
 
-## Impero Bizantino — *il binario che può finire, o non finire*
+## Impero Bizantino — *la frontiera d'Oriente*
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
-| I | 1000-1099 | La riconquista balcanica | `conquista BALCANI` |
-| II | 1100-1199 | I Comneni | `conquista GREECE` |
-| III | 1200-1299 | 1204 | `riprendi Eastern_Thrace` |
-| IV | 1300-1399 | I Paleologi | `tieni GREECE` |
-| V | 1400-1499 | 1453 | `presidia Eastern_Thrace` |
-| VI | 1500-1599 | L'impero che non cadde | `conquista ANATOLIA` |
-| VII | 1600-1699 | Il mare di Marmara | `flotta` |
-| VIII | 1700-1799 | La terza Roma | `converti GREECE` |
+| I | 1000-1099 | La riconquista balcanica | `conquista Macedonia+Bulgaria` |
+| II | 1100-1199 | I Comneni | `conquista(4) GREECE` |
+| III | 1200-1299 | La riscossa d'Anatolia | `conquista+presidia(6) ANATOLIA` |
+| IV | 1300-1399 | Le frontiere vigilate | `presidia(5) ogni confine` |
+| V | 1400-1499 | La cristianità in pericolo | `presidia(8) ANATOLIA` |
+| VI | 1500-1599 | La rinascita imperiale | `fonda+presidia(6) una Città` |
+| VII | 1600-1699 | Verso l'Adriatico | `conquista Albania+Serbia+Montenegro` |
+| VIII | 1700-1799 | Le terre perdute dell'Islam | `conquista ISLAM_ORIGINE` |
 | IX | 1800-1899 | L'impero commerciale | `arricchisci` |
 | X | 1900-1999 | Costantinopoli | `tieni GREECE` |
+
+**La storia riscritta (regola dell'utente): Bisanzio NON va più in Terra Santa.**
+Non ha più la chiamata del Papa (quella la eredita l'Inghilterra, che sbarca a
+Gerusalemme all'inizio del ciclo III — vedi `events.js`, `crociata-inglese`). Di
+conseguenza:
+- **II — I Comneni**: il primario è la riconquista della **Grecia** (`GREECE`, 4/7);
+  il secondario è **La lotta ai Selgiuchidi** (presidia 2 province di `ANATOLIA` con
+  ≥5), non più *La guardia di Gerusalemme* (Palestine).
+- **I — l'appello di Alessio I** raduna a **Hudavendigar** «per difendere i confini
+  della cristianità» (la frontiera anatolica dopo Manzicerta), non più a Eastern
+  Thrace «per la crociata».
+- **III e V**: i due secondari CONDIZIONALI (`voci: ctx => [...]`) sono CADUTI —
+  poggiavano sul possesso di Palestina/Sicilia, che con la storia nuova non è più
+  una tappa del binario. Al III il secondario è la Popolarità, al V una Città in
+  Anatolia. Nessun binario usa più la forma `voci: ctx`; la capacità resta in
+  `objectives.js`.
 
 ## Califfato Abbaside — *da Baghdad alla Persia*
 
@@ -248,43 +336,67 @@ spazi con `_`. In **grassetto** le regioni già esistenti in `objectives.js`.
 | **ISLANDS** | Sicily, Sardinia |
 | **HOLY_LAND** | Palestine, Aleppo, Lebanon, Syria |
 | **LEVANT** | Lebanon, Syria, Palestine |
-| MAGHREB | Inner_Morocco, Oran, Constantine, Tunisia, Tripoli |
-| ITALIA_NORD | Piedmont, Lombardy, Venetia, Tuscany, Romagna |
-| ITALIA_SUD | Abruzzo, Umbria, Campania, Apulia, Calabria |
-| GERMANIA | Anhalt, Saxony, Franconia, Bavaria, Rhineland, Hesse, Brandenburg |
-| AUSTRIA_EST | Austria, Bohemia, Moravia, Silesia, Styria, Tyrol |
-| RENO | Rhineland, Flanders, Picardy |
-| BALTICO | East_Prussia, West_Prussia, Pomerania, Courland |
-| POLONIA | Mazovia, Posen, Silesia, West_Galicia, East_Galicia, Volhynia |
-| PANNONIA | Central_Hungary, Transdanubia, West_Slovakia, East_Slovakia, Slavonia |
-| BALCANI | Serbia, Bosnia, Bulgaria, Macedonia, Albania, Wallachia, Moldavia |
-| RUS_NORD | Novgorod, Moscow, Tver, Pskov, Smolensk, Ryazan |
-| EST_RUSSO | Kazan, Astrakhan, Ural, Uralsk, Perm, Tartaria |
-| CAUCASO | North_Caucasus, Greater_Caucasus, Georgia, Armenia, Azerbaijan |
-| ANATOLIA | Ankara, Konya, Adana, Trabzon, Erzurum, Diyarbakir |
-| MESOPOTAMIA | Baghdad, Basra, Mosul |
-| PERSIA | Isfahan, Fars, Khorasan, Persian_Kurdistan, Irakajemi, Tabriz, Urmia |
-| ARABIA | Yemen, Oman |
-| SCANDINAVIA | Jutland, Scania, Gotaland, Western_Norway, Eastern_Norway |
+| **ANATOLIA** | Trabzon, Hudavendigar, Aydin, Konya, Kastamonu, Ankara, Erzurum, Diyarbakir, Adana *(l'Anatolia asiatica per intero, 9 province — Bisanzio, capitoli III/V)* |
+| **TRANSGIORDANIA** | Transjordan, Lebanon *(non più usata: era il condizionale bizantino III, caduto con la storia riscritta)* |
+| **SICILIA_CALABRIA** | Sicily, Calabria *(Bisanzio, capitoli IV/V: lo sbarco in Italia)* |
+| **ISLAM_ORIGINE** | Sicily, Diyarbakir, Mosul, Deir_Ez_Zor, Aleppo, Syria, Palestine, Lebanon, Transjordan, Sinai *(le terre musulmane del Mille raggiungibili da Bisanzio, capitolo VIII — vedi data/start_religions.js)* |
+| **MAGHREB** | Inner_Morocco, Oran, Constantine, Tunisia, Tripoli *(Castiglia IV, Fatimidi VII)* |
+| **ITALIA_NORD** | Piedmont, Lombardy, Venetia, Tuscany, Romagna *(Sacro Romano Impero III, Francia VI — la stessa contesa vista dai due lati)* |
+| **ITALIA_SUD** | Abruzzo, Umbria, Campania, Apulia, Calabria *(non più usata: era il condizionale bizantino V, caduto con la storia riscritta)* |
+| **GERMANIA** | Anhalt, Saxony, Franconia, Bavaria, Rhineland, Hesse, Brandenburg *(Sacro Romano Impero III/IV/VI/VII)* |
+| **AUSTRIA_EST** | Austria, Bohemia, Moravia, Silesia, Styria, Tyrol *(Sacro Romano Impero V)* |
+| **RENO** | Rhineland, Flanders, Picardy *(Sacro Romano Impero, Francia VII)* |
+| **BALTICO** | East_Prussia, West_Prussia, Pomerania, Courland *(Polonia V, Kievan Rus' VIII — la stessa costa contesa)* |
+| **POLONIA** | Mazovia, Posen, Silesia, West_Galicia, East_Galicia, Volhynia *(Polonia III/IV/VII)* |
+| **PANNONIA** | Central_Hungary, Transdanubia, West_Slovakia, East_Slovakia, Slavonia *(Ungheria III/VII/VIII)* |
+| **BALCANI** | Serbia, Bosnia, Bulgaria, Macedonia, Albania, Wallachia, Moldavia *(Ungheria IV/V/VII, Sacro Romano Impero VIII)* |
+| **RUS_NORD** | Novgorod, Moscow, Tver, Pskov, Smolensk, Ryazan *(Kievan Rus' III/IV)* |
+| **EST_RUSSO** | Kazan, Astrakhan, Ural, Uralsk, Perm, Tartaria *(Kievan Rus' V/VI)* |
+| **SIBERIA** | Krasnoyarsk, Buryatia, Irkutsk, Tomsk, Trans_Baikal, Sakhalin, Chukotka, Kamchatka, Amur *(Kievan Rus' VII — la marcia di Yermak; non è nel foglio delle regioni originali)* |
+| CAUCASO | North_Caucasus, Greater_Caucasus, Georgia, Armenia, Azerbaijan *(riservata al ciclo IX di Kievan Rus', non ancora scritto)* |
+| **ANATOLIA** | Ankara, Konya, Adana, Trabzon, Erzurum, Diyarbakir |
+| **MESOPOTAMIA** | Baghdad, Basra, Mosul *(Abbaside III)* |
+| **PERSIA** | Isfahan, Fars, Khorasan, Persian_Kurdistan, Irakajemi, Tabriz, Urmia *(Abbaside IV/V/VI/VIII)* |
+| **ARABIA** | Yemen, Oman *(Fatimidi V)* |
+| SCANDINAVIA | Jutland, Scania, Gotaland, Western_Norway, Eastern_Norway *(dottrina di Norvegia/Svezia, js/doctrines.js — non un binario)* |
 
 ---
 
-# Tre nodi da sciogliere
+# Tre nodi sciolti
+
+Erano tre questioni aperte quando solo Inghilterra e Bisanzio avevano un binario completo.
+Sono risolte tutte e tre, e i dieci binari coprono ora i capitoli I-VIII in `objectives.js`:
 
 **1. Le fedi corrono su un calendario più veloce.** Gli scismi sono compressi apposta
 (`Religions.SCHISMS`: Grande Scisma turno 5, Riforma turno 12, Wahhabismo 16) perché a
-scala storica la Riforma cadrebbe al turno 52 e nessuna partita la vedrebbe. Quindi il
-capitolo VI del Sacro Romano Impero («La fede spezzata») e il VI degli Abbasidi («I
-Safavidi») parlano di un fatto che in gioco è già successo al secondo ciclo. Le opzioni:
-spostare quei capitoli molto più avanti nel binario, oppure — meglio — lasciarli dove sono
-ma renderli *conseguenza* dello scisma («ricomporre l'impero attorno alla fede che ti è
-rimasta») invece che il suo annuncio.
+scala storica la Riforma cadrebbe al turno 52 e nessuna partita la vedrebbe. Il capitolo VI
+del Sacro Romano Impero («La fede spezzata») e il VI degli Abbasidi («I Safavidi») parlano
+quindi di un fatto che nel gioco è già accaduto da tempo. Risolto scegliendo la seconda
+strada indicata qui: i due capitoli non annunciano lo scisma, ne vivono la CONSEGUENZA —
+«ricomponi l'impero attorno alla fede che ti è rimasta» — col nuovo template `fede`
+(vocabolario `converti`), che misura la confessione di OGGI, non quella di partenza.
 
-**2. I capitoli VI-X sono tracce, non partite.** Una partita vera finisce fra il terzo e il
-quinto ciclo. I capitoli **III, IV e V** meritano la cura; da VI in poi bastano queste
-righe, e il generatore sa comunque renderle giocabili.
+**2. I capitoli VI-VIII sono ora binari veri, non tracce.** Restava vero che una partita
+tipica finisce fra il terzo e il quinto ciclo, ma l'utente ha chiesto la copertura completa
+fino all'ottavo per tutti e dieci i regni — non solo Inghilterra e Bisanzio — per due
+ragioni: un binario storico coerente resta leggibile anche a chi gioca oltre il quinto
+ciclo, e ogni capitolo lungo è stato scritto seguendo la stessa regola dei primi tre —
+Secondario e Terziario non ripetono il Primario a numeri più alti, PREPARANO quello del
+capitolo dopo (scorte di legno prima di un Veliero, pietra prima di una Fortezza o di una
+Città, oro prima di una spedizione, Popolarità/Sicurezza/Benessere a intervalli regolari
+perché sono le uniche voci che un regno perde davvero mentre fa la guerra). I capitoli IX-X
+restano non scritti: il generatore ricade sull'VIII quando un capitolo li supera
+(`chapter()`, `objectives.js`), quindi un regno che arriva fin là non resta senza obiettivi.
 
-**3. Un template manca ancora: `converti`** (province della propria confessione). Serve al
-capitolo VI del Sacro Romano Impero e degli Abbasidi. La `spedizione`, che qui era data per
-mancante, si è risolta da sé: un capitolo non chiede di salpare, chiede di ARRIVARE, e per
-quello bastano `regione` + `viaSea` (Inghilterra VII e VIII).
+**3. Il template `converti` è scritto** (`fede` in `objectives.js`): conta le province di una
+regione che sono ADESSO della tua famiglia di fede di stato, per conquista o per scisma —
+non guarda la fede di partenza (quella la misurano `ANDALUS`/`ISLAM_ORIGINE`). Con
+l'occasione sono stati scritti altri due template che il vocabolario non prevedeva ma che i
+capitoli tardi degli otto binari nuovi chiedevano: `capitale` (presidia la Capitale ovunque
+sia ADESSO — Polonia VIII, Ungheria VI — perché la Capitale si costruisce, si sposta e si
+conquista e un capitolo non può nominare una provincia fissa) e `fortezza` (possiedi una
+Fortezza, booleano come `mercato` — l'ultima difesa di un binario che finisce sotto
+assedio, spesso combinato con `capitale` via `tutti`). La `spedizione` restava data per
+mancante ma non lo era: un capitolo non chiede di salpare, chiede di ARRIVARE, e per quello
+bastano `regione` + `viaSea` sulla meta d'oltremare (Inghilterra VII/VIII, Castiglia e
+Francia VI/VIII).

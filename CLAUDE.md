@@ -28,6 +28,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ spies.js           SPIE (§9.3): costo, durata, raggio in province, cosa vedono — puro
 │  ├─ religions.js       RELIGIONI: confessioni, famiglie, blocchi di partenza, scismi — puro
 │  ├─ events.js          EVENTI STORICI datati (crociate, mongoli, peste, Cent'Anni): calendario + ciclo di vita — puro
+│  ├─ chronicles.js       CRONACHE: vignette di colore che scattano sulla SITUAZIONE del regno (marina inglese, feudo francese, teutonici) — puro, nessun effetto
 │  ├─ terrain.js         TERRENO chiuso/aperto: l'esponente della battaglia (§9) — puro
 │  ├─ sea-routes.js      PORTATA DELLE NAVI: quanto lontano si arriva via mare (§9.2) — puro
 │  ├─ doctrines.js       DOTTRINE: il carattere storico dei regni nati per evento (mete, nemici, fede) — puro
@@ -120,6 +121,24 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   rispettano da sé: `siteFor` in `bot.js` scarta le province con un Mercato quando cerca
   dove posare un insediamento (e già scartava gli insediamenti quando cerca dove posare il
   Mercato).
+- **Demolizione (regola dell'utente)**: giustifica l'invasione di una provincia con un
+  Mercato o una Nave quando ne hai già uno tuo — invece di restare un insediamento morto
+  (duplicato, §Mercato qui sopra, o una chiglia in più che non serve), si demolisce e si
+  recupera QUALCOSA. Mai il pieno valore, o conquistare varrebbe più che costruire da zero:
+  **Mercato → 2 uomini + 100 monete. Nave → 1 uomo + 1 Legno.**
+  **Solo la Nave (barca), MAI il Vascello** (regola dell'utente): il Vascello costa 4000
+  monete e serve alle rotte lunghe (§9.2) — recuperarne un decimo con la stessa leva della
+  Nave svaluterebbe l'investimento. `destroyShip` rifiuta `tipo !== 'barca'` a monte, e
+  `demolitionGroup` in `player-board.js` filtra gli scafi della provincia allo stesso modo
+  prima di offrire il bottone: un Vascello ancorato non mostra mai "Demolisci".
+  `GameActions.destroyMarket`/`destroyShip` — solo in fase `costruisci` (come ogni altra
+  voce di questa fase) e solo sulle proprie province: non è un atto di guerra, è
+  amministrazione. Gli uomini recuperati rispettano il tetto d'impilamento (`roomFor`,
+  PIECES.soldato.max): se la provincia è già al completo si perdono, non si spingono oltre.
+  In plancia è un BOTTONE semplice (`demolitionGroup` in `player-board.js`, sotto "Strade",
+  con `actionButton` — lo stesso di "Schiera"/"Ritira"), non una tessera-icona: qui non
+  c'è niente da confrontare o da tenere d'occhio per affordabilità, solo un'azione da un
+  click. Un bottone per ogni Mercato/scafo trovato nella provincia selezionata.
 - **Il turno è a fasi, in quest'ordine**: `schiera → costruisci → attacca → sposta`
   (`GameActions.PHASES`, campo `player.fase`). Si avanza con `GameActions.nextPhase()`
   e non si torna indietro. Il vincolo vive in `game-actions.js` (ogni azione chiama
@@ -170,12 +189,17 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     più una catena — `GameActions.ownAdjacent`), lasciando almeno 1 soldato alla
     partenza. **In più, il rinforzo via nave** (regola dell'utente, il caso tipico è
     dopo uno sbarco): se la partenza ha una nave ancorata, lo spostamento del turno può
-    andare **via mare** verso una **propria** costa entro la portata dello scafo (§9.2).
-    È un rinforzo, non un attacco — la meta dev'essere già tua — e il carico è un tetto
-    oltre al presidio (`moveTargets` restituisce `viaMare`/`scafo`/`carico` come
-    `attackTargets`; `finalMove` rileva il mare da `areLandAdjacent`, sceglie lo scafo
-    con `hullForLanding`, e la nave **viaggia con gli uomini** e resta ancorata
-    all'arrivo, come nello sbarco). Consuma comunque l'unico spostamento del turno.
+    andare **via mare** verso una **propria** costa — o verso quella di un **ALLEATO**
+    che ti ha aperto il corridoio `rinforzi` (regola dell'utente: un alleato oltremare
+    è proprio quello che ha più bisogno d'essere soccorso) — entro la portata dello
+    scafo (§9.2). È un rinforzo, non un attacco — la meta dev'essere già di uno dei
+    due — e il carico è un tetto oltre al presidio (`moveTargets` restituisce
+    `viaMare`/`scafo`/`carico`/`alleato`/`owner` come `attackTargets`; `finalMove`
+    rileva il mare da `areLandAdjacent` e sceglie lo scafo con `hullForLanding`).
+    **Verso una provincia tua la nave viaggia con gli uomini** e resta ancorata
+    all'arrivo, come nello sbarco; **verso un porto ALLEATO no**: scarica e torna
+    all'ormeggio di partenza, perché le navi sono di chi possiede la provincia e
+    ancorarla là la regalerebbe. Consuma comunque l'unico spostamento del turno.
     **Due clic: la partenza e l'arrivo** (regola dell'utente). La partenza NON è più
     la provincia selezionata — entrando nella fase quella è dove si è chiuso
     l'attacco, e siccome ogni provincia propria collegata è anche una meta,
@@ -231,7 +255,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     mentre lo si trascina. Insegue la provincia con `requestAnimationFrame` e resta
     **dentro la cornice** della mappa (`placeOrderHud` fa clamp su `#map-wrapper`).
   - **La conferma è una sola**: `askAttack()` la scrive per il cursore e per
-    l'elenco. Chi arriva da strade diverse deve leggere le stesse parole.
+    l'elenco, e `askMove()` fa lo stesso per lo spostamento. Chi arriva da strade
+    diverse deve leggere le stesse parole — comprese le due che non può dedurre:
+    che i soldati mandati a un **alleato** diventano suoi, e che in un porto alleato
+    la nave non resta.
   - **L'elenco resta**, ma in una cartellina chiusa ("Tutti i bersagli"): serve agli
     **sbarchi** — un Veliero tocca coste dall'altra parte del mondo e sulla mappa non
     le trovi — e si apre da sé quando i bersagli superano `ORDER_MAX_MARKS` (24),
@@ -356,9 +383,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (solo visione condivisa). I privilegi: `nonAgg` (non ci si attacca), `vista` (§9.2, in
     `computeVisibleProvinces` il territorio del partner si vede in **piena** visibilità,
     truppe comprese), `rinforzi` (accesso militare: lo spostamento di fine turno può
-    **inviare rinforzi** a un alleato confinante via terra — `moveTargets` lo segna
-    `alleato:true`, `finalMove` aggiunge i soldati alla provincia del partner **senza**
-    cambiarne proprietario/colore: diventano suoi. Solo via terra, niente sbarco).
+    **inviare rinforzi** a un alleato — `moveTargets` lo segna `alleato:true`,
+    `finalMove` aggiunge i soldati alla provincia del partner **senza** cambiarne
+    proprietario/colore: diventano suoi. Ci si arriva per le stesse due strade con cui
+    si raggiunge una provincia propria — il **confine di terra** o una **nave** ancorata
+    alla partenza (regola dell'utente) — ma non è mai un attacco: la costa dev'essere
+    già dell'alleato, e la nave rientra invece di restare ancorata da lui).
   - **Solo l'alleanza costa a romperla**: `−2` prestigio (`Diplomacy.BREAK_PRESTIGE`, su
     `puntiOro`). I patti leggeri si sciolgono **gratis** — è il loro vantaggio (impegni
     meno). Il prestigio è **oggi spento** (`GameRules.PRESTIGE_ENABLED = false`), quindi il
@@ -456,6 +486,33 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     all'alleato che **confina** con quella provincia, e mandano quel che avanza
     (`survey.mobili`) **dopo** gli attacchi — prima la propria guerra, poi gli uomini
     che restano.
+  - **IL RAPPORTO PESA SULL'ATTACCO — MA LA STORIA PESA DI PIÙ** (regola dell'utente:
+    *"l'IA può combinare i propri obiettivi storici con lo stato di amicizia. Ma i
+    mongoli attaccheranno la Russia anche se ci hanno scambiato qualcosa, e lo stesso
+    vale per i Selgiuchidi contro i cristiani e i bizantini"*). In `bestAttack`
+    (`bot.js`) il punteggio si moltiplica per `relationFactor`: un rapporto **positivo**
+    raffredda l'attacco (fino a `REL_WEIGHT` = 0,6 di sconto, pavimento 0,25), uno
+    **negativo** lo scalda (`REL_SPITE` = 0,35). Non è mai un divieto — un bottino
+    grosso vince comunque — ed è il pezzo che mancava perché la diplomazia si vedesse
+    anche **fuori** dai patti firmati: con la stessa fede, le carovane e i rinforzi
+    ricevuti, un vicino diventa un bersaglio meno appetibile senza che nessuno abbia
+    firmato niente.
+    - **La deroga è il punto**: sul BINARIO STORICO il fattore vale **1**. Un nemico
+      DICHIARATO dalla dottrina (`Doctrines.isEnemy`) e una META della dottrina
+      (`isMeta`, che per l'Orda sono le tappe della **marcia**) si attaccano allo stesso
+      modo qualunque cosa sia successa fra i due regni. Un'orda che si ferma davanti
+      alla Rus' perché ci ha fatto commercio non arriva mai in Europa, e i Selgiuchidi
+      che risparmiano Bisanzio non fanno la storia che devono fare.
+    - Gli **obiettivi** (§10) invece **si combinano**, non derogano: il loro premio è già
+      dentro `premio` (`objectiveAttackWeight`) e regge da sé il raffreddamento. È la
+      differenza fra "questa è la mia storia" (dottrina, deroga) e "questo mi
+      conviene" (obiettivo, si pesa).
+    - Il **carattere** modula quanto pesa: si riusa `s.tradimento` (predone 1 →
+      quasi indifferente ai buoni rapporti, costruttore 0,1 → ci bada molto). Un
+      secondo numero per profilo direbbe la stessa cosa con un altro nome.
+    - `standingWith` **memoizza per chiamata** (`relCache` in `bestAttack`): il
+      punteggio gira su tutte le province per tutti i bersagli, e `standing`
+      ricostruisce le sue liste a ogni lettura.
   - **Le schede dei regni** (`renderRelations` → `relationCard`, foglio 🕊): una per
     regno visibile, ordinate dagli amici ai nemici — barra col rapporto (zero al
     centro), i fatti che lo compongono, i patti in essere e le due scorciatoie
@@ -519,13 +576,30 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (`FRIEND_DISCOUNT`/`FRIEND_TOLL`), e l'eccezione è la **meta** — è per la Finlandia che
     Norvegia e Svezia si guarderanno male, e per Aleppo che i Selgiuchidi passeranno sugli
     Abbasidi.
-  - **La MARCIA** (`marcia`, oggi la sola Orda Mongola): un binario di conquista in
+  - **La MARCIA** (`marcia`, l'Orda Mongola e i Selgiuchidi): un binario di conquista in
     **tappe ordinate** `{peso, prov:[…]}`. Le sue province sono `mete` a tutti gli
     effetti — l'indice della dottrina le appiattisce lì dentro — ma ognuna pesa quanto
-    la SUA tappa, e i pesi crescono verso la meta finale. `Doctrines.march(regno)`
-    restituisce l'asse in fila: lo usa `js/events.js` per sapere dove cala l'armata di
-    rinforzo dell'Orda, e resta l'unico posto dove il binario è scritto. `nessunPatto`
-    invece chiude la diplomazia in blocco (bot.js, `canDealWith`).
+    la SUA tappa, e i pesi dicono la priorità quando due strade sono aperte insieme.
+    `Doctrines.march(regno)` restituisce l'asse in fila: lo usano `js/events.js` (dove
+    cala l'armata di rinforzo dell'Orda) e `marchMove` in bot.js, e resta l'unico posto
+    dove il binario è scritto. `nessunPatto` invece chiude la diplomazia in blocco
+    (bot.js, `canDealWith`).
+  - **`soloMete`: chi segue una storia sola non conquista nient'altro** (regola
+    dell'utente). Non è il `conservatore`, che si limita a non prendersela coi regni: qui
+    si scarta **ogni** bersaglio che non sia una meta (o una tappa di marcia), terre di
+    nessuno comprese. L'unica deroga la mette bot.js: **riprendersi quel che ci è stato
+    strappato** (il rancore), perché difendersi non è espandersi. Lo portano l'**Orda**
+    (che non deve perdere decenni a mangiarsi la Cina alle spalle) e la **Bulgaria** (che
+    vuole la Bulgaria e poi basta).
+  - **La COLONNA** (`marchMove` in bot.js, per chi ha una `marcia`): un'orda che tiene il
+    grosso dell'esercito in Mongolia non arriva in Europa — la conquista porta avanti solo
+    i superstiti della punta, che si assottiglia perché ogni provincia presa ne trattiene
+    almeno uno (§5). Lo spostamento di fine turno — **uno solo, fra province confinanti,
+    come per tutti** — diventa allora la colonna: il grosso avanza di una provincia verso
+    la **punta** (la prima tappa non ancora presa, lo stesso criterio delle ondate), con la
+    direzione data da una BFS di distanze in confini di terra. Dalla Capitale non si
+    sguarnisce (stessa regola di `movePlan`); se non c'è un passo avanti da fare, vale lo
+    spostamento di sempre.
   - **Coloniale** (oggi il solo Portogallo): la Nave (barca) fa le teste di ponte vicine
     come per ogni regno costiero, e il **Veliero** apre le **rotte lunghe** (§9.2) —
     `colonyShipPlan` lo arma, `colonyLaunch` lo fa **salpare PRIMA degli attacchi** (se no
@@ -765,6 +839,22 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   respinto un attacco torna a quota al giro dopo). La crescita è **lenta apposta**: le
   neutrali sono un attrito, non un avversario in più — a +1 ogni 5 turni diventavano
   imprendibili a metà partita.
+  - **Le TERRE LONTANE crescono più tardi** (regola dell'utente): perché la conquista
+    navale col Veliero e la marcia dell'Orda attraverso l'Asia non siano troppo dure,
+    Americhe, Asia (Cina, India, Sud-Est asiatico, **corridoio mongolo** compreso) e
+    Africa **sub-sahariana** restano a **2** soldati per tutti i primi **cinque cicli**
+    (fino al turno 50) e salgono a **3** solo dal **sesto** (turno 51), e lì si fermano.
+    Non è un secondo tetto ma un **calendario più lento** per la periferia del mondo —
+    il core (Europa, Mediterraneo, Nord Africa, Arabia, Persia/Mesopotamia, Rus'
+    occidentale) segue la crescita normale. La regola vive in `GameRules`:
+    `isFarProvince(cx, cy)` classifica per **centro del bounding box** in coordinate
+    SVG (quattro zone misurate sulla mappa vera, come i rettangoli di `setup.js` —
+    Egitto, Maghreb, Arabia e Persia restano nel core), e `neutralGarrison(turn, far)`
+    porta il secondo calendario. `garrisonNeutrals` calcola quota e crescita del
+    decennio **per provincia** (via `E().provinceCenter`), non più una sola volta per
+    tutta la mappa. Tocca **solo le neutrali**: un feudo di regno in quelle terre è
+    posseduto e non passa di qui. `neutralSafeGarrison`/`neutralCanRaid` non cambiano —
+    leggono il conteggio vero, quindi bot e razzie si adeguano da soli.
 - **Le neutrali razziano solo a 3 contro 1** (regola dell'utente, §5.4 del design):
   `GameRules.neutralCanRaid(soldatiNeutrali, difensori)` è l'unica fonte —
   `spendableTroops(neutrali) ≥ 3 × difensori`, cioè col presidio minimo del §5 servono
@@ -783,6 +873,28 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     è proprio la neutrale che si vuole prendere, tenersi in casa gli uomini per difendersene
     vorrebbe dire non prenderla mai. Per questo in `bestAttack` il pavimento si ricalcola
     **per bersaglio**, non una volta per provincia.
+- **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.
+  Tre poteri, oltre all'Editto:
+  - **CREARE UN REGNO A PARTITA IN CORSO** (i Maya, i Cinesi a un certo punto): `+
+    Aggiungi giocatore` crea il regno, poi lo si dipinge — proprietario, soldati,
+    risorse — coi pennelli dell'editor, che danno piena libertà su province e truppe.
+    A partita avviata `addPlayer` (app.js) lo **accoda al giro dei turni** (`ordine`),
+    o possiederebbe terra senza giocare mai (stessa regola di `eventSpawnKingdom`); il
+    suo inverso `doRemovePlayer` **lo toglie dall'ordine** (e sistema
+    `primoDelGiro`/`turnoDi`), o resterebbe un id fantasma che `endTurn` cerca di far
+    giocare. Nasce `bot=null` (lo gioca l'admin) finché non gli si assegna una strategia.
+  - **PRENDERE E RIDARE IL CONTROLLO DI UN REGNO** (i player col codice d'invito, e i
+    regni IA come i Mongoli): ogni scheda-giocatore dell'editor ha un menu **`.player-bot`**
+    — "🧑 Admin (nessuna IA)" o una delle strategie di `Bot.KEYS`. Metterlo su Admin
+    scrive `p.bot = null`: `Bot.run` **salta** quel regno e aspetta la mano dell'admin,
+    che lo apre col 👁 (o col link d'invito) e lo gioca come un umano; rimettere una
+    strategia lo ridà all'IA. È l'unico modo pulito di manovrare a mano un bot (se no il
+    driver lo giocherebbe da sé nel suo turno).
+  - **CAMBIARE GLI OBIETTIVI (§10)**: NON c'è UI. Si modificano i binari in
+    `js/objectives.js`; siccome ogni ciclo rigenera la sua assegnazione dal codice
+    (`closeCycle`/`ensureAssignment`), la modifica vale **dal ciclo successivo** — il
+    ciclo in corso tiene le soglie con cui è cominciato. È il canale con cui l'admin
+    corregge un'incongruenza scoperta in corsa: la chiede, si edita il codice.
 - **Editto (`GameActions.decree`, pannello 📜 nell'editor)**: l'admin non gioca, **crea
   situazioni**. Un editto sposta truppe fra due province qualsiasi, assegna una provincia,
   versa o toglie oro e scorte — cose che nessuna regola concede a un giocatore — e passa
@@ -842,31 +954,41 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     catena di pergamene (un evento storico è il titolo del decennio), rispettando la nebbia.
   - **I bot reagiscono gratis**: un'orda che conquista al confine alza `enemyThreat` →
     `defenseFloor`/`holdFloor`, la peste che decima entra nei conti da sé. Niente rami `if`.
-  - **Prima Crociata** (`prima-crociata`, turno 11 = ciclo 2, one-shot): al bando, due osti
-    partono. **Mete scambiate per volere dell'utente**: `Impero Bizantino` da `Eastern_Thrace`
-    (Costantinopoli) → **Palestine** (Gerusalemme); `Regno di Francia` → **Aleppo**. Ogni oste
-    è `forza:10` **radunata drenando le VERE truppe** del regno (`ctx.muster`: §5 rispettato)
-    — non è evocata. Da dove si preleva: Bisanzio ha una provincia fissa (`da:
-    'Eastern_Thrace'`, la stessa che l'obiettivo bi2 chiede di riempire); la Francia ha
-    una **`regione`** di candidate — le tre coste di `MED_FR` in `objectives.js`, lo
-    stesso elenco dell'obiettivo fr1 ("raduna 10 uomini su una costa mediterranea") — e
-    l'oste parte da quella dove il giocatore ha **davvero** ammassato più uomini, non da
-    un punto fisso; se non ne ha preparata nessuna si ripiega sulla provincia più piena
-    del regno. La Capitale non ha corsie preferenziali: prima le prelevava sempre a lei
-    per prima, anche a scapito della provincia scelta per l'obiettivo. Poi
-    `ctx.assault` la **sbarca all'assalto** (stessa battaglia dello sbarco d'editto:
-    `applyBattleOutcome`, terreno del difensore, nessun vincolo di adiacenza/carico); se la
-    meta è già del regno la rinforza invece di sprecarsi. Vinta → provincia del regno,
-    superstiti di presidio, fede **convertita** (la fede segue la spada) e lock; persa → l'oste
-    è perduta. Al turno 11 i due regni hanno una Capitale (costruita al turno 1), quindi la
-    conversione a `cristiani` scatta; senza Capitale (test al turno 1) non c'è religione di
-    stato e non converte — non è un bug. Infine `ctx.pact('Regno di Francia','Impero
-    Bizantino','vista')` lega i due con la **sola vista condivisa** (`bondPact`, su entrambi):
-    si vedono in Terra Santa ma possono comunque farsi guerra. Le mete sono neutrali sulla
-    mappa iniziale, ma al turno 11 possono essere dei Califfati (Abbaside/Fatimide): l'assalto
-    combatte chi le tiene in quel momento. (Difesa cristiana e riconquista araba del ciclo 2:
-    obiettivi, ancora da fare.)
-  - **Invasione mongola** (`invasione-mongola`, turno 25 = ciclo 3, ~1240): l'Orda
+  - **Prima Crociata** (`prima-crociata`, turno 11 = ciclo 2, one-shot): al bando, **una
+    sola** oste parte, quella **franca** su **Aleppo** (regola dell'utente: Bisanzio NON ha
+    più la chiamata del Papa — il suo obiettivo storico è cambiato, e Gerusalemme la prende
+    l'Inghilterra nel ciclo 3, vedi **Crociata inglese**). L'oste è `forza:10` **radunata
+    drenando le VERE truppe** del regno (`ctx.muster`: §5 rispettato) — non è evocata. La
+    Francia ha una **`regione`** di candidate — le tre coste di `MED_FR` in `objectives.js`,
+    lo stesso elenco dell'obiettivo fr1 ("raduna 10 uomini su una costa mediterranea") — e
+    l'oste parte da quella dove il giocatore ha **davvero** ammassato più uomini, non da un
+    punto fisso; se non ne ha preparata nessuna si ripiega sulla provincia più piena del
+    regno. Poi `ctx.assault` la **sbarca all'assalto** (stessa battaglia dello sbarco
+    d'editto: `applyBattleOutcome`, terreno del difensore, nessun vincolo di
+    adiacenza/carico); se la meta è già del regno la rinforza invece di sprecarsi. Vinta →
+    provincia del regno, superstiti di presidio, fede **convertita** (la fede segue la
+    spada) e lock; persa → l'oste è perduta. Con una gamba sola è caduto il vecchio
+    **patto di vista** fra i due crociati (non ci sono più due crociati). Aleppo è neutrale
+    sulla mappa iniziale, ma al turno 11 può essere di un Califfato (Abbaside/Fatimide):
+    l'assalto combatte chi la tiene in quel momento. L'orchestrazione della crociata (raduno
+    → assalto → pergamena) vive in una funzione sola, `crusadeHost` in `events.js`, condivisa
+    con la crociata inglese: **una gamba = una chiamata**.
+  - **Crociata inglese** (`crociata-inglese`, **turno 21 = inizio ciclo 3**, one-shot,
+    regola dell'utente): gli uomini che l'Inghilterra ha radunato a **Home Counties** alla
+    **fine del ciclo 2** (obiettivo in2-2, "La chiamata del Papa") **salpano all'inizio del
+    ciclo 3** e sbarcano all'assalto di **Palestine** (Gerusalemme). È l'Inghilterra, non più
+    Bisanzio, a portare la croce in Terra Santa. Stesso motore della Prima Crociata
+    (`crusadeHost`): `da: 'Home_Counties'` fisso (la stessa provincia che l'obiettivo chiede
+    di riempire), `forza:10` (`ctx.muster` drena da Home Counties per primo, poi dal resto
+    del regno se là non bastano — il trasporto è del Papa). L'evento scatta al **passaggio al
+    turno 21** in `endTurn` (dopo `advanceGlobalTurn`, prima che chiunque giochi il ciclo 3),
+    quindi gli uomini vanno radunati **entro il turno 20**. Vinta → provincia inglese,
+    superstiti di presidio, fede convertita; persa → l'oste è perduta. (Al turno 21 scatta
+    **anche** l'invasione mongola: due eventi nello stesso decennio, indipendenti.)
+  - **Invasione mongola** (`invasione-mongola`, **turno 21 = 1200**, scelta dell'utente:
+    si leva presto apposta, così entra in contatto coi popoli d'Occidente entro
+    quattro o cinque decenni invece di arrivare a partita quasi finita — nelle prove
+    è alle porte d'Europa, fra Aktobe e Khiva, al **terzo** turno): l'Orda
     **non è scriptata**: nasce un **regno nuovo governato dall'IA** con la strategia
     `predone` (regola dell'utente, cambiata in corsa: l'Orda deve arrivare, ma il
     giocatore non deve doverla manovrare in prima persona — prima nasceva `bot:null`,
@@ -887,23 +1009,43 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       tappa: la geografia le mette già in fila, e il peso dice soltanto che, potendo
       scegliere, l'Orda va a occidente invece di perdersi in Cina o in Persia.
       `Doctrines.metaWeight` legge il peso della tappa e **bot.js non cambia di una
-      riga**. Nemici dichiarati Rus', Ungheria e Polonia (`pesoNemici`), e
+      riga**. In coda al binario c'è l'**ala di Persia** (Khiva→Turkmenia→Khorasan→
+      Mazandaran→Tabriz→Mosul→Baghdad, peso 4: *"verso medio oriente e russia"*),
+      che pesa meno della porta d'Europa apposta — il Volga viene prima — e sta in
+      fondo all'elenco perché le ondate di rinforzo devono continuare a cadere sulla
+      punta **occidentale**. Nemici dichiarati Rus', Ungheria e Polonia (`pesoNemici`), e
       `nessunPatto: true` — l'Orda non firma niente con nessuno (`canDealWith` in
       `bot.js`, prima ancora della fede): un'Orda che compra pace dall'Ungheria si
       ferma proprio dove doveva sfondare.
-    - **Le ONDATE** (regola dell'utente): l'evento **non è più one-shot** (`fino:
-      100`, la finestra resta aperta per il resto della partita) e ogni **10 turni**
-      il suo `onRound` cala un'**armata di 10 uomini** — i tumen che continuano ad
-      arrivare dalla steppa. Non si spargono per il regno: `ctx.reinforce`
-      (`eventReinforce` in `game-actions.js`) le versa sulla **punta della marcia**,
-      cioè la provincia dell'Orda più vicina — in confini di terra — alla prima
-      tappa non ancora conquistata. Il fronte si ordina con **una sola onda a
-      ritroso dalle mete** (a pari distanza vince la più piena: si ammassa, non si
-      sparge), e siccome una provincia non tiene più di 30 soldati (`pieceMax`) ciò
-      che non entra nella punta **scende sulla provincia dietro** invece di
-      svanire — il travaso si misura sul conteggio vero prima/dopo, così il tetto
-      resta uno solo, quello del deposito. L'asse lo chiede a `Doctrines.march`: due
-      elenchi di province in due file divergerebbero al primo ritocco.
+      **Non ha religione** (`senzaFede`): non converte niente e la sua fede di stato è
+      quella assimilata dalle terre che tiene — vedi §Religione.
+    - **Fuori dal binario non conquista NIENTE** (`soloMete`, regola dell'utente):
+      niente Cina, niente Corea, niente Siberia. Ogni provincia presa alle spalle è un
+      decennio tolto alla corsa verso occidente — e con `soloMete` i 50 uomini di
+      retrovia non hanno più nulla da attaccare, quindi la **colonna** (`marchMove`) li
+      porta avanti un passo per turno invece di lasciarli marcire in Mongolia.
+    - **Le ONDATE DI CRESCITA** (regola dell'utente: le 75 armate di partenza non
+      bastano ad arrivare in Europa e in Medio Oriente). L'evento **non è più
+      one-shot** (`fino: 100`, la finestra resta aperta) e ogni **5 turni, fino al
+      1350** (`rinforzo: {ogni:5, reclute:10, perProvincia:1, finoAl:35}`) il suo
+      `onRound` chiama `ctx.reinforce` con un bonus in **due parti**: **10 reclute
+      libere** che l'IA schiera dove serve (§5.1, entrano in `recluteDaSchierare`
+      che il bot deploya — non calano sulla punta), e **un uomo su OGNI provincia**
+      posseduto, automaticamente (`perProvincia`), un bonus che **cresce con
+      l'impero**. `eventReinforce` (`game-actions.js`) ha ora due rami: questo
+      (`reclute`/`perProvincia`) e la vecchia ondata concentrata sulla punta
+      (`forza`/`verso`), che l'Orda non usa più ma resta per altri eventi.
+    - **IL GRANDE PASSO DEL 1350** (turno 36, regola dell'utente): finita la marcia,
+      l'Orda **si ferma e diventa STANZIALE** — difensiva e moderata. Al turno 36
+      `onRound` mette `orda.dottrinaSospesa = true` e `orda.bot = 'costruttore'`
+      (`stanziale: {turno:36, bot:'costruttore'}`), una volta sola. Da lì niente più
+      rinforzi. `dottrinaSospesa` la legge **bot.js** nell'UNICO ponte alla dottrina
+      (`doctrineOf`, più `marchTip` che la ripescava per nome): con la dottrina
+      spenta l'Orda gioca come un regno qualunque — nessuna marcia, nessun nemico
+      dichiarato, nessun divieto di patti — e la sola strategia moderata più
+      l'istinto di sopravvivenza (`holdFloor`/`capitalGuard`, che vale per tutti) la
+      rende difensiva. La FEDE resta assimilata (`senzaFede` si legge per nome, non
+      dal flag): una Orda stanziale continua ad assimilare, ed è corretto.
     L'Orda **non entra nel sorteggio del regno umano** (`NON_SORTEGGIABILI` in
     `js/setup.js`, regola dell'utente): è un regno d'evento, e se resta
     sulla mappa da una partita precedente l'estrazione potrebbe darlo al giocatore.
@@ -940,23 +1082,127 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     e il dove** stanno in `events.js`, il **carattere** in `js/doctrines.js` (per NOME: i due
     file devono combaciare).
     - **Selgiuchidi** (turno 9 = 1080): Tabriz, Urmia, Erzurum, Diyarbakir, 6 uomini l'una,
-      col ripiego su una confinante libera se una è occupata. Mete **Aleppo, Adana, Ankara**
-      (le crociate del ciclo II), nemico dichiarato **Bisanzio**, amici gli **Abbasidi** (con
-      cui cercano l'**alleanza**): musulmani convinti, coi cristiani non firmano mai.
+      col ripiego su una confinante libera se una è occupata. Hanno una **marcia**
+      (regola dell'utente): sostenere gli Abbasidi nelle crociate, **liberare la Terra
+      Santa dai cristiani**, poi prendere **Costantinopoli** ed entrare in Europa —
+      altopiano e porta di Siria (Ankara, Adana, Aleppo, Deir Ez Zor) peso 4, Terra Santa
+      (Syria, Lebanon, Palestine) **8**, strada di Costantinopoli (Konya, Kastamonu,
+      Hudavendigar, Aydin) 5, **Eastern Thrace 10**, Tracia europea 7. L'ordine in cui ci
+      si arriva lo impone la geografia; i pesi dicono solo cosa viene prima quando due
+      strade sono aperte insieme. Nemico dichiarato **Bisanzio**, amici gli **Abbasidi**
+      (con cui cercano l'**alleanza**, che è anche il corridoio per mandargli uomini al
+      fronte): musulmani convinti, coi cristiani non firmano mai.
     - **Portogallo** (turno 16 = 1150): Beira, Estremadura (la provincia "Portugal"), Alentejo
       con 5 uomini, **solo dove è libero** e senza ripiego — occupato il posto, non nasce.
       Parte con **2000 monete e 3 Legno**: `soloMare` + `conservatore` gli lasciano una cosa
       sola, sbarcare su **coste libere** (l'Africa con la Nave, l'oceano col Veliero), mai
       prendere terra ai vicini. Firma con la **Castiglia**, mai coi Fatimidi.
     - **Bulgaria** (turno 19 = 1180): nelle province ancora libere fra Moldavia, Bessarabia,
-      Dobrudja e Wallachia (6 uomini); **nessuna libera = non compare**. Meta la **Bulgaria**,
-      nemico l'**Ungheria**, poi `conservatore`: coi regni non se la prende più, e vive di
-      commercio.
+      Dobrudja e Wallachia (6 uomini); **nessuna libera = non compare**. **Non è un regno
+      espansionista** (regola dell'utente): prende la provincia di **Bulgaria** e poi
+      basta — `soloMete`, quindi nemmeno una terra di nessuno in più; da lì si rafforza,
+      costruisce e commercia. L'unico regno con cui non firma è l'**Ungheria**; con
+      bizantini, russi e chiunque altro tratta.
     - **Norvegia e Svezia** (turno 24 = 1230): due corone distinte da Western Norway e
-      Gotaland, 8 uomini. Salgono a settentrione, la **Danimarca** (Jutland, Zealand, Scania —
-      danese nel 1230) è terra **vietata**, e sono **amiche** fra loro: l'unica cosa per cui
-      si guarderanno male è la **Finlandia**, che è `meta` di entrambe (l'amicizia non vale su
-      una meta — è così che nasce la corsa).
+      Gotaland, **10 uomini** a testa (regola dell'utente: con otto non si espandevano
+      affatto — a questo decennio le terre di nessuno ne hanno già quattro) e la **grazia
+      dell'insediamento** come ogni regno d'evento (`player.nato`, §8). Salgono a
+      settentrione, la **Danimarca** (Jutland, Zealand, Scania — danese nel 1230) è terra
+      **vietata**, e sono **amiche** fra loro: l'unica cosa per cui si guarderanno male è
+      la **Finlandia**, che è `meta` di entrambe (l'amicizia non vale su una meta — è così
+      che nasce la corsa).
+- **La Peste Nera (turno 35-39 = 1340-1389, richiesta dell'utente)**: a differenza degli
+  altri eventi non colpisce una geografia — colpisce **ogni regno IN GIOCO**, comprese le
+  corone appena sorte (Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia e l'**Orda**
+  stessa, che nella storia vera fu una delle porte da cui la peste entrò in Europa,
+  l'assedio di Caffa del 1347). Resta attiva 5 decenni — le ondate di ritorno del secondo
+  Trecento — e a ognuno, per ogni regno, il conto è **quante migliorie di SANITÀ (§6.1) ha
+  sulla Capitale**: la stessa lettura 0-5 di `popularityFactors`. `GameRules.plagueTier`
+  (puro) traduce quel numero in un piano:
+  - **0-1 migliorie**: muore gente **in Capitale** (1 uomo) **e** nella provincia più
+    popolosa **esclusa** la Capitale (2 uomini a 0, 1 a 1); le risorse di ENTRAMBE non si
+    raccolgono quel turno.
+  - **2 migliorie**: la Capitale è già al riparo — un uomo solo, nella più popolosa
+    (esclusa la Capitale), risorsa bloccata.
+  - **3 migliorie**: un solo caduto, nella provincia più popolosa di **tutto** il regno
+    (la Capitale non è più esclusa dalla ricerca: può essere lei, se è la più piena) — ma
+    il raccolto non si ferma più.
+  - **4-5 migliorie**: il regno non perde nessuno. Quattro bastano a fermarla.
+  L'orchestrazione (chi colpire, con che testo) sta nel descrittore (`plagueRound` in
+  `js/events.js`, chiamata da `onStart` e da ogni `onRound`), come le crociate; la
+  MUTAZIONE vera è `GameActions.eventDecimate` (dietro `ctx.decimate`): rispetta il
+  presidio minimo (§5, le perdite non svuotano mai una provincia) e i mercenari cadono
+  per primi (§5.3), come in battaglia. **Il blocco della raccolta non è un taglio della
+  rete** (§4): la provincia colpita resta collegata (`turnProduction` la conta lo stesso
+  fra le `collegate`), semplicemente quel turno non dà risorsa — `regno.pesteBlocco`
+  (le province colpite) lo segna `eventDecimate`, lo consuma e lo svuota `beginTurn` alla
+  PROSSIMA produzione di quel regno (un turno di gioco è per-giocatore, l'evento invece
+  scatta una volta per giro: senza questo passaggio in coda, un regno che gioca il suo
+  turno DOPO che l'evento è già scattato perderebbe la raccolta del giro sbagliato o di
+  nessuno). Ogni colpo srotola una pergamena (`tipo:'peste'`, canale `eventiAvvisi` come
+  ogni altro evento storico) che dice DOVE e QUANTI — la prima ("La Morte Nera") annuncia
+  l'epidemia, le successive ("La peste continua") ne raccontano il seguito.
+- **La Festa (§6.1, "Felicità", regola dell'utente): il rovescio POSITIVO della Peste.**
+  Dove la Sanità *previene* un malus (l'evento della Peste), la Felicità *dà* un bonus —
+  ed è voluto che le due indoli siano diverse: un regno deve scegliere fra assicurarsi
+  (Sanità) e godersela (Felicità), perché entrambe le migliorie costano le STESSE 5
+  risorse (§6.1: Pietra/Legno/Argilla/Grano/Bestiame, 3 unità l'una) — costruire tutte e
+  dieci non è mai la mossa più veloce. A differenza della Peste **non è un evento a
+  calendario**: è un privilegio PERMANENTE, sempre valutato, perché la scelta fra le due
+  reste viva per tutta la partita e non solo in una finestra di 5 turni. `GameRules.joyTier`
+  legge le stesse 0-5 migliorie di Felicità sulla Capitale (`popularityFactors`) e decide:
+  - **0-1 migliorie**: nessun privilegio.
+  - **2 migliorie**: **1 tipo di risorsa** scontato di 1 unità su ogni costruzione che lo
+    richieda.
+  - **3 migliorie**: **2 tipi** scontati di 1 unità.
+  - **4-5 migliorie**: gli stessi 2 tipi scontati **più 100 monete di bonus** a ogni
+    acquisto PAGATO, di qualunque tipo (costruzione, strada, reclutamento).
+  - **Quali 2 tipi**: SORTEGGIATI da `beginTurn` una volta a turno (`player.festaRisorse`),
+    non a ogni lettura — se no il prezzo di un tassello cambierebbe a ogni render invece
+    di restare fermo per tutto il turno, e il giocatore non potrebbe pianificare gli
+    acquisti su un prezzo che vede sparire. **Chi chiede UN SOLO tipo di risorsa non
+    sconta MAI** (Strada, Nave/Barca, ogni miglioria §6.1): ridurre l'unico tipo lo
+    azzererebbe — è la stessa ragione per cui l'utente li ha esclusi a parole.
+  - `GameRules.discountedCost(cost, favoriti)` (pura) applica lo sconto; `costFor(type,
+    player)` è l'UNICO punto da cui `build`/`buildRoad`/`recruit` **e** la UI (tasselli,
+    legenda 📜) leggono il prezzo — non possono divergere. `GameActions.payConstruction`
+    (wrapper di `pay`) versa il bonus in monete dopo il pagamento: lo chiamano `build`,
+    `buildRoad` (solo se NON gratuita — una strada gratis non genera un pagamento da
+    premiare), `recruit` e `buildWelfare` (solo la costruzione NUOVA, non la riattivazione
+    di una miglioria dormiente: è manutenzione arretrata, non un acquisto). `moveCapital`
+    non passa mai da `payConstruction`: non costruisce nulla, sposta solo il seggio.
+  - **Le migliorie §6.1 NON sono mai scontate** (un solo tipo di risorsa a testa) **ma
+    contano comunque per il bonus in monete**: costruirne una nuova a Sanità/Felicità 4-5
+    rende comunque le 100 monete, perché è "una costruzione fatta" come le altre.
+  - **Si vede in plancia**: `buildGroup` (player-board.js) mette in testa alle tessere
+    "🎭 Festa di quest'anno: sconto di 1 su X e Y, +100 monete a ogni costruzione pagata" —
+    senza, i gettoni scontati sui tasselli sembrerebbero un errore di conto invece che un
+    privilegio guadagnato.
+- **Cronache storiche (`js/chronicles.js`, richiesta dell'utente)**: le VIGNETTE di
+  colore del regno, da non confondere con gli eventi datati di `events.js`. Un evento
+  scatta a un turno fisso e MUTA la mappa; una cronaca no — è solo una pergamena che
+  racconta un momento della storia del regno quando la sua SITUAZIONE tocca una soglia
+  evocativa: la **marina inglese** quando l'Inghilterra vara il primo Veliero, il **feudo
+  di Francia** quando la corona raduna il dominio, i **cavalieri teutonici** quando l'Impero
+  (o la Polonia, dal lato baltico) erige la prima Fortezza. Modulo **puro** come
+  `objectives.js`: un catalogo `CHRONICLES` di descrittori `{id, regni?, gruppo, min?, max?,
+  quando(c,sit), titolo, testo, nota}` + `Chronicles.pick(sit)`.
+  - **Il predicato legge il contesto-situazione**, cioè `Risiko.objectiveContext(player)` —
+    lo **stesso** metro degli obiettivi (`provCount`, `cityCount`, `fortressCount`,
+    `shipCount(Of)`, `popularity`, `hasMercato`…): una cronaca non ha un lettore suo.
+  - **Non troppo frequenti** (regola dell'utente), garantito da tre leve in `pick`: ogni
+    cronaca **una volta sola** per regno (`player.cronacheFatte`), due cronache dello stesso
+    `gruppo` non capitano al medesimo regno (la **specifica** di un regno viene PRIMA nel
+    catalogo e SOFFOCA la generica dello stesso gruppo — es. la Fortezza dà "teutonici" al
+    Sacro Romano Impero e "corona di pietra" a tutti gli altri), e fra una cronaca e la
+    successiva passano almeno `COOLDOWN` (=5) decenni (`player.cronacaUltima`).
+  - **Le srotola `showPendingCronache`** in `player-board.js`, in coda al `render()` e
+    **ULTIMA** della catena di pergamene: cede a tutte le altre (evento, editto, leva…), è
+    una per turno, ed è valutata solo nel turno del regno che la plancia sta mostrando —
+    così è la **storia privata di chi gioca quel regno** (i bot non renderizzano, quindi non
+    ne consumano). Usa la pergamena `showFoundation` tipo `cronaca` col colore del regno.
+  - Chi aggiunge una vignetta la mette in `CHRONICLES` (specifica prima delle generiche del
+    suo gruppo); nessun'altra modifica serve — i libri mastri sono già in `normalizePlayer`.
 - **Religione (`js/religions.js` + `data/start_religions.js`)**: ogni provincia ha una
   fede (`data-religione`, come `data-resource`: viaggia negli snapshot accanto a
   resources/pieces/roads, seminata a `initMap` se assente). La religione **di stato** di
@@ -1002,19 +1248,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       `applySchisms`): un seggio può benissimo sedere su terra conquistata (Capitale nemica
       promossa, o trasloco su una Città di conquista). Se il vincolo valesse anche lì, quel
       regno resterebbe fuori da ogni scisma per sempre — e con lui tutto l'impero, che via
-      `syncConquestFaiths` segue la sua Capitale. Era il modo principale in cui la regola si
+      `syncKingdomFaiths` segue la sua Capitale. Era il modo principale in cui la regola si
       perdeva a metà partita.
     - **Il riallineamento è IMMEDIATO quando la corona si muove**: `Risiko.syncStateFaiths()`
-      (la stessa passata di `syncConquestFaiths`, esposta) la chiamano `seatCapital` (quindi
+      (la stessa passata di `syncKingdomFaiths`, esposta) la chiamano `seatCapital` (quindi
       `moveCapital` e `resolveCapital`) e la costruzione della **prima** Capitale — da lì in
-      poi il regno ha una fede di stato e le sue conquiste devono seguirla nello stesso
+      poi il regno ha una fede di stato e le sue province devono seguirla nello stesso
       istante, non al prossimo giro completo con la mappa che nel frattempo mente.
     - **Il vincolo si SCIOGLIE quando la provincia perde il padrone**: razzia neutrale
       (`neutralRaids`), editto che la rende terra di nessuno, regno che nasce su una libera
-      (`eventSpawnKingdom`). Una neutrale non è agganciata a nessuna corona: se resta
-      vincolata, nessuno scisma la tocca più e nemmeno `syncConquestFaiths` può rimediare,
-      perché non c'è un proprietario a cui riallinearla. La fede ci restava congelata per il
-      resto della partita.
+      (`eventSpawnKingdom`). Da quando lo scisma guarda il PROPRIETARIO e non più solo il
+      vincolo (vedi sotto), questo passaggio è meno critico di quanto fosse — una neutrale
+      senza `data-owner` torna comunque pura geografia da sola — ma resta corretto tenerlo
+      pulito: `setReligionLock(tp, false)` non lascia il flag `data-fede-conq` a raccontare
+      una conquista che non esiste più.
     - **L'editto non è una porta di servizio**: `handOver` applica al passaggio di mano senza
       battaglia (assegna una provincia / consegna in regalo) la stessa regola della conquista
       — converte alla fede di stato del nuovo padrone e vincola. La fede si legge **prima**
@@ -1037,18 +1284,55 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     resta in piedi e cambia colore, quindi subito dopo `stateReligionOf` potrebbe trovare
     quella e leggere la fede del vinto. `attack` restituisce `conversione` ({da, a, label})
     e il rapporto di battaglia la mostra (`.bb-faith`).
-  - **Le province conquistate seguono la CORONA, non restano congelate** (fix di un bug
-    segnalato dall'utente): "segue la spada" vuol dire seguire la fede di stato corrente
-    del regno, non il valore fissato al momento della presa. La Capitale, in casa propria,
-    non è mai `data-fede-conq` e quindi **uno scisma geografico la tocca** — se il regno
-    aveva conquistato province mentre era ancora, poniamo, `cristiani` generico, e poi il
-    Grande Scisma spacca la sua Capitale in `ortodossi`, quelle province restavano
-    indietro sul vecchio `cristiani` (una fede che dopo lo scisma non esiste più in nessun
-    regno). `syncConquestFaiths` (app.js, chiamata da `applySchisms` ad **ogni giro
-    completo**, scisma o no) riallinea ogni provincia `data-fede-conq` alla
-    `stateReligionOf` corrente del suo proprietario — così anche il disallineamento di una
-    partita già in corso si ripara da solo al giro successivo, senza bisogno di un editto.
-    Chi non ha (più) una Capitale non ha fede di stato e resta come sta.
+  - **CHI NON HA RELIGIONE ASSIMILA quella dei paesi conquistati** (regola dell'utente,
+    oggi i soli **Mongoli**): è il campo `senzaFede` della dottrina (`js/doctrines.js`,
+    `Doctrines.faithless`), e si legge in due punti che sono la stessa regola vista dai
+    due lati. Quel che il regno **impone** conquistando è `imposedFaithOf`
+    (`game-actions.js`): per un regno senza fede è **null**, quindi la provincia presa
+    tiene i suoi dèi e — questo è il punto da non perdere — **non prende nemmeno il
+    vincolo** `data-fede-conq`, che è un aggancio alla fede della corona e sarebbe una
+    conversione differita, fatta dal riallineamento del giro dopo invece che dalla spada.
+    `imposedFaithOf` è ora l'**unica** porta da cui la fede di un conquistatore entra in
+    una provincia: attacco, sbarco, sbarco d'editto, editto che assegna o consegna.
+    Quel che il regno **professa** resta `Risiko.stateReligionOf`, che per un regno senza
+    fede non guarda la Capitale ma le TERRE: la confessione della **maggioranza** delle
+    sue province (`assimilatedFaithOf` in app.js), che cambia da sé man mano che l'impero
+    cambia forma — l'Orda nasce buddhista in Mongolia e diventa sunnita appena il grosso
+    delle sue province lo è. Da lì viene gratis il resto: la famiglia di fede per la
+    diplomazia (`faithFamilyOf` in bot.js) e le razzie delle terre di nessuno, che
+    confrontano fede di **provincia** e non di corona, non cambiano di una riga.
+  - **UN REGNO È COMPATTO IN UN'UNICA FEDE, sempre — non solo sulle conquiste** (regola
+    dell'utente, generalizzata due volte dallo stesso bug): "segue la spada" vuol dire
+    seguire la fede di stato CORRENTE della Capitale, non un valore congelato a un
+    istante. Prima girata: le province **conquistate** restavano indietro quando la fede
+    di stato cambiava più tardi (Rus' conquistava da `cristiani` generico, poi il Grande
+    Scisma spaccava la sua Capitale in `ortodossi` e le terre prese prima restavano sul
+    vecchio `cristiani`, una fede che dopo lo scisma non esiste più in nessun regno).
+    Seconda girata (bug ancora più in fondo, stesso segnalatore): la stessa cosa capitava
+    al territorio **mai conquistato**. La Capitale, in casa propria, non è mai
+    `data-fede-conq` e quindi uno scisma geografico la tocca direttamente — ma le ALTRE
+    province del regno, se non erano mai state conquistate, non avevano **nessun**
+    aggancio alla corona e seguivano ognuna la propria geografia: il Sacro Romano Impero,
+    tutto territorio originario dal turno 1, usciva dalla Riforma con la Capitale (a
+    Franconia, fuori dal rettangolo del Nord Germania) cattolica e Saxony/Anhalt (dentro
+    quel rettangolo) protestanti — tre province mai toccate da una battaglia, tre fedi
+    diverse sotto la stessa corona. Non era un bug di codice ma una scelta di design
+    esplicita (il patchwork religioso della vera Riforma tedesca, "Renania e Baviera
+    restano cattoliche come nella storia"): l'utente, messo di fronte al caso concreto, ha
+    scelto la coerenza sull'ambientazione storica.
+    Ora la geografia decide **solo** per la Capitale (fonte della fede di stato) e per le
+    terre di nessuno (nessuna corona a cui allinearsi, §Scismi sopra) — ogni altra
+    provincia PROPRIA, conquistata o nativa che sia, la insegue. `syncKingdomFaiths`
+    (app.js, ex `syncConquestFaiths`; chiamata da `applySchisms` ad **ogni giro
+    completo**, scisma o no, e da `Risiko.syncStateFaiths()` nello stesso istante in cui
+    la Capitale si costruisce/sposta/promuove) riallinea ogni provincia con un
+    proprietario — che sia o no `data-fede-conq` — alla `stateReligionOf` corrente del
+    suo regno; così anche il disallineamento di una partita già in corso si ripara da
+    solo al giro successivo, senza bisogno di un editto. Chi non ha (più) una Capitale
+    non ha fede di stato e resta come sta. Il flag `data-fede-conq`/`setReligionLock`
+    resta (traccia ancora "questa provincia è stata presa con la spada" per chi lo
+    leggesse in futuro, e viaggia nel salvataggio), ma non è più lui a decidere se una
+    provincia segue la geografia o la corona: decide `data-owner`.
   - **Vista mappa per fede**: bottone ☩ (plancia `#board-faith`, editor `#faith-view-btn`)
     → `Risiko.setMapPaint('fede')`. È **solo pittura**: non cambia proprietari, turni o
     permessi, e rispetta la nebbia. Chi aggiunge un'azione che sposta la Capitale o
@@ -1150,11 +1434,23 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   tratta: se le due province non confinano via terra cerca uno scafo che copra la
   distanza, e sceglie il **meno capiente che basti** (non si spreca un Veliero dove
   arriva una Nave). Il carico è un secondo tetto oltre al presidio minimo del §5.
-  **Lo sbarco è la nave stessa**: lo scafo lascia la provincia di partenza e approda in
-  quella attaccata *comunque vada* — vinta, è ancorato sulla costa presa e la portata
-  successiva si misura da lì; persa, è già sulla spiaggia del difensore e diventa suo
-  senza codice apposta, perché le navi appartengono a chi possiede la provincia. Non
-  esiste modo di annullare uno sbarco a metà, ed è voluto.
+  **Si può partire con PIÙ scafi dello stesso tipo** (regola dell'utente: si
+  costruisce una seconda nave proprio per imbarcare di più): `hullsForLanding`
+  raggruppa gli scafi per tipo, sceglie il tipo meno capiente la cui **flotta**
+  basta a caricare gli uomini impegnati e ne fa salpare `num = ⌈engaged/carico⌉` —
+  quanti servono, mai più (non parte una nave vuota). Il tetto del carico diventa
+  perciò **nº scafi × carico**: la plancia lo calcola con `vesselCount(path, tipo)`
+  in `attackGroup`/`orderMax`, il motore lo impone in `attack`. `hullForLanding`
+  (singolo scafo) resta solo per il rinforzo via nave di `finalMove`.
+  **Lo sbarco è la nave stessa**: gli scafi imbarcati lasciano la provincia di partenza
+  e approdano in quella attaccata *comunque vada* — vinta, sono ancorati sulla costa
+  presa e la portata successiva si misura da lì; persa, sono già sulla spiaggia del
+  difensore e diventano suoi senza codice apposta, perché le navi appartengono a chi
+  possiede la provincia. **TUTTI gli scafi che hanno portato uomini condividono la
+  sorte dell'assalto**: sbarcare con due navi e perdere le perde entrambe — non ne resta
+  una in porto (era il bug: con più scafi ancorati, respinti, ne restava uno a casa e
+  sembrava che la nave "non fosse andata distrutta"). Non esiste modo di annullare uno
+  sbarco a metà, ed è voluto.
   **Lo sbarco è totale**: dopo uno sbarco vinto `player.conquista` NON si apre — la
   ripartizione fra chi occupa e chi rientra vale solo per le conquiste via terra. Chi
   scende dalla nave resta a terra; per riportare indietro degli uomini c'è lo spostamento
@@ -1289,13 +1585,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - **Obiettivi di prestigio: il BINARIO STORICO (`js/objectives.js`, §10)**. Gli obiettivi
   non sono tre righe fisse per (regno, ciclo): ogni regno ha un **binario**, la sequenza
   dei capitoli della sua storia, e il binario **non è indicizzato per ciclo** ma per dove
-  il regno è arrivato nella PROPRIA storia (`player.capitolo`). Chi compie un capitolo
-  **avanza** al successivo; chi non ce la fa lo **rifà** a intensità minore; chi crolla
-  **arretra**. Due conseguenze, che sono le due cose per cui il sistema esiste (regola
-  dell'utente): chi corre non trova obiettivi già completati — riceve il pezzo di storia
-  successivo, non un numero più grande a caso — e chi è martellato non resta indietro per
-  sempre, perché rifà un capitolo che PUÒ fare. L'adattamento cambia il **passo** e
-  l'**intensità**, mai il soggetto: il filone storico guida tutto.
+  il regno è arrivato nella PROPRIA storia (`player.capitolo`). **SI AVANZA IN OGNI CASO**
+  (regola dell'utente): a ogni ciclo il capitolo scorre di **uno**, che il precedente sia
+  stato compiuto o no — un capitolo **non si rifà mai e non si arretra mai**. Prima un
+  regno che non completava il Primario restava inchiodato allo stesso capitolo per
+  l'intera partita (la Francia bloccata su fr1, che chiede una costa mediterranea che può
+  non possedere): quel bug è chiuso. Col merito cambia **solo l'INTENSITÀ** con cui si
+  affronta il pezzo successivo — chi ha fatto bene lo prende al respiro pieno
+  (`avanzare`/`eccedere`), chi le ha prese lo prende a intensità minore (`resistere`), ma
+  lo prende. Una conseguenza resta (regola dell'utente): chi corre non trova obiettivi già
+  completati — riceve il pezzo di storia successivo, non un numero più grande a caso.
+  L'adattamento cambia il **passo** e l'**intensità**, mai il soggetto: il filone storico
+  guida tutto.
   - **Un capitolo = tre voci** (Primario 5 · Secondario 3 · Terziario 2, il §10 intatto:
     cap 10 per ciclo, handicap puro — i punti non scalano con l'ambizione, il prestigio
     misura quanto bene hai giocato la TUA posizione, non quanto sei grande).
@@ -1312,9 +1613,9 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   - **Le tre INTENSITÀ** (`resistere` · `avanzare` · `eccedere`) sono lo stesso capitolo
     a tre scale: l'autore scrive **tre ancore e un passo** per voce, e l'ancora
     `avanzare` È il numero del foglio Obiettivi.xlsx. L'intensità è una **scala** e si
-    sale o si scende di un gradino per volta: con un interruttore acceso/spento il regno
-    oscillava — a `resistere` faceva un obiettivo, veniva ripromosso, falliva tutto,
-    ricadeva, per l'intera partita senza mai concludere un capitolo.
+    sale o si scende di un gradino per volta (col capitolo che avanza comunque, è l'unica
+    cosa che il merito muove): un gradino per volta consolida invece di far oscillare il
+    regno avanti e indietro.
   - **La soglia** (`Objectives.soglia`) è tre vincoli insieme: mai sotto l'ancora
     dell'intensità, mai già completata alla nascita (`misura + passo`), sempre dentro la
     **banda** fra `resistere` e mezza volta `eccedere` — la banda è il guinzaglio
@@ -1325,11 +1626,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     scorta di non costruire mai). Il passo si allunga col **ritmo** del ciclo scorso
     (`Objectives.ritmoDa`, dalle province) e col gradino (`K_TIER`: al Primario si
     chiede di fare meglio, al Terziario di reggere).
-  - **Il puntatore** è `Objectives.passo`, puro. Il numero del ciclo entra **solo come
-    freno** (`FRENO = 2`: il capitolo non supera il ciclo di più di due). Il capitolo
-    salta oltre quando è già stato **superato** dai fatti (`Objectives.superato`: la
-    meta del Primario è oltre l'ancora `eccedere`) — è così che la storia di chi corre
-    accelera invece di ripetersi gonfiata.
+  - **Il puntatore** è `Objectives.passo`, puro: avanza il capitolo di **uno** in ogni
+    caso (crollo compreso, dove scende solo l'intensità a `resistere`). Il numero del
+    ciclo entra **solo come freno** (`FRENO = 1`: il capitolo non supera il ciclo di più
+    di uno). Il capitolo può saltare **oltre** l'uno quando è già stato **superato** dai
+    fatti (`Objectives.superato`, chiamato in `closeCycle`: la meta del Primario è oltre
+    l'ancora `eccedere`) — è così che la storia di chi corre accelera, **un solo capitolo
+    per chiusura di ciclo** (regola dell'utente: gli obiettivi restano plausibili e
+    storicamente attendibili anche per un regno che corre — prima, con `FRENO = 2` e fino
+    a 4 scatti in un colpo solo, la Francia poteva ritrovarsi a chiedere i confini sul
+    Reno di Richelieu due secoli prima del tempo). La **migrazione
+    della partita in corso** vive in `ensureAssignment` (app.js): un salvataggio nato
+    sotto la vecchia regola, con un capitolo rimasto indietro, viene portato avanti fin
+    dove dovrebbe essere (`capitolo = max(capitolo, min(ciclo, nCapitoli))`, mai
+    indietro) e l'assegnazione rigenerata se il suo capitolo non combacia.
   - **Lo stato sul giocatore**: `capitolo`, `intensita`, `obiettiviCiclo`
     (l'assegnazione in corso, serializzabile), `cicliStorico` (il registro di
     performance su cui il puntatore si muove — non esisteva niente del genere,
@@ -1350,8 +1660,8 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     modulo puro decide), e `objectivesFor` genera al volo se l'assegnazione manca —
     salvataggi anteriori al binario, partite già in corso. `archiveObjectives` è l'unico
     punto che tocca `puntiPrestigio`.
-  - **L'INGHILTERRA è il primo binario steso per intero** (capitoli I-VIII; gli altri
-    nove regni si fermano al II). La sua forma è il modello: II **sbarca** in Francia
+  - **L'INGHILTERRA è stata il primo binario steso per intero** (capitoli I-VIII). La sua
+    forma è rimasta il modello: II **sbarca** in Francia
     col raduno a Home Counties sotto (il continente resta leggero apposta — la guerra
     vera è il IV), III **tiene** le Fiandre più una provincia di `FRANCIA`, IV
     prende e difende l'Aquitania, V conquista **tutta l'Irlanda** con una Città (il
@@ -1364,6 +1674,60 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     dentro una regione: quale provincia lo decide dove approda la nave, quindi il
     capitolo non può nominarla). `naviTipo` chiede a `objectiveContext` la lettura
     nuova `shipCountOf(kind)`, che legge `data-ships`.
+  - **Tutti e dieci i binari coprono ora i capitoli I-VIII** (regola dell'utente: la
+    storia vera di ogni regno, non solo il modello inglese). Castiglia, Francia, Fatimidi,
+    Sacro Romano Impero, Polonia, Kievan Rus', Ungheria e Abbaside sono stati stesi seguendo
+    lo stesso principio dell'Inghilterra e di Bisanzio: **Secondario e Terziario non
+    ripetono il Primario a un numero più alto — preparano quello del capitolo DOPO**
+    (scorte di legno un capitolo prima di dover varare un Veliero, pietra prima di una
+    Fortezza o di una Città, oro prima di una spedizione o di una guerra costosa), e
+    Popolarità/Sicurezza/Benessere ricorrono a intervalli regolari per lo stesso motivo
+    dell'inglese: sono le uniche voci che un regno perde davvero mentre fa la guerra.
+    Il *cosa* di ogni capitolo sta in `docs/BINARI_STORICI.md`, i numeri solo in
+    `objectives.js`. Tre template nuovi servivano ai capitoli tardi: `fede` (vocabolario
+    `converti` — quante province di una regione sono ADESSO della tua famiglia di fede di
+    stato, per conquista o scisma: il Sacro Romano Impero VI e gli Abbasidi VI la vivono
+    come CONSEGUENZA della Riforma/dei Safavidi, non come suo annuncio, perché nel
+    calendario compresso degli scismi §Religione l'evento è già accaduto da tempo),
+    `capitale` (presidia la Capitale ovunque sia ADESSO — Polonia VIII, Ungheria VI — perché
+    la Capitale si costruisce, si sposta e si conquista e un capitolo non può nominare una
+    provincia fissa) e `fortezza`/`fortezze` (possiedi una / N Fortezze: l'ultima difesa di
+    un binario che finisce sotto assedio, spesso combinato con `capitale` via `tutti`), più
+    `cittaCount`/`cittaRegioneCount` (QUANTE Città, non «una Città»). Tre coppie di regni
+    condividono apposta la stessa regione per raccontare la stessa guerra da due lati —
+    Inghilterra/Francia su `NORMANDY_FR` (i Cent'Anni), Sacro Romano Impero/Francia su
+    `ITALIA_NORD` (le guerre d'Italia), Polonia/Kievan Rus' su `BALTICO`.
+  - **LA SCALA DELL'AMBIZIONE** (regola dell'utente): *"un obiettivo del ciclo 6 o 7 non
+    può essere una conquista che era fattibile già nei primi cicli"* — l'esempio era il
+    Maghreb dei Fatimidi, due province che confinano con l'Egitto, chieste al ciclo VII.
+    La scala sta scritta in testa a `BINARI` in `objectives.js`: I-II la propria terra ·
+    III-IV la regione confinante · V un teatro intero · VI il primo **cancello di spesa**
+    (Veliero, Fortezza, la seconda o terza Città — quel che i primi cicli non potevano
+    permettersi) · VII-VIII quel che può fare solo un impero (teatri lontani per mare, più
+    Città o Fortezze insieme). Lo strumento è il combinato `tutti`: al VII non si chiede
+    «quella regione» ma «quella regione **e** una Città dentro».
+    - **Il capo del combinato dev'essere la parte SENZA tetto.** Una regione che possiedi
+      già è un `tetto`: la soglia non può crescerci sopra e l'obiettivo nasce **già
+      compiuto**. Quel che scala senza limite sono gli insediamenti da costruire, quindi
+      nei capitoli «tieni quel che hai» il capo è `fortezze`/`cittaCount` e la regione sta
+      fra le richieste fisse, non viceversa. Misurato: con un regno che ha la sua regione
+      d'origine più il teatro vicino, 3 Città e una Fortezza, i primari dei cicli VI-VIII
+      già compiuti alla nascita sono passati da **9 su 30 a 0 su 30**.
+  - **UN CAPITOLO NON PUÒ POGGIARE SU UN EVENTO** (regola dell'utente): *"non usare
+    l'invasione dei mongoli come pretesto centrale per gli obiettivi, perché non è detto
+    che i mongoli arrivino davvero in tempo"*. L'Orda nasce al turno 21 ma deve
+    attraversare mezzo mondo, e se il posto dove dovrebbe comparire è occupato non nasce
+    affatto: un capitolo che chiedesse di fermarla sarebbe compiuto o impossibile per
+    ragioni che non dipendono dal giocatore. I capitoli difensivi chiedono perciò quel che
+    il giocatore **controlla** — presidiare i confini, tenere unito il regno, erigere una
+    Fortezza — e il testo **non nomina mai** un invasore che potrebbe non presentarsi
+    (rinforzare i confini va bene; «resisti all'Orda» no). Vale per ogni potenza che il
+    gioco non mette sulla mappa (Ottomani, Ilkhanato, Timuridi): al più danno il NOME a un
+    capitolo, mai la sua condizione di vittoria. Undici capitoli sono stati riscritti per
+    questo — l'elenco con i titoli vecchi e nuovi è in `docs/BINARI_STORICI.md`. Le
+    **crociate** restano nominate: quell'evento sbarca dritto sulla sua meta invece di
+    attraversare il mondo, e quegli obiettivi chiedono comunque una cosa che dipende dal
+    giocatore (radunare un'oste, possedere N province), non che la crociata riesca.
   - **Un Terziario non è un obiettivo vecchio rifatto** (regola dell'utente): chiedere al
     capitolo V «9 province britanniche» a chi al I ne doveva prendere 7 non chiede niente.
     Il contrappeso a un secolo di guerra sono **Popolarità e Benessere**, e vanno messi
@@ -1400,6 +1764,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       anche la migrazione dei salvataggi vecchi, e un ciclo ricostruito a posteriori non ha
       mai versato uomini a nessuno; closeCycle timbra la leva sul record che archiveObjectives
       restituisce (`rec.leva`, per lo storico della plancia).
+    - **IL RECORD DI RIPIEGO NON FA DA TAPPO** (bug segnalato dall'utente: la leva non
+      arrivava mai). Fra `advanceGlobalTurn` e `closeCycle` passano eventi, scismi e
+      razzie, e più d'uno **ridisegna**: il render della plancia rivaluta gli obiettivi
+      (`Risiko.objectivesFor` → `ensureAssignment`), vede il calendario già nel ciclo
+      nuovo e **archivia d'ufficio** quello appena chiuso con `backfillCycles` — la
+      migrazione dei salvataggi vecchi, che uomini non ne versa a nessuno. Quel record
+      provvisorio faceva poi scattare la guardia "ciclo già archiviato" di closeCycle e
+      **la leva non veniva pagata**. Adesso i record di backfill si riconoscono
+      (`rec.backfill`, scritto da `archiveObjectives(player, snap, true)`) e closeCycle
+      **li butta** — punti di prestigio compresi — prima di archiviare la fotografia vera.
+      Chi aggiunge un'altra strada che archivia un ciclo passi di lì: l'unico punto che
+      chiude un ciclo davvero resta closeCycle. (Non si vede a bassa attività: senza
+      scismi e senza province conquistate da riallineare `applySchisms` non ridisegna, e
+      il tappo non nasce — in partita vera nasce quasi sempre.)
     - **I bot la incassano gratis**: `deployPlan` legge lo stesso serbatoio
       `recluteDaSchierare`. Nessun ramo `if` in `bot.js`.
     - **Non compaiono di nascosto**: `player.obiettiviAvvisi` (il canale c'era già,
@@ -1660,6 +2038,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     La pagina accoppia le province per sovrapposizione dei riquadri, quindi filtra da
     sé le coppie che si toccano appena (≥8 contatti, ≥2 unità di confine): nel gioco
     non esistono, perché `areLandAdjacent` le rifiuta.
+- **IL BOTTINO DI CONQUISTA: 50 monete per provincia presa** (regola dell'utente).
+  L'incentivo che mancava alla guerra: il prestigio è sospeso e la Popolarità premia solo
+  le conquiste **attorno alla Capitale** (§8, `popValueOf`), quindi una provincia lontana
+  e spoglia non pagava niente. L'importo sta in `GameRules.CONQUEST_BOUNTY` — premio
+  **fisso**, non un saccheggio proporzionato alla preda, così anche una provincia povera
+  vale la marcia. Lo versa `applyBattleOutcome` in `game-actions.js`, cioè l'**unico**
+  punto della regola di conquista: da lì vale per l'attacco di terra, lo sbarco, l'approdo
+  di una spedizione e lo sbarco d'editto senza quattro copie, e i **bot** lo incassano
+  senza un ramo apposta (le loro monete entrano da sé in `coinReserve` e nei piani di
+  costruzione). L'importo si appende al risultato della battaglia (`res.bottino`, che i
+  chiamanti già portano in giro) e riemerge come campo `bottino` sui risultati di
+  `attack`/`expeditionLand`/editto: il messaggio lo dice e il rapporto di battaglia lo
+  mostra sulla riga `.bb-loot`. Non lo prendono le **razzie delle terre di nessuno**
+  (`neutralRaids`): non passano da applyBattleOutcome e una neutrale non ha casse.
 - **Regola di conquista (confermata dall'utente, non nel design doc originale)**: le
   costruzioni **non vengono rase** quando una provincia cambia proprietario — restano,
   cambiano solo colore. Una strada sparisce solo quando **entrambe** le province che

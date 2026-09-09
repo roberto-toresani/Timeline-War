@@ -77,7 +77,11 @@
                 palchi_arene:  { label: 'Palchi e arene',    res: 'legno' },
                 taverna:       { label: 'Taverna',           res: 'argilla' },
                 fiera_bestiame:{ label: 'Fiera del bestiame', res: 'bestiame' },
-                festa_sole:    { label: 'Festa del sole',    res: 'grano' }
+                // Chiave storica `festa_sole` (invariata: viaggia nei salvataggi
+                // dentro data-welfare), ma il NOME mostrato è cambiato — "Festa"
+                // ora è anche il privilegio economico della Felicità (sconti +
+                // bonus, vedi joyTier più sotto), e i due "Festa" confondevano.
+                festa_sole:    { label: 'Sagra del grano',   res: 'grano' }
             }
         }
     };
@@ -165,10 +169,52 @@
     // letta dall'altra parte.
     const NEUTRAL_MAX = 6;
 
-    // I turni partono da 1 (js/chronicle.js): turni 1-10 → 2 soldati, 11-20 → 3,
-    // ecc., fino al tetto di NEUTRAL_MAX (dal turno 41 in poi: sempre 6).
-    function neutralGarrison(turn) {
+    // LE TERRE LONTANE CRESCONO PIÙ TARDI (regola dell'utente). Perché la conquista
+    // navale col Veliero (e la marcia dell'Orda attraverso l'Asia) non diventi troppo
+    // dura, le province di Americhe, Asia (Cina, India, Sud-Est asiatico, corridoio
+    // mongolo) e Africa sub-sahariana restano a NEUTRAL_START soldati per tutti i
+    // primi cinque cicli, e salgono a FAR_GARRISON_LATE solo dall'inizio del SESTO
+    // (turno 51). Non è un secondo tetto: è un calendario più lento per la "periferia"
+    // del mondo, il campo di battaglia delle navi e dell'invasione mongola. Il core —
+    // Europa, Mediterraneo, Nord Africa, Arabia, Persia/Mesopotamia, Rus' occidentale,
+    // dove giocano i regni — segue la crescita normale.
+    // La classificazione è geografica (isFarProvince), come REGIONS in setup.js: il
+    // presidio riguarda SOLO le province neutrali, quindi un feudo di regno che cade
+    // in questa zona non è mai toccato (è posseduto). Un turno = un decennio; il ciclo
+    // 5 si chiude al turno 50, il 6 comincia al 51.
+    const FAR_UNTIL_TURN = 50;      // fine del 5º ciclo (1400-1499)
+    const FAR_GARRISON_LATE = 3;    // dal 6º ciclo in poi (turno 51+)
+
+    // È una provincia "lontana"? Classificazione per centro del suo bounding box in
+    // coordinate SVG (cx,cy), MISURATA sulla mappa vera come i rettangoli di setup.js:
+    //   Estremadura 571,169 · Ural 807,89 · Fars 775,207 · Kerman 791,206 ·
+    //   Niger 633,244 · Dongola 706,242 · Uralsk 775,140 · Aktobe 797,133 ·
+    //   Altai 889,121 · Delhi 859,208 · Mexico 271,242 · Yemen 762,256.
+    // Quattro zone, tagliate per lasciare fuori il core (Egitto/Maghreb, Arabia,
+    // Persia/Mesopotamia, Caucaso, Rus' occidentale):
+    //   A) Americhe: tutto l'ovest (cx < 505).
+    //   B) Africa sub-sahariana: sotto il Sahara (cx 505-758, cy > 236) — esclude
+    //      Egitto e Maghreb (cy ≤ 235) e l'Arabia (cx > 758).
+    //   C) Steppa / Asia settentrionale (corridoio mongolo, Volga, Siberia, Corea):
+    //      a nord (cx > 762, cy < 170) — esclude Caucaso e Persia (più a sud).
+    //   D) Asia orientale e India (Cina, Indocina, Insulindia, Australia): a est
+    //      (cx > 812, cy ≥ 168) — esclude la Persia/Baluchistan occidentale (cx ≤ 812).
+    // Se la mappa cambia, questi bordi vanno RIMISURATI, non indovinati.
+    function isFarProvince(cx, cy) {
+        if (!(cx === cx) || !(cy === cy)) return false;   // NaN → non classificabile
+        if (cx < 505) return true;                         // A: Americhe
+        if (cx <= 758 && cy > 236) return true;            // B: Africa sub-sahariana
+        if (cx > 762 && cy < 170) return true;             // C: steppa / Asia nord
+        if (cx > 812 && cy >= 168) return true;            // D: Asia orientale / India
+        return false;
+    }
+
+    // I turni partono da 1 (js/chronicle.js). CORE: turni 1-10 → 2 soldati, 11-20 → 3,
+    // ecc., fino al tetto di NEUTRAL_MAX (dal turno 41 in poi: sempre 6). LONTANE
+    // (far=true): 2 fino a fine 5º ciclo (turno 50), poi 3 dal 6º ciclo in poi.
+    function neutralGarrison(turn, far) {
         const t = Math.max(1, Math.floor(turn || 1));
+        if (far) return t <= FAR_UNTIL_TURN ? NEUTRAL_START : FAR_GARRISON_LATE;
         const n = NEUTRAL_START + Math.floor((t - 1) / NEUTRAL_EVERY) * NEUTRAL_STEP;
         return Math.min(NEUTRAL_MAX, n);
     }
@@ -269,6 +315,16 @@
     // Rimettere a true per riaccenderlo: non serve toccare altro.
     const PRESTIGE_ENABLED = false;
 
+    // BOTTINO DI CONQUISTA (regola dell'utente): prendere una provincia paga
+    // SUBITO, in monete. È l'incentivo che mancava alla guerra — il prestigio è
+    // sospeso e la Popolarità premia solo le conquiste attorno alla Capitale
+    // (§8), quindi una provincia lontana e spoglia non valeva niente. Vale su
+    // OGNI provincia presa in battaglia (terra, sbarco, spedizione, sbarco
+    // d'editto), perché il conto lo fa l'unico punto della regola di conquista:
+    // game-actions.applyBattleOutcome. Non è un saccheggio proporzionato alla
+    // preda — è un premio FISSO, così anche una provincia povera vale la marcia.
+    const CONQUEST_BOUNTY = 50;
+
     function emptyScorte() {
         const s = {};
         RES.forEach(k => { s[k] = 0; });
@@ -362,7 +418,11 @@
     // connectedSet: Set degli id collegati (da `connected`).
     // units: conteggio pedine del regno (da KingdomStats.countUnits).
     // popularity: 1..5 oppure null se il regno non ha ancora la Capitale.
-    function turnProduction(provinces, connectedSet, units, tax, popularity) {
+    // blockedIds (opzionale): Set di province COLLEGATE la cui risorsa NON si
+    // raccoglie questo turno — oggi solo la PESTE (js/events.js): dove sono
+    // caduti uomini, il raccolto salta, ma la provincia resta collegata (non è
+    // un taglio della rete, `collegate` la conta lo stesso).
+    function turnProduction(provinces, connectedSet, units, tax, popularity, blockedIds) {
         const hasCapital = units.capitale > 0;
         const zero = {
             monete: 0, risorse: emptyScorte(), reclute: 0, vincolate: {}, recluteTotali: 0,
@@ -384,6 +444,7 @@
         (provinces || []).forEach(p => {
             if (!connectedSet.has(p.id)) return;
             collegate++;
+            if (blockedIds && blockedIds.has(p.id)) return;   // peste: niente raccolto qui, quest'anno
             if (p.resource && risorse[p.resource] !== undefined) risorse[p.resource] += 1;
         });
 
@@ -443,18 +504,98 @@
         return 0;
     }
 
+    // PESTE (evento storico, js/events.js): quanto costa un'epidemia dipende da
+    // quante migliorie di SANITÀ (§6.1) il regno ha sulla Capitale — 0..5, la
+    // stessa lettura di popularityFactors. Più ospedali, meno vittime: sotto le 2
+    // migliorie muore gente anche in Capitale e le risorse di chi cade non si
+    // raccolgono quel turno; con 2 migliorie la Capitale è già al riparo; con 3
+    // resta un solo caduto, senza fermare il raccolto; con 4-5 il regno non
+    // perde nessuno. `escludeCapitale` dice se la "provincia più popolosa" va
+    // cercata FUORI dalla Capitale (che allora ha già il suo colpo a parte) o su
+    // tutto il regno insieme (tier 3: un colpo solo, dove capita). `null` = al
+    // riparo, l'evento non tocca nessuno.
+    const PLAGUE_TIERS = [
+        { capitale: 1, popolosa: 2, escludeCapitale: true, bloccaRaccolta: true },  // 0 migliorie
+        { capitale: 1, popolosa: 1, escludeCapitale: true, bloccaRaccolta: true },  // 1 miglioria
+        { capitale: 0, popolosa: 1, escludeCapitale: true, bloccaRaccolta: true },  // 2 migliorie
+        { capitale: 0, popolosa: 1, escludeCapitale: false, bloccaRaccolta: false }, // 3 migliorie
+        null,  // 4 migliorie: al riparo
+        null   // 5 migliorie: al riparo
+    ];
+    function plagueTier(sanita) {
+        const s = Math.max(0, Math.min(5, Math.floor(sanita || 0)));
+        return PLAGUE_TIERS[s];
+    }
+
+    // FELICITÀ ("Festa" — regola dell'utente, simmetrica alla Peste/Sanità ma di
+    // segno opposto): quante migliorie di Felicità (§6.1) ha il regno sulla
+    // Capitale — stessa lettura 0-5 — decide il privilegio di OGGI sulle
+    // costruzioni. `favoriti` è quanti TIPI di risorsa (su GameRules.RES, 5 in
+    // tutto) sono scontati questo turno — SORTEGGIATI da game-actions.beginTurn,
+    // non decisi qui: questa è solo la tabella dei tier, come PLAGUE_TIERS.
+    // `bonusCostruzione` sono le monete restituite a ogni acquisto PAGATO
+    // (costruzione, strada, miglioria nuova, reclutamento) da 4 migliorie in su.
+    // `null` = ancora nessun privilegio (0-1 migliorie).
+    const JOY_TIERS = [
+        null,                                   // 0 migliorie
+        null,                                   // 1
+        { favoriti: 1, bonusCostruzione: 0 },   // 2
+        { favoriti: 2, bonusCostruzione: 0 },   // 3
+        { favoriti: 2, bonusCostruzione: 100 }, // 4
+        { favoriti: 2, bonusCostruzione: 100 }  // 5
+    ];
+    function joyTier(felicita) {
+        const s = Math.max(0, Math.min(5, Math.floor(felicita || 0)));
+        return JOY_TIERS[s];
+    }
+
+    // Sconta di 1 unità ogni riga di risorsa del costo che sia fra i `favoriti`
+    // di oggi (§Felicità) — MAI se il costo ha una sola riga di risorsa (una
+    // Strada, una miglioria §6.1): ridurre l'UNICO tipo lo azzererebbe, ed è
+    // apposta per questo che l'utente le ha escluse. `favoriti` è un
+    // array/Set di chiavi RES; senza sconti attivi (o senza almeno 2 righe
+    // scontabili) torna `cost` tal quale — stesso riferimento, per non forzare
+    // un clone a ogni lettura che non cambia nulla.
+    function discountedCost(cost, favoriti) {
+        if (!cost || !favoriti) return cost;
+        const set = (favoriti instanceof Set) ? favoriti : new Set(favoriti);
+        if (!set.size) return cost;
+        const types = RES.filter(k => cost[k] > 0);
+        if (types.length < 2) return cost;
+        let changed = false;
+        const out = Object.assign({}, cost);
+        types.forEach(k => {
+            if (set.has(k)) { out[k] = Math.max(0, out[k] - 1); changed = true; }
+        });
+        return changed ? out : cost;
+    }
+
+    // Il costo EFFETTIVO di `type` per QUESTO giocatore: la tabella COSTS,
+    // scontata secondo la Festa del suo turno (player.festaRisorse, §Felicità).
+    // Senza player (o senza Festa attiva) torna il costo pieno. Unico punto da
+    // cui build/strade/reclutamento E la UI leggono il prezzo, così i due non
+    // possono divergere — le migliorie §6.1 restano su `welfareCost` (un solo
+    // tipo di risorsa: la Festa non le tocca mai, vedi `discountedCost`).
+    function costFor(type, player) {
+        const base = COSTS[type];
+        if (!base) return base;
+        return discountedCost(base, player && player.festaRisorse);
+    }
+
     const api = {
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
         WELFARE, WELFARE_COST, WELFARE_INDEX,
         welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
-        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, PRESTIGE_ENABLED,
+        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, PRESTIGE_ENABLED, CONQUEST_BOUNTY,
+        FAR_UNTIL_TURN, FAR_GARRISON_LATE, isFarProvince,
         NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,
         GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,
         bankTradeCost, canBankTrade, goodsText,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
-        connected, turnProduction, popEffectOf, defenceBonus
+        connected, turnProduction, popEffectOf, defenceBonus, plagueTier,
+        joyTier, discountedCost, costFor
     };
 
     root.GameRules = api;

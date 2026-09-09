@@ -19,7 +19,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentPlayerId = null;
     let hasFitted = false;
+    // Cronache storiche (js/chronicles.js): il turno per cui abbiamo GIÀ valutato
+    // il catalogo per un regno, per id regno. Solo ottimizzazione (render gira di
+    // continuo): evita di ricostruire il contesto-situazione a ogni ridisegno.
+    const chronicleCheckedAt = {};
     let selectedProvId = null;
+    // Chiave del turno per cui è già stata azzerata la selezione ereditata
+    // (id regno + numero di turno): vedi il blocco "Turno nuovo" in render().
+    let lastTurnKey = null;
     let lastBattle = null;
     // Esito dell'ultima battaglia: la scheda è OPZIONALE e non si apre mai da
     // sola (richiesta dell'utente). Resta chiusa finché non la si apre col
@@ -159,6 +166,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (costsPop) {
         const x = costsPop.querySelector('.sheet-close');
         if (x) x.addEventListener('click', () => showCosts(false));
+    }
+
+    // "Vedi sulla mappa" di un obiettivo (§10): il foglio 👑 copre la mappa e un
+    // obiettivo dice "possiedi N province di un GRUPPO" — il giocatore non sa
+    // quali siano. Il bottone chiude il foglio e accende quelle province
+    // (Risiko.spotlightObjective). Listener DELEGATO sul contenitore (che resta),
+    // perché renderObjectives ne riscrive l'innerHTML a ogni giro.
+    if ($('bp-objectives')) {
+        $('bp-objectives').addEventListener('click', (e) => {
+            const b = e.target.closest && e.target.closest('.bo-map');
+            if (!b || !R.spotlightObjective) return;
+            const ids = (b.dataset.ids || '').split(',').filter(Boolean);
+            if (!ids.length) return;
+            showSheet(null);
+            R.spotlightObjective(ids);
+        });
     }
 
     // Esc chiude una cosa per volta, dalla più superficiale: prima il pop-up dei
@@ -1070,21 +1093,69 @@ document.addEventListener('DOMContentLoaded', () => {
     const CICLO_ROMANO = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
     function medalClass(pts) { return pts >= 5 ? 'm5' : pts >= 3 ? 'm3' : 'm2'; }
 
+    // Il PROGRESSO di un obiettivo (regola dell'utente: "a che punto sei verso il
+    // completamento — quanto manca o quante province hai già sul totale"). Il dato
+    // è già in evaluate: `misura` = quanto hai adesso, `soglia` = quanto serve.
+    // La barra si mostra solo quando c'è un conteggio da riempire (soglia ≥ 2): un
+    // obiettivo sì/no — costruisci un Mercato, possiedi una Fortezza — lo dice già
+    // la spunta ✓/○, e "0 / 1" non aggiungerebbe nulla.
+    function objProgress(o) {
+        const cur = o.misura, tgt = o.soglia;
+        if (typeof cur !== 'number' || !isFinite(cur) || cur < 0) return '';
+        if (typeof tgt !== 'number' || !isFinite(tgt) || tgt <= 1) return '';
+        const c = Math.round(cur), t = Math.round(tgt);
+        const pct = Math.max(0, Math.min(100, (c / t) * 100));
+        const manca = Math.max(0, t - c);
+        const cls = o.completato ? ' full' : (manca <= Math.max(1, t * 0.25) ? ' near' : '');
+        const coda = o.completato ? 'fatto' : ('manca ' + manca);
+        return '<div class="bo-prog' + cls + '">' +
+            '<div class="bo-prog-bar"><span style="width:' + pct.toFixed(0) + '%"></span></div>' +
+            '<span class="bo-prog-num">' + c + ' / ' + t + '<em>' + coda + '</em></span>' +
+        '</div>';
+    }
+
+    // Gli id delle province del GRUPPO di un obiettivo, letti dal `hint` (la
+    // lettura macchina che objectives.js espone, la stessa che usa bot.js). Un
+    // hint può avere `region` (un Set), `provinces` (un array) o `province` (una
+    // stringa), e per gli obiettivi combinati (`tutti`) è un array di hint: si
+    // scorrono tutti. Vuoto = niente da mostrare sulla mappa (oro, Popolarità…).
+    function objRegionIds(hint) {
+        const out = [];
+        const walk = (h) => {
+            if (!h) return;
+            if (Array.isArray(h)) { h.forEach(walk); return; }
+            if (h.region && h.region.forEach) h.region.forEach(id => out.push(id));
+            if (Array.isArray(h.provinces)) h.provinces.forEach(id => out.push(id));
+            if (typeof h.province === 'string') out.push(h.province);
+        };
+        walk(hint);
+        return out.filter((id, i) => out.indexOf(id) === i);
+    }
+
     function renderObjectives(player) {
         const box = $('bp-objectives');
         if (!box) return;
         const data = R.objectivesFor ? R.objectivesFor(player) : null;
         if (!data) { box.innerHTML = ''; box.style.display = 'none'; return; }
         box.style.display = '';
-        const rows = data.items.map(o => `
+        const rows = data.items.map(o => {
+            const ids = objRegionIds(o.hint);
+            const mapBtn = (ids.length && R.spotlightObjective)
+                ? `<button type="button" class="bo-map" data-ids="${ids.join(',')}"
+                        title="Chiude il foglio e accende sulla mappa le province di questo obiettivo">🔍 Vedi sulla mappa</button>`
+                : '';
+            return `
             <div class="bo-item${o.completato ? ' done' : ''}">
                 <span class="bo-medal ${medalClass(o.punti)}">${o.punti}</span>
                 <div class="bo-body">
                     <div class="bo-top"><span class="bo-chip t-${o.tipo}">${o.tier}</span><span class="bo-title">${o.titolo}</span></div>
                     <div class="bo-desc">${o.descrizione}</div>
                     <div class="bo-check"><span class="bo-mark">${o.completato ? '✓' : '○'}</span> ${o.check}</div>
+                    ${objProgress(o)}
+                    ${mapBtn}
                 </div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
         const totale = player.puntiPrestigio || 0;
         // LA LEVA (§10, regola dell'utente): quel che gli obiettivi già compiuti
         // varranno in UOMINI a inizio del ciclo prossimo. È la ricompensa che si
@@ -1441,10 +1512,13 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'schiera':
                 actions.appendChild(deployGroup(player, path));
                 break;
-            case 'costruisci':
+            case 'costruisci': {
                 actions.appendChild(buildGroup(player, path, connectedSet));
                 actions.appendChild(roadGroup(player, path));
+                const demolizione = demolitionGroup(player, path);
+                if (demolizione) actions.appendChild(demolizione);
                 break;
+            }
             case 'attacca':
                 actions.appendChild(attackGroup(player, path));
                 maybeAppendExpeditions(player, actions);
@@ -1639,6 +1713,17 @@ document.addEventListener('DOMContentLoaded', () => {
         g.insertAdjacentHTML('beforeend',
             '<div class="bp-army"><span class="bp-army-n">' + soldiersHere + '</span>' +
             '<span class="bp-army-l">soldati spendibili qui · uno resta sempre a presidiare</span></div>');
+        // FESTA (§Felicità): se questo turno c'è uno sconto o un bonus attivo lo
+        // si dice qui, in testa alle tessere — altrimenti i gettoni scontati
+        // sembrerebbero un errore di conto invece che un privilegio guadagnato.
+        if ((player.festaRisorse || []).length || player.festaCostruzioneBonus > 0) {
+            const nomiRisorse = (player.festaRisorse || []).map(k => GR().RES_LABEL[k] || k);
+            const pezzi = [];
+            if (nomiRisorse.length) pezzi.push('sconto di 1 su ' + nomiRisorse.join(' e '));
+            if (player.festaCostruzioneBonus > 0) pezzi.push('+' + player.festaCostruzioneBonus + ' monete a ogni costruzione pagata');
+            g.insertAdjacentHTML('beforeend',
+                '<div class="bp-empty-hint bp-festa">🎭 Festa di quest\'anno: ' + pezzi.join(', ') + '.</div>');
+        }
 
         const grid = tileGrid();
 
@@ -1649,7 +1734,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const capPath = R.getCapitalPathFor(player);
         GR().BUILDABLE_ON_PROVINCE.forEach(type => {
             if (type === 'capitale' && capPath) return;   // ne ha già una → niente voce
-            const cost = GR().COSTS[type];
+            const cost = GR().costFor(type, player);   // §Felicità: sconto della Festa, se attiva
 
             const place = R.engine.canPlacePiece(path, type);
             const max = (typeof PIECES !== 'undefined' && PIECES[type] && PIECES[type].max) || 1;
@@ -1695,7 +1780,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // lo diceva un suffisso nell'etichetta; ora lo dicono il bollino sulla
         // tessera (⚔ ventura, ⚑ rinforzo) e il tooltip, che porta già l'effetto.
         GR().RECRUITABLE.forEach(type => {
-            const cost = GR().COSTS[type];
+            const cost = GR().costFor(type, player);   // §Felicità: sconto della Festa, se attiva
             const afford = GR().canAfford(player, cost, soldiersHere);
             grid.appendChild(buildTile(player, type, cost,
                 afford.ok ? null : GR().missingText(afford.missing),
@@ -1708,6 +1793,34 @@ document.addEventListener('DOMContentLoaded', () => {
             g.insertAdjacentHTML('beforeend',
                 '<div class="bp-empty-hint">Questa provincia non è collegata alla Capitale: non produce risorse finché non ci arriva una strada.</div>');
         }
+        return g;
+    }
+
+    // DEMOLIZIONE (regola dell'utente): giustifica prendere una provincia con un
+    // Mercato o una Nave che già hai — invece di restare un insediamento morto
+    // (duplicato, §Mercato), si demolisce e si recupera QUALCOSA: mai il pieno
+    // valore, o conquistare varrebbe più che costruire da zero.
+    //   Mercato → 2 uomini + 100 monete.  Nave → 1 uomo + 1 Legno.
+    // SOLO la Nave (barca): il Vascello (4000 monete, rotte lunghe §9.2) non si
+    // demolisce — recuperarne un decimo svaluterebbe l'investimento (regola
+    // dell'utente).
+    // Un bottone semplice (`actionButton`, lo stesso di "Schiera"/"Ritira"), non
+    // una tessera-icona: qui non c'è niente da confrontare o da tenere d'occhio
+    // per affordabilità, solo un'azione da un click.
+    function demolitionGroup(player, path) {
+        const mercato = R.countPiece(path, 'mercato') > 0;
+        const navi = R.engine.ships(path).filter(s => s.tipo === 'barca');
+        if (!mercato && !navi.length) return null;
+
+        const g = group('Demolisci');
+        if (mercato) {
+            g.appendChild(actionButton('🔨 Demolisci il Mercato', '+2 uomini, +100 monete', null,
+                () => run(GA().destroyMarket(player, path.id))));
+        }
+        navi.forEach(s => {
+            g.appendChild(actionButton('🔨 Demolisci la Nave', '+1 uomo, +1 Legno', null,
+                () => run(GA().destroyShip(player, path.id, s.tipo))));
+        });
         return g;
     }
 
@@ -1756,6 +1869,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         g.appendChild(grid);
         return g;
+    }
+
+    // Quanti scafi di un tipo sono ancorati in questa provincia. Serve al tetto di
+    // carico combinato (§9.2): due navi imbarcano il doppio (regola dell'utente).
+    function vesselCount(path, tipo) {
+        if (!path || !tipo) return 0;
+        return R.engine.ships(path).filter(h => h.tipo === tipo).length;
     }
 
     function attackGroup(player, path) {
@@ -1833,11 +1953,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return g;
         }
 
-        // Quanti uomini partono: con una nave il tetto è il suo carico, non
-        // l'esercito. Serve sia all'elenco dei bersagli sia a quello degli
-        // alleati, quindi si dichiara prima di tutti e due.
+        // Quanti uomini partono: con le navi il tetto è il carico COMBINATO di
+        // tutti gli scafi di quel tipo ancorati qui (§9.2, regola dell'utente: due
+        // navi imbarcano il doppio), non l'esercito. Serve sia all'elenco dei
+        // bersagli sia a quello degli alleati, quindi si dichiara prima di tutti e due.
+        const nScafi = vesselCount(path, attackVessel);
         const tetto = attackVessel
-            ? Math.min(partenti, R.engine.shipCapacity(attackVessel))
+            ? Math.min(partenti, R.engine.shipCapacity(attackVessel) * nScafi)
             : partenti;
         const input = document.createElement('input');
         const engagedFor = () => Math.max(0, Math.min(parseInt(input.value, 10) || 0, tetto));
@@ -1898,7 +2020,9 @@ document.addEventListener('DOMContentLoaded', () => {
             : 'Truppe impegnate (ne resta almeno 1 a presidiare)';
         row.appendChild(input);
         row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">' + (attackVessel
-            ? 'a bordo · la nave ne porta ' + R.engine.shipCapacity(attackVessel) +
+            ? (nScafi > 1
+                ? 'a bordo · le tue ' + nScafi + ' navi portano fino a ' + (R.engine.shipCapacity(attackVessel) * nScafi)
+                : 'a bordo · la nave ne porta ' + R.engine.shipCapacity(attackVessel)) +
               ', in provincia ne possono partire ' + partenti
             : 'di ' + partenti + ' che possono partire') + '</span>');
         body.appendChild(row);
@@ -2112,10 +2236,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // Uno sbarco si paga di più di un attacco: parte anche la nave, e non
         // c'è modo di richiamarla indietro (§9.2). Va detto qui, prima della
         // carica, non scoperto nel rapporto dopo.
+        // Quanti scafi salpano davvero: quelli che servono a portare `n` uomini
+        // (⌈n/carico⌉), lo stesso conto del motore. Va detto, perché condividono
+        // tutti la sorte dell'assalto (§9.2): perdere lo sbarco le perde tutte.
+        const navi = t.viaMare && attackVessel
+            ? Math.max(1, Math.ceil(n / R.engine.shipCapacity(attackVessel)))
+            : 0;
         const testoSbarco = t.viaMare
-            ? ' Parte anche la ' + (attackVessel === 'vascello' ? 'nave da guerra' : 'nave') +
-              ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
-              'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ' +
+            ? (navi > 1
+                ? ' Partono ' + navi + ' navi: approdano comunque vada. Vinci e restano ancorate sulla costa presa; ' +
+                  'perdi e finiscono in mano al difensore, con tutti gli uomini a bordo. '
+                : ' Parte anche la ' + (attackVessel === 'vascello' ? 'nave da guerra' : 'nave') +
+                  ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
+                  'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ') +
               'Uno sbarco non si può fermare a metà.'
             : ' Le truppe impegnate lasciano ' + R.provinceLabel(path) +
               ' comunque vada: se vinci deciderai quante restano nella provincia presa ' +
@@ -2164,6 +2297,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 'Non consuma lo spostamento di fine turno.',
             ok: '🛡 Marcia in aiuto'
         }, () => { closeOrder(); run(GA().sendReinforcements(player, path.id, t.id, n)); });
+    }
+
+    // La conferma dello SPOSTAMENTO, gemella di askAttack: la chiamano sia i
+    // bottoni dell'elenco sia il cursore d'ordine sulla mappa, e il giocatore deve
+    // leggere le stesse parole comunque ci arrivi. Le due cose che non può dedurre
+    // stanno qui: che i soldati mandati a un ALLEATO diventano suoi, e che in un
+    // porto alleato la nave non ci resta.
+    function askMove(player, path, t, n, prima) {
+        const navale = t.viaMare;
+        const testoNave = !navale ? ''
+            : t.alleato
+                ? ' La nave ' + (n === 1 ? 'lo' : 'li') + ' sbarca nel porto alleato e rientra a ' + R.provinceLabel(path) +
+                  ': ancorarla là la regalerebbe.'
+                : ' La nave li accompagna e resta ancorata lì.';
+        const testoAlleato = t.alleato
+            ? (n === 1 ? ' Da adesso quel soldato è di ' : ' Da adesso quei soldati sono di ') +
+              (t.owner || 'chi governa lì') + ': un rinforzo si dona, non si presta.'
+            : '';
+        R.confirm({
+            title: (t.alleato ? 'Mandare rinforzi a ' : navale ? 'Rinforzare via nave ' : 'Spostare a ') +
+                t.label + '?',
+            text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
+                (navale ? (n === 1 ? ' e s\'imbarca' : ' e s\'imbarcano') : '') +
+                ' per ' + t.label + '.' + testoAlleato + testoNave +
+                ' È l\'unico spostamento del turno: dopo non se ne fanno altri.',
+            ok: navale ? '⚓ Imbarca' : t.alleato ? '🛡 Invia' : '➜ Sposta'
+        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, n)); });
     }
 
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
@@ -2443,17 +2603,11 @@ document.addEventListener('DOMContentLoaded', () => {
         targets.forEach(t => {
             // Via nave il carico è un secondo tetto oltre al presidio (§9.2).
             const tetto = t.viaMare ? Math.min(mobili, R.engine.shipCapacity(t.scafo)) : mobili;
-            const nota = t.troops + ' già lì' + (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '');
-            body.appendChild(actionButton((t.viaMare ? '⚓ ' : '→ ') + t.label, nota, null, () => {
-                const n = Math.min(parseInt(input.value, 10) || 0, tetto);
-                R.confirm({
-                    title: (t.viaMare ? 'Rinforzare via nave ' : 'Spostare a ') + t.label + '?',
-                    text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
-                        (t.viaMare ? ' e s\'imbarca' : '') + ' per ' + t.label + '. ' +
-                        (t.viaMare ? 'La nave li accompagna e resta ancorata lì. ' : '') +
-                        'È l\'unico spostamento del turno: dopo non se ne fanno altri.',
-                    ok: t.viaMare ? '⚓ Imbarca' : 'Sposta'
-                }, () => run(GA().finalMove(player, path.id, t.id, n)));
+            const nota = t.troops + ' già lì' + (t.alleato ? ' · 🛡 ' + (t.owner || 'alleato') : '') +
+                (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '');
+            const ico = t.viaMare ? '⚓ ' : t.alleato ? '🛡 ' : '→ ';
+            body.appendChild(actionButton(ico + t.label, nota, null, () => {
+                askMove(player, path, t, Math.min(parseInt(input.value, 10) || 0, tetto));
             }));
         });
     }
@@ -3129,7 +3283,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function orderMax(kind, path, target) {
         const partenti = spareOf(path);
         if (kind === 'attacca' && target.viaMare && attackVessel) {
-            return Math.min(partenti, R.engine.shipCapacity(attackVessel));
+            // Carico combinato di tutti gli scafi di quel tipo (§9.2): due navi il doppio.
+            return Math.min(partenti, R.engine.shipCapacity(attackVessel) * vesselCount(path, attackVessel));
         }
         // Rinforzo navale (§9.2): il carico della nave che ci arriva è il secondo
         // tetto. Si usa lo scafo più capiente della meta, che è quello mostrato.
@@ -3217,6 +3372,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attacco = order.kind === 'attacca';
         const sbarco = attacco && t.viaMare;
         const navale = !attacco && t.viaMare;      // rinforzo via nave (§9.2)
+        const dono = !attacco && t.alleato;        // rinforzo a un alleato: diventano suoi
         const terr = terrainTag(t.terreno);
 
         // ALLEATO A TIRO (§Diplomazia, regola dell'utente): su una provincia di
@@ -3231,7 +3387,7 @@ document.addEventListener('DOMContentLoaded', () => {
         orderHud.className = 'moh ' + (attacco ? 'atk' : 'mov');
         orderHud.innerHTML =
             '<div class="moh-head"><span class="moh-ico">' +
-                (sbarco || navale ? '⚓' : attacco ? '⚔' : '➜') + '</span>' +
+                (sbarco || navale ? '⚓' : attacco ? '⚔' : dono ? '🛡' : '➜') + '</span>' +
                 '<span class="moh-name"></span></div>' +
             '<div class="moh-sub"></div>' +
             '<div class="moh-ctl">' +
@@ -3249,7 +3405,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<button type="button" class="moh-no">✕' + (aiuto ? '' : ' Lascia stare') + '</button>' +
                 '<button type="button" class="moh-go' + (tradisce ? ' betray' : '') + '">' +
                     (sbarco ? '⚓ Sbarca' : attacco ? (tradisce ? '⚔ Tradisci' : '⚔ Carica')
-                        : navale ? '⚓ Imbarca' : '➜ Sposta') + '</button>' +
+                        : navale ? '⚓ Imbarca' : dono ? '🛡 Invia' : '➜ Sposta') + '</button>' +
             '</div>';
 
         orderHud.querySelector('.moh-name').textContent = t.label;
@@ -3258,7 +3414,8 @@ document.addEventListener('DOMContentLoaded', () => {
               (t.fort ? ' +' + t.fort + ' mura' : '') +
               (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '') +
               (aiuto ? ' · alleato' : t.consenso ? ' · consenso concesso' : tradisce ? ' · patto in essere' : '')
-            : t.troops + ' già lì · da ' + R.provinceLabel(path) + (navale ? ' · via nave' : '');
+            : t.troops + ' già lì · da ' + R.provinceLabel(path) + (navale ? ' · via nave' : '') +
+              (dono ? ' · in aiuto di ' + (t.owner || 'un alleato') : '');
 
         const range = orderHud.querySelector('.moh-range');
         range.addEventListener('input', () => {
@@ -3311,16 +3468,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = order.target;
         const n = order.n;
         if (order.kind === 'sposta') {
-            const to = t.id;
-            const navale = t.viaMare;
-            R.confirm({
-                title: (navale ? 'Rinforzare via nave ' : 'Spostare a ') + t.label + '?',
-                text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
-                    (navale ? ' e s\'imbarca' : '') + ' per ' + t.label + '. ' +
-                    (navale ? 'La nave li accompagna e resta ancorata lì. ' : '') +
-                    'È l\'unico spostamento del turno: dopo non se ne fanno altri.',
-                ok: navale ? '⚓ Imbarca' : '➜ Sposta'
-            }, () => { closeOrder(); run(GA().finalMove(player, path.id, to, n)); });
+            askMove(player, path, t, n, closeOrder);
             return;
         }
         askAttack(player, path, t, n);
@@ -3476,6 +3624,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}${terreno}</div>
             </div>
             ${mercLine(L)}
+            ${L.bottino ? '<div class="bb-loot">🪙 Bottino di conquista: +' + L.bottino + ' monete</div>' : ''}
             ${L.conversione ? '<div class="bb-faith">☩ La provincia si converte: ora è ' +
                 L.conversione.label + '</div>' : ''}`;
 
@@ -3503,13 +3652,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!box) return;
         if (!costsOpen) { box.innerHTML = ''; return; }
 
-        // La legenda si genera da GameRules.COSTS: costi e testo non possono
+        // La legenda si genera da GameRules.COSTS (scontata dalla Festa
+        // §Felicità come GameActions.costFor): costi e testo non possono
         // divergere da quelli che la validazione applica davvero.
         const path = selectedProvId ? R.engine.path(selectedProvId) : null;
         const soldiersHere = path ? spareOf(path) : 0;
 
         box.innerHTML = Object.keys(GR().COSTS).map(type => {
-            const cost = GR().COSTS[type];
+            const cost = GR().costFor(type, player);
             const afford = GR().canAfford(player, cost, soldiersHere);
             const stato = afford.ok
                 ? '<div class="bp-legend-state ok">Puoi permettertelo</div>'
@@ -4384,32 +4534,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- schieramento automatico dei rinforzi obbligatori ----------
     // (richiesta dell'utente) I rinforzi OBBLIGATORI (Capitale +1, Città +1,
-    // Fortezza +5) hanno una destinazione sola: non c'è niente da decidere.
-    // A inizio turno un pop-up centrale li piazza TUTTI con un click, senza
-    // doverli cercare nel pannello. Una volta per turno: chi dice "li dispongo
-    // io" non viene più interrotto.
-    let deployPromptShownFor = null;
+    // Fortezza +5) hanno una destinazione sola: non c'è niente da decidere, e
+    // nemmeno da confermare. A inizio turno si posano TUTTI da soli, senza
+    // pop-up né avviso: il giocatore se li ritrova già al loro posto. Una
+    // volta per turno.
+    let boundDeployedFor = null;
 
-    function showDeployPrompt(player) {
+    function autoDeployBound(player) {
         if (!isPlaying(player) || !inPhase(player, 'schiera')) return;
-        const tot = GA().boundTotal(player);
-        if (!tot) return;
+        if (!GA().boundTotal(player)) return;
         const key = player.id + '@' + R.turn();
-        if (deployPromptShownFor === key) return;
-        // Una modale per volta: se una pergamena (editto, mare, commercio) o
-        // un'altra conferma è aperta, si riprova al render dopo — non si segna
-        // come mostrata, così non va perduta.
-        if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) return;
-
-        deployPromptShownFor = key;
-        R.confirm({
-            title: 'Rinforzi di corte',
-            text: tot + (tot === 1 ? ' rinforzo obbligatorio è pronto' : ' rinforzi obbligatori sono pronti') +
-                ': +1 in ogni Città e Capitale, +5 in ogni Fortezza. Ognuno va solo nel suo edificio — ' +
-                'li schiero tutti adesso?',
-            ok: 'Schiera tutti (' + tot + ')',
-            cancel: 'Li dispongo io'
-        }, () => run(GA().deployAllBound(player)));
+        if (boundDeployedFor === key) return;
+        boundDeployedFor = key;
+        run(GA().deployAllBound(player));
     }
 
     function render() {
@@ -4418,6 +4555,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (followTurn()) return;
         const player = currentPlayer();
         if (!player) return;
+
+        // Turno nuovo: si riparte senza selezione ereditata. In partita normale
+        // (un solo umano) enterKingdom non viene richiamato a ogni turno, quindi
+        // la provincia scelta nell'ultima fase del turno prima resterebbe
+        // selezionata — e il cursore di schieramento comparirebbe subito su di
+        // essa. (richiesta dell'utente) In schieramento si deve prima cliccare
+        // una provincia. Una volta per turno del regno.
+        const turnKey = player.id + '@' + R.turn();
+        if (turnKey !== lastTurnKey) {
+            lastTurnKey = turnKey;
+            selectedProvId = null;
+            moveArmed = false;
+        }
 
         const paths = R.ownedPaths(player.name);
         const snapshot = snapshotProvinces(player);
@@ -4488,8 +4638,9 @@ document.addEventListener('DOMContentLoaded', () => {
         showPendingPactProposals(player);
         showPendingWelfare(player);
         showPendingLeva(player);
+        showPendingCronache(player);
         showConquestPrompt(player);
-        showDeployPrompt(player);
+        autoDeployBound(player);
     }
 
     // ---------- manutenzione delle migliorie civiche (§6.1) ----------
@@ -4582,6 +4733,66 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ---------- cronache storiche (js/chronicles.js) ----------
+    // Le VIGNETTE del regno: quando la situazione tocca una soglia evocativa (la
+    // marina inglese col primo Veliero, il feudo di Francia, i cavalieri teutonici
+    // con la prima Fortezza), si srotola una pergamena di colore. Nessun effetto
+    // sulla mappa — è racconto. La logica di scelta e di rarità sta in chronicles.js
+    // (puro): qui costruiamo la situazione con Risiko.objectiveContext — lo stesso
+    // metro degli obiettivi — e teniamo i libri mastri sul record del giocatore.
+    //
+    // È l'ULTIMA della catena di pergamene e cede a tutte le altre (una pergamena
+    // per volta, #ui-foundation): un evento storico, un editto, la leva contano di
+    // più di un colore di cronaca. La rarità (COOLDOWN in chronicles.js) fa il
+    // resto: fra una cronaca e l'altra passano decenni.
+    function showPendingCronache(player) {
+        if (!R.showFoundation || !window.Chronicles || !window.Chronicles.pick) return;
+        if (!isPlaying(player)) return;
+        // Cede a ogni altra pergamena in coda: la cronaca è la meno urgente.
+        if ((player.eventiAvvisi || []).some(a => !a.letto)) return;
+        if ((player.editti || []).some(e => !e.letto)) return;
+        if ((player.spedizioniAvvisi || []).some(a => !a.letto)) return;
+        if ((player.commerciAvvisi || []).some(a => !a.letto)) return;
+        if ((player.pattiAvvisi || []).some(a => !a.letto)) return;
+        if ((player.welfareAvvisi || []).some(a => !a.letto)) return;
+        if ((player.obiettiviAvvisi || []).some(a => !a.letto)) return;
+
+        const turno = R.turn();
+        // Una cronaca per turno al massimo, e mai dentro la finestra di silenzio.
+        if (player.cronacaUltima === turno) return;
+        const COOLDOWN = window.Chronicles.COOLDOWN || 5;
+        if (player.cronacaUltima && (turno - player.cronacaUltima) < COOLDOWN) return;
+        // Già valutato il catalogo per questo regno in questo turno: niente da dire.
+        if (chronicleCheckedAt[player.id] === turno) return;
+        chronicleCheckedAt[player.id] = turno;
+
+        const c = R.objectiveContext && R.objectiveContext(player);
+        if (!c) return;
+        const wronged = Array.isArray(player.rancore) && player.rancore.length > 0;
+        const pick = window.Chronicles.pick({
+            nome: player.name, turno, c, wronged,
+            fatti: player.cronacheFatte || [],
+            since: player.cronacaUltima ? (turno - player.cronacaUltima) : Infinity
+        });
+        if (!pick) return;
+
+        player.cronacheFatte = (player.cronacheFatte || []).concat(pick.id);
+        player.cronacaUltima = turno;
+        R.save();
+
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(turno) : turno;
+        R.showFoundation({
+            tipo: 'cronaca',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: pick.titolo,
+            testo: pick.testo,
+            nota: pick.nota
+        });
+    }
+
     // ---------- selezione dalla mappa ----------
 
     // Un clic sulla mappa è una SELEZIONE o un ORDINE, e a deciderlo è la
@@ -4591,6 +4802,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', (e) => {
         const path = e.target.closest && e.target.closest('path.state');
         if (!path) return;
+        // Tornato a toccare la mappa, lo spotlight di un obiettivo ha finito il
+        // suo compito: si spegne, così non resta acceso a intralciare.
+        if (R.clearObjectiveSpot) R.clearObjectiveSpot();
         if (orderTargets.has(path.id)) { openOrder(path.id); return; }
         closeOrder();
         // Fase di spostamento: questo clic è la PARTENZA (le mete sono già
