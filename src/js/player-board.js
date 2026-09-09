@@ -66,6 +66,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // provincia scelta nel riquadro "concedi attacco", per partner.
     const diploUI = { verso: null, tipo: 'alleanza', consenso: {} };
 
+    // CHAT fra i giocatori (proposta dell'utente): rende viva l'attesa fra i turni.
+    // I messaggi arrivano dal canale `chat` di sync.js e vivono qui; il trasporto
+    // NON è stato di gioco (come la presenza). `chatChannel` è il canale aperto:
+    // 'all' = tutti, 'priv:<idRegno>' = filo privato con un regno (foglio 🕊 /
+    // scorciatoia dalla scheda del regno). `chatSeen` ricorda l'ultimo messaggio
+    // letto per canale, così il pallino sul dock conta solo il non letto — sta nel
+    // localStorage del browser (è una comodità di chi guarda, non stato di partita).
+    let chatMessages = [];
+    let chatChannel = 'all';
+    let chatSeen = {};
+    try { chatSeen = JSON.parse(localStorage.getItem('risiko_chat_seen') || '{}') || {}; } catch (e) { chatSeen = {}; }
+    // Voci dei bot: al più una battuta per turno di bot, per non intasare la chat.
+    let botChatTurn = -1;
+
     // ============================================================
     // LA SCENA: mappa piena, il turno agganciato, i fogli sopra
     //
@@ -148,7 +162,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // accendono passando sopra una scheda), quindi le lascia una
             // striscia scoperta e non oscura il fondo — vedi .sheet-diplo in
             // board.css. Gli altri fogli restano a tutta visuale.
-            sheetsEl.classList.toggle('peek', openSheet === 'diplomazia');
+            // Diplomazia e chat non coprono la mappa: la prima parla con la mappa,
+            // la seconda si legge guardando i bot giocare durante l'attesa.
+            sheetsEl.classList.toggle('peek', openSheet === 'diplomazia' || openSheet === 'chat');
         }
         syncDock();
         // Un foglio che si apre non deve mostrare i numeri di dieci turni fa:
@@ -197,6 +213,39 @@ document.addEventListener('DOMContentLoaded', () => {
         if (costsOpen) { showCosts(false); return; }
         if (openSheet) showSheet(null);
     });
+
+    // ---------- chat: sottoscrizione e invio ----------
+    // Il canale `chat` (sync.js) ri-emette l'ultimo elenco a chi si iscrive dopo la
+    // prima consegna: un nuovo messaggio ridipinge subito la chat, anche a metà
+    // attesa fra i turni, senza passare da un refresh dello stato di gioco.
+    if (window.MultiplayerSync && MultiplayerSync.onChatChange) {
+        MultiplayerSync.onChatChange(msgs => {
+            chatMessages = Array.isArray(msgs) ? msgs : [];
+            const p = currentPlayer();
+            if (p) renderChat(p);
+        });
+    }
+
+    // La barra dei canali si ridisegna a ogni render: la delega sta sul contenitore
+    // fisso, che resta.
+    if ($('chat-channels')) {
+        $('chat-channels').addEventListener('click', (e) => {
+            const b = e.target.closest && e.target.closest('.chat-chan');
+            if (!b) return;
+            chatChannel = b.dataset.chan || 'all';
+            const p = currentPlayer();
+            if (p) renderChat(p);
+            const inp = $('chat-input');
+            if (inp) inp.focus();
+        });
+    }
+
+    if ($('chat-form')) {
+        $('chat-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            sendChatMessage();
+        });
+    }
 
     // ---------- stato di partenza: SOLO LA MAPPA (richiesta dell'utente) ----------
     // Si apre sulla mappa piena col dock dei pulsanti: niente pannelli addosso.
@@ -4136,6 +4185,19 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             acts.appendChild(look);
         }
+
+        // Filo privato con questo regno (proposta dell'utente: la chat privata sta
+        // in diplomazia). Solo coi regni governati da una PERSONA: un bot non
+        // risponde in privato. Apre il foglio 💬 sul suo canale.
+        if (!altro.bot) {
+            const chat = document.createElement('button');
+            chat.type = 'button'; chat.className = 'rel-chat';
+            chat.textContent = '💬 Messaggio privato';
+            chat.title = 'Apri la chat sul filo riservato con ' + altro.name;
+            chat.addEventListener('click', () => openChatWith(altro));
+            acts.appendChild(chat);
+        }
+
         card.appendChild(acts);
 
         return card;
@@ -4168,6 +4230,236 @@ document.addEventListener('DOMContentLoaded', () => {
             }, () => run(GA().breakPact(player, altro.id, pact.tipo, {})));
         });
         return b;
+    }
+
+    // ============================================================
+    // 💬 CHAT fra i giocatori (proposta dell'utente)
+    //
+    // Un canale di TUTTI e un filo PRIVATO per regno, per rendere viva l'attesa
+    // fra i turni. Il trasporto è la collezione `chat` di sync.js (non è stato di
+    // gioco, come la presenza): ogni player scrive dal proprio browser. Le voci
+    // dei bot arrivano dallo stesso canale (le scrive il browser dell'admin che
+    // muove i bot), marcate come battute d'atmosfera — e mai col nome di una
+    // provincia, per non far trapelare la nebbia.
+    //
+    // L'instradamento è per NOME di regno: un messaggio privato porta `to` (il
+    // destinatario) accanto a `regno` (il mittente); il filo fra me e X sono i
+    // messaggi in cui uno dei due è `regno` e l'altro `to`.
+    // ============================================================
+
+    function chatVisibleTo(m, me) {
+        // Un messaggio globale (senza `to`) lo vedono tutti; un privato solo i due
+        // capi del filo.
+        return !m.to || m.to === me.name || m.regno === me.name;
+    }
+    function chatChannelOf(m, me) {
+        if (!m.to) return 'all';
+        return 'priv:' + (m.regno === me.name ? m.to : m.regno);
+    }
+    function channelKingdom(key) {
+        if (!key || key.indexOf('priv:') !== 0) return null;
+        const name = key.slice(5);
+        return R.players().find(p => p.name === name) || null;
+    }
+    function chatTime(ts) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        const p = n => String(n).padStart(2, '0');
+        return p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    // I canali: Tutti + un filo privato per ogni regno VISIBILE governato da una
+    // persona (coi bot non si chatta in privato — non rispondono). Il canale
+    // aperto resta in elenco anche se il regno è uscito di vista, per rileggerne
+    // lo storico.
+    function chatChannels(me) {
+        const chans = [{ key: 'all', label: '🌍 Tutti', color: null }];
+        diploKingdomsVisibili(me).forEach(p => {
+            if (window.Bot && window.Bot.isBot(p)) return;
+            chans.push({ key: 'priv:' + p.name, label: p.name, color: p.color });
+        });
+        if (chatChannel !== 'all' && !chans.some(c => c.key === chatChannel)) {
+            const k = channelKingdom(chatChannel);
+            if (k) chans.push({ key: chatChannel, label: k.name, color: k.color });
+        }
+        return chans;
+    }
+
+    function chatUnread(me) {
+        const map = {};
+        let total = 0;
+        chatMessages.forEach(m => {
+            if (!chatVisibleTo(m, me) || m.regno === me.name) return;   // i miei non contano
+            const key = chatChannelOf(m, me);
+            if ((m.ts || 0) > (chatSeen[key] || 0)) { map[key] = (map[key] || 0) + 1; total++; }
+        });
+        return { map, total };
+    }
+
+    function updateChatBadge(me) {
+        const badge = $('dock-badge-chat');
+        if (!badge) return;
+        const total = me ? chatUnread(me).total : 0;
+        badge.textContent = total;
+        badge.style.display = total ? '' : 'none';
+    }
+
+    function markChatSeen(channel, me) {
+        let latest = 0;
+        chatMessages.forEach(m => {
+            if (chatVisibleTo(m, me) && chatChannelOf(m, me) === channel) latest = Math.max(latest, m.ts || 0);
+        });
+        if (latest > (chatSeen[channel] || 0)) {
+            chatSeen[channel] = latest;
+            try { localStorage.setItem('risiko_chat_seen', JSON.stringify(chatSeen)); } catch (e) { /* privato */ }
+        }
+    }
+
+    function renderChat(me) {
+        if (!me) return;
+        // Il pallino sul dock si aggiorna SEMPRE, anche a foglio chiuso: è l'unico
+        // richiamo quando la chat è nascosta.
+        updateChatBadge(me);
+        if (openSheet !== 'chat') return;
+
+        const { map: unreadByChan } = chatUnread(me);
+        const chans = chatChannels(me);
+        if (!chans.some(c => c.key === chatChannel)) chatChannel = 'all';
+
+        // --- barra dei canali ---
+        const cbox = $('chat-channels');
+        if (cbox) {
+            cbox.innerHTML = chans.map(c => {
+                const n = (c.key !== chatChannel) ? (unreadByChan[c.key] || 0) : 0;
+                return '<button type="button" class="chat-chan' + (c.key === chatChannel ? ' on' : '') +
+                    '" data-chan="' + c.key + '">' +
+                    (c.color ? '<span class="chat-chan-dot" style="background:' + c.color + '"></span>' : '') +
+                    '<span class="chat-chan-lab"></span>' +
+                    (n ? '<span class="chat-chan-badge">' + n + '</span>' : '') +
+                    '</button>';
+            }).join('');
+            const labs = cbox.querySelectorAll('.chat-chan-lab');
+            chans.forEach((c, i) => { if (labs[i]) labs[i].textContent = c.label; });
+        }
+
+        // --- messaggi del canale aperto ---
+        const log = $('chat-log');
+        if (log) {
+            const msgs = chatMessages.filter(m => chatVisibleTo(m, me) && chatChannelOf(m, me) === chatChannel);
+            if (!msgs.length) {
+                log.innerHTML = '<div class="chat-empty">' +
+                    (chatChannel === 'all'
+                        ? 'Ancora nessun messaggio. Rompi il ghiaccio: gli altri regni ti leggono.'
+                        : 'Nessun messaggio privato con questo regno.') + '</div>';
+            } else {
+                log.innerHTML = msgs.map(m => {
+                    const cls = 'chat-msg' + (m.regno === me.name ? ' mine' : '') + (m.bot ? ' bot' : '');
+                    const priv = m.to ? '<span class="chat-priv">🔒</span>' : '';
+                    return '<div class="' + cls + '">' +
+                        '<div class="chat-meta">' +
+                        '<span class="chat-dot" style="background:' + (m.colore || '#888') + '"></span>' +
+                        '<span class="chat-who"></span>' + priv +
+                        '<span class="chat-when">' + chatTime(m.ts) + '</span>' +
+                        '</div><div class="chat-bubble"></div></div>';
+                }).join('');
+                // testo e nomi via textContent: arrivano dai dati, non si concatenano.
+                const whos = log.querySelectorAll('.chat-who');
+                const bubs = log.querySelectorAll('.chat-bubble');
+                msgs.forEach((m, i) => {
+                    if (whos[i]) whos[i].textContent = m.regno || '—';
+                    if (bubs[i]) bubs[i].textContent = m.testo || '';
+                });
+                log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        // --- riga d'invio ---
+        const inp = $('chat-input');
+        const send = $('chat-send');
+        const canWrite = !!(window.MultiplayerSync && MultiplayerSync.sendChat);
+        if (inp) {
+            inp.disabled = !canWrite;
+            const k = channelKingdom(chatChannel);
+            inp.placeholder = chatChannel === 'all'
+                ? 'Scrivi a tutti…'
+                : ('Messaggio privato a ' + (k ? k.name : '—') + '…');
+        }
+        if (send) send.disabled = !canWrite;
+
+        // Aperto il canale, i suoi messaggi sono letti: si segna e si ridipinge il
+        // pallino del dock (che avevamo calcolato PRIMA di marcare letto).
+        markChatSeen(chatChannel, me);
+        updateChatBadge(me);
+    }
+
+    function sendChatMessage() {
+        const inp = $('chat-input');
+        const me = currentPlayer();
+        if (!inp || !me) return;
+        const text = (inp.value || '').trim();
+        if (!text) return;
+        if (!window.MultiplayerSync || !MultiplayerSync.sendChat) {
+            showNotice('Chat non disponibile: Firebase non è configurato.');
+            return;
+        }
+        const msg = { testo: text.slice(0, 500), regno: me.name, colore: me.color, aid: me.id, turno: R.turn() };
+        if (chatChannel !== 'all') {
+            const k = channelKingdom(chatChannel);
+            if (k) { msg.to = k.name; msg.toId = k.id; }
+        }
+        MultiplayerSync.sendChat(msg);
+        // Il canale aperto lo consideriamo letto fino ad ora: il proprio messaggio
+        // non deve accendere il pallino a se stessi quando torna dal server.
+        inp.value = '';
+        inp.focus();
+    }
+
+    // Apre la chat sul filo privato con un regno (scorciatoia dalla scheda del
+    // regno nel foglio 🕊). showSheet('chat') fa partire un render che disegna
+    // tutto; se il foglio è già aperto si ridipinge a mano.
+    function openChatWith(kingdom) {
+        if (!kingdom) return;
+        chatChannel = 'priv:' + kingdom.name;
+        if (openSheet !== 'chat') showSheet('chat');
+        else { const p = currentPlayer(); if (p) renderChat(p); }
+        const inp = $('chat-input');
+        if (inp) setTimeout(() => inp.focus(), 0);
+    }
+
+    // Le VOCI DEI BOT: una battuta d'atmosfera quando un regno dell'IA conquista.
+    // La chiama Bot.onEvent, che gira SOLO sul browser che muove i bot (l'admin):
+    // così il messaggio esce una volta sola. Rispetta la nebbia (solo se la
+    // provincia presa è visibile a qualcuno che guarda quel browser) e NON nomina
+    // mai la provincia — è colore, non una fuga di notizie. Al più una per turno di
+    // bot, e non sempre.
+    const BOT_TAUNTS = [
+        'Un altro vessillo cade sotto le nostre insegne.',
+        'Le nostre schiere avanzano. Chi si oppone, cada.',
+        'La corona si allarga. Tremate, vicini.',
+        'Un decennio, una conquista. Così scrive la storia.',
+        'Le nostre lance hanno di nuovo assaggiato il ferro.',
+        'Chi confina con noi farebbe bene a pregare.',
+        'La nostra ambizione non conosce inverno.',
+        'Un regno si piega, e non sarà l\'ultimo.'
+    ];
+    function botChatter(botPlayer, result) {
+        if (!botPlayer || !result || !result.conquistata) return;
+        if (!window.MultiplayerSync || !MultiplayerSync.sendChat) return;
+        // Solo chi muove i bot scrive (evita doppioni fra i browser).
+        if (window.MultiplayerSync.isConfigured && !window.MultiplayerSync.isAdmin) return;
+        // Nebbia: se chi guarda non vede la provincia presa, silenzio.
+        if (result.toId && R.isVisible && !R.isVisible(result.toId) &&
+            (!result.fromId || !R.isVisible(result.fromId))) return;
+        // Una battuta per turno di bot, e non sempre.
+        const key = botPlayer.id + '@' + R.turnoDi();
+        if (botChatTurn === key) return;
+        if (Math.random() > 0.45) return;
+        botChatTurn = key;
+        const line = BOT_TAUNTS[Math.floor(Math.random() * BOT_TAUNTS.length)];
+        MultiplayerSync.sendChat({
+            testo: line, regno: botPlayer.name, colore: botPlayer.color,
+            aid: botPlayer.id, bot: true, turno: R.turn()
+        });
     }
 
     function renderDiplomacy(player) {
@@ -4627,6 +4919,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderMarketPulse(player);
         renderDiplomacy(player);
         renderRelations(player);
+        renderChat(player);
         syncDockBadges(player);
         renderConquest(player);
         renderCapitalChoice(player);
@@ -4863,7 +5156,14 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Bot.onEvent = (evt) => {
             if (!evt) return;
             if (evt.type === 'start') { aiLog(evt.player, null); return; }
-            if (evt.type === 'action') { aiLog(evt.player, evt.result); return; }
+            if (evt.type === 'action') {
+                aiLog(evt.player, evt.result);
+                // Voce del bot in chat: una battuta d'atmosfera sulle conquiste
+                // (dentro botChatter: solo l'admin la scrive, rispetta la nebbia,
+                // non nomina province, al più una per turno).
+                botChatter(evt.player, evt.result);
+                return;
+            }
             // Fine turno di un bot: a giro finito può portare razzie delle terre
             // di nessuno (gli scismi si srotolano da soli in app.js).
             if (evt.type === 'end') { if (evt.result && evt.result.razzie) reportRaids(evt.result.razzie); return; }

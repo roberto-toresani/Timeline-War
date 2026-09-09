@@ -469,6 +469,14 @@
         // spezzare (e i vincoli di conquista di regni che non esistono più).
         if (R().resetReligions) R().resetReligions();
 
+        // La chat fra i giocatori (js/sync.js) si azzera con la partita nuova
+        // (regola dell'utente): non è stato di gioco, ma appartiene alla partita
+        // che si chiude. startGame è il choke point di ogni nuova partita (bottone
+        // dell'editor e "Gioca con l'IA" passano entrambi di qui).
+        if (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.clearChat) {
+            MultiplayerSync.clearChat();
+        }
+
         // Giocano solo i regni che hanno almeno una provincia. L'ordine di turno
         // si sorteggia (Fisher-Yates) a ogni avvio: chi parte non è sempre lo
         // stesso regno (regola dell'utente).

@@ -32,5 +32,16 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Chat fra i giocatori (un documento per messaggio): come la presenza, NON e'
+    // stato di gioco autorevole, serve solo a farli chiacchierare durante le lunghe
+    // attese fra un turno e l'altro. Percio' e' aperta in lettura/scrittura a tutti
+    // (ogni player scrive dal proprio browser, non e' admin). Un messaggio privato
+    // porta un campo `to` col nome del regno destinatario: e' un filtro lato client,
+    // non un segreto crittografico (chi ha accesso al database vede tutto).
+    match /chat/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

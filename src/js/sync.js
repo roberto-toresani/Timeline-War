@@ -29,6 +29,17 @@ const MultiplayerSync = (function () {
     let presenceListeners = [];
     let lastPresence = {};
     let hasPresence = false;
+    // Chat fra i giocatori (collezione `chat`, un documento per messaggio): come la
+    // presenza NON è stato di gioco autorevole — serve solo a chiacchierare durante
+    // le lunghe attese. Stesso replay dello stato: chi si iscrive dopo la prima
+    // consegna vede lo storico. I messaggi si tengono ordinati per `ts` (orologio
+    // del mittente): basta per un ordinamento leggibile, e non dipende dal
+    // serverTimestamp che arriva un istante dopo.
+    let chatCol = null;
+    let chatListeners = [];
+    let lastChat = [];
+    let hasChat = false;
+    const CHAT_KEEP = 300;   // quanti messaggi si leggono/tengono: la coda più recente
     let authReadyResolve;
     const authReady = new Promise(res => { authReadyResolve = res; });
 
@@ -36,6 +47,7 @@ const MultiplayerSync = (function () {
         firebase.initializeApp(firebaseConfig);
         docRef = firebase.firestore().collection('games').doc('main');
         presenceCol = firebase.firestore().collection('presence');
+        chatCol = firebase.firestore().collection('chat');
 
         firebase.auth().onAuthStateChanged(user => {
             isAdmin = !!(user && user.uid === ADMIN_UID);
@@ -59,6 +71,20 @@ const MultiplayerSync = (function () {
             presenceListeners.forEach(cb => cb(map));
         }, err => {
             console.error('Errore lettura presenze:', err);
+        });
+
+        // Si leggono solo gli ultimi CHAT_KEEP messaggi (i più recenti): la chat di
+        // una partita non deve crescere senza limite nel client. `desc` + limit dà
+        // la coda, poi la si rovescia in ordine cronologico per mostrarla.
+        chatCol.orderBy('ts', 'desc').limit(CHAT_KEEP).onSnapshot(snap => {
+            const arr = [];
+            snap.forEach(d => arr.push(Object.assign({ id: d.id }, d.data())));
+            arr.reverse();
+            lastChat = arr;
+            hasChat = true;
+            chatListeners.forEach(cb => cb(arr));
+        }, err => {
+            console.error('Errore lettura chat:', err);
         });
     } else {
         console.warn('MultiplayerSync: firebase-config.js non configurato. Modalita locale (nessuna sincronizzazione online).');
@@ -95,6 +121,50 @@ const MultiplayerSync = (function () {
         presenceCol.doc(code).set(Object.assign({}, data, {
             at: firebase.firestore.FieldValue.serverTimestamp()
         })).catch(err => console.error('Errore salvataggio presenza:', err));
+    }
+
+    function onChatChange(cb) {
+        chatListeners.push(cb);
+        // Come lo stato e la presenza: chi si iscrive dopo la prima consegna deve
+        // comunque vedere lo storico già arrivato.
+        if (hasChat) cb(lastChat);
+    }
+
+    // Invia un messaggio in chat. Come setPresence, NON è protetto da isAdmin: lo
+    // scrive il player dal proprio browser. `data` porta almeno {testo}; di norma
+    // anche {regno, colore, id, to}. Senza Firebase (modalità locale) fa l'eco in
+    // memoria, così la chat funziona anche offline per le prove.
+    function sendChat(data) {
+        if (!data || !data.testo) return;
+        const msg = Object.assign({}, data, { ts: Date.now() });
+        if (!isConfigured || !chatCol) {
+            lastChat = lastChat.concat(Object.assign({ id: 'local-' + msg.ts }, msg)).slice(-CHAT_KEEP);
+            hasChat = true;
+            chatListeners.forEach(cb => cb(lastChat));
+            return;
+        }
+        msg.at = firebase.firestore.FieldValue.serverTimestamp();
+        chatCol.add(msg).catch(err => console.error('Errore invio chat:', err));
+    }
+
+    // Svuota la chat: la partita nuova riparte senza i messaggi della precedente
+    // (regola dell'utente). La chiama GameActions.startGame. I documenti possono
+    // essere più di quanti un solo batch ne cancelli (limite 500), quindi si
+    // cancellano a pagine finché la collezione non è vuota.
+    function clearChat() {
+        if (!isConfigured || !chatCol) {
+            lastChat = [];
+            hasChat = true;
+            chatListeners.forEach(cb => cb([]));
+            return;
+        }
+        const deletePage = () => chatCol.limit(400).get().then(snap => {
+            if (snap.empty) return null;
+            const batch = firebase.firestore().batch();
+            snap.forEach(d => batch.delete(d.ref));
+            return batch.commit().then(deletePage);
+        });
+        deletePage().catch(err => console.error('Errore pulizia chat:', err));
     }
 
     // Scrive lo stato condiviso. NON più protetto da isAdmin (regola dell'utente):
@@ -139,6 +209,9 @@ const MultiplayerSync = (function () {
         onStateChange: onStateChange,
         onPresenceChange: onPresenceChange,
         setPresence: setPresence,
+        onChatChange: onChatChange,
+        sendChat: sendChat,
+        clearChat: clearChat,
         pushState: pushState,
         login: login,
         logout: logout,
