@@ -18,6 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const GA = () => window.GameActions;
 
     let currentPlayerId = null;
+    // Arrivati col codice d'invito (?p=CODICE): quel link comanda UN regno solo.
+    // La plancia resta inchiodata a quel regno — non segue i turni degli altri
+    // (fondamentale nel multiplayer vero: ogni player ha il suo link) e nasconde
+    // i comandi che permetterebbero di uscirne (cambia regno, mappa generale,
+    // editor). Falso in solitaria e nella partita mista, aperte senza codice.
+    let invitePinned = false;
     let hasFitted = false;
     // Cronache storiche (js/chronicles.js): il turno per cui abbiamo GIÀ valutato
     // il catalogo per un regno, per id regno. Solo ottimizzazione (render gira di
@@ -313,6 +319,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function followTurn() {
         const t = R.turnoDi();
         if (t === null || t === undefined || t === currentPlayerId) return false;
+        // Col codice d'invito si comanda un regno solo: mai seguire i turni altrui.
+        if (invitePinned) return false;
         if (t === lastFollowed) return false;   // si sta guardando un altro regno apposta
         if (!followEnabled()) return false;
         const next = R.players().find(p => p.id === t);
@@ -348,10 +356,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function resolvePlayer() {
+        invitePinned = false;
         const code = new URLSearchParams(location.search).get('p');
         if (code) {
             const byInvite = R.playerByInvite(code);
-            if (byInvite) return byInvite;
+            if (byInvite) { invitePinned = true; return byInvite; }
         }
         let saved = null;
         try { saved = sessionStorage.getItem('risiko_board_player'); } catch (e) { /* privato */ }
@@ -366,7 +375,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // può arrivare in modo asincrono (login Firebase), quindi si ricontrolla a
     // ogni render invece che una volta sola all'avvio.
     function syncEditorLink() {
-        $('board-editor-link').style.display = R.isAdmin() ? '' : 'none';
+        // Un giocatore arrivato col codice d'invito comanda UN regno solo: la sua
+        // visuale non ha "cambia regno", "mappa generale" né il ritorno all'editor
+        // (regola dell'utente) — quel link vale per il suo regno e basta. In
+        // solitaria o nella partita mista (aperte senza codice) i tre comandi
+        // restano: lì servono a seguire i bot e a passare da un regno all'altro.
+        const single = invitePinned;
+        const editor = $('board-editor-link');
+        if (editor) editor.style.display = (R.isAdmin() && !single) ? '' : 'none';
+        const sw = $('board-switch');
+        if (sw) sw.style.display = single ? 'none' : '';
+        const spec = $('board-spectate');
+        if (spec) spec.style.display = single ? 'none' : '';
     }
 
     // ---------- utilità di render ----------

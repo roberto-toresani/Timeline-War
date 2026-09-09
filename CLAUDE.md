@@ -671,6 +671,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   - **La plancia si apre senza codice d'invito** (`play.html` liscio): non c'è un regno
     "tuo", e un link `?p=` incollerebbe la pagina a quel regno anche dopo un
     ricaricamento (`resolvePlayer`). Senza codice, `boot` entra nel regno di turno.
+- **Il codice d'invito INCHIODA a un regno solo** (regola dell'utente, e fondamentale nel
+  multiplayer vero: ogni player apre il PROPRIO `?p=CODICE`, quindi ci sono 2+ regni umani
+  e senza questo la plancia dell'uno rimbalzerebbe sul regno dell'altro a fine turno).
+  `resolvePlayer`, quando l'URL `?p=` risolve a un regno, alza il flag `invitePinned`
+  (`player-board.js`); da lì due conseguenze, entrambe volute:
+  - **`followTurn` non segue più i turni altrui** (`if (invitePinned) return false`): la
+    plancia resta ferma sul regno assegnato, che tocchi a lui o a un altro. È l'opposto
+    della solitaria/partita mista, dove `followEnabled()` (2+ umani, MA aperte **senza**
+    codice) fa seguire il giro. Il pin si basa sull'URL, quindi sopravvive a un
+    ricaricamento finché `?p=` resta nella barra.
+  - **La visuale del singolo player non ha "Cambia regno", "🌍 Mappa generale" né
+    "🛠 Editor"** (`syncEditorLink` li nasconde quando `invitePinned`): quel link vale per
+    il suo regno e basta, non deve poterne uscire. Senza codice i tre comandi restano —
+    lì servono a seguire i bot e a passare da un regno all'altro.
 - **Sorteggio della mappa (solo `mantieniMappa:false`)**: `js/setup.js` —
   sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) — i regni
   nascono tutti in **Europa, Nord Africa e Arabia**
