@@ -121,6 +121,17 @@
                             <button id="start-game-btn" style="flex:1;">🏁 Avvia partita</button>
                             <button id="end-turn-btn" style="flex:1;">⏭️ Fine turno</button>
                         </div>
+                        <!-- INTERVENTO A PARTITA IN CORSO (regola dell'utente): l'admin
+                             può creare regni (i Cinesi), prendere il controllo di un bot
+                             (i Mongoli), ecc. anche mentre si gioca. Edita "congelato" e
+                             le modifiche entrano al PROSSIMO cambio turno, senza cancellare
+                             le mosse dei giocatori. -->
+                        <div id="intervention-banner" style="display:none; margin-top:6px; padding:6px 8px; border-radius:4px; font-size:.8rem; background:rgba(200,150,40,.25); border:1px solid rgba(230,180,60,.6); color:#ffe6b0;"></div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <button id="intervene-btn" style="flex:1; display:none;">🔧 Intervieni sulla partita</button>
+                            <button id="intervene-apply-btn" style="flex:1; display:none;">✅ Applica al prossimo turno</button>
+                            <button id="intervene-cancel-btn" style="display:none;">✖</button>
+                        </div>
                         <!-- Partita contro l'IA (js/setup.js + js/bot.js).
                              Il primo bottone TIENE la mappa dipinta qui nell'editor:
                              è il modo normale di cominciare. Il secondo la butta e

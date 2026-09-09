@@ -71,6 +71,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // sync.js). Dice quale regno una PERSONA ha preso aprendo il suo link; l'editor
     // la mostra sulla scheda del regno, così l'admin vede che non lo giocherà lui.
     let presenceMap = {};
+
+    // INTERVENTO ADMIN A PARTITA IN CORSO (regola dell'utente: creare i Cinesi,
+    // prendere i Mongoli, ecc. senza aspettare la fine della partita — le modifiche
+    // attive dal turno successivo). Il problema è che editor e giocatori scrivono
+    // tutto il documento: per non cancellarsi a vicenda, l'admin edita "congelato"
+    // (la sync in arrivo non sovrascrive i suoi ritocchi, e i suoi non escono) e al
+    // COMMIT si calcola il diff coi soli campi toccati; il diff si applica al
+    // prossimo CAMBIO TURNO sopra lo stato aggiornato, così nulla va perso.
+    let adminIntervening = false;   // l'admin sta preparando un intervento
+    let interventionBase = null;    // snapshot (clone) all'inizio dell'intervento
+    let bufferedRemote = null;      // ultimo stato remoto arrivato mentre si edita
+    let pendingDiff = null;         // diff in attesa del cambio turno
+    let pendingBaseTurnoDi = null;  // turnoDi al commit: si applica quando cambia
     // Comandi della vista mappa (fit/insets), riempiti da wireMapZoom: li usa la plancia.
     // Dichiarato qui in cima perche' initMap gira molto prima del corpo di wireMapZoom.
     let mapView = null;
@@ -329,6 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         refreshMapDisplay();
         renderPlayerTabs();
+        updateInterventionUI();   // il bottone "Intervieni" è solo per l'admin
     }
 
     function wireAdminLogin() {
@@ -1477,47 +1491,52 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Applica uno snapshot figure (autoritativo). Accetta il formato nuovo
     // {t,c} oppure il vecchio (stringa "a,b" senza quantita').
+    // Applica la voce-figure di UNA provincia (formato nuovo {t,s,w,m,c} o vecchio
+    // stringa/array). Estratta dal ciclo di applyPieceState perché serve anche a
+    // applyAdminDiff, che tocca solo le province cambiate senza spogliare le altre.
+    // v null/undefined/vuoto = provincia sgombra.
+    function applyPieceEntry(p, v) {
+        let str = '', ships = '', color = '', merc = 0, welfare = '';
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+            str = v.t || ''; ships = v.s || ''; color = v.c || '';
+            merc = parseInt(v.m, 10) || 0;
+            welfare = v.w || '';
+        }
+        else if (typeof v === 'string') str = v;
+        else if (Array.isArray(v)) str = v.join(',');
+
+        // Salvataggi vecchi: le navi stavano in data-pieces come "barca:2".
+        // Si convertono in altrettanti scafi vuoti — nessuna migrazione a mano.
+        const arr = piecesFromString(str);
+        const hulls = [];
+        if (ships) {
+            ships.split(',').forEach(tok => {
+                const parts = tok.split(':');
+                const tipo = (parts[0] || '').trim();
+                if (SHIP_TYPES.indexOf(tipo) < 0) return;
+                const n = parseInt(parts[1], 10);
+                hulls.push({ tipo, carico: n > 0 ? n : 0 });
+            });
+        } else {
+            arr.forEach(e => {
+                if (SHIP_TYPES.indexOf(e.type) < 0) return;
+                for (let i = 0; i < e.count; i++) hulls.push({ tipo: e.type, carico: 0 });
+            });
+        }
+
+        const land = serializePieces(arr);   // filtra da sé le voci-nave
+        if (land) p.setAttribute('data-pieces', land); else p.removeAttribute('data-pieces');
+        setShips(p, hulls);
+        setWelfare(p, welfare ? welfare.split(',') : []);   // migliorie civiche, §6.1
+        setMerc(p, merc);   // si clampa da sé sui soldati appena applicati (§5.3)
+        if ((land || hulls.length) && color) p.setAttribute('data-pc-color', color);
+        else p.removeAttribute('data-pc-color');
+    }
+
     function applyPieceState(map) {
         const svg = document.querySelector('svg');
         if (!svg || !map || typeof map !== 'object') return;
-        provincePaths(svg).forEach(p => {
-            const v = map[p.id];
-            let str = '', ships = '', color = '', merc = 0, welfare = '';
-            if (v && typeof v === 'object' && !Array.isArray(v)) {
-                str = v.t || ''; ships = v.s || ''; color = v.c || '';
-                merc = parseInt(v.m, 10) || 0;
-                welfare = v.w || '';
-            }
-            else if (typeof v === 'string') str = v;
-            else if (Array.isArray(v)) str = v.join(',');
-
-            // Salvataggi vecchi: le navi stavano in data-pieces come "barca:2".
-            // Si convertono in altrettanti scafi vuoti — nessuna migrazione a mano.
-            const arr = piecesFromString(str);
-            const hulls = [];
-            if (ships) {
-                ships.split(',').forEach(tok => {
-                    const parts = tok.split(':');
-                    const tipo = (parts[0] || '').trim();
-                    if (SHIP_TYPES.indexOf(tipo) < 0) return;
-                    const n = parseInt(parts[1], 10);
-                    hulls.push({ tipo, carico: n > 0 ? n : 0 });
-                });
-            } else {
-                arr.forEach(e => {
-                    if (SHIP_TYPES.indexOf(e.type) < 0) return;
-                    for (let i = 0; i < e.count; i++) hulls.push({ tipo: e.type, carico: 0 });
-                });
-            }
-
-            const land = serializePieces(arr);   // filtra da sé le voci-nave
-            if (land) p.setAttribute('data-pieces', land); else p.removeAttribute('data-pieces');
-            setShips(p, hulls);
-            setWelfare(p, welfare ? welfare.split(',') : []);   // migliorie civiche, §6.1
-            setMerc(p, merc);   // si clampa da sé sui soldati appena applicati (§5.3)
-            if ((land || hulls.length) && color) p.setAttribute('data-pc-color', color);
-            else p.removeAttribute('data-pc-color');
-        });
+        provincePaths(svg).forEach(p => applyPieceEntry(p, map[p.id]));
         renderPieceMarkers(svg);
     }
 
@@ -2201,6 +2220,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyCloudState(data) {
+        // Intervento admin in corso: si CONGELA lo schermo sui suoi ritocchi. Lo
+        // stato remoto che arriva mentre edita non lo sovrascrive — lo si tiene da
+        // parte come "ultimo stato vero" (bufferedRemote), da ripristinare al commit.
+        if (adminIntervening) { bufferedRemote = data; return; }
+
         if (!data) {
             internalApplyMapData(INITIAL_MAP_DATA);
             updateTurnUI();
@@ -2229,6 +2253,175 @@ document.addEventListener('DOMContentLoaded', () => {
 
         refreshMapDisplay();
         renderPlayerTabs();
+
+        // Intervento admin in attesa: appena il turno CAMBIA (il giocatore in corso
+        // ha finito), si applica il diff sopra lo stato appena arrivato e si salva.
+        if (pendingDiff && turnoDi !== pendingBaseTurnoDi) applyPendingIntervention();
+    }
+
+    // ---------- interventi admin (creare regni, prendere bot, ecc.) ----------
+    // Vedi le variabili adminIntervening/pendingDiff in cima al file.
+    function buildSnapshotClone() {
+        const s = buildSnapshot();
+        return s ? JSON.parse(JSON.stringify(s)) : null;
+    }
+
+    // Diff coi SOLI campi che l'admin ha toccato: province (proprietario/pedine/
+    // risorsa/fede), regni aggiunti, controllo/nome/colore cambiati, ordine e strade.
+    // Tutto il resto (le mosse dei giocatori nel frattempo) resta intatto.
+    function diffSnapshots(base, ed) {
+        const diff = { provinces: {}, addPlayers: [], setPlayer: {}, ordineAppend: [], roadsAdd: [], roadsRemove: [] };
+        const bp = base.pieces || {}, ep = ed.pieces || {};
+        const br = base.resources || {}, er = ed.resources || {};
+        const bf = base.religions || {}, ef = ed.religions || {};
+        const bo = (base.history && base.history[base.turn]) || {}, eo = (ed.history && ed.history[ed.turn]) || {};
+        const ids = new Set([].concat(
+            Object.keys(bp), Object.keys(ep), Object.keys(br), Object.keys(er),
+            Object.keys(bf), Object.keys(ef), Object.keys(bo), Object.keys(eo)));
+        ids.forEach(id => {
+            const oB = bo[id] || null, oE = eo[id] || null;
+            const pB = bp[id] ? JSON.stringify(bp[id]) : null, pE = ep[id] ? JSON.stringify(ep[id]) : null;
+            const rB = br[id] || null, rE = er[id] || null;
+            const fB = bf[id] || null, fE = ef[id] || null;
+            if (oB !== oE || pB !== pE || rB !== rE || fB !== fE) {
+                diff.provinces[id] = { owner: oE, pieces: ep[id] || null, resource: rE, religione: fE };
+            }
+        });
+        const baseIds = new Set((base.players || []).map(p => p.id));
+        (ed.players || []).forEach(p => {
+            const b = (base.players || []).find(x => x.id === p.id);
+            if (!b) { diff.addPlayers.push(p); return; }
+            const ch = {};
+            if (b.bot !== p.bot) ch.bot = p.bot || null;
+            if (b.name !== p.name) ch.name = p.name;
+            if (b.color !== p.color) ch.color = p.color;
+            if (Object.keys(ch).length) diff.setPlayer[p.id] = ch;
+        });
+        const baseOrd = new Set(base.ordine || []);
+        (ed.ordine || []).forEach(id => { if (!baseOrd.has(id)) diff.ordineAppend.push(id); });
+        const rk = r => (r.a < r.b ? r.a + '|' + r.b : r.b + '|' + r.a);
+        const baseRoads = {}, edRoads = {};
+        (base.roads || []).forEach(r => baseRoads[rk(r)] = r);
+        (ed.roads || []).forEach(r => edRoads[rk(r)] = r);
+        Object.keys(edRoads).forEach(k => { if (!baseRoads[k]) diff.roadsAdd.push(edRoads[k]); });
+        Object.keys(baseRoads).forEach(k => { if (!edRoads[k]) diff.roadsRemove.push(baseRoads[k]); });
+        return diff;
+    }
+
+    function applyAdminDiff(diff) {
+        if (!diff) return;
+        const svg = document.querySelector('svg');
+        if (!svg) return;
+        (diff.addPlayers || []).forEach(rec => {
+            if (!PLAYERS.find(p => p.id === rec.id)) PLAYERS.push(normalizePlayer(Object.assign({}, rec)));
+        });
+        Object.keys(diff.setPlayer || {}).forEach(idStr => {
+            const pl = PLAYERS.find(p => String(p.id) === String(idStr));
+            if (!pl) return;
+            const ch = diff.setPlayer[idStr];
+            if ('bot' in ch) pl.bot = ch.bot || null;
+            if ('name' in ch) pl.name = ch.name;
+            if ('color' in ch) pl.color = ch.color;
+        });
+        (diff.ordineAppend || []).forEach(id => { if (ordine.indexOf(id) < 0) ordine.push(id); });
+        Object.keys(diff.provinces || {}).forEach(id => {
+            const p = document.getElementById(id);
+            if (!p) return;
+            const cell = diff.provinces[id];
+            if (cell.owner) p.setAttribute('data-owner', cell.owner); else p.removeAttribute('data-owner');
+            applyPieceEntry(p, cell.pieces);
+            if (cell.resource && typeof RESOURCES !== 'undefined' && RESOURCES[cell.resource]) p.setAttribute('data-resource', cell.resource);
+            else p.removeAttribute('data-resource');
+            if (cell.religione) {
+                let v = cell.religione;
+                const locked = v.charAt(v.length - 1) === '*';
+                if (locked) v = v.slice(0, -1);
+                const k = (typeof Religions !== 'undefined') ? Religions.canonical(v) : v;
+                if (k && typeof Religions !== 'undefined' && Religions.exists(k)) {
+                    p.setAttribute('data-religione', k);
+                    if (locked) p.setAttribute('data-fede-conq', '1'); else p.removeAttribute('data-fede-conq');
+                }
+            } else { p.removeAttribute('data-religione'); p.removeAttribute('data-fede-conq'); }
+        });
+        (diff.roadsRemove || []).forEach(r => {
+            ROADS = ROADS.filter(x => !((x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a)));
+        });
+        (diff.roadsAdd || []).forEach(r => { if (!findRoad(r.a, r.b)) ROADS.push({ a: r.a, b: r.b, c: r.c || PIECE_NEUTRAL }); });
+        initPalette();
+        renderPlayerTabs();
+        renderDecreeControls();
+        renderResourceMarkers(svg);   // ridisegna anche le strade (renderRoads in coda)
+        renderPieceMarkers(svg);
+        refreshMapDisplay();
+    }
+
+    function applyPendingIntervention() {
+        const diff = pendingDiff;
+        pendingDiff = null;
+        pendingBaseTurnoDi = null;
+        applyAdminDiff(diff);
+        saveAutoSave();   // scrive lo stato fuso (l'admin scrive: writes aperte)
+        renderGameControls();
+        updateInterventionUI();
+        showPieceNotice('Interventi admin applicati (nuovo turno).');
+    }
+
+    function beginIntervention() {
+        if (adminIntervening) return;
+        if (pendingDiff) { showPieceNotice('C\'è già un intervento in attesa del prossimo turno.'); return; }
+        adminIntervening = true;
+        bufferedRemote = null;
+        interventionBase = buildSnapshotClone();
+        updateInterventionUI();
+    }
+
+    function commitIntervention() {
+        if (!adminIntervening) return;
+        const edited = buildSnapshotClone();
+        pendingDiff = diffSnapshots(interventionBase, edited);
+        adminIntervening = false;
+        const live = bufferedRemote || interventionBase;   // stato vero a cui tornare
+        pendingBaseTurnoDi = (live && live.turnoDi !== undefined) ? live.turnoDi : null;
+        bufferedRemote = null;
+        interventionBase = null;
+        applyCloudState(live);   // ripristina lo schermo sulla partita in corso
+        updateInterventionUI();
+        showPieceNotice('Intervento salvato: sarà attivo dal prossimo turno.');
+    }
+
+    function cancelIntervention() {
+        if (!adminIntervening) return;
+        const live = bufferedRemote || interventionBase;
+        adminIntervening = false;
+        bufferedRemote = null;
+        interventionBase = null;
+        if (live) applyCloudState(live);
+        updateInterventionUI();
+        showPieceNotice('Intervento annullato.');
+    }
+
+    function updateInterventionUI() {
+        const banner = document.getElementById('intervention-banner');
+        const beginBtn = document.getElementById('intervene-btn');
+        const commitBtn = document.getElementById('intervene-apply-btn');
+        const cancelBtn = document.getElementById('intervene-cancel-btn');
+        // "Intervieni" ha senso solo se una partita esiste (regni nel giro): in pura
+        // modalità editor l'admin edita direttamente, senza differire nulla.
+        const gameLive = (ordine && ordine.length > 0) || turnoDi !== null;
+        if (beginBtn) beginBtn.style.display = (isAdminMode && gameLive && !adminIntervening && !pendingDiff) ? '' : 'none';
+        if (commitBtn) commitBtn.style.display = adminIntervening ? '' : 'none';
+        if (cancelBtn) cancelBtn.style.display = adminIntervening ? '' : 'none';
+        if (banner) {
+            if (adminIntervening) {
+                banner.textContent = '🔧 Intervento in preparazione — edita liberamente, poi «Applica al prossimo turno». Le tue modifiche non sono ancora in partita.';
+                banner.style.display = '';
+            } else if (pendingDiff) {
+                banner.textContent = '⏳ Intervento in attesa: sarà applicato al prossimo cambio turno.';
+                banner.style.display = '';
+            } else {
+                banner.style.display = 'none';
+            }
+        }
     }
 
     function saveCurrentTurnToHistory() {
@@ -2652,6 +2845,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const info = document.getElementById('game-turn-info');
         if (!info) return;
         renderReinforceBoard();
+        updateInterventionUI();
         if (turnoDi === null || turnoDi === undefined) {
             info.textContent = 'Partita non avviata';
             info.className = '';
@@ -2662,6 +2856,16 @@ document.addEventListener('DOMContentLoaded', () => {
         info.className = 'active';
         if (p) info.style.borderLeftColor = p.color;
     }
+
+    // Aggancio dei tre bottoni d'intervento (l'HTML sta in index.html).
+    (function wireInterventionButtons() {
+        const b = document.getElementById('intervene-btn');
+        const a = document.getElementById('intervene-apply-btn');
+        const c = document.getElementById('intervene-cancel-btn');
+        if (b) b.addEventListener('click', () => { if (isAdminMode) beginIntervention(); });
+        if (a) a.addEventListener('click', () => { if (isAdminMode) commitIntervention(); });
+        if (c) c.addEventListener('click', () => { if (isAdminMode) cancelIntervention(); });
+    })();
 
     // Quadro delle reclute in attesa: un rigo per regno in gioco, con le libere e
     // (fra parentesi) quelle obbligate in una provincia. A partita ferma sparisce.
@@ -2998,13 +3202,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- AUTO SAVE / PERSISTENCE ---
-    function saveAutoSave() {
+    // Costruisce lo snapshot completo dello stato (stessa forma che legge
+    // applyCloudState). Estratto da saveAutoSave perché serve anche a catturare la
+    // base/l'esito di un intervento admin (vedi beginIntervention/commitIntervention).
+    function buildSnapshot() {
         const svg = document.querySelector('svg');
-        if (!svg) return;
-
+        if (!svg) return null;
         saveCurrentTurnToHistory();
-
-        const stateSnapshot = {
+        return {
             turn: currentTurn,
             players: PLAYERS,
             history: TURN_HISTORY,
@@ -3017,9 +3222,16 @@ document.addEventListener('DOMContentLoaded', () => {
             primoDelGiro: primoDelGiro,
             eventi: eventi
         };
+    }
 
+    function saveAutoSave() {
+        const stateSnapshot = buildSnapshot();
+        if (!stateSnapshot) return;
         localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
-        MultiplayerSync.pushState(stateSnapshot);
+        // Mentre l'admin sta preparando un intervento (vedi beginIntervention) le
+        // sue modifiche NON devono uscire: restano locali finché non le committa,
+        // e verranno applicate al cambio turno sopra lo stato aggiornato.
+        if (!adminIntervening) MultiplayerSync.pushState(stateSnapshot);
     }
 
     function loadAutoSave() {
@@ -4946,6 +5158,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             });
         },
+
+        // Interventi admin a partita in corso (creare regni, prendere bot, editti):
+        // si edita congelati e le modifiche entrano al prossimo cambio turno.
+        beginIntervention, commitIntervention, cancelIntervention,
+        isIntervening: () => adminIntervening,
+        hasPendingIntervention: () => !!pendingDiff,
 
         ownedPaths,
         provinceLabel,

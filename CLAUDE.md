@@ -929,8 +929,31 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     è proprio la neutrale che si vuole prendere, tenersi in casa gli uomini per difendersene
     vorrebbe dire non prenderla mai. Per questo in `bestAttack` il pavimento si ricalcola
     **per bersaglio**, non una volta per provincia.
+- **INTERVENTI ADMIN A PARTITA IN CORSO, attivi dal turno dopo** (regola dell'utente:
+  poter creare i Cinesi, prendere i Mongoli, ecc. mentre si gioca). Il problema: editor
+  e giocatori scrivono TUTTO il documento `games/main`, quindi un'edita simultanea a una
+  mossa si cancellerebbero a vicenda. Soluzione in `app.js` (nessun tocco a
+  `game-actions.js` né allo schema del doc): l'admin edita **congelato** e le modifiche
+  entrano al **prossimo cambio turno**.
+  - **`beginIntervention`**: alza `adminIntervening`, fotografa lo stato (`interventionBase`,
+    clone). Da qui `applyCloudState` non applica più lo stato in arrivo (lo mette da parte
+    in `bufferedRemote`) — così le mosse dei giocatori non sovrascrivono i ritocchi
+    dell'admin sullo schermo — e `saveAutoSave` **non** fa `pushState` (i ritocchi non
+    escono). L'admin usa i pennelli, `+Aggiungi`, il menu bot, come sempre.
+  - **`commitIntervention`**: calcola `diffSnapshots(base, adesso)` — i SOLI campi toccati
+    (province: proprietario/pedine/risorsa/fede; regni aggiunti; `bot`/nome/colore cambiati;
+    ordine; strade) — lo tiene in `pendingDiff`, e **ripristina lo schermo** sullo stato
+    vivo (`bufferedRemote`). `cancelIntervention` butta tutto.
+  - **Applicazione al cambio turno**: `applyCloudState`, quando `turnoDi` cambia rispetto a
+    `pendingBaseTurnoDi`, chiama `applyAdminDiff(pendingDiff)` — che fonde i soli campi
+    toccati sopra lo stato aggiornato (riusa `applyPieceEntry`, `normalizePlayer`, ecc.) — e
+    salva. Le mosse che i giocatori hanno fatto nel frattempo restano; l'intervento si
+    posa sopra. UI: banner `#intervention-banner` + bottoni `#intervene-btn` /
+    `#intervene-apply-btn` / `#intervene-cancel-btn` nell'editor (solo admin, solo a partita
+    esistente). `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
+    `isIntervening`/`hasPendingIntervention`.
 - **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.
-  Tre poteri, oltre all'Editto:
+  Tre poteri, oltre all'Editto (a partita in corso passa dagli INTERVENTI qui sopra):
   - **CREARE UN REGNO A PARTITA IN CORSO** (i Maya, i Cinesi a un certo punto): `+
     Aggiungi giocatore` crea il regno, poi lo si dipinge — proprietario, soldati,
     risorse — coi pennelli dell'editor, che danno piena libertà su province e truppe.
