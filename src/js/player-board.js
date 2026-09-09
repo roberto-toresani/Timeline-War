@@ -280,6 +280,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try { sessionStorage.setItem('risiko_board_player', String(player.id)); } catch (e) { /* privato */ }
         $('board-picker').style.display = 'none';
         R.focusPlayer(player.id);
+        // Arrivato col link d'invito: si segna che QUESTA persona ha preso il regno,
+        // così l'editor dell'admin lo mostra (la scrittura la salta da sé se è
+        // l'admin che apre col 👁 — vedi Risiko.markPresence). Solo col pin: senza
+        // codice (solitaria/mista) non c'è un giocatore remoto da segnare.
+        if (invitePinned && R.markPresence) R.markPresence(player);
         syncViewInsets();
         render();
     }

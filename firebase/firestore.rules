@@ -12,5 +12,16 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null && request.auth.uid == "Tfe6wZkLlaZh35gRqhopmxkjCFv1";
     }
+
+    // Presenza dei giocatori: quale regno ha "preso" un giocatore aprendo il suo
+    // link d'invito. NON e' stato di gioco autorevole (quello resta in games/main,
+    // scrivibile solo dall'admin): serve solo perche' l'editor dell'admin mostri
+    // che un regno sara' giocato da una persona e non da lui. Percio' e' scrivibile
+    // da chiunque (un giocatore invitato non e' autenticato come admin), un
+    // documento per codice d'invito.
+    match /presence/{code} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

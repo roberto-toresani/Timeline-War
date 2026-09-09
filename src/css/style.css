@@ -1066,6 +1066,21 @@ svg.map-interacting #decor-coast-layer { display: none; }
 .player-action:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
 .remove-btn:hover { background: rgba(220, 60, 60, 0.4); color: #fff; }
 
+/* "Preso dal giocatore": un umano ha aperto il link di questo regno (vedi
+   presenceMap in app.js). Pillola verde sotto la tendina Admin/IA, così
+   l'admin vede a colpo d'occhio che quel regno lo giocherà una persona. */
+.player-claim {
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: .72rem;
+    font-weight: bold;
+    text-align: center;
+    color: #d6ffd6;
+    background: rgba(60, 160, 70, 0.35);
+    border: 1px solid rgba(90, 200, 100, 0.6);
+}
+
 /* Tooltip */
 .map-tooltip {
     position: absolute;

@@ -21,12 +21,21 @@ const MultiplayerSync = (function () {
     // cui il link d'invito, online, apriva la schermata vuota.
     let lastState = null;
     let hasState = false;
+    // Presenza dei giocatori (collezione `presence`, un doc per codice d'invito):
+    // NON è stato di gioco, solo "quale persona ha preso quale regno", così
+    // l'editor dell'admin lo mostra. Scrivibile da chiunque (un player non è
+    // admin), letta come mappa {codice: dato} con lo stesso replay dello stato.
+    let presenceCol = null;
+    let presenceListeners = [];
+    let lastPresence = {};
+    let hasPresence = false;
     let authReadyResolve;
     const authReady = new Promise(res => { authReadyResolve = res; });
 
     if (isConfigured) {
         firebase.initializeApp(firebaseConfig);
         docRef = firebase.firestore().collection('games').doc('main');
+        presenceCol = firebase.firestore().collection('presence');
 
         firebase.auth().onAuthStateChanged(user => {
             isAdmin = !!(user && user.uid === ADMIN_UID);
@@ -40,6 +49,16 @@ const MultiplayerSync = (function () {
             stateListeners.forEach(cb => cb(lastState));
         }, err => {
             console.error('Errore lettura stato condiviso:', err);
+        });
+
+        presenceCol.onSnapshot(snap => {
+            const map = {};
+            snap.forEach(d => { map[d.id] = d.data(); });
+            lastPresence = map;
+            hasPresence = true;
+            presenceListeners.forEach(cb => cb(map));
+        }, err => {
+            console.error('Errore lettura presenze:', err);
         });
     } else {
         console.warn('MultiplayerSync: firebase-config.js non configurato. Modalita locale (nessuna sincronizzazione online).');
@@ -60,6 +79,22 @@ const MultiplayerSync = (function () {
         // Se lo snapshot è già arrivato, glielo diamo subito: chi si iscrive dopo
         // la prima consegna deve comunque vedere la partita in corso.
         if (hasState) cb(lastState);
+    }
+
+    function onPresenceChange(cb) {
+        presenceListeners.push(cb);
+        if (hasPresence) cb(lastPresence);
+    }
+
+    // Segna che un giocatore ha preso un regno (aprendo il suo link). A differenza
+    // di pushState NON è protetto da isAdmin: lo chiama proprio il player, che
+    // admin non è. Il gate "non l'admin" (che apre col 👁 per curiosare, non per
+    // prendere) lo mette il chiamante.
+    function setPresence(code, data) {
+        if (!isConfigured || !presenceCol || !code) return;
+        presenceCol.doc(code).set(Object.assign({}, data, {
+            at: firebase.firestore.FieldValue.serverTimestamp()
+        })).catch(err => console.error('Errore salvataggio presenza:', err));
     }
 
     function pushState(stateObj) {
@@ -96,6 +131,8 @@ const MultiplayerSync = (function () {
         authReady: authReady,
         onRoleChange: onRoleChange,
         onStateChange: onStateChange,
+        onPresenceChange: onPresenceChange,
+        setPresence: setPresence,
         pushState: pushState,
         login: login,
         logout: logout,

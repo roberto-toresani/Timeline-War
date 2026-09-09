@@ -67,6 +67,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingRoad = null;  // id della prima provincia scelta col pennello strada (attesa della seconda)
     let isAdminMode = false;
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
+    // Presenza dei giocatori: mappa {codice invito: dato} da Firestore (vedi
+    // sync.js). Dice quale regno una PERSONA ha preso aprendo il suo link; l'editor
+    // la mostra sulla scheda del regno, così l'admin vede che non lo giocherà lui.
+    let presenceMap = {};
     // Comandi della vista mappa (fit/insets), riempiti da wireMapZoom: li usa la plancia.
     // Dichiarato qui in cima perche' initMap gira molto prima del corpo di wireMapZoom.
     let mapView = null;
@@ -703,9 +707,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Load state: cloud if configured, else localStorage.
         if (MultiplayerSync.isConfigured) {
             MultiplayerSync.onStateChange(applyCloudState);
+            MultiplayerSync.onPresenceChange(applyPresence);
         } else {
             loadAutoSave();
         }
+    }
+
+    // Presenza aggiornata da Firestore: si tiene la mappa e si ridipinge la palette
+    // (solo l'editor ce l'ha; sulla plancia non fa nulla).
+    function applyPresence(map) {
+        presenceMap = map || {};
+        if (document.getElementById('palette')) initPalette();
     }
 
     // Geometria della mappa (bordo delle province, ancoraggi di terra e di mare):
@@ -2286,6 +2298,15 @@ document.addEventListener('DOMContentLoaded', () => {
             .concat(botKeys.map(k => '<option value="' + k + '"' + (p.bot === k ? ' selected' : '') + '>🤖 ' +
                 (botLabels[k] || (k.charAt(0).toUpperCase() + k.slice(1))) + '</option>')).join('');
 
+        // "Preso da un giocatore": un umano ha aperto il link di questo regno (vedi
+        // presenceMap / sync.js). Ha senso solo quando il regno NON è dell'IA: se
+        // c'è una strategia, lo gioca l'IA a prescindere. Senza presenza e con
+        // bot=null resta il default "lo gioca l'admin".
+        const claimed = p.invite && presenceMap[p.invite];
+        const claimBadge = (claimed && !p.bot)
+            ? '<div class="player-claim" title="Un giocatore ha aperto il link di questo regno: lo gioca lui, non l\'admin">👤 Preso dal giocatore</div>'
+            : '';
+
         const btn = document.createElement('div');
             btn.className = 'player-card';
             btn.title = p.name;
@@ -2306,6 +2327,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
                 </div>
                 <select class="player-bot" title="Chi governa il regno: Admin o una strategia dell'IA" style="width:100%;margin-top:4px;font-size:.8rem;">${botOptions}</select>
+                ${claimBadge}
             `;
 
             const botSelect = btn.querySelector('.player-bot');
@@ -4909,6 +4931,20 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedPiece = null;
             syncPlayerControlsVisibility();
             refreshMapDisplay();
+        },
+
+        // Un giocatore ha aperto la plancia di questo regno col suo link: lo si
+        // segna nella presenza condivisa, così l'editor dell'admin mostra che lo
+        // giocherà lui. NON lo scrive l'admin che apre col 👁 per curiosare: si
+        // aspetta l'esito dell'auth e si scrive solo se NON si è admin.
+        markPresence(player) {
+            if (!player || !player.invite || !MultiplayerSync.isConfigured) return;
+            MultiplayerSync.authReady.then(() => {
+                if (MultiplayerSync.isAdmin) return;
+                MultiplayerSync.setPresence(player.invite, {
+                    invite: player.invite, playerId: player.id, name: player.name
+                });
+            });
         },
 
         ownedPaths,

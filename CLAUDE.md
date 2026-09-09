@@ -78,6 +78,21 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (`mergePlayerData` non riceveva mai i dati) finché l'admin non toccava qualcosa —
     online era il motivo per cui il link d'invito apriva la schermata vuota invece del
     regno assegnato.
+  - **PRESENZA dei giocatori** (collezione Firestore `presence`, un doc per codice
+    d'invito): dice quale regno una PERSONA ha "preso" aprendo il suo link, così l'editor
+    dell'admin mostra sulla scheda del regno "👤 Preso dal giocatore" invece del default
+    "🧑 Admin (nessuna IA)" — l'admin vede che quel regno lo giocherà un umano, non lui
+    (regola dell'utente). È l'UNICO stato scrivibile da un non-admin, perché il player che
+    apre il link admin non è: `firestore.rules` apre `presence` in lettura/scrittura a
+    tutti (non è stato di gioco autorevole — quello resta `games/main`, solo-admin). Il
+    canale vive in `sync.js` (`setPresence`/`onPresenceChange`, con lo stesso replay dello
+    stato); `Risiko.markPresence(player)` lo scrive dalla plancia quando `invitePinned`,
+    **saltando** se chi apre è l'admin (col 👁 curiosa, non prende — attende `authReady`
+    poi controlla `MultiplayerSync.isAdmin`); `applyPresence` in app.js tiene `presenceMap`
+    e ridipinge la palette. Il badge appare solo se il regno **non** è dell'IA (`!p.bot`):
+    con una strategia lo gioca l'IA a prescindere. È **persistente** (scelta dell'utente):
+    preso una volta, resta finché l'admin non cambia. NB: richiede di ripubblicare
+    `firestore.rules` nella console Firebase (la regola `presence` è nuova).
 - `app.js` gestisce turni, giocatori, selezione province, colori e la UI.
 - **Due pagine, un solo motore**: `play.html` carica lo stesso `app.js` di `index.html` e si
   dichiara con `<body data-mode="player">`. app.js resta una singola closure e in coda espone
