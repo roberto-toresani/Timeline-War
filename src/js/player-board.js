@@ -359,8 +359,16 @@ document.addEventListener('DOMContentLoaded', () => {
         invitePinned = false;
         const code = new URLSearchParams(location.search).get('p');
         if (code) {
+            // Col codice d'invito si comanda QUEL regno e nessun altro. I codici
+            // arrivano con l'autosave, DOPO che i record dei regni esistono già:
+            // se il codice non è ancora risolvibile si torna null e `boot`
+            // RITENTA — mai ripiegare sul sessionStorage, che aprirebbe il regno
+            // di un test precedente (era esattamente questo il bug: al primo giro
+            // di boot gli inviti erano undefined, quindi si finiva sul regno
+            // salvato nel sessionStorage invece che su quello del link).
             const byInvite = R.playerByInvite(code);
             if (byInvite) { invitePinned = true; return byInvite; }
+            return null;
         }
         let saved = null;
         try { saved = sessionStorage.getItem('risiko_board_player'); } catch (e) { /* privato */ }
@@ -4860,17 +4868,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function boot(attempt) {
         let player = resolvePlayer();
+        const hasCode = !!new URLSearchParams(location.search).get('p');
         // Più regni tuoi (solitaria, o 2+ regni con l'IA sugli altri): la plancia si
         // apre senza codice d'invito. Si entra nel regno umano di turno; se al
         // caricamento tocca a un bot, si entra nel primo regno umano e Bot.run()
         // porta il giro fino al prossimo turno umano, che followTurn seguirà.
-        if (!player && followEnabled()) {
+        // Col codice d'invito questo fallback NON scatta: si aspetta che il codice
+        // risolva al suo regno, non si entra in un umano qualsiasi.
+        if (!player && !hasCode && followEnabled()) {
             const t = R.turnoDi();
             const tp = R.players().find(p => p.id === t) || null;
             player = (tp && window.Bot && !window.Bot.isBot(tp))
                 ? tp
                 : humanPlayers()[0] || null;
         }
+        // Col codice d'invito si ritenta più a lungo: i codici arrivano con
+        // l'autosave (in locale subito, online via Firebase anche dopo un secondo)
+        // e non si deve mai ripiegare su un altro regno mentre si aspetta.
+        const maxAttempts = hasCode ? 60 : 12;
         if (player) {
             enterKingdom(player);
             syncSpectateBtn();
@@ -4879,7 +4894,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.Bot) window.Bot.run();
             return;
         }
-        if (attempt < 12) { setTimeout(() => boot(attempt + 1), 120); return; }
+        if (attempt < maxAttempts) { setTimeout(() => boot(attempt + 1), 120); return; }
         showPicker();
     }
     boot(0);

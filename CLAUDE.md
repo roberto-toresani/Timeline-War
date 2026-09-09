@@ -685,6 +685,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     "🛠 Editor"** (`syncEditorLink` li nasconde quando `invitePinned`): quel link vale per
     il suo regno e basta, non deve poterne uscire. Senza codice i tre comandi restano —
     lì servono a seguire i bot e a passare da un regno all'altro.
+  - **Col codice si aspetta QUEL regno, non si ripiega su nessun altro** (era il bug per
+    cui il link del Bizantino apriva l'Inghilterra). I record dei regni esistono già al
+    primo giro di `boot`, ma i **codici invito arrivano dopo**, con l'autosave (in locale
+    subito, online via Firebase anche dopo un secondo): al primo giro `playerByInvite`
+    tornava `null`, `resolvePlayer` ripiegava sul `sessionStorage` — che teneva il regno
+    di un test precedente — e `boot` entrava lì e **ritornava senza ritentare**. Ora, se
+    c'è un `?p=`, `resolvePlayer` **non guarda mai il sessionStorage**: torna `null`
+    finché il codice non risolve, e `boot` ritenta (fino a 60 volte, ~7 s, per reggere il
+    caricamento online) senza mai toccare il fallback `followEnabled()`. Il sessionStorage
+    resta solo per il caso **senza** codice (solitaria/mista, ricaricamento).
 - **Sorteggio della mappa (solo `mantieniMappa:false`)**: `js/setup.js` —
   sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) — i regni
   nascono tutti in **Europa, Nord Africa e Arabia**
