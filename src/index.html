@@ -132,6 +132,18 @@
                             <button id="intervene-apply-btn" style="flex:1; display:none;">✅ Applica al prossimo turno</button>
                             <button id="intervene-cancel-btn" style="display:none;">✖</button>
                         </div>
+                        <!-- BACKUP / RIPRISTINO PER TURNO (§salvataggi robusti):
+                             ogni decennio si salva l'intero stato; da qui si può
+                             ricaricare la partita dall'inizio di un turno precedente
+                             se qualcosa la danneggia. Solo admin, con conferma. -->
+                        <div id="restore-controls" style="margin-top:6px; display:none;">
+                            <div style="display:flex; gap:5px;">
+                                <select id="restore-select" style="flex:1;"></select>
+                                <button id="restore-refresh-btn" title="Aggiorna l'elenco dei backup">↻</button>
+                                <button id="restore-apply-btn">🕰 Ripristina turno</button>
+                            </div>
+                            <div id="restore-info" style="font-size:.75rem; opacity:.8; margin-top:3px;">Backup per turno: —</div>
+                        </div>
                         <!-- Partita contro l'IA (js/setup.js + js/bot.js).
                              Il primo bottone TIENE la mappa dipinta qui nell'editor:
                              è il modo normale di cominciare. Il secondo la butta e
@@ -227,7 +239,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
     <script src="js/firebase-config.js"></script>
-    <script src="js/sync.js?v=1"></script>
+    <script src="js/sync.js?v=2"></script>
 
     <!-- Scripts -->
     <script src="data/map_data.js?v=83"></script>
@@ -271,8 +283,8 @@
     <script src="js/doctrines.js?v=101"></script>
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=99"></script>
-    <script src="js/app.js?v=102"></script>
-    <script src="js/game-actions.js?v=105"></script>
+    <script src="js/app.js?v=103"></script>
+    <script src="js/game-actions.js?v=106"></script>
     <script src="js/bot.js?v=97"></script>
     <script src="js/setup.js?v=83"></script>
     <script src="js/start-map.js?v=83"></script>

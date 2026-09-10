@@ -5333,6 +5333,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', (e) => {
         const path = e.target.closest && e.target.closest('path.state');
         if (!path) return;
+        // Isolotto non giocabile (isole senza risorse/utilità): è solo scenario,
+        // il clic non seleziona nulla — resta la selezione precedente.
+        if (R.isPlayable && !R.isPlayable(path.id)) return;
         // Tornato a toccare la mappa, lo spotlight di un obiettivo ha finito il
         // suo compito: si spegne, così non resta acceso a intralciare.
         if (R.clearObjectiveSpot) R.clearObjectiveSpot();

@@ -17,6 +17,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const NEUTRAL_FILL = cssVar('--province-neutral', '#d1dbdd');
     const FOG_FILL = cssVar('--fog', '#3a3a3a');
 
+    // ISOLE NON GIOCABILI (regola dell'utente): isolotti senza risorse e senza
+    // utilità strategica. Restano DISEGNATI come terra — nel raw SVG hanno già
+    // fill #d1dbdd (= --province-neutral) e l'alone costiero (map-decor.js) li
+    // clona come ogni altra terra — ma NON sono province vere: `provincePaths`
+    // (l'unica porta al motore, letta da E().allPaths) li esclude, quindi non
+    // entrano nel grafo delle adiacenze, nei presidi neutrali, nel sorteggio
+    // dei feudi, nella nebbia né tra i bersagli. Non hanno click né tooltip
+    // (i listener si attaccano solo alle province di `provincePaths`). Chi ne
+    // aggiunge una la mette qui, per ID SVG.
+    const NON_PLAYABLE = new Set([
+        'East_Aegean_Islands', 'West_Aegean_Islands',
+        'Canary_Islands', 'Cabo_Verde', 'Bahamas',
+        'Hawaiian_Islands', 'South_Atlantic_Islands'
+    ]);
+    const isPlayableProvince = (id) => !!id && !NON_PLAYABLE.has(id);
+
     const container = document.getElementById('svg-container');
     const nameDisplay = document.getElementById('province-name');
     const gameNameDisplay = document.getElementById('p-name');
@@ -722,6 +738,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (MultiplayerSync.isConfigured) {
             MultiplayerSync.onStateChange(applyCloudState);
             MultiplayerSync.onPresenceChange(applyPresence);
+            // Una scrittura rifiutata dalla guardia anti-regressione (sync.js) vuol
+            // dire che lo stato online è più avanti del nostro: non sovrascriviamo,
+            // e lo diciamo. L'ultimo snapshot valido arriva comunque da sé.
+            if (MultiplayerSync.onPushReject) MultiplayerSync.onPushReject(() => {
+                showPieceNotice('Salvataggio annullato: la partita online è più avanti. Ricarico lo stato aggiornato.');
+            });
         } else {
             loadAutoSave();
         }
@@ -791,7 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function provincePaths(svg) {
         const root = svg || document.querySelector('svg');
         if (!root) return [];
-        return Array.from(root.querySelectorAll('path.state')).filter(p => p.id);
+        return Array.from(root.querySelectorAll('path.state')).filter(p => isPlayableProvince(p.id));
     }
 
     function computeNeighborGraph(svg) {
@@ -2411,6 +2433,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (beginBtn) beginBtn.style.display = (isAdminMode && gameLive && !adminIntervening && !pendingDiff) ? '' : 'none';
         if (commitBtn) commitBtn.style.display = adminIntervening ? '' : 'none';
         if (cancelBtn) cancelBtn.style.display = adminIntervening ? '' : 'none';
+        // Pannello di ripristino: visibile a partita viva se admin e online (i
+        // backup vivono su Firestore). Si popola alla prima comparsa.
+        const restore = document.getElementById('restore-controls');
+        if (restore) {
+            const canRestore = isAdminMode && gameLive
+                && typeof MultiplayerSync !== 'undefined' && MultiplayerSync.isConfigured;
+            const wasHidden = restore.style.display === 'none';
+            restore.style.display = canRestore ? '' : 'none';
+            const sel = document.getElementById('restore-select');
+            if (canRestore && wasHidden && sel && !sel.options.length) refreshRestorePanel();
+        }
         if (banner) {
             if (adminIntervening) {
                 banner.textContent = '🔧 Intervento in preparazione — edita liberamente, poi «Applica al prossimo turno». Le tue modifiche non sono ancora in partita.';
@@ -2867,6 +2900,56 @@ document.addEventListener('DOMContentLoaded', () => {
         if (c) c.addEventListener('click', () => { if (isAdminMode) cancelIntervention(); });
     })();
 
+    // --- BACKUP / RIPRISTINO PER TURNO (§salvataggi robusti) ---
+    // Riempie il menu coi turni salvati su Firestore. Non gira da solo a ogni
+    // refresh (una lettura di rete): solo alla comparsa del pannello e sul bottone ↻.
+    function refreshRestorePanel() {
+        const sel = document.getElementById('restore-select');
+        const info = document.getElementById('restore-info');
+        if (!sel || !window.Risiko || !window.Risiko.listBackups) return;
+        if (info) info.textContent = 'Backup per turno: lettura…';
+        window.Risiko.listBackups().then(list => {
+            sel.innerHTML = '';
+            if (!list.length) {
+                if (info) info.textContent = 'Backup per turno: nessuno ancora (si creano a ogni nuovo turno).';
+                return;
+            }
+            list.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = String(b.turn);
+                const anno = (window.Chronicle && Chronicle.yearOfTurn) ? (' — ' + Chronicle.yearOfTurn(b.turn)) : '';
+                opt.textContent = 'Inizio turno ' + b.turn + anno;
+                sel.appendChild(opt);
+            });
+            if (info) info.textContent = list.length + ' turni salvati (il più recente in alto).';
+        });
+    }
+
+    (function wireRestoreButtons() {
+        const refresh = document.getElementById('restore-refresh-btn');
+        const apply = document.getElementById('restore-apply-btn');
+        const sel = document.getElementById('restore-select');
+        if (refresh) refresh.addEventListener('click', () => { if (isAdminMode) refreshRestorePanel(); });
+        if (apply) apply.addEventListener('click', () => {
+            if (!isAdminMode || !sel || !sel.value) return;
+            const turn = Number(sel.value);
+            askConfirm({
+                title: 'Ricaricare dal turno ' + turn + '?',
+                text: 'La partita torna allo stato di INIZIO turno ' + turn + ' per tutti i giocatori. '
+                    + 'Quello che è successo dopo va perso, e i backup dei turni successivi vengono cancellati. '
+                    + 'Da usare solo per rimediare a un danno.',
+                ok: '🕰 Ripristina',
+                tone: 'danger'
+            }, () => {
+                window.Risiko.restoreTurn(turn).then(() => {
+                    showPieceNotice('Partita ricaricata dall\'inizio del turno ' + turn + '.');
+                    renderGameControls();
+                    refreshRestorePanel();
+                }).catch(err => showPieceNotice('Ripristino fallito: ' + (err && err.message || err)));
+            });
+        });
+    })();
+
     // Quadro delle reclute in attesa: un rigo per regno in gioco, con le libere e
     // (fra parentesi) quelle obbligate in una provincia. A partita ferma sparisce.
     function renderReinforceBoard() {
@@ -3224,6 +3307,11 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    // Force one-shot per la prossima scrittura condivisa: la alzano SOLO le azioni
+    // che regrediscono il calendario di proposito (partita nuova, ripristino di un
+    // backup). Una scrittura di gioco normale non la alza, così la guardia di
+    // sync.js può rifiutare uno stato arretrato senza bloccare i reset voluti.
+    let forcePushOnce = false;
     function saveAutoSave() {
         const stateSnapshot = buildSnapshot();
         if (!stateSnapshot) return;
@@ -3231,7 +3319,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Mentre l'admin sta preparando un intervento (vedi beginIntervention) le
         // sue modifiche NON devono uscire: restano locali finché non le committa,
         // e verranno applicate al cambio turno sopra lo stato aggiornato.
-        if (!adminIntervening) MultiplayerSync.pushState(stateSnapshot);
+        if (!adminIntervening) MultiplayerSync.pushState(stateSnapshot, { force: forcePushOnce });
+        forcePushOnce = false;
     }
 
     function loadAutoSave() {
@@ -5288,6 +5377,32 @@ document.addEventListener('DOMContentLoaded', () => {
             updateTurnUI();
         },
 
+        // --- BACKUP / RIPRISTINO PER TURNO (§salvataggi robusti) ---
+        // L'elenco dei turni salvati (dal più recente): [{turn, savedAt}].
+        listBackups() {
+            return (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.listBackups)
+                ? MultiplayerSync.listBackups() : Promise.resolve([]);
+        },
+        // Ricarica la partita dall'inizio del turno `turn`: prende il backup, lo
+        // applica localmente e lo ripubblica come stato vivo (FORZANDO la scrittura,
+        // perché regredisce il calendario di proposito), poi cancella i backup dei
+        // turni successivi — la vecchia linea temporale non deve lasciare fantasmi.
+        // Solo l'admin, e con conferma dalla UI dell'editor.
+        restoreTurn(turn) {
+            if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.getBackup)
+                return Promise.reject(new Error('Backup non disponibili.'));
+            return MultiplayerSync.getBackup(turn).then(snap => {
+                if (!snap) throw new Error('Nessun backup per il turno ' + turn + '.');
+                // applyCloudState rimette in piedi mappa, giocatori, turno ed eventi
+                // dallo snapshot, esattamente come un normale aggiornamento cloud.
+                applyCloudState(snap);
+                forcePushOnce = true;
+                saveAutoSave();
+                if (MultiplayerSync.deleteBackupsAfter) MultiplayerSync.deleteBackupsAfter(turn);
+                return turn;
+            });
+        },
+
         // --- primitive di manipolazione della mappa, usate da game-actions.js ---
         // Superficie volutamente stretta: game-actions non conosce il DOM dell'SVG.
         engine: {
@@ -5399,7 +5514,20 @@ document.addEventListener('DOMContentLoaded', () => {
             redrawRoads() { renderRoads(document.querySelector('svg')); },
             refresh: refreshMapDisplay,
             notice: showPieceNotice,
-            save: saveAutoSave
+            save: saveAutoSave,
+            // Salvataggio FORZATO: scavalca la guardia anti-regressione di sync.js.
+            // Lo usano solo i reset voluti (partita nuova via startGame, ripristino
+            // di un backup) — quelli che abbassano di proposito il numero di turno.
+            saveForced() { forcePushOnce = true; saveAutoSave(); },
+            // Backup dell'intero stato a inizio decennio (§salvataggi robusti):
+            // game-actions lo chiama nel blocco `giroFinito` di endTurn. Un
+            // documento per turno in games/main/turns, così si può sempre
+            // ricaricare la partita da un turno precedente.
+            backupTurn(turn) {
+                if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.backupTurn) return;
+                const snap = buildSnapshot();
+                if (snap) MultiplayerSync.backupTurn(turn, snap);
+            }
         },
 
         // --- MAPPA INIZIALE (js/start-map.js) ---
@@ -5469,6 +5597,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // da dentro la nebbia è un'informazione che il giocatore non deve avere.
         visibleProvinces: () => visibleSet,
         isVisible: (id) => !visibleSet || visibleSet.has(id),
+        // Isolotti non giocabili: disegnati come terra ma fuori dal motore. Serve
+        // alla plancia per ignorare un clic su di loro (l'unico click handler che
+        // li può ancora intercettare, via closest('path.state')).
+        isPlayable: isPlayableProvince,
         // Cosa vede UN REGNO, chiunque stia guardando adesso: {visible, haze,
         // spie}. Non è la stessa domanda di `visibleProvinces` (che è "cosa vede
         // chi ha il focus"): serve a chi deve ragionare sul regno di un altro —

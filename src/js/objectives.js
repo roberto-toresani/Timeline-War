@@ -60,7 +60,7 @@
     // Ciclo II: la costa francese dove sbarca l'Inghilterra (Impero angioino).
     const NORMANDY_FR = new Set(['Normandy', 'Brittany', 'Picardy', 'Flanders', 'Aquitaine', 'Burgundy']);
     // Ciclo II: cuore della Grecia, oltre a Macedonia/Bulgaria già bizantine dal Ciclo I.
-    const GREECE = new Set(['Thessalia', 'Attica', 'Peloponnese', 'Crete', 'West_Aegean_Islands', 'Albania', 'Northern_Thrace']);
+    const GREECE = new Set(['Thessalia', 'Attica', 'Peloponnese', 'Crete', 'Albania', 'Northern_Thrace']);
     // Ciclo II: l'Egitto, meta dell'espansione fatimide verso est.
     const EGYPT = new Set(['Matruh', 'Lower_Egypt', 'Upper_Egypt', 'Middle_Egypt', 'Egyptian_Desert']);
     // Ciclo II: le isole del Mediterraneo occidentale, meta navale di Castiglia.
@@ -1789,7 +1789,7 @@
                 { id: 'bi2-1', tipo: 'espansione', titolo: 'La riconquista della Grecia',
                   tmpl: 'regione', arg: { set: 'GREECE' },
                   n: { resistere: 2, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Riconquista la Grecia: possiedi ${n} delle 7 province greche.`,
+                  testo: n => `Riconquista la Grecia: possiedi ${n} delle 6 province greche.`,
                   check: n => `province greche possedute ≥ ${n}` },
                 // La svolta di storia (regola dell'utente): Bisanzio non tiene più
                 // Gerusalemme — non ci va nemmeno. La minaccia del ciclo II sono i

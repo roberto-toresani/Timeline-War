@@ -22,6 +22,18 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // BACKUP PER TURNO (sottocollezione games/main/turns/{turno}): all'inizio di
+    // ogni decennio si salva l'intero stato in un documento a parte, cosi' si puo'
+    // sempre ricaricare la partita da un turno precedente se qualcosa la danneggia
+    // (regola dell'utente). Come lo stato principale, letta/scritta da tutti: ogni
+    // browser scrive il backup del turno dal proprio client. Una regola su
+    // games/main NON copre le sue sottocollezioni: senza questa i backup fallirebbero
+    // in silenzio.
+    match /games/main/turns/{turno} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Presenza dei giocatori: quale regno ha "preso" un giocatore aprendo il suo
     // link d'invito. NON e' stato di gioco autorevole (quello resta in games/main,
     // scrivibile solo dall'admin): serve solo perche' l'editor dell'admin mostri

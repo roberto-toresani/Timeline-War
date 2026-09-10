@@ -488,7 +488,10 @@
         R().setTurnState(ordine.length ? ordine[0] : null, ordine, 0);
         beginTurn();
         E().refresh();
-        E().save();
+        // Partita NUOVA: il calendario torna al turno 1, cioè REGREDISCE. La
+        // guardia anti-regressione di sync.js bloccherebbe la scrittura, quindi
+        // qui si FORZA — è un reset voluto, non un tab arretrato.
+        (E().saveForced || E().save)();
         return done(ordine.length
             ? 'Partita avviata: ' + ordine.length + ' regni in gioco.'
             : 'Nessun regno ha province: assegnale prima dalla mappa.');
@@ -781,6 +784,13 @@
         const res = beginTurn();
         E().refresh();
         E().save();
+        // Nuovo decennio: BACKUP dell'intero stato a inizio turno (§salvataggi
+        // robusti). Un documento per turno in games/main/turns, scritto una volta,
+        // così si può sempre ricaricare la partita da un turno precedente se
+        // qualcosa la danneggia. Solo a giro finito: dentro un giro il turno non
+        // cambia, e un backup per ogni fine-turno del singolo giocatore sarebbe
+        // rumore.
+        if (giroFinito && E().backupTurn) E().backupTurn(R().turn());
         const nota = forzate ? ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)' : '';
         const notaN = (neutrali && neutrali.province)
             ? ' Le terre di nessuno salgono a ' + neutrali.target + ' soldati.' : '';
