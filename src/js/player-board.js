@@ -4426,12 +4426,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (inp) setTimeout(() => inp.focus(), 0);
     }
 
-    // Le VOCI DEI BOT: una battuta d'atmosfera quando un regno dell'IA conquista.
-    // La chiama Bot.onEvent, che gira SOLO sul browser che muove i bot (l'admin):
-    // così il messaggio esce una volta sola. Rispetta la nebbia (solo se la
-    // provincia presa è visibile a qualcuno che guarda quel browser) e NON nomina
-    // mai la provincia — è colore, non una fuga di notizie. Al più una per turno di
-    // bot, e non sempre.
+    // ============================================================
+    // LE VOCI DEI BOT in chat (regola dell'utente)
+    //
+    // Un regno dell'IA non subisce soltanto il suo carattere: lo DICE. Le frasi
+    // vengono dalla DOTTRINA (js/doctrines.js, campo `chat`), così i Selgiuchidi
+    // si ossessionano con Bisanzio nominandolo, i nordici parlano di Finlandia,
+    // l'Orda annuncia la fine del mondo appena colpisce. Un regno SENZA dottrina
+    // (i dieci di partenza) ha solo la battuta generica sulla conquista.
+    //
+    // Le fanno parlare Bot.onEvent → botIntent (all'inizio del turno del bot) e
+    // botChatter (dopo una conquista). Entrambe passano da botSay, che gira SOLO
+    // sul browser che muove i bot (l'admin: niente doppioni) e lascia UNA battuta
+    // per turno di bot. player-board.js le pesca e le invia: sono colore, non una
+    // mossa, quindi non stanno in bot.js.
+    // ============================================================
+
     const BOT_TAUNTS = [
         'Un altro vessillo cade sotto le nostre insegne.',
         'Le nostre schiere avanzano. Chi si oppone, cada.',
@@ -4442,24 +4452,80 @@ document.addEventListener('DOMContentLoaded', () => {
         'La nostra ambizione non conosce inverno.',
         'Un regno si piega, e non sarà l\'ultimo.'
     ];
-    function botChatter(botPlayer, result) {
-        if (!botPlayer || !result || !result.conquistata) return;
-        if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) return;
-        // Solo chi muove i bot scrive (evita doppioni fra i browser).
-        if (MultiplayerSync.isConfigured && !MultiplayerSync.isAdmin) return;
-        // Nebbia: se chi guarda non vede la provincia presa, silenzio.
-        if (result.toId && R.isVisible && !R.isVisible(result.toId) &&
-            (!result.fromId || !R.isVisible(result.fromId))) return;
-        // Una battuta per turno di bot, e non sempre.
+    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+    // Il nemico DICHIARATO dalla dottrina che è DAVVERO in partita (ha ancora
+    // province): senza di lui le frasi che lo nominano ({nemico}) si tacciono.
+    function doctrineEnemyInPlay(d) {
+        if (!d || !Array.isArray(d.nemici)) return null;
+        return d.nemici.find(n => R.players().some(p => p.name === n && R.ownedPaths(p.name).length)) || null;
+    }
+
+    // Invia UNA battuta per conto di un bot, se è il caso. Ritorna true se ha
+    // parlato. Il gate anti-doppione (solo l'admin) e il tetto di una battuta per
+    // turno di bot vivono qui, in un posto solo.
+    function botSay(botPlayer, text) {
+        if (!botPlayer || !text) return false;
+        if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) return false;
+        // Scrive SOLO il browser che muove i bot — lo stesso gate di Bot.run
+        // (R.isAdmin, che rispetta il DEV bypass): così la battuta esce una volta
+        // sola, dal browser che ha davvero fatto agire quel bot.
+        if (R.isAdmin && !R.isAdmin()) return false;
         const key = botPlayer.id + '@' + R.turnoDi();
-        if (botChatTurn === key) return;
-        if (Math.random() > 0.45) return;
+        if (botChatTurn === key) return false;    // ha già parlato questo turno
         botChatTurn = key;
-        const line = BOT_TAUNTS[Math.floor(Math.random() * BOT_TAUNTS.length)];
         MultiplayerSync.sendChat({
-            testo: line, regno: botPlayer.name, colore: botPlayer.color,
+            testo: text, regno: botPlayer.name, colore: botPlayer.color,
             aid: botPlayer.id, bot: true, turno: R.turn()
         });
+        return true;
+    }
+
+    // PROATTIVA: all'inizio del turno di un bot, ogni tanto ne palesa il carattere.
+    // Solo i regni con dottrina (gli altri non hanno nulla da dichiarare), e mai
+    // l'Orda, che resta il segreto della nebbia finché non colpisce (la sua `chat`
+    // ha solo `conquista`). Le frasi sul nemico pesano DOPPIO: è l'ossessione.
+    function botIntent(botPlayer) {
+        if (!botPlayer || !window.Doctrines || !Doctrines.of) return;
+        const d = Doctrines.of(botPlayer);
+        if (!d || !d.chat) return;
+        const enemy = doctrineEnemyInPlay(d);
+        const bag = [];
+        if (enemy && d.chat.nemico) d.chat.nemico.forEach(l => { bag.push(l); bag.push(l); });
+        if (d.chat.meta) d.chat.meta.forEach(l => bag.push(l));
+        if (d.chat.generico) d.chat.generico.forEach(l => bag.push(l));
+        if (!bag.length) return;
+        if (Math.random() > 0.3) return;          // non a ogni turno
+        let line = pick(bag);
+        if (line.indexOf('{nemico}') >= 0) {
+            if (!enemy) return;
+            line = line.split('{nemico}').join(enemy);
+        }
+        botSay(botPlayer, line);
+    }
+
+    // REAZIONE: dopo una conquista visibile. Se ha battuto proprio il nemico
+    // dichiarato, la frase lo nomina (`nemicoVinto`); se no la sua `conquista`, e
+    // in mancanza di dottrina la battuta generica. NON nomina mai la provincia —
+    // è colore, non una fuga di notizie.
+    function botChatter(botPlayer, result) {
+        if (!botPlayer || !result || !result.conquistata) return;
+        // Nebbia: se chi guarda non vede la provincia presa (né quella di partenza),
+        // silenzio.
+        if (result.toId && R.isVisible && !R.isVisible(result.toId) &&
+            (!result.fromId || !R.isVisible(result.fromId))) return;
+        if (Math.random() > 0.45) return;
+        const d = (window.Doctrines && Doctrines.of) ? Doctrines.of(botPlayer) : null;
+        let line = null;
+        if (d && d.chat && d.chat.nemicoVinto && result.difensore &&
+            Doctrines.isEnemy(d, result.difensore)) {
+            line = pick(d.chat.nemicoVinto).split('{nemico}').join(result.difensore);
+        } else if (d && d.chat && d.chat.conquista) {
+            line = pick(d.chat.conquista);
+        } else {
+            line = pick(BOT_TAUNTS);
+        }
+        botSay(botPlayer, line);
     }
 
     function renderDiplomacy(player) {
@@ -5155,7 +5221,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.Bot) {
         window.Bot.onEvent = (evt) => {
             if (!evt) return;
-            if (evt.type === 'start') { aiLog(evt.player, null); return; }
+            if (evt.type === 'start') { aiLog(evt.player, null); botIntent(evt.player); return; }
             if (evt.type === 'action') {
                 aiLog(evt.player, evt.result);
                 // Voce del bot in chat: una battuta d'atmosfera sulle conquiste

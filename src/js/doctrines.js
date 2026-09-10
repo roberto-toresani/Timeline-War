@@ -43,6 +43,15 @@
 //   soloMare     non si espande via terra: difende, commercia e va per mare
 //   coloniale    quando può, arma il Veliero e salpa a fondare colonie
 //   rotte        le direzioni delle spedizioni coloniali, a turni alterni
+//   chat         le VOCI del regno in chat (proposta dell'utente): il suo
+//                carattere si sente, non solo si subisce. Un oggetto con liste di
+//                frasi per categoria — `nemico` (ossessione per il nemico
+//                dichiarato, col segnaposto {nemico} = il suo nome), `meta` (la
+//                missione), `generico`, `conquista` (reazione a una conquista) e
+//                `nemicoVinto` (l'aver battuto proprio il nemico). Le pesca e le
+//                invia player-board.js (botIntent/botChatter), non bot.js: sono
+//                colore, non una mossa. Chi le fa parlare risolve {nemico} col
+//                regno vero, e tace la frase se quel nemico non è in partita.
 // ============================================================
 (function (root) {
     'use strict';
@@ -123,7 +132,28 @@
             pattoAmico: 'alleanza',
             nemici: ['Impero Bizantino'],
             pesoNemici: 1.8,
-            marcia: MARCIA_SELGIUCHIDE
+            marcia: MARCIA_SELGIUCHIDE,
+            // I Selgiuchidi sono OSSESSIONATI da Bisanzio (regola dell'utente):
+            // lo nominano di continuo, ne pretendono la caduta e Costantinopoli.
+            chat: {
+                nemico: [
+                    '{nemico} siede su Costantinopoli come un usurpatore. Non per molto.',
+                    'Il Bosforo parlerà turco, {nemico}. Lo giuro sul Profeta.',
+                    'Ogni notte vedo cadere le mura di {nemico}. Presto non sarà più un sogno.',
+                    'Non conosceremo pace finché {nemico} regnerà. Prima la Terra Santa, poi la tua città.',
+                    '{nemico}, conta i tuoi giorni: la mezzaluna sorge a oriente.',
+                    'Costantinopoli è una mela matura, {nemico}. La coglieremo noi.'
+                ],
+                nemicoVinto: [
+                    '{nemico} sanguina. Un altro passo verso Costantinopoli.',
+                    'Vedi, {nemico}? Gli eserciti del Sultano non si fermano.'
+                ],
+                meta: [
+                    'Gerusalemme ci attende. La libereremo dai crociati.',
+                    'L\'altopiano d\'Anatolia è la culla del nostro impero.'
+                ],
+                conquista: ['Avanti, sempre avanti: è la volontà del Sultano.']
+            }
         },
 
         // 1150 — nasce in mezzo alla lotta fra Castiglia e Fatimidi, e ne resta
@@ -138,6 +168,15 @@
             // Portogallo è dottrina, non prudenza.
             vietaFede: ['musulmani'],
             soloMare: true,
+            chat: {
+                meta: [
+                    'Il mare non ha padroni. Noi lo faremo nostro.',
+                    'Oltre l\'oceano c\'è un mondo intero, e nessuno vi ha ancora piantato una croce.',
+                    'Le nostre caravelle andranno dove le carte finiscono.'
+                ],
+                generico: ['Castiglia, che la pace fra noi duri: c\'è oceano a sufficienza per entrambi.'],
+                conquista: ['Una nuova terra si apre a occidente. Dio lo vuole.']
+            },
             // Una COLONIA si fonda su terra di nessuno: `conservatore` gli
             // impedisce di prendersela con i regni (né Yorkshire agli inglesi né
             // le Fiandre ai francesi). Con `soloMare` insieme resta una cosa
@@ -160,7 +199,17 @@
             pesoNemici: 1.6,
             mete: ['Bulgaria'],
             pesoMete: 5,
-            soloMete: true
+            soloMete: true,
+            chat: {
+                nemico: [
+                    '{nemico}, il Danubio è il nostro confine, non la tua strada.',
+                    'I Bulgari non dimenticano i torti. {nemico} farebbe bene a ricordarlo.'
+                ],
+                meta: [
+                    'La Bulgaria ai Bulgari. Non chiediamo altro — ma quello lo pretendiamo.',
+                    'Un regno piccolo e saldo vale più di un impero che si sfalda.'
+                ]
+            }
         },
 
         // 1230 — i due regni scandinavi. Non sono in conflitto: si espandono a
@@ -171,7 +220,14 @@
             amici: ['Regno di Svezia'],
             mete: FINLANDIA,
             pesoMete: 3,
-            vietate: DANIMARCA
+            vietate: DANIMARCA,
+            chat: {
+                meta: [
+                    'La Finlandia guarda a occidente — cioè guarda a noi.',
+                    'Il Nord è vasto e freddo, e porterà il nostro stendardo.'
+                ],
+                generico: ['I mari del settentrione ci appartengono.']
+            }
         },
         'Regno di Svezia': {
             bot: 'espansione',
@@ -179,7 +235,13 @@
             amici: ['Regno di Norvegia'],
             mete: FINLANDIA,
             pesoMete: 3,
-            vietate: DANIMARCA
+            vietate: DANIMARCA,
+            chat: {
+                meta: [
+                    'La Finlandia sarà svedese. Che nessuno osi contendercela.',
+                    'Da Gotland al Golfo di Botnia: un solo regno, il nostro.'
+                ]
+            }
         },
 
         // 1240 — L'ORDA MONGOLA. Non è un regno che cresce: è una MARCIA, e la
@@ -202,6 +264,18 @@
             nemici: ['Kievan Ru\'s', 'Ducato di Ungheria', 'Ducato di Polonia'],
             pesoNemici: 1.8,
             marcia: MARCIA_MONGOLA,
+            // L'Orda NON ha voci proattive (né `nemico` né `meta`): resta il
+            // segreto della nebbia finché non arriva ai confini di qualcuno (il suo
+            // spawn è annunciato solo ai vicini). Ha solo la reazione di conquista,
+            // che è fog-gated — si sente quando ormai sta già travolgendo chi la
+            // vede. È voluto che l'Orda parli solo con la spada.
+            chat: {
+                conquista: [
+                    'Il cielo eterno ci ha promesso la terra fino al mare d\'occidente.',
+                    'Arrendetevi o cadete: all\'Orda non si resiste.',
+                    'Dove passano i nostri cavalli, l\'erba non ricresce.'
+                ]
+            },
             // NIENTE Cina, Corea, Siberia (regola dell'utente): l'Orda deve
             // arrivare in Europa il prima possibile, e ogni provincia presa alle
             // sue spalle è un decennio perso. `soloMete` la inchioda al binario —
