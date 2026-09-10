@@ -152,7 +152,28 @@
                     'Gerusalemme ci attende. La libereremo dai crociati.',
                     'L\'altopiano d\'Anatolia è la culla del nostro impero.'
                 ],
-                conquista: ['Avanti, sempre avanti: è la volontà del Sultano.']
+                conquista: ['Avanti, sempre avanti: è la volontà del Sultano.'],
+                // RISPOSTE a chi li nomina in chat (regola dell'utente): un umano
+                // può sfottere il bot e questo ribatte in carattere. `nemico` scatta
+                // quando a parlare è proprio il nemico dichiarato (Bisanzio).
+                risposte: {
+                    minaccia: [
+                        'Coraggioso, {mittente}. Ma è Costantinopoli che voglio — non metterti sulla mia strada.',
+                        'Minacce? Le ho sentite da uomini migliori di te, {mittente}. Dove sono ora?',
+                        'Affila pure la lingua, {mittente}. Io affilo le scimitarre.'
+                    ],
+                    pace: [
+                        'Pace con te, forse, {mittente}. Con {nemico} mai.',
+                        'La mia mano è aperta a chi non adora la croce, {mittente}.'
+                    ],
+                    saluto: ['Salute, {mittente}. Prega che le nostre strade non s\'incrocino sotto le mura di {nemico}.'],
+                    nemico: [
+                        'Tu, {mittente}! Ogni tua parola mi ricorda perché prenderò la tua città.',
+                        'Risparmia il fiato, {mittente}: lo perderai tutto quando cadranno le tue mura.',
+                        'Parli tanto, {mittente}. Costantinopoli però la difendono le spade, non le parole.'
+                    ],
+                    default: ['Il Sultano ti ascolta, {mittente}. Ma la Terra Santa non aspetta.']
+                }
             }
         },
 
@@ -175,7 +196,13 @@
                     'Le nostre caravelle andranno dove le carte finiscono.'
                 ],
                 generico: ['Castiglia, che la pace fra noi duri: c\'è oceano a sufficienza per entrambi.'],
-                conquista: ['Una nuova terra si apre a occidente. Dio lo vuole.']
+                conquista: ['Una nuova terra si apre a occidente. Dio lo vuole.'],
+                risposte: {
+                    minaccia: ['Minacciami quanto vuoi, {mittente}: io guardo al mare, non ai tuoi confini.'],
+                    pace: ['Volentieri, {mittente}. Il Portogallo cerca porti, non guerre.'],
+                    saluto: ['Buon vento, {mittente}.'],
+                    default: ['Che Dio guidi le tue navi, {mittente}. Le mie sanno già la rotta.']
+                }
             },
             // Una COLONIA si fonda su terra di nessuno: `conservatore` gli
             // impedisce di prendersela con i regni (né Yorkshire agli inglesi né
@@ -208,7 +235,14 @@
                 meta: [
                     'La Bulgaria ai Bulgari. Non chiediamo altro — ma quello lo pretendiamo.',
                     'Un regno piccolo e saldo vale più di un impero che si sfalda.'
-                ]
+                ],
+                risposte: {
+                    minaccia: ['Sono piccolo, {mittente}, ma i miei monti sono ripidi. Provaci.'],
+                    pace: ['La Bulgaria tratta con tutti — tranne una corona, e sai bene quale.'],
+                    saluto: ['Salute, {mittente}. Che il Danubio ci divida in pace.'],
+                    nemico: ['{mittente}! Fra noi c\'è il Danubio e un conto rimasto aperto.'],
+                    default: ['Parla pure, {mittente}. Io intanto tengo stretto ciò che è mio.']
+                }
             }
         },
 
@@ -226,7 +260,13 @@
                     'La Finlandia guarda a occidente — cioè guarda a noi.',
                     'Il Nord è vasto e freddo, e porterà il nostro stendardo.'
                 ],
-                generico: ['I mari del settentrione ci appartengono.']
+                generico: ['I mari del settentrione ci appartengono.'],
+                risposte: {
+                    minaccia: ['Il freddo del Nord ha spezzato eserciti più grandi del tuo, {mittente}.'],
+                    pace: ['Il Nord è vasto, {mittente}. C\'è posto per un\'intesa.'],
+                    saluto: ['Salute dalle terre del sole di mezzanotte, {mittente}.'],
+                    default: ['I nostri drakkar ti hanno sentito, {mittente}.']
+                }
             }
         },
         'Regno di Svezia': {
@@ -240,7 +280,13 @@
                 meta: [
                     'La Finlandia sarà svedese. Che nessuno osi contendercela.',
                     'Da Gotland al Golfo di Botnia: un solo regno, il nostro.'
-                ]
+                ],
+                risposte: {
+                    minaccia: ['Vieni pure, {mittente}. Le nevi ti seppelliranno prima delle mie lance.'],
+                    pace: ['Parliamone, {mittente}, purché la Finlandia resti fuori dal discorso.'],
+                    saluto: ['La corona di Svezia ti saluta, {mittente}.'],
+                    default: ['Ti ascolto, {mittente}. Ma il Nord ha già un padrone.']
+                }
             }
         },
 

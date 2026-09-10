@@ -79,6 +79,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try { chatSeen = JSON.parse(localStorage.getItem('risiko_chat_seen') || '{}') || {}; } catch (e) { chatSeen = {}; }
     // Voci dei bot: al più una battuta per turno di bot, per non intasare la chat.
     let botChatTurn = -1;
+    // RISPOSTE dei bot in chat (regola dell'utente): i messaggi già considerati (per
+    // non rispondere due volte allo stesso, né alla storia al primo caricamento) e
+    // il momento dell'ultima replica (freno anti-spam). `chatAnswered` null = non
+    // ancora seminato con lo storico.
+    let chatAnswered = null;
+    let lastBotReplyAt = 0;
 
     // ============================================================
     // LA SCENA: mappa piena, il turno agganciato, i fogli sopra
@@ -221,6 +227,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.onChatChange) {
         MultiplayerSync.onChatChange(msgs => {
             chatMessages = Array.isArray(msgs) ? msgs : [];
+            // I bot rispondono a chi li nomina in chat (solo il browser che li muove).
+            handleIncomingChat(chatMessages);
             const p = currentPlayer();
             if (p) renderChat(p);
         });
@@ -4461,24 +4469,30 @@ document.addEventListener('DOMContentLoaded', () => {
         return d.nemici.find(n => R.players().some(p => p.name === n && R.ownedPaths(p.name).length)) || null;
     }
 
-    // Invia UNA battuta per conto di un bot, se è il caso. Ritorna true se ha
-    // parlato. Il gate anti-doppione (solo l'admin) e il tetto di una battuta per
-    // turno di bot vivono qui, in un posto solo.
-    function botSay(botPlayer, text) {
+    // L'INVIO vero e proprio per conto di un bot. Scrive SOLO il browser che muove
+    // i bot — lo stesso gate di Bot.run (R.isAdmin, che rispetta il DEV bypass) —
+    // così la battuta esce una volta sola, dal browser che davvero comanda l'IA.
+    function botEmit(botPlayer, text) {
         if (!botPlayer || !text) return false;
         if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) return false;
-        // Scrive SOLO il browser che muove i bot — lo stesso gate di Bot.run
-        // (R.isAdmin, che rispetta il DEV bypass): così la battuta esce una volta
-        // sola, dal browser che ha davvero fatto agire quel bot.
         if (R.isAdmin && !R.isAdmin()) return false;
-        const key = botPlayer.id + '@' + R.turnoDi();
-        if (botChatTurn === key) return false;    // ha già parlato questo turno
-        botChatTurn = key;
         MultiplayerSync.sendChat({
             testo: text, regno: botPlayer.name, colore: botPlayer.color,
             aid: botPlayer.id, bot: true, turno: R.turn()
         });
         return true;
+    }
+
+    // Battuta SPONTANEA (intento/conquista): al più una per turno di bot, per non
+    // intasare la chat. Le risposte alle provocazioni passano invece da botEmit
+    // (una conversazione non si conta a turni).
+    function botSay(botPlayer, text) {
+        if (!botPlayer || !text) return false;
+        if (R.isAdmin && !R.isAdmin()) return false;
+        const key = botPlayer.id + '@' + R.turnoDi();
+        if (botChatTurn === key) return false;    // ha già parlato questo turno
+        botChatTurn = key;
+        return botEmit(botPlayer, text);
     }
 
     // PROATTIVA: all'inizio del turno di un bot, ogni tanto ne palesa il carattere.
@@ -4526,6 +4540,131 @@ document.addEventListener('DOMContentLoaded', () => {
             line = pick(BOT_TAUNTS);
         }
         botSay(botPlayer, line);
+    }
+
+    // ============================================================
+    // I BOT RISPONDONO a chi li nomina in chat pubblica (regola dell'utente)
+    //
+    // I dieci regni di partenza sono UMANI: possono sfottere o parlare coi regni
+    // dell'IA, e questi ribattono in personalità. La replica la genera — come le
+    // battute spontanee — SOLO il browser che muove i bot (botEmit → R.isAdmin),
+    // così esce una volta sola. Regole per non degenerare:
+    //   · solo la chat PUBBLICA (un messaggio con `to` è privato, lo si lascia stare);
+    //   · non si risponde a un altro bot (niente botta-e-risposta infinito fra IA);
+    //   · si risponde una sola volta per messaggio (chatAnswered) e non alla storia
+    //     al primo caricamento (si semina il set con quel che c'è già);
+    //   · un freno globale (una replica ogni ~4s) evita il muro di testo se un
+    //     umano spamma;
+    //   · l'Orda TACE (Doctrines.faithless): parla solo con la spada, resta il
+    //     segreto della nebbia finché non colpisce.
+    // ============================================================
+
+    // Come si riconosce un regno-bot nominato: gli alias (i nomi che un umano
+    // scrive davvero — "selgiuchidi", "turchi", "orda" — non il nome ufficiale).
+    // Per un bot senza voce in tabella si ripiega sulle parole del suo nome.
+    const BOT_ALIASES = {
+        'Sultanato Selgiuchide': ['selgiuchid', 'turch', 'sultano', 'sultanato'],
+        'Regno di Portogallo': ['portog', 'portoghes'],
+        'Regno di Bulgaria': ['bulgar'],
+        'Regno di Norvegia': ['norveg', 'viching'],
+        'Regno di Svezia': ['svedes', 'svezia'],
+        'Mongoli': ['mongol', 'orda', 'tartar']
+    };
+    const NAME_STOPWORDS = new Set(['regno', 'ducato', 'impero', 'califfato', 'sultanato', 'di', 'del', 'della', 'the', 'of']);
+    function nameStems(name) {
+        return (name || '').toLowerCase().split(/[^a-zàèéìòù]+/)
+            .filter(w => w.length >= 4 && !NAME_STOPWORDS.has(w));
+    }
+
+    // Risposte generiche per un regno-bot SENZA una tabella `risposte` propria (un
+    // regno di partenza che l'admin abbia messo all'IA): personalità di base.
+    const REPLY_FALLBACK = {
+        minaccia: [
+            'Parole grosse, {mittente}. Il campo dirà chi ha ragione.',
+            'Ci minacci? Ti aspettiamo al confine, {mittente}.',
+            'Molti l\'hanno detto, {mittente}. Riposano tutti sotto terra.'
+        ],
+        pace: [
+            'La pace ha un prezzo, {mittente}. Sei disposto a pagarlo?',
+            'Parliamone, {mittente}, se le tue offerte sono serie.'
+        ],
+        saluto: ['Salute a te, {mittente}. Che tu sia amico o preda, lo vedremo.'],
+        default: ['Ti ascoltiamo, {mittente}. Ma i fatti contano più delle parole.']
+    };
+
+    // Che cosa vuole chi scrive, dedotto a parole chiave (niente NLP): basta a
+    // scegliere il tono della risposta.
+    function classifyMessage(text) {
+        const t = ' ' + (text || '').toLowerCase() + ' ';
+        if (/allean|tregua|amic|pace|patto|insieme|commerci|scambi/.test(t)) return 'pace';
+        if (/distrugg|conquist|mort|cadr|batter|sconfigg|annient|schiacc|attacc|guerra|vendetta|invad|brucer|distruggerò|maledett|vi prend|ti prend|nemic|codard|verme|pezzente/.test(t)) return 'minaccia';
+        if (/\bciao\b|\bsalve\b|salute|buongiorno|buonasera|come va|come state/.test(t)) return 'saluto';
+        return 'default';
+    }
+
+    // Il regno-bot nominato in un messaggio (o null). L'Orda è esclusa: tace.
+    function mentionedBot(text) {
+        const t = ' ' + (text || '').toLowerCase() + ' ';
+        const bots = R.players().filter(p =>
+            window.Bot && window.Bot.isBot(p) && R.ownedPaths(p.name).length);
+        for (const p of bots) {
+            const d = (window.Doctrines && Doctrines.of) ? Doctrines.of(p) : null;
+            if (d && Doctrines.faithless && Doctrines.faithless(p)) continue;   // l'Orda tace
+            const aliases = BOT_ALIASES[p.name] || nameStems(p.name);
+            if (aliases.some(a => a && t.indexOf(a) >= 0)) return { player: p, doctrine: d };
+        }
+        return null;
+    }
+
+    // La frase con cui il bot ribatte: la sua tabella `risposte` per intento
+    // (veleno speciale se a parlare è il nemico dichiarato), o il ripiego generico.
+    function botReplyLine(doctrine, m) {
+        const intent = classifyMessage(m.testo);
+        const risposte = doctrine && doctrine.chat && doctrine.chat.risposte;
+        let pool = null;
+        if (risposte && risposte.nemico && Doctrines.isEnemy(doctrine, m.regno)) pool = risposte.nemico;
+        else if (risposte && risposte[intent]) pool = risposte[intent];
+        else if (risposte && risposte.default) pool = risposte.default;
+        else pool = REPLY_FALLBACK[intent] || REPLY_FALLBACK.default;
+        if (!pool || !pool.length) return null;
+        let line = pick(pool).split('{mittente}').join(m.regno || 'straniero');
+        if (line.indexOf('{nemico}') >= 0) {
+            const enemy = doctrineEnemyInPlay(doctrine) || 'i nostri nemici';
+            line = line.split('{nemico}').join(enemy);
+        }
+        return line;
+    }
+
+    function handleIncomingChat(msgs) {
+        if (!Array.isArray(msgs)) return;
+        // Risponde solo il browser che muove i bot: inutile che ogni client generi
+        // la stessa replica (e la scrittura la bloccherebbe comunque botEmit).
+        if (R.isAdmin && !R.isAdmin()) return;
+        // Primo giro: si semina il set con lo storico già arrivato, così i bot NON
+        // rispondono a tutti i messaggi vecchi in blocco al caricamento.
+        if (chatAnswered === null) {
+            chatAnswered = new Set(msgs.map(m => m.id));
+            return;
+        }
+        for (const m of msgs) {
+            if (!m || m.id == null || chatAnswered.has(m.id)) continue;
+            chatAnswered.add(m.id);
+            if (m.bot) continue;       // non si risponde a un altro bot
+            if (m.to) continue;        // solo la chat pubblica
+            maybeBotReply(m);
+        }
+    }
+
+    function maybeBotReply(m) {
+        const target = mentionedBot(m.testo);
+        if (!target) return;
+        const now = Date.now();
+        if (now - lastBotReplyAt < 4000) return;   // freno anti-spam
+        lastBotReplyAt = now;
+        const line = botReplyLine(target.doctrine, m);
+        if (!line) return;
+        // Un attimo di ritardo perché sembri una risposta, non un'eco.
+        setTimeout(() => botEmit(target.player, line), 700 + Math.random() * 1500);
     }
 
     function renderDiplomacy(player) {
