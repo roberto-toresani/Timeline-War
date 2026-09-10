@@ -102,6 +102,82 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     con una strategia lo gioca l'IA a prescindere. È **persistente** (scelta dell'utente):
     preso una volta, resta finché l'admin non cambia. NB: richiede di ripubblicare
     `firestore.rules` nella console Firebase (la regola `presence` è nuova).
+  - **CHAT fra i giocatori** (collezione Firestore `chat`, un doc per messaggio;
+    proposta dell'utente per rendere viva l'attesa fra i turni): come la presenza
+    NON è stato di gioco autorevole, quindi vive fuori da `games/main` e
+    `firestore.rules` la apre in lettura/scrittura a tutti (`match /chat/{id}` —
+    **va ripubblicata**, come fu per `presence`). Il canale sta in `sync.js`
+    (`onChatChange`/`sendChat`/`clearChat`), con lo **stesso replay** dell'ultimo
+    elenco (chi apre a metà attesa vede lo storico) e un tetto: si leggono solo gli
+    ultimi `CHAT_KEEP` = 300 messaggi (`orderBy('ts','desc').limit(300)` poi
+    rovesciati). L'ordinamento è per `ts` = orologio del **mittente** (basta, e non
+    aspetta il serverTimestamp). **Si azzera a partita nuova**: `GameActions.startGame`
+    chiama `MultiplayerSync.clearChat()` — è il choke point di ogni nuova partita —
+    che cancella la collezione a pagine (batch da 400, il limite è 500). Un messaggio
+    **privato** porta `to`/`toId` (regno destinatario): è un filtro lato client, non un
+    segreto (chi ha il database vede tutto). Senza Firebase (modalità locale) `sendChat`
+    fa l'eco in memoria, così la chat funziona anche offline per le prove.
+    - **UI in `player-board.js` + `play.html`**: pulsante 💬 nel `#board-dock` che apre
+      il foglio `.sheet-chat` in modalità **peek** (come la Diplomazia: la mappa resta
+      visibile e cliccabile a lato — durante l'attesa si chatta guardando i bot). Barra
+      dei **canali** (`#chat-channels`): "🌍 Tutti" + un filo **privato** per ogni regno
+      **umano** visibile (`diploKingdomsVisibili` filtrato `!isBot` — coi bot non c'è
+      filo privato, non rispondono in privato). Pallino di non-letti sul dock
+      (`chatSeen` per canale in `localStorage`, comodità di chi guarda) e per canale.
+      Scorciatoia "💬 Messaggio privato" sulla scheda di un regno umano nel foglio 🕊
+      (`relationCard` → `openChatWith`). L'instradamento è per **nome** di regno: il
+      filo fra me e X sono i messaggi in cui uno è `regno` e l'altro `to`.
+    - **`MultiplayerSync` è un `const`, NON sta su `window`** (trappola vera, costata un
+      bug): `sync.js` dichiara `const MultiplayerSync`, e un `const` a livello di script
+      non diventa una proprietà di `window` — il resto del codice lo referenzia infatti
+      **senza** qualificatore (`MultiplayerSync.onPresenceChange`, come app.js). Il codice
+      chat lo aveva gatato su `window.MultiplayerSync` (= `undefined`): sottoscrizione mai
+      avviata, input disabilitato, invio bloccato. Si usa `typeof MultiplayerSync !==
+      'undefined'`, mai `window.MultiplayerSync`.
+- **VOCI E RISPOSTE DEI BOT in chat (regola dell'utente)**: un regno dell'IA non subisce
+  soltanto il suo carattere — lo DICE. Le frasi vengono dalla **dottrina**
+  (`js/doctrines.js`, campo `chat`), non da un elenco generico: i Selgiuchidi si
+  ossessionano con Bisanzio nominandolo, i nordici parlano di Finlandia, l'Orda annuncia
+  la fine del mondo solo quando colpisce. Chi le fa parlare è **`player-board.js`** (sono
+  colore, non una mossa: non stanno in bot.js), e le emette **solo il browser che muove i
+  bot** — gate `R.isAdmin()`, lo stesso di `Bot.run`, così la battuta esce una volta sola.
+  - **Il campo `chat` della dottrina**: liste per categoria — `nemico` (ossessione per il
+    nemico dichiarato, col segnaposto `{nemico}`), `meta`, `generico`, `conquista`,
+    `nemicoVinto` (aver battuto proprio il nemico), e `risposte` (per ribattere a chi
+    scrive: `minaccia`/`pace`/`saluto`/`default` + `nemico` col veleno speciale, col
+    segnaposto `{mittente}`). Chi le fa parlare risolve i segnaposto col regno vero e
+    tace la frase se quel nemico non è in partita.
+  - **SPONTANEE** (`botIntent` all'inizio del turno del bot, `botChatter` dopo una
+    conquista): passano da `botSay`, che tiene il tetto di **una battuta per turno di
+    bot** (`botChatTurn`). `botIntent` palesa il carattere (~30%, le frasi sul nemico
+    pesano doppio — è l'ossessione) e riguarda **solo** i regni con dottrina.
+    `botChatter` reagisce a una conquista **visibile** (rispetta la nebbia: solo se la
+    provincia presa o quella di partenza è `R.isVisible`) e **non nomina mai la
+    provincia**; se ha battuto il nemico dichiarato la frase lo nomina (`nemicoVinto`),
+    se no `conquista`, in mancanza di dottrina la battuta generica `BOT_TAUNTS`.
+  - **REATTIVE** (i dieci regni di partenza sono UMANI e possono sfottere/parlare coi
+    bot): `handleIncomingChat` gira a ogni `onChatChange` e, per ogni messaggio **nuovo,
+    pubblico, di un umano**, chiama `maybeBotReply`. `mentionedBot` trova il regno-IA
+    nominato (alias tolleranti in `BOT_ALIASES`: "selgiuchidi", "turchi", "orda"… — non il
+    nome ufficiale; ripiego sulle parole del nome), `classifyMessage` deduce il tono a
+    parole chiave (niente NLP), `botReplyLine` sceglie la frase da `risposte` (o dal
+    ripiego generico `REPLY_FALLBACK` per un regno-IA senza tabella). La replica passa da
+    `botEmit` (l'invio col gate admin, SENZA il tetto per-turno: una conversazione non si
+    conta a turni), con un ritardo di ~0,7-2,2 s perché sembri una risposta.
+  - **I freni che evitano il degenero**: solo la chat **pubblica** (un `to` è privato, si
+    lascia stare); **mai** rispondere a un altro bot (niente botta-e-risposta infinito fra
+    IA); **una** replica per messaggio (`chatAnswered`, seminato con lo storico al primo
+    giro così i bot non rispondono a tutti i messaggi vecchi al caricamento); un **freno
+    globale** (`lastBotReplyAt`, una replica ogni ~4 s) contro lo spam; rispondono **solo**
+    i regni davvero controllati dall'IA (`Bot.isBot`, cioè `player.bot ≠ null`); e l'**Orda
+    tace** (`Doctrines.faithless`: parla solo con la spada, resta il segreto della nebbia
+    finché non colpisce — la sua `chat` ha solo `conquista`, fog-gated).
+  - **Struttura dell'invio, in un posto solo**: `botEmit` (invio + gate `R.isAdmin`) è la
+    base; `botSay` ci aggiunge il tetto per-turno per le battute spontanee; le risposte
+    chiamano `botEmit` diretto. Chi aggiunge una voce nuova passa da lì e non riscrive il
+    gate. NB: perché i bot chiacchierino serve che i regni d'evento abbiano una strategia
+    assegnata (menù `.player-bot` dell'editor) e che il browser dell'admin sia aperto,
+    come per i loro turni.
 - `app.js` gestisce turni, giocatori, selezione province, colori e la UI.
 - **Due pagine, un solo motore**: `play.html` carica lo stesso `app.js` di `index.html` e si
   dichiara con `<body data-mode="player">`. app.js resta una singola closure e in coda espone
