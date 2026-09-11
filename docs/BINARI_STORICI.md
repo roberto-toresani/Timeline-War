@@ -22,6 +22,64 @@ il regno è arrivato nella *propria* storia. Chi compie un capitolo passa al suc
 non ce la fa lo rifà a intensità minore; chi crolla arretra. Un regno lento arriva al
 capitolo III al quinto ciclo, e va bene così — è la sua storia che è andata più piano.
 
+## Un capitolo non si salta mai
+
+**Un obiettivo con un gancio storico non può sparire** (regola dell'utente), e vale
+doppio se un **evento strutturato** dipende proprio da lui — l'Inghilterra raduna a
+Home Counties (capitolo II) perché è di lì che parte la `crociata-inglese` del turno
+21 (§Eventi): se quel capitolo saltasse, l'evento non avrebbe più uomini da imbarcare.
+Il capitolo avanza **sempre di uno** per ciclo, mai di più: non esiste più uno scatto
+che ne salta uno intero perché il regno ha "già superato" quel che chiedeva.
+
+Un regno che corre non riceve il pezzo dopo — riceve **lo stesso pezzo, più duro**:
+
+- **La soglia si alza fin dove serve.** Se a fine ciclo I hai già 25 uomini a Home
+  Counties (l'ancora `eccedere` era 14), il capitolo II non ti chiede più 14 — ti
+  chiede 27. Prima la banda si fermava a `eccedere × 1,2`: un obiettivo del genere
+  nasceva già completo, cioè un premio gratis invece che un traguardo.
+- **Se anche il tetto naturale è già pieno, il capitolo TRABOCCA** in una regione
+  storicamente successiva invece di certificare gratis una conquista vecchia. Esempio:
+  Castiglia V chiede di unificare l'Iberia (13 province); se la penisola è già tutta
+  tua *prima* che il capitolo nasca, il capitolo non dice più "possiedi 13 province
+  iberiche" (già vero) — dice "spingiti oltre lo Stretto: possiedi N province del
+  Maghreb". Lo decide l'autore del capitolo, non il generatore da solo: una voce
+  `regione` porta `arg.oltre` (il nome del SET successivo), `nOltre` e `testoOltre`/
+  `checkOltre` — le quattro vanno scritte insieme, o il testo parlerebbe della regione
+  sbagliata mentre il conto ne misura un'altra.
+
+**La PONDERAZIONE conta più del meccanismo** (regola dell'utente): "non puoi passare
+da 'conquista altre 2-3 province in Spagna' a un obiettivo quasi impossibile come
+prendere TUTTO il Nordafrica" — e non puoi chiedere alla Germania 8 province italiane
+solo perché ha già raggiunto la sua massima estensione storica. `nOltre` esiste apposta
+per questo: sono ancore SCRITTE A MANO per la regione nuova, non quelle del capitolo
+vecchio riciclate. Riusare l'`n` vecchio sballava la scala sempre nello stesso modo —
+la sua `eccedere` era tarata su una regione magari il doppio più grande, e finiva
+clampata al tetto di quella nuova: chiedeva l'INTERA regione nuova in un colpo, non un
+passo avanti. La regola pratica: `nOltre` chiede quasi sempre gli stessi numeri (un
+gradino più in basso) che un **capitolo successivo dello stesso binario** già chiede
+DAVVERO per quella regione — così l'ambizione resta sulla scala giusta E resta
+storicamente credibile, perché è la stessa storia che il binario racconterebbe comunque,
+solo in anticipo.
+
+Applicato a otto regni (Bisanzio e Inghilterra non ne hanno bisogno: i loro capitoli non
+ripetono mai una regione già a tetto):
+
+| regno | trabocca da → a | quando |
+|---|---|---|
+| Castiglia | ANDALUS → IBERIA | cap III, se al-Andalus è già intera |
+| Castiglia | IBERIA → MAGHREB | cap V, se la penisola è già intera |
+| Francia | NORMANDY_FR → MED_FR | cap III (Bouvines coincide con gli Albigesi, 1209-1229) |
+| Francia | NORMANDY_FR → ITALIA_NORD | cap V, un ciclo prima del vero 1494 di Carlo VIII |
+| Califfato Fatimide | HOLY_LAND → ARABIA | cap III, la stessa meta di fa5-1 in anticipo |
+| Sacro Romano Impero | ITALIA_NORD → ADRIATIC | cap III |
+| Sacro Romano Impero | GERMANIA → RENO | cap III (Secondario) |
+| Sacro Romano Impero | GERMANIA → AUSTRIA_EST | cap IV, la stessa meta di sr5-1 in anticipo |
+| Sacro Romano Impero | AUSTRIA_EST → BALCANI | cap V, la stessa meta di sr8-1 tre cicli prima |
+| Ducato di Polonia | BALTICO → RUS_NORD | cap V |
+| Kievan Rus' | RUS_NORD → EST_RUSSO | cap III e cap IV, la stessa meta di ru5-1 in anticipo |
+| Ducato di Ungheria | PANNONIA → BALCANI | cap III, la stessa meta di un4-1 in anticipo |
+| Califfato Abbaside | MESOPOTAMIA → PERSIA | cap III, la stessa meta di ab4-1 in anticipo |
+
 ## La scala dell'ambizione
 
 **Un capitolo tardo non può chiedere una cosa che era già fattibile nei primi cicli**
@@ -135,7 +193,7 @@ binario che finisce sotto assedio.
 | II | 1100-1199 | Verso il Tago | `conquista IBERIA` |
 | III | 1200-1299 | Las Navas de Tolosa | `unifica ANDALUS` |
 | IV | 1300-1399 | Lo Stretto | `sbarca MAGHREB` |
-| V | 1400-1499 | Granada e l'Atlantico | `unifica IBERIA` |
+| V | 1400-1499 | Granada e l'Atlantico | `unifica IBERIA` *(trabocca in `MAGHREB` se la penisola è già intera — §Un capitolo non si salta mai)* |
 | VI | 1500-1599 | L'impero dove non tramonta il sole | `spedizione` |
 | VII | 1600-1699 | Difendere l'impero | `flotta` |
 | VIII | 1700-1799 | Le riforme borboniche | `regna` |

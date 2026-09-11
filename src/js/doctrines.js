@@ -133,6 +133,12 @@
             nemici: ['Impero Bizantino'],
             pesoNemici: 1.8,
             marcia: MARCIA_SELGIUCHIDE,
+            // LEVA DI DOTTRINA (regola dell'utente): i Selgiuchidi nascono per
+            // evento e NON hanno un binario storico (§10), quindi non incassano la
+            // leva degli obiettivi a fine ciclo. Al suo posto ricevono 5 reclute
+            // libere alla chiusura di ogni ciclo (game-actions.closeCycle), così
+            // crescono di pari passo coi regni che gli obiettivi ce li hanno.
+            levaCiclo: 5,
             // I Selgiuchidi sono OSSESSIONATI da Bisanzio (regola dell'utente):
             // lo nominano di continuo, ne pretendono la caduta e Costantinopoli.
             chat: {
@@ -420,6 +426,14 @@
         const i = idx(of(who));
         return i ? i.marcia.slice() : [];
     }
+    // LA LEVA DI DOTTRINA a fine ciclo: le reclute libere che un regno d'evento
+    // SENZA binario storico riceve alla chiusura di ogni ciclo, al posto della leva
+    // degli obiettivi (§10) che non ha (i Selgiuchidi). 0 per chi non la dichiara.
+    // Accetta nome o record, come faithless: a chiederlo è game-actions.closeCycle.
+    function cycleLevy(who) {
+        const d = (who && typeof who === 'object' && who._idx) ? who : of(who);
+        return (d && +d.levaCiclo) || 0;
+    }
     function isColonial(d) { return !!(d && d.coloniale); }
     // La rotta di una spedizione coloniale: le direzioni si alternano di turno in
     // turno, così il primo scafo va in Africa e il secondo nell'oceano.
@@ -440,7 +454,7 @@
     root.Doctrines = {
         DOCTRINES,
         of, isMeta, forbids, isFriend, isEnemy, blocksFaith, faithOf,
-        metaWeight, enemyWeight, onlySea, onlyGoals, signsNothing, faithless, march, isColonial, routeAt, keepsPeaceWith
+        metaWeight, enemyWeight, onlySea, onlyGoals, signsNothing, faithless, cycleLevy, march, isColonial, routeAt, keepsPeaceWith
     };
 
 })(typeof window !== 'undefined' ? window : this);

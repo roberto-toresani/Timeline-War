@@ -1112,34 +1112,55 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   - **Prima Crociata** (`prima-crociata`, turno 11 = ciclo 2, one-shot): al bando, **una
     sola** oste parte, quella **franca** su **Aleppo** (regola dell'utente: Bisanzio NON ha
     più la chiamata del Papa — il suo obiettivo storico è cambiato, e Gerusalemme la prende
-    l'Inghilterra nel ciclo 3, vedi **Crociata inglese**). L'oste è `forza:10` **radunata
-    drenando le VERE truppe** del regno (`ctx.muster`: §5 rispettato) — non è evocata. La
-    Francia ha una **`regione`** di candidate — le tre coste di `MED_FR` in `objectives.js`,
-    lo stesso elenco dell'obiettivo fr1 ("raduna 10 uomini su una costa mediterranea") — e
-    l'oste parte da quella dove il giocatore ha **davvero** ammassato più uomini, non da un
-    punto fisso; se non ne ha preparata nessuna si ripiega sulla provincia più piena del
-    regno. Poi `ctx.assault` la **sbarca all'assalto** (stessa battaglia dello sbarco
-    d'editto: `applyBattleOutcome`, terreno del difensore, nessun vincolo di
-    adiacenza/carico); se la meta è già del regno la rinforza invece di sprecarsi. Vinta →
-    provincia del regno, superstiti di presidio, fede **convertita** (la fede segue la
-    spada) e lock; persa → l'oste è perduta. Con una gamba sola è caduto il vecchio
-    **patto di vista** fra i due crociati (non ci sono più due crociati). Aleppo è neutrale
-    sulla mappa iniziale, ma al turno 11 può essere di un Califfato (Abbaside/Fatimide):
-    l'assalto combatte chi la tiene in quel momento. L'orchestrazione della crociata (raduno
-    → assalto → pergamena) vive in una funzione sola, `crusadeHost` in `events.js`, condivisa
-    con la crociata inglese: **una gamba = una chiamata**.
+    l'Inghilterra nel ciclo 3, vedi **Crociata inglese**). La Francia ha una **`regione`** di
+    candidate — le tre coste di `MED_FR` in `objectives.js`, lo stesso elenco dell'obiettivo
+    fr1 ("raduna N uomini su una costa mediterranea") — e l'oste parte da quella dove il
+    giocatore ha **davvero** ammassato più uomini, non da un punto fisso; se non ne ha
+    preparata nessuna si ripiega sulla provincia più piena del regno. L'oste è **radunata
+    drenando le VERE truppe** del regno (`ctx.muster`: §5 rispettato) — non è evocata. Poi
+    `ctx.assault` la **sbarca all'assalto** (stessa battaglia dello sbarco d'editto:
+    `applyBattleOutcome`, terreno del difensore, nessun vincolo di adiacenza/carico); se la
+    meta è già del regno la rinforza invece di sprecarsi. Vinta → provincia del regno,
+    superstiti di presidio, fede **convertita** (la fede segue la spada) e lock; persa →
+    l'oste è perduta. Con una gamba sola è caduto il vecchio **patto di vista** fra i due
+    crociati (non ci sono più due crociati). Aleppo è neutrale sulla mappa iniziale, ma al
+    turno 11 può essere di un Califfato (Abbaside/Fatimide): l'assalto combatte chi la tiene
+    in quel momento. L'orchestrazione della crociata (raduno → assalto → pergamena) vive in
+    una funzione sola, `crusadeHost` in `events.js`, condivisa con la crociata inglese: **una
+    gamba = una chiamata**.
   - **Crociata inglese** (`crociata-inglese`, **turno 21 = inizio ciclo 3**, one-shot,
     regola dell'utente): gli uomini che l'Inghilterra ha radunato a **Home Counties** alla
     **fine del ciclo 2** (obiettivo in2-2, "La chiamata del Papa") **salpano all'inizio del
     ciclo 3** e sbarcano all'assalto di **Palestine** (Gerusalemme). È l'Inghilterra, non più
     Bisanzio, a portare la croce in Terra Santa. Stesso motore della Prima Crociata
     (`crusadeHost`): `da: 'Home_Counties'` fisso (la stessa provincia che l'obiettivo chiede
-    di riempire), `forza:10` (`ctx.muster` drena da Home Counties per primo, poi dal resto
-    del regno se là non bastano — il trasporto è del Papa). L'evento scatta al **passaggio al
-    turno 21** in `endTurn` (dopo `advanceGlobalTurn`, prima che chiunque giochi il ciclo 3),
-    quindi gli uomini vanno radunati **entro il turno 20**. Vinta → provincia inglese,
-    superstiti di presidio, fede convertita; persa → l'oste è perduta. (Al turno 21 scatta
-    **anche** l'invasione mongola: due eventi nello stesso decennio, indipendenti.)
+    di riempire; `ctx.muster` drena da lì per primo, poi dal resto del regno se là non
+    bastano — il trasporto è del Papa). L'evento scatta al **passaggio al turno 21** in
+    `endTurn` (dopo `advanceGlobalTurn`, prima che chiunque giochi il ciclo 3), quindi gli
+    uomini vanno radunati **entro il turno 20**. Vinta → provincia inglese, superstiti di
+    presidio, fede convertita; persa → l'oste è perduta. (Al turno 21 scatta **anche**
+    l'invasione mongola: due eventi nello stesso decennio, indipendenti.)
+  - **QUANTI NE IMBARCA IL PAPA: proporzionale all'obiettivo, non una taglia fissa** (regola
+    dell'utente: *"se l'obiettivo era raduna 10 uomini, ne invieremo 9; se era radunarne 15,
+    ne invieremo 12/13"*). `forzaCrociata` (`events.js`, `FORZA_CROCIATA_RATIO = 0,85`) legge
+    la **soglia vera** che l'obiettivo di raduno chiedeva quel ciclo (`fr1` per la Francia,
+    `in2-2` per l'Inghilterra) e ne imbarca l'85% arrotondato — un regno che ha corso e si è
+    visto alzare l'asticella (§10, la banda che si allunga) manda anche una crociata più
+    grande, non sempre la stessa da 10. Il 15% che resta è la scorta che il regno si tiene
+    per sé: la leva non parte mai per intero. La soglia si legge da `ctx.soglia(regno, id)`
+    (nuovo su `makeEventCtx`), che guarda `assPrima` — le assegnazioni del ciclo **appena
+    chiuso**, catturate da `grabAssignments` **prima** di `advanceGlobalTurn` e passate a
+    `applyEvents` (a questo punto `closeCycle` non ha ancora archiviato il ciclo, quindi
+    `obiettiviStorico` non ha ancora quella soglia — è l'unica finestra in cui il numero
+    esiste già). Senza obiettivo tracciabile (regno senza binario, migrazione) si ripiega
+    sulla vecchia taglia fissa (10).
+  - **Il popup della crociata non si perde**: `crusadeHost` avvisa il regno con
+    `ctx.notify` come ogni evento (`player.eventiAvvisi` → `showPendingEventi` →
+    `Risiko.showFoundation`, la pergamena centrale) — vale identico per Francia e
+    Inghilterra, nessuna delle due ha un canale diverso. Mancava solo un'etichetta propria
+    in `FOUNDATION_EYEBROW` (app.js): senza, ricadeva sulla generica "Cronaca del regno" che
+    non segnalava che fosse successo qualcosa di grosso; ora `crociata: 'La Crociata —
+    l'oste giunge in Terra Santa'`.
   - **Invasione mongola** (`invasione-mongola`, **turno 21 = 1200**, scelta dell'utente:
     si leva presto apposta, così entra in contatto coi popoli d'Occidente entro
     quattro o cinque decenni invece di arrivare a partita quasi finita — nelle prove
@@ -1247,6 +1268,13 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       strade sono aperte insieme. Nemico dichiarato **Bisanzio**, amici gli **Abbasidi**
       (con cui cercano l'**alleanza**, che è anche il corridoio per mandargli uomini al
       fronte): musulmani convinti, coi cristiani non firmano mai.
+      **LEVA DI DOTTRINA** (regola dell'utente): non avendo un binario storico (§10)
+      non incassano la leva degli obiettivi, quindi la dottrina dichiara
+      `levaCiclo: 5` — **5 reclute libere alla chiusura di ogni ciclo**, versate da
+      `closeCycle` (game-actions.js) nel serbatoio `recluteDaSchierare` come la leva
+      vera, così crescono di pari passo. Il getter è `Doctrines.cycleLevy(nome)`; in
+      `closeCycle` si versa solo se la leva degli obiettivi è 0 (un regno con binario
+      non lo dichiara). I bot la spendono da sé (`deployPlan`).
     - **Portogallo** (turno 16 = 1150): Beira, Estremadura (la provincia "Portugal"), Alentejo
       con 5 uomini, **solo dove è libero** e senza ripiego — occupato il posto, non nasce.
       Parte con **2000 monete e 3 Legno**: `soloMare` + `conservatore` gli lasciano una cosa
@@ -1380,6 +1408,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     ogni difensore** — 4 soldati neutrali (3 spendibili) contro 1 solo difensore è il caso
     limite. Se non schiaccia nessun confinante di fede diversa, resta ferma. È una razzia
     su una porta aperta, non un secondo fronte.
+    **UNA SOLA razzia per giro (regola dell'utente)**: tutte le terre di nessuno insieme
+    attaccano una volta sola, quindi non possono strappare più di una provincia a un
+    giocatore nello stesso giro. `neutralRaids` raccoglie tutte le candidate (ogni neutrale
+    pronta col suo bersaglio più debole) e ne estrae **una a sorte** — non l'ordine dei
+    path, se no a colpire sarebbe sempre lo stesso angolo di mappa. Prima ogni neutrale
+    razziava per conto suo e un giro poteva spazzare via mezzo regno.
     **Una Capitale razziata si declassa a Città**, come una Capitale nemica conquistata:
     in terra di nessuno non governa più nessuno. Senza questo il regno restava senza
     seggio ma con la pedina ancora piantata su una provincia neutrale —
@@ -1782,19 +1816,43 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (`Objectives.ritmoDa`, dalle province) e col gradino (`K_TIER`: al Primario si
     chiede di fare meglio, al Terziario di reggere).
   - **Il puntatore** è `Objectives.passo`, puro: avanza il capitolo di **uno** in ogni
-    caso (crollo compreso, dove scende solo l'intensità a `resistere`). Il numero del
-    ciclo entra **solo come freno** (`FRENO = 1`: il capitolo non supera il ciclo di più
-    di uno). Il capitolo può saltare **oltre** l'uno quando è già stato **superato** dai
-    fatti (`Objectives.superato`, chiamato in `closeCycle`: la meta del Primario è oltre
-    l'ancora `eccedere`) — è così che la storia di chi corre accelera, **un solo capitolo
-    per chiusura di ciclo** (regola dell'utente: gli obiettivi restano plausibili e
-    storicamente attendibili anche per un regno che corre — prima, con `FRENO = 2` e fino
-    a 4 scatti in un colpo solo, la Francia poteva ritrovarsi a chiedere i confini sul
-    Reno di Richelieu due secoli prima del tempo). La **migrazione
-    della partita in corso** vive in `ensureAssignment` (app.js): un salvataggio nato
-    sotto la vecchia regola, con un capitolo rimasto indietro, viene portato avanti fin
-    dove dovrebbe essere (`capitolo = max(capitolo, min(ciclo, nCapitoli))`, mai
-    indietro) e l'assegnazione rigenerata se il suo capitolo non combacia.
+    caso (crollo compreso, dove scende solo l'intensità a `resistere`) e **MAI di più**
+    (regola dell'utente, cambiata due volte). Prima c'era uno scatto extra
+    (`Objectives.superato`, chiamato da `closeCycle`) che faceva SALTARE un capitolo
+    intero quando il regno l'aveva già superato — ma un capitolo con un **gancio
+    storico** non si può far sparire così, soprattutto se un **evento strutturato**
+    dipende proprio da quell'obiettivo (l'Inghilterra II raduna a Home Counties per la
+    `crociata-inglese` del turno 21: se il capitolo veniva saltato, la leva a cui
+    l'evento attinge non esisteva mai). `superato` è **rimossa**: il capitolo non è
+    più saltabile, punto — il numero del ciclo resta solo un freno sul ritardo
+    (`FRENO = 1`: il capitolo non può restare più di uno dietro il ciclo).
+    Un regno che ha corso non riceve il pezzo dopo: riceve lo **stesso** pezzo, reso più
+    duro. Due leve, entrambe in `Objectives.soglia`/`generate`:
+    - **La banda si allunga fino al tetto naturale** invece di ributtare il ratchet
+      sotto quel che il regno ha già (regola dell'utente: *"se ho già 6 uomini a Home
+      Counties l'obiettivo sarà radunarne 15, non 10 — non sparisce"*). Prima `hi` era
+      fissato a `eccedere × 1,2`: un regno con 25 uomini a Home Counties (ancora
+      `eccedere = 14`) si vedeva chiedere solo 17, cioè un obiettivo GIÀ fatto — un
+      premio gratis, non un traguardo. Ora `hi = min(tetto, max(lo, eccedere×1,2,
+      ratchet))`: la banda cresce quanto serve, e resta chiusa solo dal **tetto vero**
+      del template (una regione di 13 non può chiederne 15, la Popolarità si ferma a 5).
+    - **Il traboccamento di regione** (`arg.oltre`, risolto da `withOverflow` dentro
+      `generate`, PRIMA di calibrare le soglie): quando anche il tetto vero è già pieno
+      — la regione è tutta conquistata prima ancora che il capitolo nasca — l'obiettivo
+      non può alzarsi oltre quel tetto, quindi TRABOCCA in una regione storicamente
+      successiva che l'autore ha dichiarato. Una voce `regione` porta tre campi in più,
+      tutti richiesti insieme (senza un testo vero l'obiettivo parlerebbe della regione
+      sbagliata): `oltre` (il nome del SET nuovo), `testoOltre`/`checkOltre` (e
+      opzionalmente `titoloOltre`). Esempio vivo: Castiglia V («Granada cade», unifica
+      IBERIA) porta `oltre: 'MAGHREB'` — se la penisola è già intera, il capitolo parla
+      di spingersi oltre lo Stretto invece di certificare gratis un'Iberia presa da un
+      capitolo precedente. Un binario che non dichiara `oltre` su una voce non ne risente:
+      `withOverflow` la lascia intatta.
+    La **migrazione della partita in corso** vive in `ensureAssignment` (app.js): un
+    salvataggio nato sotto la vecchia regola, con un capitolo rimasto indietro, viene
+    portato avanti fin dove dovrebbe essere (`capitolo = max(capitolo, min(ciclo,
+    nCapitoli))`, mai indietro) e l'assegnazione rigenerata se il suo capitolo non
+    combacia.
   - **Lo stato sul giocatore**: `capitolo`, `intensita`, `obiettiviCiclo`
     (l'assegnazione in corso, serializzabile), `cicliStorico` (il registro di
     performance su cui il puntatore si muove — non esisteva niente del genere,
@@ -1829,6 +1887,21 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     dentro una regione: quale provincia lo decide dove approda la nave, quindi il
     capitolo non può nominarla). `naviTipo` chiede a `objectiveContext` la lettura
     nuova `shipCountOf(kind)`, che legge `data-ships`.
+  - **Il traboccamento (`arg.oltre`) è esteso a otto regni**, non solo Castiglia: ogni
+    volta che un capitolo chiede di unificare/consolidare una regione ed è **l'ultima**
+    (o l'unica) occasione in cui quel binario la chiede a piena taglia, la voce porta
+    `oltre` più un `nOltre` calibrato a mano — MAI il tetto della regione nuova, quasi
+    sempre gli stessi numeri (abbassati di un gradino) che un **capitolo successivo dello
+    stesso binario** già chiede DAVVERO per quella regione (regola dell'utente: la
+    ponderazione conta più del meccanismo — non si passa da "2-3 province di Spagna" a
+    "tutto il Nordafrica", e non si chiede alla Germania 8 province italiane solo perché
+    ha già la sua massima estensione storica). Applicato: Castiglia (ANDALUS→IBERIA,
+    IBERIA→MAGHREB), Francia (NORMANDY_FR→MED_FR a cap3, →ITALIA_NORD a cap5, un ciclo
+    prima del vero 1494 di Carlo VIII), Fatimidi (HOLY_LAND→ARABIA), Sacro Romano Impero
+    (ITALIA_NORD→ADRIATIC, GERMANIA→RENO a cap3, GERMANIA→AUSTRIA_EST a cap4,
+    AUSTRIA_EST→BALCANI a cap5), Polonia (BALTICO→RUS_NORD), Kievan Rus'
+    (RUS_NORD→EST_RUSSO, due volte), Ungheria (PANNONIA→BALCANI), Abbaside
+    (MESOPOTAMIA→PERSIA).
   - **Tutti e dieci i binari coprono ora i capitoli I-VIII** (regola dell'utente: la
     storia vera di ogni regno, non solo il modello inglese). Castiglia, Francia, Fatimidi,
     Sacro Romano Impero, Polonia, Kievan Rus', Ungheria e Abbaside sono stati stesi seguendo

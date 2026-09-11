@@ -58,7 +58,10 @@
     const ADRIATIC = new Set(['Croatia', 'Dalmatia', 'Istria']);      // Ungheria → Adriatico
     const LEVANT = new Set(['Lebanon', 'Syria', 'Palestine']);         // Abbasidi → Levante
     // Ciclo II: la costa francese dove sbarca l'Inghilterra (Impero angioino).
-    const NORMANDY_FR = new Set(['Normandy', 'Brittany', 'Picardy', 'Flanders', 'Aquitaine', 'Burgundy']);
+    // I Bassi Paesi francesi (Artois, la Fiandra rimasta alla corona) stanno qui
+    // fra Piccardia e Fiandre: sono suolo di Francia sia per l'attacco inglese
+    // sia per la difesa francese. Le Fiandre (contea filo-inglese) restano.
+    const NORMANDY_FR = new Set(['Normandy', 'Brittany', 'Picardy', 'Flanders', 'French_Low_Countries', 'Aquitaine', 'Burgundy']);
     // Ciclo II: cuore della Grecia, oltre a Macedonia/Bulgaria già bizantine dal Ciclo I.
     const GREECE = new Set(['Thessalia', 'Attica', 'Peloponnese', 'Crete', 'Albania', 'Northern_Thrace']);
     // Ciclo II: l'Egitto, meta dell'espansione fatimide verso est.
@@ -427,11 +430,18 @@
             // già la traversata dello Stretto del capitolo dopo — sbarcare in
             // Maghreb vuole una nave, non solo un esercito.
             { ciclo: 3, epoca: '1200-1299', tema: 'Las Navas de Tolosa', voci: [
+                // TRABOCCAMENTO: se al-Andalus è già tua per intero prima che
+                // questo capitolo nasca, la storia continua dove ca2-1 l'ha
+                // lasciata — più penisola, non un premio gratis per Andalusia.
                 { id: 'ca3-1', tipo: 'espansione', titolo: 'Las Navas de Tolosa',
-                  tmpl: 'regione', arg: { set: 'ANDALUS' },
+                  tmpl: 'regione', arg: { set: 'ANDALUS', oltre: 'IBERIA' },
                   n: { resistere: 3, avanzare: 5, eccedere: 6, passo: 1 },
                   testo: n => `Las Navas de Tolosa spalanca al-Andalus: possiedi ${n} delle 6 province che nel Mille erano arabe.`,
-                  check: n => `province ex-arabe possedute ≥ ${n}` },
+                  check: n => `province ex-arabe possedute ≥ ${n}`,
+                  nOltre: { resistere: 7, avanzare: 9, eccedere: 11, passo: 1 },
+                  titoloOltre: 'Verso il Tago',
+                  testoOltre: n => `Al-Andalus è già tua: avanza sulla penisola — possiedi ${n} delle 13 province iberiche.`,
+                  checkOltre: n => `province iberiche possedute ≥ ${n}` },
                 { id: 'ca3-2', tipo: 'navale', titolo: 'La flotta per lo Stretto',
                   tmpl: 'naveGuarnigione', arg: {},
                   n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
@@ -470,11 +480,20 @@
             // Secondario è quello del Veliero (`COSTS.vascello`: 10 legno) — il
             // capitolo dopo.
             { ciclo: 5, epoca: '1400-1499', tema: 'Granada e l’Atlantico', voci: [
+                // TRABOCCAMENTO (regola dell'utente): se la penisola è già
+                // intera PRIMA che questo capitolo nasca (un regno che ha
+                // corso), l'obiettivo non certifica gratis un'Iberia già presa
+                // da un capitolo precedente — trabocca nel Maghreb, dove ca4-2
+                // ha già aperto la testa di ponte.
                 { id: 'ca5-1', tipo: 'espansione', titolo: 'Granada cade',
-                  tmpl: 'regione', arg: { set: 'IBERIA' },
+                  tmpl: 'regione', arg: { set: 'IBERIA', oltre: 'MAGHREB' },
                   n: { resistere: 9, avanzare: 11, eccedere: 13, passo: 1 },
                   testo: n => `Unifica la penisola: possiedi ${n} delle 13 province iberiche.`,
-                  check: n => `province iberiche possedute ≥ ${n}` },
+                  check: n => `province iberiche possedute ≥ ${n}`,
+                  nOltre: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
+                  titoloOltre: 'Oltre lo Stretto',
+                  testoOltre: n => `La penisola è già tua: spingiti oltre lo Stretto — possiedi ${n} province del Maghreb.`,
+                  checkOltre: n => `province del Maghreb possedute ≥ ${n}` },
                 { id: 'ca5-2', tipo: 'economia', titolo: 'Il legname delle caravelle',
                   tmpl: 'scorte', arg: { res: 'legno' },
                   n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
@@ -604,11 +623,19 @@
                   n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
                   testo: n => `Arma le province di confine: tieni ${n} territori con almeno 5 uomini ciascuno.`,
                   check: n => `${n} province con soldati ≥ 5 ciascuna` },
+                // TRABOCCAMENTO: se il dominio reale è già completo prima che
+                // il capitolo nasca, il 1214 di Bouvines coincide col 1209 di
+                // Béziers — la crociata contro gli Albigesi porta la corona
+                // sulla costa mediterranea (MED_FR, la stessa di fr1).
                 { id: 'fr3-2', tipo: 'espansione', titolo: 'Bouvines',
-                  tmpl: 'regione', arg: { set: 'NORMANDY_FR' },
+                  tmpl: 'regione', arg: { set: 'NORMANDY_FR', oltre: 'MED_FR' },
                   n: { resistere: 2, avanzare: 4, eccedere: 6, passo: 1 },
                   testo: n => `Riafferma il dominio reale: possiedi ${n} delle 6 province fra Normandia, Bretagna, Piccardia, Fiandre, Aquitania e Borgogna.`,
-                  check: n => `province di NORMANDY_FR possedute ≥ ${n}` },
+                  check: n => `province di NORMANDY_FR possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'La crociata contro gli Albigesi',
+                  testoOltre: n => `Il dominio reale è già saldo: piega gli eretici del Midi — possiedi ${pl(n, 'una provincia', 'province')} sulla costa mediterranea.`,
+                  checkOltre: n => `province di MED_FR possedute ≥ ${n}` },
                 { id: 'fr3-3', tipo: 'economia', titolo: 'La crociata contro gli eretici',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 700, avanzare: 1200, eccedere: 1800, passo: 200 },
@@ -623,7 +650,7 @@
                 { id: 'fr4-1', tipo: 'espansione', titolo: 'L’inglese sbarca',
                   tmpl: 'regione', arg: { set: 'NORMANDY_FR' },
                   n: { resistere: 2, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Non lasciare che l’inglese ti scacci dalla Normandia: tieni ${n} delle sue 6 province.`,
+                  testo: n => `Non lasciare che l’inglese ti scacci dalla Normandia: tieni ${n} delle sue 7 province.`,
                   check: n => `province di NORMANDY_FR possedute ≥ ${n}` },
                 // Ordine dell'xlsx: prima i confini armati (Secondario), poi
                 // l'Aquitania (Terziario).
@@ -642,11 +669,19 @@
             // riprende per intero le terre normanne. Il secondario mette da parte
             // l'oro delle guerre d'Italia del capitolo dopo.
             { ciclo: 5, epoca: '1400-1499', tema: 'Cacciare l’inglese', voci: [
+                // TRABOCCAMENTO: se l'inglese è già cacciato prima che il
+                // capitolo nasca, la corona guarda alle Alpi in anticipo — è
+                // solo un cycle prima del vero 1494 di Carlo VIII (cap6, "Le
+                // guerre d'Italia"), quindi resta storicamente credibile.
                 { id: 'fr5-1', tipo: 'espansione', titolo: 'Giovanna d’Arco',
-                  tmpl: 'regione', arg: { set: 'NORMANDY_FR' },
+                  tmpl: 'regione', arg: { set: 'NORMANDY_FR', oltre: 'ITALIA_NORD' },
                   n: { resistere: 4, avanzare: 6, eccedere: 6, passo: 1 },
-                  testo: n => `Caccia l’inglese dal suolo di Francia: possiedi tutte e 6 le province normanne, fiamminghe e aquitane.`,
-                  check: n => `province di NORMANDY_FR possedute ≥ ${n}` },
+                  testo: n => `Caccia l’inglese dal suolo di Francia: possiedi tutte e 6 le province normanne, fiamminghe, aquitane e borgognone.`,
+                  check: n => `province di NORMANDY_FR possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  titoloOltre: 'Il richiamo dell’Italia',
+                  testoOltre: n => `Il suolo di Francia è già libero: scendi oltre le Alpi — possiedi ${pl(n, 'una provincia', 'province')} del Nord Italia.`,
+                  checkOltre: n => `province di ITALIA_NORD possedute ≥ ${n}` },
                 { id: 'fr5-2', tipo: 'economia', titolo: 'Il tesoro per l’Italia',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 1200, avanzare: 2000, eccedere: 3000, passo: 300 },
@@ -771,11 +806,18 @@
             // torna in Terra Santa. Il secondario prepara già la difesa del
             // Levante che il capitolo dopo (Ain Jalut) chiede di tenere.
             { ciclo: 3, epoca: '1200-1299', tema: 'Saladino', voci: [
+                // TRABOCCAMENTO: se la Terra Santa è già tutta tua prima che
+                // il capitolo nasca, il Saladino storico continua verso il Mar
+                // Rosso e l'Hegiaz — la stessa meta di fa5-1, solo in anticipo.
                 { id: 'fa3-1', tipo: 'espansione', titolo: 'Saladino riprende Gerusalemme',
-                  tmpl: 'regione', arg: { set: 'HOLY_LAND' },
+                  tmpl: 'regione', arg: { set: 'HOLY_LAND', oltre: 'ARABIA' },
                   n: { resistere: 1, avanzare: 3, eccedere: 4, passo: 1 },
                   testo: n => `Riprendi la Terra Santa, chiunque la tenga: possiedi ${n} delle 4 province fra Palestina, Aleppo, Libano e Siria.`,
-                  check: n => `province di HOLY_LAND possedute ≥ ${n}` },
+                  check: n => `province di HOLY_LAND possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
+                  titoloOltre: 'Le vie del Mar Rosso',
+                  testoOltre: n => `La Terra Santa è già tua: assicurati le vie del Mar Rosso — possiedi ${n === 1 ? 'una provincia' : 'Yemen e Oman'}.`,
+                  checkOltre: n => `province di ARABIA possedute ≥ ${n}` },
                 { id: 'fa3-2', tipo: 'espansione', titolo: 'Il Levante presidiato',
                   tmpl: 'regioneGuarnigioni', arg: { set: 'LEVANT', soglia: 5 },
                   n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
@@ -916,16 +958,18 @@
                   n: { resistere: 5, avanzare: 7, eccedere: 9, passo: 1 },
                   testo: n => `Unifica l’isola: possiedi ${n} province delle Isole Britanniche.`,
                   check: n => `province britanniche possedute ≥ ${n}` },
-                { id: 'in2', tipo: 'economia', titolo: 'La ricchezza della lana',
-                  tmpl: 'scorte', arg: { res: 'bestiame' },
-                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Accumula ${n} scorte di bestiame.`,
-                  check: n => `scorte di bestiame ≥ ${n}` },
-                { id: 'in3', tipo: 'navale', titolo: 'La flotta',
+                // Ordine dell'xlsx: la flotta è il Secondario, la lana (bestiame)
+                // il Terziario.
+                { id: 'in2', tipo: 'navale', titolo: 'La flotta',
                   tmpl: 'naveGuarnigione', arg: {},
                   n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
                   testo: n => `Costruisci una barca e difendi la provincia con ${n} uomini.`,
-                  check: n => `una provincia con una nave e soldati ≥ ${n}` }
+                  check: n => `una provincia con una nave e soldati ≥ ${n}` },
+                { id: 'in3', tipo: 'economia', titolo: 'La ricchezza della lana',
+                  tmpl: 'scorte', arg: { res: 'bestiame' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
+                  testo: n => `Accumula ${n} scorte di bestiame.`,
+                  check: n => `scorte di bestiame ≥ ${n}` }
             ] },
             // Ciclo II — lo SBARCO resta la mira primaria (regola dell'utente); il
             // raduno a Home Counties gli sta sotto ed è quel che lo rende possibile,
@@ -1123,16 +1167,30 @@
             // Ciclo III — Federico II scende in Italia: lo stesso Nord Italia che
             // la Francia rivendicherà al suo capitolo VI — la stessa contesa.
             { ciclo: 3, epoca: '1200-1299', tema: 'L’Italia di Federico II', voci: [
+                // TRABOCCAMENTO: se l'Italia settentrionale è già tutta
+                // imperiale, la spinta di Federico continua verso l'Adriatico
+                // — la stessa costa che l'Ungheria contende dal suo lato.
                 { id: 'sr3-1', tipo: 'espansione', titolo: 'Federico scende in Italia',
-                  tmpl: 'regione', arg: { set: 'ITALIA_NORD' },
+                  tmpl: 'regione', arg: { set: 'ITALIA_NORD', oltre: 'ADRIATIC' },
                   n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
                   testo: n => `Scendi in Italia: possiedi ${n} delle 5 province fra Piemonte, Lombardia, Veneto, Toscana e Romagna.`,
-                  check: n => `province di ITALIA_NORD possedute ≥ ${n}` },
+                  check: n => `province di ITALIA_NORD possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
+                  titoloOltre: 'La costa dalmata',
+                  testoOltre: n => `L'Italia del nord è già imperiale: affacciati sull'Adriatico — possiedi ${pl(n, 'una provincia', 'province')} fra Croazia, Dalmazia e Istria.`,
+                  checkOltre: n => `province di ADRIATIC possedute ≥ ${n}` },
+                // TRABOCCAMENTO: se i ducati tedeschi sono già tutti imperiali,
+                // la corona guarda al Reno — la stessa frontiera che la
+                // Francia contende dal suo lato (RENO).
                 { id: 'sr3-2', tipo: 'espansione', titolo: 'I ducati tedeschi',
-                  tmpl: 'regione', arg: { set: 'GERMANIA' },
+                  tmpl: 'regione', arg: { set: 'GERMANIA', oltre: 'RENO' },
                   n: { resistere: 4, avanzare: 5, eccedere: 7, passo: 1 },
                   testo: n => `Consolida i ducati tedeschi: possiedi ${n} delle 7 province di Germania.`,
-                  check: n => `province di GERMANIA possedute ≥ ${n}` },
+                  check: n => `province di GERMANIA possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'La frontiera del Reno',
+                  testoOltre: n => `I ducati sono già tuoi: spingiti al Reno — possiedi ${pl(n, 'una provincia', 'province')} fra Renania, Fiandre e Piccardia.`,
+                  checkOltre: n => `province di RENO possedute ≥ ${n}` },
                 { id: 'sr3-3', tipo: 'crescita', titolo: 'La pace armata',
                   tmpl: 'sicurezza', arg: {},
                   n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
@@ -1142,11 +1200,17 @@
             // Ciclo IV — la Bolla d'Oro (1356): la costituzione dell'Impero
             // formalizza il dominio sulla Germania intera.
             { ciclo: 4, epoca: '1300-1399', tema: 'La Bolla d’Oro', voci: [
+                // TRABOCCAMENTO: se la Germania è già unita, l'Impero guarda
+                // subito a Vienna — la stessa meta di sr5-1, un capitolo prima.
                 { id: 'sr4-1', tipo: 'espansione', titolo: 'La Bolla d’Oro',
-                  tmpl: 'regione', arg: { set: 'GERMANIA' },
+                  tmpl: 'regione', arg: { set: 'GERMANIA', oltre: 'AUSTRIA_EST' },
                   n: { resistere: 5, avanzare: 6, eccedere: 7, passo: 1 },
                   testo: n => `Unifica la Germania: possiedi ${n} delle sue 7 province.`,
-                  check: n => `province di GERMANIA possedute ≥ ${n}` },
+                  check: n => `province di GERMANIA possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
+                  titoloOltre: 'L’ombra su Vienna',
+                  testoOltre: n => `La Germania è già unita: guarda a oriente — possiedi ${n} delle 6 province austriache.`,
+                  checkOltre: n => `province di AUSTRIA_EST possedute ≥ ${n}` },
                 { id: 'sr4-2', tipo: 'economia', titolo: 'Il tesoro per l’Austria',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 1000, avanzare: 1600, eccedere: 2400, passo: 300 },
@@ -1162,11 +1226,18 @@
             // mette radici a est. Il Benessere prepara il terreno prima che la
             // fede si spezzi al capitolo dopo — si governa mentre si può ancora.
             { ciclo: 5, epoca: '1400-1499', tema: 'Gli Asburgo', voci: [
+                // TRABOCCAMENTO: se l'Austria è già tutta asburgica, il passo
+                // successivo è quello vero di sr8-1 ("La marcia d'Oriente"),
+                // solo tre capitoli prima e a intensità molto più modesta.
                 { id: 'sr5-1', tipo: 'espansione', titolo: 'Gli Asburgo',
-                  tmpl: 'regione', arg: { set: 'AUSTRIA_EST' },
+                  tmpl: 'regione', arg: { set: 'AUSTRIA_EST', oltre: 'BALCANI' },
                   n: { resistere: 2, avanzare: 4, eccedere: 6, passo: 1 },
                   testo: n => `La casa d’Austria sale: possiedi ${n} delle 6 province fra Austria, Boemia, Moravia, Slesia, Stiria e Tirolo.`,
-                  check: n => `province di AUSTRIA_EST possedute ≥ ${n}` },
+                  check: n => `province di AUSTRIA_EST possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Il primo passo verso i Balcani',
+                  testoOltre: n => `L’Austria è già asburgica: affacciati sui Balcani — possiedi ${pl(n, 'una provincia', 'province')} balcaniche.`,
+                  checkOltre: n => `province di BALCANI possedute ≥ ${n}` },
                 { id: 'sr5-2', tipo: 'crescita', titolo: 'Il regno che prospera',
                   tmpl: 'benessere', arg: {},
                   n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
@@ -1341,11 +1412,18 @@
             // Ciclo V — l'unione con la Lituania e Grunwald (1410): i Cavalieri
             // Teutonici sono fermati, la costa baltica si apre.
             { ciclo: 5, epoca: '1400-1499', tema: 'L’unione e Grunwald', voci: [
+                // TRABOCCAMENTO: se la costa baltica è già tutta tua, l'unione
+                // polacco-lituana guarda a oriente, verso Smolensk — lo stesso
+                // fronte che la Rus' contende dal suo lato.
                 { id: 'po5-1', tipo: 'espansione', titolo: 'Grunwald',
-                  tmpl: 'regione', arg: { set: 'BALTICO' },
+                  tmpl: 'regione', arg: { set: 'BALTICO', oltre: 'RUS_NORD' },
                   n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
                   testo: n => `Prendi la costa che chiude il regno a settentrione: possiedi ${n} delle 4 province baltiche.`,
-                  check: n => `province di BALTICO possedute ≥ ${n}` },
+                  check: n => `province di BALTICO possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Verso Smolensk',
+                  testoOltre: n => `Il Baltico è già tuo: spingi l’unione a oriente — possiedi ${pl(n, 'una provincia', 'province')} russe.`,
+                  checkOltre: n => `province di RUS_NORD possedute ≥ ${n}` },
                 { id: 'po5-2', tipo: 'economia', titolo: 'Il granaio d’Europa',
                   tmpl: 'scorte', arg: { res: 'grano' },
                   n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
@@ -1471,11 +1549,18 @@
             // giocatore. Si chiede quel che si controlla: tenere insieme le
             // terre del nord e fare di Mosca la più forte fra le città russe.
             { ciclo: 3, epoca: '1200-1299', tema: 'L’ascesa di Mosca', voci: [
+                // TRABOCCAMENTO: se le terre del settentrione sono già tutte
+                // tue, Mosca guarda subito oltre il Volga — la stessa meta di
+                // ru5-1, due capitoli prima e a intensità più modesta.
                 { id: 'ru3-1', tipo: 'espansione', titolo: 'I principati divisi',
-                  tmpl: 'regione', arg: { set: 'RUS_NORD' },
+                  tmpl: 'regione', arg: { set: 'RUS_NORD', oltre: 'EST_RUSSO' },
                   n: { resistere: 3, avanzare: 4, eccedere: 6, passo: 1 },
                   testo: n => `Fra i principati che si dividono, tieni insieme le terre della Rus’: ${n} delle 6 del settentrione.`,
-                  check: n => `province di RUS_NORD possedute ≥ ${n}` },
+                  check: n => `province di RUS_NORD possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 1, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre il Volga, in anticipo',
+                  testoOltre: n => `Il settentrione è già tuo: spingiti oltre il Volga — possiedi ${pl(n, 'una provincia', 'province')} orientali.`,
+                  checkOltre: n => `province di EST_RUSSO possedute ≥ ${n}` },
                 { id: 'ru3-2', tipo: 'espansione', titolo: 'Mosca si rafforza',
                   tmpl: 'provincia', arg: { id: 'Moscow' },
                   n: { resistere: 4, avanzare: 7, eccedere: 10, passo: 2 },
@@ -1491,10 +1576,14 @@
             // attorno a cui la Rus’ settentrionale si ricompone per intero.
             { ciclo: 4, epoca: '1300-1399', tema: 'Raccogliere le terre russe', voci: [
                 { id: 'ru4-1', tipo: 'espansione', titolo: 'Raccogliere le terre russe',
-                  tmpl: 'regione', arg: { set: 'RUS_NORD' },
+                  tmpl: 'regione', arg: { set: 'RUS_NORD', oltre: 'EST_RUSSO' },
                   n: { resistere: 5, avanzare: 6, eccedere: 6, passo: 1 },
                   testo: n => `Ricomponi la Rus’ attorno a Mosca: possiedi tutte e 6 le sue terre settentrionali.`,
-                  check: n => `province di RUS_NORD possedute ≥ ${n}` },
+                  check: n => `province di RUS_NORD possedute ≥ ${n}`,
+                  nOltre: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  titoloOltre: 'Oltre il Volga, in anticipo',
+                  testoOltre: n => `Mosca è già ricomposta: spingiti oltre il Volga — possiedi ${n} province orientali.`,
+                  checkOltre: n => `province di EST_RUSSO possedute ≥ ${n}` },
                 { id: 'ru4-2', tipo: 'economia', titolo: 'Il tesoro per l’Oriente',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 1000, avanzare: 1600, eccedere: 2400, passo: 300 },
@@ -1635,11 +1724,18 @@
             // l'Orda (regola dell'utente) — quel che si chiede è tenere unita
             // la Pannonia e armarne i confini, che dipende dal giocatore.
             { ciclo: 3, epoca: '1200-1299', tema: 'Le fortezze di pietra', voci: [
+                // TRABOCCAMENTO: se la Pannonia è già tutta tua, il regno
+                // guarda ai Balcani in anticipo — la stessa meta di un4-1, un
+                // capitolo prima e a intensità più modesta.
                 { id: 'un3-1', tipo: 'espansione', titolo: 'Il regno incastellato',
-                  tmpl: 'regione', arg: { set: 'PANNONIA' },
+                  tmpl: 'regione', arg: { set: 'PANNONIA', oltre: 'BALCANI' },
                   n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
                   testo: n => `Tieni unito il regno e mettilo in stato di difesa: ${n} delle 5 terre della Pannonia.`,
-                  check: n => `province di PANNONIA possedute ≥ ${n}` },
+                  check: n => `province di PANNONIA possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'La marcia sui Balcani, in anticipo',
+                  testoOltre: n => `La Pannonia è già tua: spingiti verso i Balcani — possiedi ${pl(n, 'una provincia', 'province')} balcaniche.`,
+                  checkOltre: n => `province di BALCANI possedute ≥ ${n}` },
                 { id: 'un3-2', tipo: 'espansione', titolo: 'Ogni confine armato',
                   tmpl: 'guarnigioniConfine', arg: {},
                   n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
@@ -1975,11 +2071,18 @@
             // non arrivare mai, e il capitolo si reggerebbe su un evento che non
             // accade. Si chiede di tenere la Mesopotamia e di armarne i confini.
             { ciclo: 3, epoca: '1200-1299', tema: 'Il cuore della Mesopotamia', voci: [
+                // TRABOCCAMENTO: se la Mesopotamia è già tutta tua, il
+                // califfato guarda subito alla Persia — la stessa meta di
+                // ab4-1, un capitolo prima e a intensità più modesta.
                 { id: 'ab3-1', tipo: 'espansione', titolo: 'Il cuore del califfato',
-                  tmpl: 'regione', arg: { set: 'MESOPOTAMIA' },
+                  tmpl: 'regione', arg: { set: 'MESOPOTAMIA', oltre: 'PERSIA' },
                   n: { resistere: 1, avanzare: 3, eccedere: 3, passo: 1 },
                   testo: n => `Il cuore del califfato non si cede: tieni ${n} delle 3 province della Mesopotamia.`,
-                  check: n => `province di MESOPOTAMIA possedute ≥ ${n}` },
+                  check: n => `province di MESOPOTAMIA possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Verso l’altopiano persiano, in anticipo',
+                  testoOltre: n => `La Mesopotamia è già tua: spingiti verso la Persia — possiedi ${pl(n, 'una provincia', 'province')} persiane.`,
+                  checkOltre: n => `province di PERSIA possedute ≥ ${n}` },
                 { id: 'ab3-2', tipo: 'espansione', titolo: 'Ogni confine armato',
                   tmpl: 'guarnigioniConfine', arg: {},
                   n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
@@ -2186,8 +2289,18 @@
         const lo = typeof n.resistere === 'number' ? n.resistere : anc;
         const t = TEMPLATES[voce.tmpl];
         const tetto = t && t.tetto ? t.tetto(voce.arg || {}) : Infinity;
-        const hi = Math.max(lo, Math.min(tetto,
-            Math.round((typeof n.eccedere === 'number' ? n.eccedere : anc) * 1.2)));
+        const hiAncora = Math.round((typeof n.eccedere === 'number' ? n.eccedere : anc) * 1.2);
+        // La banda si ALLUNGA fino al tetto naturale quando il regno ha già
+        // corso oltre l'ambizione scritta a mano (regola dell'utente: "se ho
+        // già 6 uomini a Home Counties l'obiettivo sarà radunarne 15, non 10 —
+        // non sparisce"). Senza questo `Math.min` ributtava il ratchet sotto
+        // 1,2×eccedere, cioè SOTTO quel che il regno ha già: un obiettivo che
+        // nasce già completo non è un obiettivo alzato, è un premio a caso.
+        // Il limite resta il tetto vero del template (una regione di 13
+        // province non può chiederne 15): oltre quello serve un traboccamento
+        // in una regione nuova (`arg.oltre`, vedi `generate`/`withOverflow`),
+        // non un numero più grande sulla stessa.
+        const hi = Math.min(tetto, Math.max(lo, hiAncora, ratchet));
         return Math.min(Math.max(anc, ratchet, lo), hi);
     }
 
@@ -2259,18 +2372,43 @@
         return cap.voci;
     }
 
-    // Il capitolo `idx` non ha più niente da dire a questo regno: la sua voce
-    // Primaria è già oltre l'ancora più ambiziosa. Serve a far ACCELERARE la
-    // storia di chi corre — riceve il pezzo successivo, non lo stesso capitolo
-    // con un numero più grande.
-    function superato(name, idx, ctx) {
-        const cap = chapter(name, idx);
-        if (!cap || !ctx) return false;
-        const voci = voicesOf(cap, ctx);
-        const v = voci[0], t = v && TEMPLATES[v.tmpl];
-        const ecc = v && (v.n || {}).eccedere;
-        if (!t || typeof ecc !== 'number') return false;
-        try { return (t.misuraCal || t.misura)(ctx, v.arg || {}) >= ecc; } catch (e) { return false; }
+    // IL TRABOCCAMENTO (regola dell'utente: un capitolo non si salta MAI — se
+    // il regno ha già conquistato l'INTERA regione che una voce `regione`
+    // chiede, PRIMA ancora che il capitolo cominci, quella voce non può
+    // limitarsi a certificare un fatto vecchio: deve traboccare in una regione
+    // storicamente successiva, con un obiettivo vero da fare ADESSO). Solo
+    // l'autore del binario decide dove si può traboccare: la voce dichiara
+    // `arg.oltre` (il nome del SET successivo), `nOltre` (le SUE ancore, non
+    // quelle del capitolo vecchio) e `testoOltre`/`checkOltre` (e
+    // opzionalmente `titoloOltre`) — senza tutti e quattro non scatta niente.
+    //
+    // `nOltre` è il punto della PONDERAZIONE (regola dell'utente: "non puoi
+    // passare da 'conquista altre 2-3 province in Spagna' a un obiettivo
+    // quasi impossibile come prendere TUTTO il Nordafrica" — e non puoi
+    // chiedere alla Germania 8 province italiane solo perché ha già la sua
+    // massima estensione storica). Riusare l'`n` del capitolo vecchio
+    // sballava la scala due volte: la sua `eccedere` era tarata su una
+    // regione magari grande il doppio o il triplo, e finiva SEMPRE clampata
+    // al tetto della regione nuova — cioè chiedeva l'intera regione nuova in
+    // un colpo solo, non un passo avanti. `nOltre` invece è scritto a mano
+    // dall'autore sulla scala GIUSTA: un'ambizione modesta, storicamente
+    // credibile per quel punto della storia — spesso la stessa cifra che un
+    // capitolo successivo del binario chiede DAVVERO per quella regione,
+    // abbassata di un gradino perché arriva in anticipo.
+    function withOverflow(v, ctx) {
+        const a = v.arg || {};
+        if (v.tmpl !== 'regione' || !a.oltre || !ctx || !v.nOltre || !v.testoOltre || !v.checkOltre) return v;
+        const base = SETS[a.set];
+        if (!base || !base.size) return v;
+        const fatte = ctx.ownedIds().filter(id => base.has(id)).length;
+        if (fatte < base.size) return v;
+        return Object.assign({}, v, {
+            titolo: v.titoloOltre || v.titolo,
+            testo: v.testoOltre,
+            check: v.checkOltre,
+            n: v.nOltre,
+            arg: Object.assign({}, a, { set: a.oltre, oltre: null })
+        });
     }
 
     // Il capitolo di un regno, per indice (1-based). Un indice oltre la fine del
@@ -2291,7 +2429,7 @@
         const cap = chapter(name, opts.capitolo || opts.ciclo || 1);
         if (!cap) return null;
         const intensita = INTENSITA.indexOf(opts.intensita) >= 0 ? opts.intensita : 'avanzare';
-        const voci = voicesOf(cap, ctx);
+        const voci = voicesOf(cap, ctx).map(v => withOverflow(v, ctx));
         const items = voci.map((v, i) => {
             const t = TEMPLATES[v.tmpl];
             let mis = null;
@@ -2363,7 +2501,7 @@
     const api = {
         BINARI, TEMPLATES, SETS, TIERS, INTENSITA, FRENO, CROLLO_PROV, K_TIER,
         LEVA_PER_PUNTO, leva,
-        cycleOfTurn, chapter, chapterCount, soglia, ritmoDa, passo, superato,
+        cycleOfTurn, chapter, chapterCount, soglia, ritmoDa, passo, withOverflow,
         generate, evaluate
     };
 

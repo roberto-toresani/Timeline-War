@@ -3900,12 +3900,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function ensureAssignment(player) {
         const O = window.Objectives;
         const cyc = O.cycleOfTurn(currentTurn);
-        // Col nuovo puntatore (si avanza in ogni caso) il capitolo tiene il passo
-        // del ciclo. Si porta avanti un regno rimasto indietro — anche nella
-        // PARTITA IN CORSO, il cui salvataggio nasceva sotto la vecchia regola del
-        // ripetere/arretrare — fin dove dovrebbe essere; mai indietro, così chi ha
-        // accelerato (Objectives.superato) resta avanti. I regni senza binario
-        // (nati per evento) non hanno capitoli.
+        // Col nuovo puntatore (si avanza in ogni caso, di UN capitolo per ciclo e
+        // mai di più — nessun capitolo si salta) il capitolo tiene il passo del
+        // ciclo. Si porta avanti un regno rimasto indietro — anche nella PARTITA
+        // IN CORSO, il cui salvataggio nasceva sotto la vecchia regola del
+        // ripetere/arretrare — fin dove dovrebbe essere; mai indietro. I regni
+        // senza binario (nati per evento) non hanno capitoli.
         const chapters = O.chapterCount(player.name);
         if (chapters > 0) player.capitolo = Math.max(player.capitolo || 0, Math.min(cyc, chapters));
         else if (!player.capitolo) player.capitolo = cyc;
@@ -4271,7 +4271,12 @@ document.addEventListener('DOMContentLoaded', () => {
         manutenzione: 'Migliorie civiche — la manutenzione reclama il suo (§6.1)',
         regno: 'Cronaca — una corona nuova sorge ai tuoi confini',
         cronaca: 'Cronaca del regno — la storia bussa alla corte',
-        peste: 'La peste — un male che non guarda in faccia nessuno'
+        peste: 'La peste — un male che non guarda in faccia nessuno',
+        // La crociata è un evento raro e importante (§Eventi): senza
+        // un'etichetta propria ricadeva sulla generica "Cronaca del regno",
+        // che non dice che è successo qualcosa di grosso — regola dell'utente:
+        // il giocatore non deve rischiare di non accorgersene.
+        crociata: 'La Crociata — l’oste giunge in Terra Santa'
     };
 
     // UN REGNO È COMPATTO IN UN'UNICA FEDE (regola dell'utente, generalizzata):

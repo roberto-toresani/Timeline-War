@@ -118,10 +118,10 @@ function simula(name, destino) {
             intensita: intensita, capitolo: capitolo, ciclo: ciclo + 1, capitoli: capitoli
         });
         capitolo = mossa.capitolo; intensita = mossa.intensita;
-        // Un solo scatto per ciclo (vedi GameActions.closeCycle): un regno che
-        // corre recupera un capitolo di ritardo per volta, non un'epoca intera.
-        if (capitolo < capitoli && capitolo < (ciclo + 1) + O.FRENO
-            && O.superato(name, capitolo, ctx)) capitolo++;
+        // Nessuno scatto extra (vedi GameActions.closeCycle): il capitolo
+        // avanza sempre di uno solo. Chi ha già corso oltre l'ancora del
+        // pezzo che riceve lo vede rincarato da `soglia`, o traboccare in una
+        // regione nuova (`O.withOverflow`, dentro `generate`) — mai sparire.
         ass = O.generate(name, ctx, { ciclo: ciclo + 1, capitolo, intensita, ritmo, calibra: true });
     }
     console.log('   → prestigio accumulato: ' + punti + ' su 100');

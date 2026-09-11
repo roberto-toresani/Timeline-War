@@ -216,14 +216,24 @@
     // ---------- razzie delle terre di nessuno (regola dell'utente) ----------
     // La fede conta anche per le neutrali: una provincia di nessuno della TUA
     // stessa religione ti lascia in pace, una di fede diversa può marciarti
-    // contro. Gira a fine giro (prima del rifornimento neutrale), una volta per
-    // provincia neutrale: sceglie il vicino-giocatore più debole di fede diversa,
-    // risolve con battle.js e, se VINCE, si riprende la provincia — che torna
-    // neutrale coi superstiti. Se perde, il difensore incassa solo i caduti.
+    // contro. Gira a fine giro (prima del rifornimento neutrale) e fa UNA SOLA
+    // razzia per giro (regola dell'utente): fra tutte le neutrali pronte a
+    // colpire — vicino-giocatore più debole di fede diversa, schiacciato di numero
+    // — ne estrae una a sorte, risolve con battle.js e, se VINCE, si riprende la
+    // provincia (che torna neutrale coi superstiti). Se perde, il difensore
+    // incassa solo i caduti.
     // Restituisce l'elenco delle razzie (con le province, per la nebbia §3).
     function neutralRaids(turn) {
         if (typeof Religions === 'undefined') return { razzie: [], perse: 0 };
         const razzie = [];
+        // UNA SOLA RAZZIA PER GIRO (regola dell'utente): tutte le terre di nessuno
+        // insieme attaccano una volta sola, quindi non possono strappare più di
+        // una provincia a un giocatore nello stesso giro. Prima ogni neutrale di
+        // fede diversa razziava per conto suo e un giro poteva spazzare via mezzo
+        // regno. Si raccolgono tutte le candidate (una neutrale pronta col suo
+        // bersaglio più debole) e se ne estrae UNA a sorte — così non è sempre lo
+        // stesso angolo di mappa a colpire, come sarebbe con l'ordine dei path.
+        const candidati = [];
         E().allPaths().forEach(np => {
             if (E().owner(np)) return;                       // solo terre di nessuno
             const nf = E().religion(np);
@@ -244,7 +254,12 @@
                     && GR().neutralCanRaid(truppeNeutrali, E().countPiece(tp, 'soldato')));
             if (!targets.length) return;
             targets.sort((a, b) => E().countPiece(a, 'soldato') - E().countPiece(b, 'soldato'));
-            const tp = targets[0];
+            candidati.push({ np, nf, attaccanti, tp: targets[0] });
+        });
+
+        if (candidati.length) {
+            const scelta = candidati[Math.floor(Math.random() * candidati.length)];
+            const np = scelta.np, nf = scelta.nf, attaccanti = scelta.attaccanti, tp = scelta.tp;
 
             const difOwner = E().owner(tp);
             const difTruppe = E().countPiece(tp, 'soldato');
@@ -329,7 +344,7 @@
                 conversione,
                 coloreDifensore: (R().players().find(p => p.name === difOwner) || {}).color || null
             });
-        });
+        }
         if (razzie.length) E().redrawRoads();
         return { razzie, perse: razzie.filter(r => r.esito === 'riconquistata').length };
     }
@@ -651,6 +666,25 @@
                     while (player.obiettiviAvvisi.length > 8) player.obiettiviAvvisi.shift();
                 }
             }
+            // 1-ter. LA LEVA DI DOTTRINA (regola dell'utente): un regno d'evento
+            //     SENZA binario storico non incassa la leva degli obiettivi
+            //     (leva resta 0). La sua dottrina può dichiarare un bonus fisso di
+            //     reclute libere a fine ciclo (i Selgiuchidi: 5), versato qui come
+            //     la leva vera così cresce di pari passo coi regni che gli
+            //     obiettivi ce li hanno. I bot le spendono da sé (deployPlan).
+            if (leva === 0 && DC()) {
+                const bonus = DC().cycleLevy(player.name);
+                if (bonus > 0) {
+                    player.recluteDaSchierare = (player.recluteDaSchierare || 0) + bonus;
+                    if (!Array.isArray(player.obiettiviAvvisi)) player.obiettiviAvvisi = [];
+                    player.obiettiviAvvisi.push({
+                        ciclo: chiuso, leva: bonus, dottrina: true,
+                        punti: 0, puntiMax: 0, fatti: [],
+                        turno: R().turn(), letto: false
+                    });
+                    while (player.obiettiviAvvisi.length > 8) player.obiettiviAvvisi.shift();
+                }
+            }
             // 2. il profilo su cui si misura la performance del regno.
             const prof = R().objectiveProfile(player);
             prof.ciclo = chiuso;
@@ -678,24 +712,25 @@
             });
             player.capitolo = mossa.capitolo;
             player.intensita = mossa.intensita;
-            // La storia ACCELERA: se il capitolo che tocca ora è già stato
-            // superato dai fatti — la sua meta è oltre l'ancora più ambiziosa —
-            // si passa al successivo invece di riproporlo con un numero più
-            // grande. È il caso del regno che ha corso: gli si dà il pezzo dopo,
-            // non lo stesso pezzo gonfiato. **Un solo scatto per chiusura di
-            // ciclo** (regola dell'utente: un regno può correre, ma gli
-            // obiettivi restano plausibili e storicamente attendibili). Più
-            // capitoli di fila condividono la stessa regione (NORMANDY_FR ricorre
-            // in fr3-fr5): conquistarla presto renderebbe `superato` vero più
-            // volte in fila, e prima questo ciclo li scavalcava tutti in un colpo
-            // solo — la Francia dei Cent'Anni che si ritrova a chiedere i confini
-            // sul Reno di Richelieu due secoli prima del tempo. Con un salto solo
-            // il regno recupera un capitolo di ritardo per ciclo, non un'epoca.
-            if (player.capitolo < OB().chapterCount(player.name)
-                && player.capitolo < nuovoCiclo + OB().FRENO
-                && OB().superato(player.name, player.capitolo, ctx)) {
-                player.capitolo++;
-            }
+            // NESSUN capitolo si salta MAI (regola dell'utente: un obiettivo con
+            // un gancio storico — e in particolare uno da cui dipende un evento
+            // strutturato, come la leva a Home Counties da cui parte la
+            // Crociata inglese — non può sparire perché il regno ha corso). Il
+            // capitolo avanza SEMPRE di uno soltanto (`passo`, sopra); un regno
+            // che ha già superato l'ancora più ambiziosa del pezzo che sta per
+            // ricevere non riceve il pezzo DOPO, riceve lo STESSO pezzo con
+            // l'asticella alzata oltre quel che ha già in tasca — è `soglia` a
+            // farlo (la banda si allunga fino al tetto naturale del template
+            // quando il ratchet la supera) e, per le conquiste di regione, è
+            // l'eventuale `arg.oltre` del capitolo a far traboccare la mira
+            // nella regione storicamente successiva quando quella scritta è
+            // già tutta sua PRIMA ancora di iniziare il capitolo (vedi
+            // `Objectives.generate`/`withOverflow`). Qui non c'è più nessuno
+            // scatto da applicare: prima esisteva (`Objectives.superato`, oggi
+            // non più chiamato da qui) e faceva sparire il capitolo invece di
+            // renderlo più duro — la Francia dei Cent'Anni finiva a chiedere i
+            // confini sul Reno due secoli prima del tempo, e un regno che
+            // correva perdeva per sempre gli obiettivi legati a un evento.
             // 4. l'assegnazione del ciclo nuovo, calibrata sullo stato di adesso.
             player.obiettiviCiclo = OB().generate(player.name, ctx, {
                 ciclo: nuovoCiclo, capitolo: player.capitolo,
@@ -741,7 +776,10 @@
             // Nuovo decennio: gli EVENTI STORICI (js/events.js) scattano e
             // ticchettano PRIMA di scismi, razzie e rifornimenti — così un'orda
             // appena arrivata è già sulla mappa quando le neutrali si ricalcolano.
-            applyEvents(R().turn());
+            // `assPrima` (già catturato sopra, prima di advanceGlobalTurn) porta
+            // alle crociate le soglie del ciclo appena chiuso — vedi
+            // `ctx.soglia` in makeEventCtx.
+            applyEvents(R().turn(), assPrima);
             tickEvents(R().turn());
             // Nuovo decennio: uno SCISMA può spezzare una fede (Religions.SCHISMS).
             // È un fatto di cronaca globale: app.js srotola la pergamena da sé.
@@ -830,7 +868,7 @@
     function eventTodo(nome) {
         throw new Error('ctx.' + nome + ' non ancora implementato (impianto eventi).');
     }
-    function makeEventCtx(rec, turn) {
+    function makeEventCtx(rec, turn, assPrima) {
         return {
             turn,
             state: rec.stato,          // lo stato persistente DI QUESTO evento
@@ -839,6 +877,19 @@
             // Pergamena a inizio turno ai regni toccati (rispetta la nebbia in
             // player-board), come gli editti: vive in player.eventiAvvisi.
             notify: (regni, avviso) => eventNotify(regni, avviso),
+            // La SOGLIA che un obiettivo del ciclo APPENA CHIUSO chiedeva a un
+            // regno — regola dell'utente: la crociata manda in Terra Santa un
+            // esercito proporzionale a quel che l'obiettivo di raduno chiedeva
+            // (10 richiesti → ~9 imbarcati), non una taglia fissa. Legge
+            // `assPrima` (le assegnazioni catturate PRIMA di `advanceGlobalTurn`,
+            // perché a questo punto `closeCycle` non ha ancora archiviato il
+            // ciclo): null se il regno non ha quell'obiettivo o non ha binario.
+            soglia: (regno, id) => {
+                const p = R().players().find(pl => pl.name === regno);
+                const a = p && assPrima && assPrima[p.id];
+                const it = a && Array.isArray(a.items) && a.items.find(x => x.id === id);
+                return it && typeof it.soglia === 'number' ? it.soglia : null;
+            },
             // CROCIATE: `muster` raduna un'oste drenando le vere truppe di un regno
             // (§5); `assault` la sbarca all'assalto di una provincia (§9.2, terreno
             // del difensore); `pact` lega due regni (bondPact, su entrambi).
@@ -1238,7 +1289,12 @@
 
     // onStart di chi scatta ORA (non già in `fatti`), poi onEnd di chi ha chiuso
     // la finestra. Gira in endTurn dopo advanceGlobalTurn, prima delle razzie.
-    function applyEvents(turn) {
+    // `assPrima` (opzionale): le assegnazioni del ciclo APPENA CHIUSO,
+    // catturate da `grabAssignments` prima di `advanceGlobalTurn` — è come le
+    // crociate leggono «quanti uomini l'obiettivo chiedeva» (vedi `ctx.soglia`
+    // in `makeEventCtx`), perché a questo punto `closeCycle` non ha ancora
+    // girato e `obiettiviStorico` non ha ancora la soglia di quel ciclo.
+    function applyEvents(turn, assPrima) {
         const store = eventStore();
         const book = eventsBook();
         book.forEach(ev => {
@@ -1249,7 +1305,7 @@
             store.fatti.push(ev.id);
             if (!oneShot) store.attivi.push(rec);            // solo i ticking restano attivi
             if (typeof ev.onStart === 'function') {
-                try { ev.onStart(makeEventCtx(rec, turn)); }
+                try { ev.onStart(makeEventCtx(rec, turn, assPrima)); }
                 catch (err) { console.error('Evento ' + ev.id + ' onStart:', err); }
             }
         });
