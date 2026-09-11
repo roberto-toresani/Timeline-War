@@ -776,10 +776,7 @@
             // Nuovo decennio: gli EVENTI STORICI (js/events.js) scattano e
             // ticchettano PRIMA di scismi, razzie e rifornimenti — così un'orda
             // appena arrivata è già sulla mappa quando le neutrali si ricalcolano.
-            // `assPrima` (già catturato sopra, prima di advanceGlobalTurn) porta
-            // alle crociate le soglie del ciclo appena chiuso — vedi
-            // `ctx.soglia` in makeEventCtx.
-            applyEvents(R().turn(), assPrima);
+            applyEvents(R().turn());
             tickEvents(R().turn());
             // Nuovo decennio: uno SCISMA può spezzare una fede (Religions.SCHISMS).
             // È un fatto di cronaca globale: app.js srotola la pergamena da sé.
@@ -868,7 +865,7 @@
     function eventTodo(nome) {
         throw new Error('ctx.' + nome + ' non ancora implementato (impianto eventi).');
     }
-    function makeEventCtx(rec, turn, assPrima) {
+    function makeEventCtx(rec, turn) {
         return {
             turn,
             state: rec.stato,          // lo stato persistente DI QUESTO evento
@@ -877,22 +874,10 @@
             // Pergamena a inizio turno ai regni toccati (rispetta la nebbia in
             // player-board), come gli editti: vive in player.eventiAvvisi.
             notify: (regni, avviso) => eventNotify(regni, avviso),
-            // La SOGLIA che un obiettivo del ciclo APPENA CHIUSO chiedeva a un
-            // regno — regola dell'utente: la crociata manda in Terra Santa un
-            // esercito proporzionale a quel che l'obiettivo di raduno chiedeva
-            // (10 richiesti → ~9 imbarcati), non una taglia fissa. Legge
-            // `assPrima` (le assegnazioni catturate PRIMA di `advanceGlobalTurn`,
-            // perché a questo punto `closeCycle` non ha ancora archiviato il
-            // ciclo): null se il regno non ha quell'obiettivo o non ha binario.
-            soglia: (regno, id) => {
-                const p = R().players().find(pl => pl.name === regno);
-                const a = p && assPrima && assPrima[p.id];
-                const it = a && Array.isArray(a.items) && a.items.find(x => x.id === id);
-                return it && typeof it.soglia === 'number' ? it.soglia : null;
-            },
-            // CROCIATE: `muster` raduna un'oste drenando le vere truppe di un regno
-            // (§5); `assault` la sbarca all'assalto di una provincia (§9.2, terreno
-            // del difensore); `pact` lega due regni (bondPact, su entrambi).
+            // CROCIATE: `muster` raduna l'oste che trova in un punto solo (§5,
+            // niente ripiego sul resto del regno — vedi eventMuster); `assault`
+            // la sbarca all'assalto di una provincia (§9.2, terreno del
+            // difensore); `pact` lega due regni (bondPact, su entrambi).
             muster: (regno, opts) => eventMuster(regno, opts),
             assault: (regno, metaId, host) => eventAssault(regno, metaId, host),
             pact: (a, b, tipo) => eventPact(a, b, tipo),
@@ -927,23 +912,35 @@
         });
     }
 
-    // CROCIATE — raduna un'oste drenando le VERE truppe del regno (§5): non è
-    // evocata. Da dove si preleva, in ordine: `da` (una provincia fissa, es.
-    // Eastern Thrace per Bisanzio — è già dove l'obiettivo bi2 chiede di
-    // radunare); altrimenti `regione` (le province candidate dell'obiettivo di
-    // "preparazione", es. MED_FR per fr1: "raduna 10 uomini su una costa
-    // mediterranea") — fra quelle si sceglie quella dove il giocatore ha DAVVERO
-    // ammassato più uomini, cioè dove ha eseguito l'obiettivo; se in nessuna
-    // c'è un solo soldato (l'obiettivo non è stato preparato) si ripiega sulla
-    // provincia più piena di tutto il regno. La Capitale non ha corsie
-    // preferenziali: è solo una provincia come le altre nel conteggio. Presidio
-    // minimo ovunque, ventura in quota (§5.3). Ritorna { soldati, merc, fromId,
-    // fromLabel } o null se il regno non esiste / non ha uomini da dare.
+    // CROCIATE — raduna l'oste che TROVA in un punto solo, non evocata e non
+    // gonfiata attingendo al resto del regno (regola dell'utente: "se non
+    // raduni l'esercito sulla costa, quell'esercito che mandi da dove lo
+    // prendi?"). Il punto di raduno, in ordine: `da` (una provincia fissa, es.
+    // Home Counties per l'Inghilterra — è già dove l'obiettivo chiede di
+    // radunare); altrimenti `regione` (le coste candidate dell'obiettivo di
+    // "preparazione", es. MED_FR per fr1) — fra quelle si sceglie quella dove
+    // il giocatore ha DAVVERO ammassato più uomini. Nessun ripiego sulla
+    // provincia più piena del resto del regno: un esercito comparso dal nulla
+    // non è più "l'oste radunata", è un premio gratis a chi non si è
+    // preparato.
+    // SOGLIA DI PARTENZA, non una rampa (regola dell'utente, versione finale:
+    // "≥ 6 si parte comunque, < 6 non si parte"): `o.minimo` è il numero SOTTO
+    // il quale la crociata non muove un uomo — un'oste di 5 non è un'oste, è
+    // una pattuglia. Raggiunto il minimo parte **tutto** quel che c'è (rispettando
+    // il presidio minimo del prelievo, §5), non una frazione: chi ne ha
+    // radunati 6 ne manda 6 (meno l'unico che resta a guardia, come ogni
+    // prelievo), chi ne ha radunati 40 ne manda 40. `o.minimo` è di norma
+    // l'ancora `resistere` dello stesso obiettivo che chiede il raduno (fr1 e
+    // in2-2 hanno entrambi `resistere: 6`): è il minimo che l'autore considera
+    // "ci hai almeno provato", non un numero a sé. `forza`, se passato, resta
+    // un TETTO opzionale (non aggiunge mai uomini da altrove, ne prende al più
+    // tanti quanti ce n'è). Ritorna { soldati, merc, fromId, fromLabel } o
+    // null se il regno non esiste, non possiede il punto di raduno, o lì non
+    // c'è abbastanza gente.
     function eventMuster(regnoName, opts) {
         const o = opts || {};
-        const forza = Math.max(0, Math.floor(o.forza || 0));
         const regno = R().players().find(p => p.name === regnoName);
-        if (!regno || forza <= 0) return null;
+        if (!regno) return null;
         const owned = E().ownedPaths(regnoName);
         if (!owned.length) return null;
         let da = o.da || null;
@@ -957,31 +954,20 @@
             });
             if (best) da = best.id;
         }
-        const rank = p => (da && p.id === da) ? 1 : 0;
-        const ordered = owned.slice().sort((a, b) => {
-            const dr = rank(b) - rank(a);
-            if (dr) return dr;
-            return GR().spendableTroops(E().countPiece(b, 'soldato')) -
-                   GR().spendableTroops(E().countPiece(a, 'soldato'));
-        });
-        let restano = forza, soldati = 0, merc = 0;
-        ordered.forEach(path => {
-            if (restano <= 0) return;
-            const disp = GR().spendableTroops(E().countPiece(path, 'soldato'));
-            const take = Math.min(disp, restano);
-            if (take <= 0) return;
-            const mercPrima = E().merc(path);
-            const mercVia = mercLeaving(path, take);
-            E().addPiece(path, 'soldato', -take);
-            E().setMerc(path, mercPrima - mercVia);
-            E().redrawProvince(path);
-            soldati += take; merc += mercVia; restano -= take;
-        });
-        if (soldati <= 0) return null;
-        const fromPath = (da && E().path(da)) || ordered[0];
-        return { soldati, merc,
-            fromId: fromPath ? fromPath.id : null,
-            fromLabel: fromPath ? R().provinceLabel(fromPath) : null };
+        if (!da) return null;                       // niente preparato in nessuna candidata
+        const daPath = E().path(da);
+        if (!daPath || E().owner(daPath) !== regnoName) return null;
+        const disp = GR().spendableTroops(E().countPiece(daPath, 'soldato'));
+        const minimo = Math.max(0, Math.floor(o.minimo || 0));
+        if (disp < Math.max(1, minimo)) return null;
+        const tetto = (typeof o.forza === 'number' && o.forza > 0) ? Math.floor(o.forza) : disp;
+        const soldati = Math.min(disp, tetto);
+        const mercPrima = E().merc(daPath);
+        const merc = mercLeaving(daPath, soldati);
+        E().addPiece(daPath, 'soldato', -soldati);
+        E().setMerc(daPath, mercPrima - merc);
+        E().redrawProvince(daPath);
+        return { soldati, merc, fromId: daPath.id, fromLabel: R().provinceLabel(daPath) };
     }
 
     // CROCIATE — l'oste SBARCA e assalta `metaId`: stessa battaglia dello sbarco
@@ -1289,12 +1275,7 @@
 
     // onStart di chi scatta ORA (non già in `fatti`), poi onEnd di chi ha chiuso
     // la finestra. Gira in endTurn dopo advanceGlobalTurn, prima delle razzie.
-    // `assPrima` (opzionale): le assegnazioni del ciclo APPENA CHIUSO,
-    // catturate da `grabAssignments` prima di `advanceGlobalTurn` — è come le
-    // crociate leggono «quanti uomini l'obiettivo chiedeva» (vedi `ctx.soglia`
-    // in `makeEventCtx`), perché a questo punto `closeCycle` non ha ancora
-    // girato e `obiettiviStorico` non ha ancora la soglia di quel ciclo.
-    function applyEvents(turn, assPrima) {
+    function applyEvents(turn) {
         const store = eventStore();
         const book = eventsBook();
         book.forEach(ev => {
@@ -1305,7 +1286,7 @@
             store.fatti.push(ev.id);
             if (!oneShot) store.attivi.push(rec);            // solo i ticking restano attivi
             if (typeof ev.onStart === 'function') {
-                try { ev.onStart(makeEventCtx(rec, turn, assPrima)); }
+                try { ev.onStart(makeEventCtx(rec, turn)); }
                 catch (err) { console.error('Evento ' + ev.id + ' onStart:', err); }
             }
         });

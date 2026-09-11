@@ -2275,10 +2275,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         refreshMapDisplay();
         renderPlayerTabs();
+        updateInterventionUI();   // il banner "⏳ in attesa" riflette il pendingDiff adottato
 
         // Intervento admin in attesa: appena il turno CAMBIA (il giocatore in corso
         // ha finito), si applica il diff sopra lo stato appena arrivato e si salva.
-        if (pendingDiff && turnoDi !== pendingBaseTurnoDi) applyPendingIntervention();
+        // Solo l'admin (che guida la partita, come i bot) lo applica: gli altri client
+        // ora lo ricevono nello stato ma devono solo trasportarlo, non applicarlo due
+        // volte in concorrenza.
+        if (pendingDiff && turnoDi !== pendingBaseTurnoDi && isAdminMode) applyPendingIntervention();
     }
 
     // ---------- interventi admin (creare regni, prendere bot, ecc.) ----------
@@ -2406,7 +2410,13 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingBaseTurnoDi = (live && live.turnoDi !== undefined) ? live.turnoDi : null;
         bufferedRemote = null;
         interventionBase = null;
+        // Timbra il diff sullo stato "vivo" prima di ripristinare lo schermo: senza,
+        // applyCloudState(live) ADOTTEREBBE il pendingDiff di `live` (spesso null) e
+        // cancellerebbe quello appena creato.
+        if (live) { live.pendingDiff = pendingDiff; live.pendingBaseTurnoDi = pendingBaseTurnoDi; }
         applyCloudState(live);   // ripristina lo schermo sulla partita in corso
+        saveAutoSave();          // PERSISTE il diff (localStorage + Firestore): un
+                                 // reload prima del cambio turno non lo perde più.
         updateInterventionUI();
         showPieceNotice('Intervento salvato: sarà attivo dal prossimo turno.');
     }
@@ -3303,7 +3313,13 @@ document.addEventListener('DOMContentLoaded', () => {
             turnoDi: turnoDi,
             ordine: ordine,
             primoDelGiro: primoDelGiro,
-            eventi: eventi
+            eventi: eventi,
+            // Intervento admin in attesa del prossimo cambio turno (vedi
+            // commitIntervention). Viaggia nello stato — anche in PASS-THROUGH sui
+            // client non-admin — così un reload non lo perde e una mossa altrui non
+            // lo cancella. Solo l'admin lo APPLICA (guardia in applyCloudState).
+            pendingDiff: pendingDiff,
+            pendingBaseTurnoDi: pendingBaseTurnoDi
         };
     }
 
@@ -3374,6 +3390,14 @@ document.addEventListener('DOMContentLoaded', () => {
         primoDelGiro = (data && typeof data.primoDelGiro === 'number') ? data.primoDelGiro : 0;
         eventi = (data && data.eventi && Array.isArray(data.eventi.attivi) && Array.isArray(data.eventi.fatti))
             ? data.eventi : { attivi: [], fatti: [] };
+        // Intervento admin in attesa: si ADOTTA dallo stato solo se il campo c'è
+        // (assente = stato vecchio → si tiene quello in memoria, non lo si cancella).
+        // Presente e null = già applicato altrove → si azzera. La APPLICAZIONE resta
+        // dell'admin (guardia in applyCloudState); gli altri lo trasportano soltanto.
+        if (data && 'pendingDiff' in data) {
+            pendingDiff = data.pendingDiff || null;
+            pendingBaseTurnoDi = (data.pendingBaseTurnoDi !== undefined) ? data.pendingBaseTurnoDi : null;
+        }
     }
 
     // --- MAP DISPLAY ---

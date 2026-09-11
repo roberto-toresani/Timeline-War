@@ -1009,8 +1009,8 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   poter creare i Cinesi, prendere i Mongoli, ecc. mentre si gioca). Il problema: editor
   e giocatori scrivono TUTTO il documento `games/main`, quindi un'edita simultanea a una
   mossa si cancellerebbero a vicenda. Soluzione in `app.js` (nessun tocco a
-  `game-actions.js` né allo schema del doc): l'admin edita **congelato** e le modifiche
-  entrano al **prossimo cambio turno**.
+  `game-actions.js`): l'admin edita **congelato** e le modifiche entrano al **prossimo
+  cambio turno**.
   - **`beginIntervention`**: alza `adminIntervening`, fotografa lo stato (`interventionBase`,
     clone). Da qui `applyCloudState` non applica più lo stato in arrivo (lo mette da parte
     in `bufferedRemote`) — così le mosse dei giocatori non sovrascrivono i ritocchi
@@ -1018,15 +1018,31 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     escono). L'admin usa i pennelli, `+Aggiungi`, il menu bot, come sempre.
   - **`commitIntervention`**: calcola `diffSnapshots(base, adesso)` — i SOLI campi toccati
     (province: proprietario/pedine/risorsa/fede; regni aggiunti; `bot`/nome/colore cambiati;
-    ordine; strade) — lo tiene in `pendingDiff`, e **ripristina lo schermo** sullo stato
-    vivo (`bufferedRemote`). `cancelIntervention` butta tutto.
-  - **Applicazione al cambio turno**: `applyCloudState`, quando `turnoDi` cambia rispetto a
-    `pendingBaseTurnoDi`, chiama `applyAdminDiff(pendingDiff)` — che fonde i soli campi
-    toccati sopra lo stato aggiornato (riusa `applyPieceEntry`, `normalizePlayer`, ecc.) — e
-    salva. Le mosse che i giocatori hanno fatto nel frattempo restano; l'intervento si
-    posa sopra. UI: banner `#intervention-banner` + bottoni `#intervene-btn` /
-    `#intervene-apply-btn` / `#intervene-cancel-btn` nell'editor (solo admin, solo a partita
-    esistente). `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
+    ordine; strade) — lo tiene in `pendingDiff`, **ripristina lo schermo** sullo stato
+    vivo (`bufferedRemote`) e **subito lo PERSISTE** con `saveAutoSave()`.
+    `cancelIntervention` butta tutto.
+  - **Il `pendingDiff` VIVE NELLO STATO, non solo in memoria** (bug vero: un intervento
+    committato spariva se l'admin ricaricava la pagina prima del cambio turno — la
+    variabile era solo nella closure). `buildSnapshot` porta ora `pendingDiff` e
+    `pendingBaseTurnoDi`, e `applyTurnState` li ri-ADOTTA da ogni stato che li contiene
+    (assente = stato vecchio → si tiene quello in memoria; presente e `null` = già
+    applicato altrove → si azzera). Così il diff sopravvive a un reload E i client
+    non-admin lo **trasportano** in pass-through (una loro mossa non lo cancella più dal
+    documento). Al commit si **timbra** `live.pendingDiff` prima di `applyCloudState(live)`,
+    o l'adozione lo cancellerebbe subito.
+  - **Applicazione al cambio turno — solo l'ADMIN**: `applyCloudState`, quando `turnoDi`
+    cambia rispetto a `pendingBaseTurnoDi` **e `isAdminMode`** (chi guida la partita, come
+    i bot), chiama `applyAdminDiff(pendingDiff)` — che fonde i soli campi toccati sopra lo
+    stato aggiornato (riusa `applyPieceEntry`, `normalizePlayer`, ecc.), azzera il pending e
+    salva (pushando `pendingDiff: null`, che azzera anche gli altri client). La guardia
+    admin serve ora che TUTTI ricevono il diff nello stato: senza, più client lo
+    applicherebbero in concorrenza. Ri-applicarlo è comunque **idempotente** (owner/pedine
+    riscritti agli stessi valori), quindi una corsa fra snapshot non corrompe nulla. Le
+    mosse dei giocatori nel frattempo restano; l'intervento si posa sopra. UI: banner
+    `#intervention-banner` (mostra "⏳ in attesa" anche dopo un reload, `updateInterventionUI`
+    è chiamata in coda a `applyCloudState`) + bottoni `#intervene-btn` /
+    `#intervene-apply-btn` / `#intervene-cancel-btn` (solo admin, solo a partita esistente).
+    `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
     `isIntervening`/`hasPendingIntervention`.
 - **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.
   Tre poteri, oltre all'Editto (a partita in corso passa dagli INTERVENTI qui sopra):
@@ -1140,20 +1156,23 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     uomini vanno radunati **entro il turno 20**. Vinta → provincia inglese, superstiti di
     presidio, fede convertita; persa → l'oste è perduta. (Al turno 21 scatta **anche**
     l'invasione mongola: due eventi nello stesso decennio, indipendenti.)
-  - **QUANTI NE IMBARCA IL PAPA: proporzionale all'obiettivo, non una taglia fissa** (regola
-    dell'utente: *"se l'obiettivo era raduna 10 uomini, ne invieremo 9; se era radunarne 15,
-    ne invieremo 12/13"*). `forzaCrociata` (`events.js`, `FORZA_CROCIATA_RATIO = 0,85`) legge
-    la **soglia vera** che l'obiettivo di raduno chiedeva quel ciclo (`fr1` per la Francia,
-    `in2-2` per l'Inghilterra) e ne imbarca l'85% arrotondato — un regno che ha corso e si è
-    visto alzare l'asticella (§10, la banda che si allunga) manda anche una crociata più
-    grande, non sempre la stessa da 10. Il 15% che resta è la scorta che il regno si tiene
-    per sé: la leva non parte mai per intero. La soglia si legge da `ctx.soglia(regno, id)`
-    (nuovo su `makeEventCtx`), che guarda `assPrima` — le assegnazioni del ciclo **appena
-    chiuso**, catturate da `grabAssignments` **prima** di `advanceGlobalTurn` e passate a
-    `applyEvents` (a questo punto `closeCycle` non ha ancora archiviato il ciclo, quindi
-    `obiettiviStorico` non ha ancora quella soglia — è l'unica finestra in cui il numero
-    esiste già). Senza obiettivo tracciabile (regno senza binario, migrazione) si ripiega
-    sulla vecchia taglia fissa (10).
+  - **QUANTI NE IMBARCA IL PAPA: l'oste è quel che TROVA, non un bersaglio esterno**
+    (regola dell'utente, in due tempi: *"se non raduni l'esercito sulla costa, quell'esercito
+    che mandi ad Aleppo da dove lo prendi?"*, poi la regola finale: *"≥ 6 si parte comunque,
+    < 6 non si parte"*). Prima versione (proporzionale all'85% della soglia dell'obiettivo)
+    scartata: anche a misura zero il ripiego di `eventMuster` prendeva comunque una crociata
+    intera dalla provincia più piena del regno — un esercito comparso dal nulla, non l'oste
+    radunata. Ora `eventMuster` (`game-actions.js`) è stato riscritto: prende **solo** dal
+    punto di raduno (`da` fisso, o il migliore fra le candidate di `regione`) e **non
+    ripiega più** sul resto del regno. `o.minimo` (qui `CROCIATA_MINIMO = 6` in `events.js`,
+    mirror dell'ancora `resistere` di fr1/in2-2 — entrambe `resistere: 6`) è la soglia sotto
+    la quale la crociata non muove un uomo; raggiunta, parte **tutto** quel che c'è lì
+    (rispettando il presidio minimo del prelievo, §5 — un solo soldato non basta,
+    `spendableTroops(1)` è già 0), mai una frazione: chi ne ha radunati 6 ne manda 6 (meno
+    la guardia), chi ne ha radunati 40 ne manda 40. `ctx.muster` ha perso il parametro
+    `forza` come bersaglio (resta come tetto opzionale, non usato dalle crociate); la
+    plumbing `ctx.soglia`/`assPrima` introdotta per la versione proporzionale è stata
+    rimossa perché non serviva più a nessuno.
   - **Il popup della crociata non si perde**: `crusadeHost` avvisa il regno con
     `ctx.notify` come ogni evento (`player.eventiAvvisi` → `showPendingEventi` →
     `Risiko.showFoundation`, la pergamena centrale) — vale identico per Francia e

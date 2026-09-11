@@ -33,22 +33,30 @@
 (function (root) {
     'use strict';
 
+    // LA SOGLIA DI PARTENZA (regola dell'utente, versione finale: "≥ 6 si parte
+    // comunque, < 6 non si parte"): sotto i 6 uomini radunati la crociata non
+    // muove un uomo — un'oste di 5 non è un'oste. Mirror dell'ancora
+    // `resistere` di fr1 e in2-2 in objectives.js (entrambe `resistere: 6`,
+    // cioè il minimo che l'autore considera "ci hai almeno provato"): se
+    // quell'ancora cambia, questo numero va tenuto allineato. Raggiunto il
+    // minimo parte TUTTO quel che c'è al punto di raduno — vedi `eventMuster`
+    // in game-actions.js, che non ripiega mai sul resto del regno.
+    const CROCIATA_MINIMO = 6;
+
     // PRIMA CROCIATA (ciclo 2, turno 11). Solo la FRANCIA marcia su Aleppo
     // (regola dell'utente: Bisanzio NON ha più la chiamata del Papa — il suo
     // obiettivo storico è cambiato, e Gerusalemme la prenderà l'Inghilterra nel
-    // ciclo 3, vedi CROCIATA_INGLESE). `forza` è il RIPIEGO se l'obiettivo di
-    // raduno non si trova (regno senza binario, migrazione): la taglia VERA la
-    // legge `forzaCrociata` dalla soglia che l'obiettivo fr1 chiedeva quel
-    // ciclo (regola dell'utente — vedi sotto). L'oste è radunata drenando le
-    // VERE truppe del regno (§5): non è evocata. La Francia ha una `regione` di
-    // candidate — le stesse tre coste di MED_FR in objectives.js (obiettivo
-    // fr1, "raduna N uomini su una costa mediterranea"): l'oste parte da quella
-    // dove il giocatore ha DAVVERO ammassato l'esercito, non da un punto fisso.
-    // Tenere questo elenco allineato a objectives.js se cambia. Una gamba sola,
-    // quindi niente più patto di vista fra i due crociati.
+    // ciclo 3, vedi CROCIATA_INGLESE). L'oste è radunata drenando le VERE
+    // truppe del regno (§5), TUTTE quelle che trova nel punto di raduno e
+    // nessun'altra: non è evocata, e non è nemmeno il numero di un obiettivo —
+    // è la sua conseguenza diretta. La Francia ha una `regione` di candidate —
+    // le stesse tre coste di MED_FR in objectives.js (obiettivo fr1, "raduna N
+    // uomini su una costa mediterranea"): l'oste parte da quella dove il
+    // giocatore ha DAVVERO ammassato l'esercito, non da un punto fisso; se
+    // nessuna arriva al minimo la crociata non parte affatto. Tenere questo
+    // elenco allineato a objectives.js se cambia. Una gamba sola, quindi
+    // niente più patto di vista fra i due crociati.
     const PRIMA_CROCIATA = {
-        forza: 10,
-        obiettivo: 'fr1',
         spedizioni: [
             { regno: 'Regno di Francia', regione: ['Provence', 'Languedoc', 'Rhone'], meta: 'Aleppo' }
         ]
@@ -59,34 +67,15 @@
     // chiamata del Papa") salpano all'INIZIO del ciclo 3 e sbarcano all'assalto
     // di Gerusalemme (Palestine) — regola dell'utente: è l'Inghilterra, non più
     // Bisanzio, a portare la croce in Terra Santa. `da` è fisso su Home Counties,
-    // la stessa provincia che l'obiettivo chiede di riempire; `forza` è il
-    // RIPIEGO (vedi sopra), la taglia vera la legge `forzaCrociata` dalla
-    // soglia di in2-2 (drena da Home Counties per primo, poi dal resto del
-    // regno se là non bastano — il trasporto è del Papa, §editto). L'evento
-    // scatta al passaggio al turno 21, prima che chiunque giochi il ciclo 3.
+    // la stessa provincia che l'obiettivo chiede di riempire: se lì non c'è
+    // almeno il minimo, niente crociata (il trasporto è del Papa, §editto, ma
+    // la leva resta del giocatore). L'evento scatta al passaggio al turno 21,
+    // prima che chiunque giochi il ciclo 3.
     const CROCIATA_INGLESE = {
-        forza: 10,
-        obiettivo: 'in2-2',
         regno: 'Regno di Inghilterra',
         da: 'Home_Counties',
         meta: 'Palestine'   // → Gerusalemme
     };
-
-    // QUANTI NE IMBARCA IL PAPA (regola dell'utente): la crociata non manda
-    // sempre la stessa taglia fissa — manda un esercito proporzionale a quel
-    // che l'obiettivo di raduno chiedeva quel ciclo (chi doveva radunarne 10 ne
-    // imbarca ~9, chi ne doveva radunare 15 ne imbarca ~13): un regno che ha
-    // corso e si è visto chiedere un raduno più ambizioso (§10, la banda che si
-    // allunga) manda anche una crociata più grande, non sempre la stessa da 10.
-    // Il 15% che resta a casa è la scorta che il regno si tiene per sé — la
-    // leva non parte MAI per intero. Senza obiettivo tracciabile (regno senza
-    // binario, migrazione) si ripiega sulla taglia fissa di sempre.
-    const FORZA_CROCIATA_RATIO = 0.85;
-    function forzaCrociata(ctx, regno, id, fallback) {
-        const s = ctx && ctx.soglia ? ctx.soglia(regno, id) : null;
-        if (typeof s !== 'number' || !isFinite(s) || s <= 0) return fallback;
-        return Math.max(1, Math.round(s * FORZA_CROCIATA_RATIO));
-    }
 
     // INVASIONE MONGOLA (turno 21 = 1200, scelta dell'utente: si leva presto
     // apposta, così entra in contatto coi popoli d'Occidente entro quattro o
@@ -377,9 +366,7 @@
             // Orchestrazione (regola dell'utente: nel descrittore, con ctx). Raduna
             // l'oste franca, la sbarca all'assalto, avvisa il regno.
             onStart(ctx) {
-                const sp = PRIMA_CROCIATA.spedizioni[0];
-                const forza = forzaCrociata(ctx, sp.regno, PRIMA_CROCIATA.obiettivo, PRIMA_CROCIATA.forza);
-                crusadeHost(ctx, sp, forza, 'La Prima Crociata');
+                crusadeHost(ctx, PRIMA_CROCIATA.spedizioni[0], 'La Prima Crociata');
             }
         },
         {
@@ -389,8 +376,7 @@
             nota: '',
             onStart(ctx) {
                 const d = CROCIATA_INGLESE;
-                const forza = forzaCrociata(ctx, d.regno, d.obiettivo, d.forza);
-                crusadeHost(ctx, { regno: d.regno, da: d.da, meta: d.meta }, forza, 'La crociata inglese');
+                crusadeHost(ctx, { regno: d.regno, da: d.da, meta: d.meta }, 'La crociata inglese');
             }
         },
         {
@@ -406,9 +392,9 @@
     // Raduna un'oste da un regno e la sbarca all'assalto della sua meta,
     // avvisando il regno con la pergamena dal suo punto di vista. Cuore comune
     // a tutte le crociate: una gamba = una chiamata di questa funzione.
-    function crusadeHost(ctx, sp, forza, titolo) {
-        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, forza });
-        if (!host) return null;             // regno morto o senza uomini: la crociata non parte
+    function crusadeHost(ctx, sp, titolo) {
+        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, minimo: CROCIATA_MINIMO });
+        if (!host) return null;             // regno morto o sotto il minimo: la crociata non parte
         const e = ctx.assault(sp.regno, sp.meta, host);
         if (!e) return null;
         const testo = e.rinforzo
