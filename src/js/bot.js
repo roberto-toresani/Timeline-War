@@ -1831,7 +1831,8 @@
             const amico = (doc.amici || [])
                 .map(n => R().players().find(p => p.name === n))
                 .find(p => p && E().ownedPaths(p.name).length &&
-                    !D().pactsWith(player, p.id).length && !pendingBetween(player, p));
+                    !D().pactsWith(player, p.id).length && !pendingBetween(player, p) &&
+                    !(GA().pactRefusedRecently && GA().pactRefusedRecently(p, player.id, doc.pattoAmico)));
             if (amico) return { toId: amico.id, tipo: doc.pattoAmico };
         }
         if (D().partnersOf(player, R().players()).length >= PACT_MAX) return null;
@@ -1862,6 +1863,10 @@
             if (!canDealWith(player, other)) return;            // fede o dottrina: non si tratta
             if (D().grantsNonAggression(player, other)) return; // già in pace
             if (pendingBetween(player, other)) return;          // araldo già in viaggio
+            // Ci ha appena detto di no: non si insiste a ogni turno (cooldown in
+            // game-actions). Senza, la stessa proposta tornava 2-3 volte dopo un
+            // rifiuto — il bug dell'araldo dell'utente.
+            if (GA().pactRefusedRecently && GA().pactRefusedRecently(other, player.id, 'nonBelligeranza')) return;
             if (isJuicyPrey(player, s, other)) return;          // preferisco attaccarlo
             if (f.minaccia > best) { best = f.minaccia; target = other; }
         });

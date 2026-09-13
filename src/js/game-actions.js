@@ -2296,10 +2296,29 @@
     // di commercio (sul record di chi le riceve), gli AVVISI come gli editti.
     // ============================================================
     const PACT_LOG_MAX = 20;
+    // Dopo un RIFIUTO, chi ha proposto (un bot) non ri-manda l'araldo per questi
+    // turni: senza, un fronte minaccioso faceva ri-proporre la non-belligeranza a
+    // ogni giro e la stessa proposta tornava 2-3 volte (bug dell'utente).
+    const PACT_REFUSAL_COOLDOWN = 6;
 
     function pactInbox(player) {
         if (!Array.isArray(player.pattiProposte)) player.pattiProposte = [];
         return player.pattiProposte;
+    }
+    // I rifiuti recenti di `player`: [{con, tipo, fino}]. `con` è chi aveva
+    // proposto (il destinatario del "no"). Serve al bot per non insistere.
+    function pactRefusals(player) {
+        if (!Array.isArray(player.pattiRifiuti)) player.pattiRifiuti = [];
+        return player.pattiRifiuti;
+    }
+    // Vero se `me` ha rifiutato di recente una proposta di `fromId` ancora valida
+    // (fino > turno corrente). Se `tipo` è dato, solo per quel tipo di patto.
+    function pactRefusedRecently(me, fromId, tipo) {
+        const turno = R().turn();
+        return pactRefusals(me).some(r =>
+            String(r.con) === String(fromId) &&
+            (r.fino == null || r.fino > turno) &&
+            (!tipo || !r.tipo || r.tipo === tipo));
     }
     function pactNotices(player) {
         if (!Array.isArray(player.pattiAvvisi)) player.pattiAvvisi = [];
@@ -2391,6 +2410,15 @@
         if (!found) return fail('Questa proposta non c\'è più.');
         const nome = nameOf(found.off.da);
         found.list.splice(found.i, 1);
+        // Segna il rifiuto: chi l'ha proposto non ri-manda l'araldo per qualche
+        // turno (aggiorna un rifiuto esistente verso lo stesso regno/tipo, non
+        // ne accumula). Così una proposta rifiutata non torna il turno dopo.
+        const rif = pactRefusals(player);
+        const fino = R().turn() + PACT_REFUSAL_COOLDOWN;
+        const idx = rif.findIndex(r => String(r.con) === String(found.off.da) && r.tipo === found.off.tipo);
+        if (idx >= 0) rif[idx].fino = fino;
+        else rif.push({ con: found.off.da, tipo: found.off.tipo, fino });
+        while (rif.length > PACT_LOG_MAX) rif.shift();
         E().refresh(); E().save();
         return done('Proposta di ' + D().LABEL[found.off.tipo].toLowerCase() + ' di ' + nome + ' rifiutata.', { prov: homeId(player) });
     }
@@ -3948,6 +3976,7 @@
         // patti; concedere l'attacco a un proprio territorio; far scadere le
         // alleanze a tempo (chiamata da endTurn come expireTrades).
         proposePact, acceptPact, declinePact, breakPact, grantAttack, expirePacts, pactInbox,
+        pactRefusedRecently,
         // A cosa serve l'alleanza: chiedere rinforzi (indicando DOVE servono) e
         // marciare in aiuto in fase d'attacco invece di colpire.
         askReinforcements, cancelHelp, sendReinforcements, helpInbox, helpOutbox, expireHelpRequests,

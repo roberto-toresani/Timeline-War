@@ -2510,9 +2510,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const key = c.fromId + '>' + c.toId + '@' + R.turn();
         if (conquestPromptFor === key) return;              // già proposta per questa presa
         if (document.getElementById('ui-conquest')) return;  // già aperta
-        // Una modale/pergamena per volta: se qualcosa è già a schermo, si
-        // riprova al render successivo senza segnare come mostrata.
-        if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) return;
+        const retry = (ms) => {
+            clearTimeout(showConquestPrompt._t);
+            showConquestPrompt._t = setTimeout(render, ms);
+        };
+        // Una modale/pergamena per volta: se qualcosa è già a schermo, si RIPROVA
+        // al render successivo. Prima qui si tornava SENZA riprogrammare un
+        // retry: se una pergamena (es. l'eco storica della battaglia) o una
+        // conferma era aperta quando scadeva l'ultimo timer, il ciclo di
+        // ritentativi MORIVA e la modale di ripartizione non compariva più — la
+        // conquista finiva risolta d'ufficio a fine turno (tutti restano) senza
+        // che il giocatore avesse deciso quanti uomini mandare, e non c'era modo
+        // di rifarla (bug segnalato dall'utente). Ora si continua a riprovare
+        // finché lo schermo non si libera.
+        if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) {
+            retry(350);
+            return;
+        }
         // Non coprire la scena della battaglia: la si lascia finire — e si
         // aspetta anche il respiro dopo (battleFxBusy in app.js tiene conto di
         // entrambi), così l'avviso non piomba sull'ultimo fotogramma. Si riprova
@@ -2525,14 +2539,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // playBattleFx è partita e si aspetta che finisca.
         if (conquestSeen !== key) {
             conquestSeen = key;
-            clearTimeout(showConquestPrompt._t);
-            showConquestPrompt._t = setTimeout(render, 120);
+            retry(120);
             return;
         }
         const inCorso = R.battleFxBusy ? R.battleFxBusy() : !!document.querySelector('svg.battle-focus');
         if (inCorso) {
-            clearTimeout(showConquestPrompt._t);
-            showConquestPrompt._t = setTimeout(render, 350);
+            retry(350);
             return;
         }
 
@@ -5037,9 +5049,19 @@ document.addEventListener('DOMContentLoaded', () => {
             default: return '';
         }
     }
+    // Le proposte a cui il giocatore ha GIÀ risposto (accettate o rifiutate) in
+    // questa sessione. Serve perché la risposta rimuove la proposta dallo stato
+    // locale, ma un'eco stantia dal cloud (o un refresh del driver dei bot) può
+    // ri-aggiungerla a `pattiProposte` prima che la scrittura propaghi: senza
+    // questo filtro il pop-up dell'araldo si ripresentava 2-3 volte anche dopo
+    // aver risposto (bug segnalato dall'utente). Le proposte ids sono unici
+    // (newTradeId), quindi sopprimere per id è sicuro. "Decido dopo" (Esc/click
+    // fuori) NON segna la proposta come risposta: resta in coda e torna al turno
+    // successivo, come deve.
+    let pactAnswered = new Set();
     function showPendingPactProposals(player) {
         if (!isPlaying(player) || !R.confirm) return;
-        const list = player.pattiProposte || [];
+        const list = (player.pattiProposte || []).filter(o => o && !pactAnswered.has(o.id));
         if (!list.length) return;
         // Una modale per volta: se una pergamena o un'altra conferma è aperta,
         // si riprova al render dopo.
@@ -5058,8 +5080,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ok: 'Accetta',
             cancel: 'Rifiuta'
         },
-        () => run(GA().acceptPact(player, off.id)),
-        () => run(GA().declinePact(player, off.id)));
+        () => { pactAnswered.add(off.id); run(GA().acceptPact(player, off.id)); },
+        () => { pactAnswered.add(off.id); run(GA().declinePact(player, off.id)); });
     }
 
     // ---------- schieramento automatico dei rinforzi obbligatori ----------
