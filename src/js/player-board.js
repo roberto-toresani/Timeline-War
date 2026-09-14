@@ -533,6 +533,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         // Razzie delle terre di nessuno di fine giro (il proprio Fine turno).
         if (result.razzie) reportRaids(result.razzie);
+        // CONQUISTA da decidere: la modale di ripartizione si arma QUI, dal
+        // risultato dell'attacco, non solo dal ciclo di render (che poteva
+        // morire e lasciare la presa risolta d'ufficio — bug dell'utente:
+        // l'invasione non concedeva di decidere come spostare le truppe). È
+        // legata al giocatore che ha appena attaccato, quindi non dipende da
+        // quale regno il render sta mostrando né da corse di sincronizzazione.
+        if (result.richiedeConquista) armConquestPrompt(result);
     }
 
     function showNotice(msg, ok) {
@@ -2552,6 +2559,36 @@ document.addEventListener('DOMContentLoaded', () => {
         openConquestModal(player, c);
     }
 
+    // Arma la modale di conquista DAL RISULTATO dell'attacco (chiamata da run()).
+    // È il canale principale, indipendente dal ciclo di render: appena la scena
+    // della battaglia e le eventuali pergamene si liberano, apre la ripartizione.
+    // showConquestPrompt (in render) resta come rete di sicurezza. Legge sempre
+    // `conquestPending` dal vivo, quindi se la presa è già stata risolta (o la
+    // conquista è sparita) semplicemente non fa nulla.
+    function armConquestPrompt(result) {
+        const delay = (result && result.battle && R.battleFxMs) ? R.battleFxMs() + 300 : 60;
+        clearTimeout(armConquestPrompt._t);
+        const tick = () => {
+            const player = currentPlayer();
+            if (!player || !isPlaying(player)) return;            // turno cambiato
+            const c = GA().conquestPending(player);
+            if (!c) return;                                       // già risolta o sparita
+            const key = c.fromId + '>' + c.toId + '@' + R.turn();
+            if (conquestPromptFor === key) return;                // già mostrata per questa presa
+            if (document.getElementById('ui-conquest')) return;   // già aperta
+            // Una cosa per volta: aspetta che scena e pergamene si liberino.
+            const busy = R.battleFxBusy ? R.battleFxBusy() : !!document.querySelector('svg.battle-focus');
+            if (busy || document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) {
+                armConquestPrompt._t = setTimeout(tick, 300);
+                return;
+            }
+            conquestPromptFor = key;
+            conquestSeen = key;
+            openConquestModal(player, c);
+        };
+        armConquestPrompt._t = setTimeout(tick, delay);
+    }
+
     function openConquestModal(player, c) {
         const old = document.getElementById('ui-conquest');
         if (old) old.remove();
@@ -2589,7 +2626,10 @@ document.addEventListener('DOMContentLoaded', () => {
             close();
             run(GA().resolveConquest(player, parseInt(range.value, 10)));
         });
-        wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+        // NIENTE chiusura al clic-fuori (a differenza delle altre modali): la
+        // ripartizione è una decisione obbligata e cliccare la mappa per
+        // continuare la faceva sparire per sempre (conquestPromptFor già segnato),
+        // lasciando la presa risolta d'ufficio. Si esce solo con un bottone o Esc.
         document.addEventListener('keydown', onKey);
         document.body.appendChild(wrap);
         wrap.querySelector('.uq-go').focus();
