@@ -307,7 +307,13 @@
 
         // Da qui in poi comanda il motore: 5 soldati per provincia, 1000 monete,
         // scorte a zero, ordine di turno, terre di nessuno presidiate (§11).
-        const avvio = root.GameActions.startGame();
+        // `deferSave`: NON salvare ancora — sotto si aggiungono ancora codici
+        // d'invito, strade gratis e `nato`, e il salvataggio (FORZATO, perché il
+        // calendario regredisce al turno 1) lo fa finalize alla fine con lo stato
+        // completo. Salvare due volte esporrebbe il reset alla cancellazione (vedi
+        // pushState in sync.js: un push non forzato in mezzo lo annullava e la
+        // vecchia partita continuava a tornare da Firestore).
+        const avvio = root.GameActions.startGame({ deferSave: true });
 
         // Tassazione al valore iniziale del §11. La strada gratuita NON si regala
         // più all'avvio: nasce dalla costruzione della Capitale (build() fa
@@ -325,7 +331,11 @@
         if (R().inviteUrlFor) players.forEach(pl => R().inviteUrlFor(pl));
 
         E().refresh();
-        E().save();
+        // Salvataggio UNICO e FORZATO della partita nuova, con lo stato completo
+        // (codici d'invito compresi). Forzato perché regredisce il calendario al
+        // turno 1: senza, la guardia anti-regressione di sync.js lo rifiuta e la
+        // partita vecchia resta su Firestore. Vedi anche startGame({deferSave}).
+        (E().saveForced || E().save)();
 
         // `umano` (singolo) resta per retrocompatibilità: vale solo quando c'è UN
         // regno umano. Con più regni la plancia si apre senza codice d'invito e

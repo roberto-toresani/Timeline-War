@@ -436,7 +436,7 @@
 
     // Porta la partita ai valori iniziali del §11: 5 soldati per provincia
     // posseduta, 1000 monete, scorte a 0, e fissa l'ordine di turno.
-    function startGame() {
+    function startGame(opts) {
         const players = R().players();
         players.forEach(pl => {
             pl.monete = 1000;
@@ -454,6 +454,10 @@
             pl.obiettiviStorico = [];
             pl.cicliStorico = [];
             pl.obiettiviAvvisi = [];
+            // Contatori sostenuti (§10): partita nuova, si riparte da zero.
+            pl.conquisteNavali = 0;
+            pl.popCiclo = [];
+            pl.tassaCiclo = [];
             pl.puntiPrestigio = 0;
             pl.temporanei = {};
             pl.offerte = [];
@@ -506,7 +510,13 @@
         // Partita NUOVA: il calendario torna al turno 1, cioè REGREDISCE. La
         // guardia anti-regressione di sync.js bloccherebbe la scrittura, quindi
         // qui si FORZA — è un reset voluto, non un tab arretrato.
-        (E().saveForced || E().save)();
+        // `opts.deferSave`: chi arriva da setup.js (GameSetup.finalize) muta ancora
+        // i regni DOPO startGame (codici d'invito, strade gratis, `nato`) e salva
+        // lui alla fine — sempre FORZANDO. Salvare qui in mezzo scriverebbe uno
+        // stato senza i codici d'invito, e nel multiplayer la plancia non
+        // troverebbe più il regno assegnato dal link. Il bottone 🏁 dell'editor
+        // chiama startGame() senza opzioni: lì il salvataggio va fatto qui.
+        if (!(opts && opts.deferSave)) (E().saveForced || E().save)();
         return done(ordine.length
             ? 'Partita avviata: ' + ordine.length + ' regni in gioco.'
             : 'Nessun regno ha province: assegnale prima dalla mappa.');
@@ -586,6 +596,17 @@
         player.conquista = null;
         player.capitalePresa = null;
 
+        // Contatori SOSTENUTI del ciclo (§10, richiesta dell'utente): la
+        // Popolarità e la tassazione di QUESTO turno entrano nelle liste che
+        // `turniPopolarita`/`turniTassaDura` leggono; closeCycle le azzera a fine
+        // giro. Cap prudenziale (un ciclo è ~10 turni per regno).
+        if (!Array.isArray(player.popCiclo)) player.popCiclo = [];
+        if (!Array.isArray(player.tassaCiclo)) player.tassaCiclo = [];
+        player.popCiclo.push(pop == null ? 0 : pop);
+        player.tassaCiclo.push(player.tassazione || 'normale');
+        while (player.popCiclo.length > 20) player.popCiclo.shift();
+        while (player.tassaCiclo.length > 20) player.tassaCiclo.shift();
+
         return done('Turno di ' + player.name, { produzione: prod });
     }
 
@@ -606,9 +627,19 @@
     // che passi di lì (un evento, uno scisma, una razzia: tutti ridisegnano)
     // rigenererebbe l'assegnazione per il ciclo nuovo, cancellando le soglie
     // con cui il ciclo che si chiude era cominciato. Si fotografa prima.
+    // Si fotografa anche `capitolo`/`intensita`: il render intermedio (fra
+    // advanceGlobalTurn e closeCycle) fa scattare la migrazione di
+    // `ensureAssignment` (app.js), che ALZA `player.capitolo` al numero del
+    // ciclo nuovo IN ANTICIPO. Se poi `passo` (in closeCycle) leggesse quel
+    // valore già gonfiato, farebbe `+1` una seconda volta e il capitolo
+    // correrebbe un passo avanti al ciclo per tutta la partita (il capitolo 2
+    // saltato). `passo` deve ricevere il capitolo com'era DURANTE il ciclo che
+    // si chiude, non quello del render intermedio: lo si legge da qui.
     function grabAssignments() {
         const m = {};
-        R().players().forEach(p => { m[p.id] = p.obiettiviCiclo || null; });
+        R().players().forEach(p => {
+            m[p.id] = { a: p.obiettiviCiclo || null, capitolo: p.capitolo || 0, intensita: p.intensita };
+        });
         return m;
     }
 
@@ -619,7 +650,13 @@
         R().players().forEach(player => {
             const ctx = R().objectiveContext(player);
             const grabbed = assegnazioni ? assegnazioni[player.id] : null;
-            const a = grabbed || player.obiettiviCiclo;
+            const a = (grabbed && grabbed.a) || player.obiettiviCiclo;
+            // Il capitolo/intensità com'erano DURANTE il ciclo che si chiude,
+            // fotografati prima che il render intermedio potesse gonfiare
+            // `player.capitolo` (vedi grabAssignments). È questo che `passo` deve
+            // far avanzare, non il valore già alzato dalla migrazione.
+            const capPrima = (grabbed && grabbed.capitolo) || player.capitolo || chiuso;
+            const intPrima = (grabbed && grabbed.intensita) || player.intensita;
             // 1. i conti del ciclo che si chiude. Si valuta l'ASSEGNAZIONE, cioè
             //    le soglie con cui il ciclo era cominciato; senza (regno appena
             //    nato, salvataggio vecchio) si ricade sul binario.
@@ -688,7 +725,7 @@
             // 2. il profilo su cui si misura la performance del regno.
             const prof = R().objectiveProfile(player);
             prof.ciclo = chiuso;
-            prof.capitolo = player.capitolo || chiuso;
+            prof.capitolo = capPrima;
             prof.obiettiviFatti = snap ? snap.items.filter(i => i.completato).length : 0;
             player.cicliStorico.push(prof);
             while (player.cicliStorico.length > PROFILE_MAX) player.cicliStorico.shift();
@@ -702,11 +739,11 @@
             const mossa = OB().passo({
                 primarioFatto: !!(snap && snap.items[0] && snap.items[0].completato),
                 fatti: prof.obiettiviFatti,
-                intensita: player.intensita,
+                intensita: intPrima,
                 province: prof.province,
                 provincePrec: prec ? prec.province : null,
                 capitalePersa: !!(prec && prec.capitale && !prof.capitale),
-                capitolo: player.capitolo || chiuso,
+                capitolo: capPrima,
                 ciclo: nuovoCiclo,
                 capitoli: OB().chapterCount(player.name)
             });
@@ -737,6 +774,11 @@
                 intensita: player.intensita, ritmo: ritmo,
                 turno: R().turn(), calibra: true
             });
+            // I contatori per-ciclo (Popolarità/tassazione turno per turno) hanno
+            // fatto il loro dovere per il ciclo appena valutato: si azzerano per
+            // il ciclo nuovo (§10). Le conquiste navali restano — sono cumulative.
+            player.popCiclo = [];
+            player.tassaCiclo = [];
             if (snap) esiti.push({
                 regno: player.name, punti: snap.punti, puntiMax: snap.puntiMax, leva: leva,
                 motivo: mossa.motivo, capitolo: player.capitolo, intensita: player.intensita
@@ -2434,10 +2476,16 @@
     function breakPact(player, partnerId, tipo, opts) {
         const altro = R().players().find(p => String(p.id) === String(partnerId));
         if (!altro) return fail('Regno sconosciuto.');
-        const presenti = D().pactsWith(player, altro.id).filter(p => !tipo || p.tipo === tipo);
-        if (!presenti.length) return fail('Non avete questo patto.');
+        // Si guardano ENTRAMBI i lati: un patto può essere rimasto solo su quello
+        // del partner (orfano). Rompere deve ripulirlo comunque, o l'attacco
+        // continuerebbe a leggerlo (grantsNonAggression è difensivo, OR dei due
+        // lati) e a offrire "Tradisci" a vuoto. unbondPact pulisce già entrambi.
+        const miei = D().pactsWith(player, altro.id).filter(p => !tipo || p.tipo === tipo);
+        const suoi = D().pactsWith(altro, player.id).filter(p => !tipo || p.tipo === tipo);
+        const presenti = miei.length ? miei : suoi;
+        if (!miei.length && !suoi.length) return fail('Non avete questo patto.');
         const tradimento = !!(opts && opts.tradimento);
-        const perde = presenti.some(p => D().costsPrestige(p.tipo));
+        const perde = miei.concat(suoi).some(p => D().costsPrestige(p.tipo));
         unbondPact(player, altro, tipo || null);
         if (perde) player.puntiOro = Math.max(0, (player.puntiOro || 0) - D().BREAK_PRESTIGE);
         pushPactNotice(altro, {
@@ -3101,6 +3149,10 @@
             ? Math.max(0, mercImp - (engaged - superstitiRitorno)) : 0;
         if (res.attackerWins) {
             conversione = applyBattleOutcome(player, to, res, defTroops, mercArrivati);
+            // CONQUISTA VIA NAVE (§10, richiesta dell'utente): uno sbarco vinto
+            // conta come conquista navale, cumulativa nella partita — la leggono i
+            // template `conquisteNavali` (Polonia C3, Fatimidi C5).
+            if (viaMare) player.conquisteNavali = (player.conquisteNavali || 0) + 1;
 
             // I superstiti entrano tutti nella provincia presa, ma la ripartizione
             // vera la decide il giocatore in fase di conquista (resolveConquest):

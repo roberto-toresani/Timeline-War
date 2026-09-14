@@ -232,6 +232,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // La scadenza non si salva: si calcola (js/spies.js), così una spia non
         // può sopravvivere a un salvataggio riaperto tre decenni dopo.
         if (!Array.isArray(p.spie)) p.spie = [];
+        // CONTATORI SOSTENUTI NEL TEMPO (§10, richiesta dell'utente): conquiste
+        // via nave (cumulative in partita), e — per il ciclo in corso — la lista
+        // della Popolarità e della tassazione turno per turno (beginTurn le
+        // accumula, closeCycle le azzera). Servono ai template `conquisteNavali`,
+        // `turniPopolarita`, `turniTassaDura`.
+        if (typeof p.conquisteNavali !== 'number') p.conquisteNavali = 0;
+        if (!Array.isArray(p.popCiclo)) p.popCiclo = [];
+        if (!Array.isArray(p.tassaCiclo)) p.tassaCiclo = [];
         // RANCORE (la vendetta dell'IA): [{prov, chi, peso, turno}] — le province
         // PREZIOSE strappate a questo regno e chi le ha prese. Lo scrive la
         // conquista (game-actions.applyBattleOutcome, unico punto), lo legge il
@@ -283,6 +291,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Array.isArray(p.pattiProposte)) p.pattiProposte = [];
         if (!Array.isArray(p.pattiAvvisi)) p.pattiAvvisi = [];
         if (!Array.isArray(p.permessiAttacco)) p.permessiAttacco = [];
+        // RIFIUTI recenti: quando questo regno rifiuta una proposta di patto,
+        // si registra [{con, tipo, fino}] così chi l'ha proposta (un bot) NON
+        // ri-manda l'araldo a ogni suo turno — che è ciò che faceva ripresentare
+        // la stessa proposta 2-3 volte anche dopo un rifiuto (bug dell'utente).
+        // Scade da sé (fino = turno + cooldown), quindi non blocca la diplomazia
+        // per sempre. Vive nello stato come il rancore: lo legge il bot.
+        if (!Array.isArray(p.pattiRifiuti)) p.pattiRifiuti = [];
         // MANUTENZIONE DELLE MIGLIORIE CIVICHE (§6.1): ogni 5 turni un contributo
         // di 1 risorsa per edificio (auto-pagato dal magazzino); se manca, la
         // miglioria va dormiente e poi crolla. `welfareMaintTurn` = ultimo turno di
@@ -316,7 +331,31 @@ document.addEventListener('DOMContentLoaded', () => {
         return p;
     }
 
-    function normalizePlayers() { PLAYERS.forEach(normalizePlayer); }
+    // RICONCILIA I PATTI: un patto è MUTUO per costruzione (bondPact lo scrive su
+    // ENTRAMBI i record). Un residuo su un solo lato è un ORFANO — nato da una
+    // rottura che ha ripulito un record solo (vecchi salvataggi, o un breakPact
+    // che si ferma quando chi rompe non ce l'ha già più) — e falsa la lettura:
+    // il foglio 🕊 guarda il PROPRIO lato e non lo vede più (sembra tutto a
+    // posto), ma l'attacco legge ENTRAMBI i lati (grantsNonAggression/areAllied,
+    // difensivi) e continua a offrire "Tradisci" con la minaccia di prestigio su
+    // un patto che per te non esiste più. Qui si potano: un patto vale solo se il
+    // partner lo RICAMBIA con lo stesso tipo. Si decide su una fotografia degli
+    // elenchi originali, così l'esito non dipende dall'ordine dei giocatori.
+    function reconcilePacts(players) {
+        if (!Array.isArray(players)) return;
+        const orig = new Map(players.map(p =>
+            [String(p.id), Array.isArray(p.patti) ? p.patti.slice() : []]));
+        const ricambia = (partnerId, meId, tipo) =>
+            (orig.get(String(partnerId)) || []).some(q =>
+                String(q.con) === String(meId) && q.tipo === tipo);
+        players.forEach(p => {
+            if (!Array.isArray(p.patti)) return;
+            p.patti = p.patti.filter(pact =>
+                orig.has(String(pact.con)) && ricambia(pact.con, p.id, pact.tipo));
+        });
+    }
+
+    function normalizePlayers() { PLAYERS.forEach(normalizePlayer); reconcilePacts(PLAYERS); }
     normalizePlayers();
 
     // --- ROLE / ADMIN LOGIN ---
@@ -2283,6 +2322,26 @@ document.addEventListener('DOMContentLoaded', () => {
         // ora lo ricevono nello stato ma devono solo trasportarlo, non applicarlo due
         // volte in concorrenza.
         if (pendingDiff && turnoDi !== pendingBaseTurnoDi && isAdminMode) applyPendingIntervention();
+
+        // Un umano remoto (es. una plancia aperta col codice d'invito) ha chiuso il
+        // turno e ora tocca a un BOT: chi pilota i bot è l'admin, e lo scopre solo da
+        // qui — l'editor non ha il driver della plancia e comunque la mossa arriva da
+        // un altro browser. Senza questo, in una partita vs-IA i bot non ripartivano
+        // dopo il turno umano giocato dal telefono. Bot.run è idempotente (guardia
+        // `active`) e già gated su isAdmin, quindi ripete senza doppioni.
+        maybeDriveBots();
+    }
+
+    // L'admin fa avanzare la catena dei bot quando il turno corrente è di un'IA.
+    // Bot.run() porta il giro fino al prossimo turno umano e si ferma da solo.
+    function maybeDriveBots() {
+        if (!isAdminMode || adminIntervening) return;
+        if (turnoDi === null || turnoDi === undefined) return;
+        if (!window.Bot || typeof window.Bot.run !== 'function') return;
+        const cur = PLAYERS.find(p => p.id === turnoDi);
+        if (!cur || !window.Bot.isBot(cur)) return;
+        if (window.Bot.isRunning && window.Bot.isRunning()) return;
+        window.Bot.run();
     }
 
     // ---------- interventi admin (creare regni, prendere bot, ecc.) ----------
@@ -3328,6 +3387,45 @@ document.addEventListener('DOMContentLoaded', () => {
     // backup). Una scrittura di gioco normale non la alza, così la guardia di
     // sync.js può rifiutare uno stato arretrato senza bloccare i reset voluti.
     let forcePushOnce = false;
+
+    // Il regno "mio" quando la pagina è aperta col codice d'invito (?p=CODICE):
+    // quella plancia comanda QUEL regno e nessun altro. null altrimenti (editor,
+    // mappa generale, solitaria).
+    function myPinnedPlayerId() {
+        try {
+            const code = new URLSearchParams(location.search).get('p');
+            if (!code) return null;
+            const p = PLAYERS.find(x => x.invite === code);
+            return p ? p.id : null;
+        } catch (e) { return null; }
+    }
+
+    // CHI ha il diritto di SCRIVERE lo stato condiviso adesso. Le mosse sono già
+    // turn-gated (requireTurn in game-actions), ma il SALVATAGGIO verso Firestore
+    // no: senza questa guardia un browser che osserva (editor / mappa generale)
+    // può sovrascrivere la mossa in corso di un altro, e siccome dentro un decennio
+    // `turn` non cambia, la guardia anti-regressione di sync.js non lo intercetta.
+    // Era la causa del reset a "turno 1 senza conquiste". Regola: si scrive solo
+    // se questo browser è il legittimo attore del turno corrente.
+    function shouldPushState() {
+        if (!MultiplayerSync.isConfigured) return true;   // locale: nessun conflitto
+        if (forcePushOnce) return true;                    // reset/intervento voluto
+        // Nessuna partita in corso: fase di setup della mappa nell'editor (solo admin).
+        if (turnoDi === null || turnoDi === undefined) return isAdminMode;
+        const cur = PLAYERS.find(p => p.id === turnoDi);
+        if (!cur) return isAdminMode;
+        // Turno di un BOT: lo pilota l'admin, che quindi ne scrive le mosse.
+        if (window.Bot && window.Bot.isBot(cur)) return isAdminMode;
+        // Turno di un UMANO: scrive solo il browser che comanda QUEL regno.
+        const pin = myPinnedPlayerId();
+        if (pin !== null) return pin === cur.id;           // la plancia col suo codice
+        // Sessione non vincolata (editor / mappa generale / solitaria): si scrive
+        // per un regno umano solo se NESSUNO l'ha "preso" col proprio link (vedi
+        // presenza). Così la solitaria avanza, ma un admin che sbircia una partita
+        // fra umani non tocca il regno di chi è al tavolo.
+        return !(cur.invite && presenceMap[cur.invite]);
+    }
+
     function saveAutoSave() {
         const stateSnapshot = buildSnapshot();
         if (!stateSnapshot) return;
@@ -3335,7 +3433,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Mentre l'admin sta preparando un intervento (vedi beginIntervention) le
         // sue modifiche NON devono uscire: restano locali finché non le committa,
         // e verranno applicate al cambio turno sopra lo stato aggiornato.
-        if (!adminIntervening) MultiplayerSync.pushState(stateSnapshot, { force: forcePushOnce });
+        // shouldPushState() impedisce a un osservatore di sovrascrivere la partita.
+        if (!adminIntervening && shouldPushState()) MultiplayerSync.pushState(stateSnapshot, { force: forcePushOnce });
         forcePushOnce = false;
     }
 
@@ -3381,6 +3480,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // codice d'invito devono sopravvivere al ricaricamento. Prima si teneva solo
         // id/nome/colore e a ogni reload il regno tornava povero.
         PLAYERS = savedPlayers.map(p => normalizePlayer(Object.assign({}, p)));
+        // Ogni snapshot (autosave o Firestore) si ripulisce dai patti orfani, così
+        // il foglio 🕊 e il cursore d'attacco leggono lo stesso stato — vedi
+        // reconcilePacts. Il documento Firestore è atomico, quindi qui non esistono
+        // mezzi-patti transitori da sync: un orfano è sempre un vero residuo.
+        reconcilePacts(PLAYERS);
     }
 
     // Stato di turno dal documento salvato (vale sia per localStorage sia per Firestore).
@@ -3901,7 +4005,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (ow && ow !== player.name) return true;
                 }
                 return false;
-            })
+            }),
+            // Contatori SOSTENUTI nel tempo (§10, richiesta dell'utente): quanti
+            // turni di QUESTO ciclo il regno ha tenuto la tassazione alta (dura) o
+            // una Popolarità almeno a `lvl`, e quante conquiste via nave (sbarchi
+            // vinti) ha totalizzato in tutta la partita. beginTurn li accumula a
+            // ogni turno, closeCycle azzera i due per-ciclo a fine giro.
+            taxDuraTurns: () => (player.tassaCiclo || []).filter(t => t === 'dura').length,
+            popTurns: lvl => (player.popCiclo || []).filter(p => p >= lvl).length,
+            navalConquests: () => player.conquisteNavali || 0
         };
     }
 

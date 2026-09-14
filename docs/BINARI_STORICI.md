@@ -183,6 +183,52 @@ binario che finisce sotto assedio.
 
 ---
 
+# La direzione voluta dall'utente (riferimento, 2026-09-14)
+
+**Questa è una LEGENDA, non una lista di obiettivi** (regola dell'utente). Non va tradotta
+in obiettivi uno-a-uno: serve solo a vedere che **direzione** prende ogni regno nel corso
+della partita, così che gli obiettivi che inserisco io — quando quelli dell'utente non si
+possono usare — restino **in linea con quella rotta**. È il *cosa a grandi linee*; i capitoli
+di sopra e i numeri di `objectives.js` sono l'attuazione. Dove i due divergono, è segnato.
+
+| regno | cicli 1‑5 | cicli 6‑8 | stato vs binario attuale |
+|---|---|---|---|
+| **Inghilterra** | Regno Unito + Irlanda, crociata, invasione del continente e Cent'Anni | dominio navale del mondo: Stati Uniti, India, ecc. | ✅ allineato |
+| **Francia** | espansione e consolidamento del regno, crociata, Cent'Anni | Italia, navigazione oltreoceano in **Africa + Canada** | ⚠ verificare che la spedizione (VIII) punti a Canada/Africa |
+| **Sacro Romano Impero** | espansione **prima su Austria e Italia**, unificazione Germania; **poi vira verso Paesi Bassi e Danimarca** | lotta per i confini verso Boemia, Austria e Balcani | ⚠ Paesi Bassi/Danimarca assenti dal binario (la svolta a nord manca) |
+| **Spagna (Castiglia)** | Reconquista, lotta agli arabi; poi Sud Italia | dominio coloniale in **centro e sud America** (come nella storia) | ⚠ colonie oggi verso Nord America: serve una meta centro/sud‑americana |
+| **Fatimidi** | espansione verso Spagna, Egitto e **intero Nord Africa** | espansione su **Mar Rosso e Sud Italia** | ⚠ Egitto/Nordafrica arrivano tardi, Mar Rosso è a V, Sud Italia assente |
+| **Abbasidi** | guerre sante in Medio Oriente, difesa dei confini contro i Mongoli, conquista dell'**intera Persia** | **mira espansionistica marcata**, non solo difesa della Persia: India, Africa orientale, lotta ai cristiani in **Turchia** | ⚠ 6‑8 oggi tutto Persia difensiva — va reso più aggressivo |
+| **Kievan Rus'** | espansione e lotta ai Mongoli; **discesa in Europa e verso il Mediterraneo** | conquista dell'**Asia centrale**, lotta ai cattolici polacchi | ⚠ discesa a sud assente |
+| **Polonia** | consolidamento territori, avvicinamento al mare, difesa dei confini | **combattere i russi** ed espansione **verso est** | ⚠ binario oggi difensivo (diluvio, spartizioni) |
+| **Ungheria** | espansione in Europa centrale, presa dei Balcani, lotta alle potenze del centro Europa, espansione verso **Austria** | espansione verso **Grecia** e lotta ai **russi** | ⚠ Austria, Grecia, russi assenti |
+| **Bisanzio** | **niente evento crociata**, ma di fatto combatte gli arabi (Selgiuchidi e Abbasidi) **in Turchia**; espansione in Grecia, navi verso Sud Italia | conquista e difesa della Turchia, espansione in Italia e nei Balcani | ✅ coerente: il fronte anatolico (ANATOLIA III/V) È la lotta agli arabi; nessuna Terra Santa |
+| **Selgiuchidi** *(bot, almeno all'inizio)* | conquista Turchia e Costantinopoli | lotta ai cristiani fino al centro Europa, se riescono | ✅ dottrina (`marcia`, doctrines.js) |
+| **Mongoli** *(bot, almeno all'inizio)* | invasione di Russia e Medio Oriente | ritirata e consolidamento in Asia centrale | ✅ dottrina (`marcia` + stanziale al 1350) |
+| **Portogallo** *(bot, almeno all'inizio)* | difesa dei confini | viaggi navali verso il Sud America appena possibile | ✅ dottrina (`soloMare`/coloniale) |
+
+**Precisazioni dell'utente (2026-09-14):**
+- **Bisanzio** resta **senza evento crociata** — la "lotta agli arabi" si realizza
+  combattendo Selgiuchidi e Abbasidi **in Turchia** (il fronte ANATOLIA che il binario già
+  ha ai capitoli III/V). Nessuna Terra Santa: nodo chiuso.
+- **Abbasidi**: la mira dev'essere **più marcatamente espansionistica**, non il solo
+  difendere la Persia — i capitoli 6‑8 vanno spinti fuori dall'altopiano (India, Africa
+  orientale, Turchia).
+- **Spagna**: le colonie devono puntare a **centro‑sud America** come nella storia.
+- **Sacro Romano Impero**: l'espansione **prima** su Austria e Italia, **poi** vira a nord
+  verso Paesi Bassi e Danimarca.
+
+**Nodo colonie — in parte sciolto (2026-09-14):** Inghilterra→Nord America,
+Spagna→centro/sud America, Portogallo→sud America, Francia→Canada+Africa. Le regioni
+`AMERICA_CENTRO` e `AMERICA_SUD` sono ora **definite** in `objectives.js` (id verificati),
+accanto alla `AMERICA` (Nord) già esistente. Restano da fare, quando si scriveranno i
+capitoli coloniali: (a) **agganciarle** ai binari di Spagna (centro+sud) e Portogallo
+(sud); (b) per il Portogallo, un **sottoinsieme Brasile** di `AMERICA_SUD`, così Spagna e
+Portogallo non puntino allo stesso teatro identico; (c) una meta **Canada** per la Francia
+(oggi non esiste una regione dedicata al nord‑ovest atlantico).
+
+---
+
 # I dieci binari
 
 ## Regno di Castiglia — *dalla Reconquista all'impero atlantico*
@@ -384,7 +430,9 @@ spazi con `_`. In **grassetto** le regioni già esistenti in `objectives.js`.
 | **BRITISH** | Home_Counties, East_Anglia, Midlands, Wales, West_Country, Yorkshire, Lancashire, Lowlands, Highlands, Leinster, Ulster, Munster, Connaught |
 | **IRELAND** | Leinster, Ulster, Munster, Connaught |
 | **FRANCIA** | Normandy, Brittany, Picardy, Maine_Anjou, Poitou, Guyenne, Aquitaine, Burgundy *(le terre angioine, **Fiandre escluse**: il capitolo III inglese chiede una provincia di Francia* e *le Fiandre)* |
-| **AMERICA** | Maine, New_Hampshire, Massachusetts, Connecticut, New_York, New_Jersey, Delaware, Maryland, Virginia, North_Carolina, South_Carolina, Georgia, Florida |
+| **AMERICA** | Maine, New_Hampshire, Massachusetts, Connecticut, New_York, New_Jersey, Delaware, Maryland, Virginia, North_Carolina, South_Carolina, Georgia, Florida *(Nord — meta inglese)* |
+| **AMERICA_CENTRO** | Mexico, Veracruz, Guerrero, Oaxaca, Chiapas, Jalisco, Bajio, Yucatan, Guatemala, Honduras, San_Salvador, Nicaragua, Costa_Rica, Panama, Cuba, Haiti, Santo_Domingo, West_Indies *(Nuova Spagna + istmo + Caraibi — meta spagnola; definita, non ancora agganciata a capitoli)* |
+| **AMERICA_SUD** | Zulia, Miranda, Bolivar, Antioquia, Cundinamarca, Cauca, Guayana, Guaviare, Ecuador, Pastaza, Lima, Cajamarca, Arequipa, Ica, Acre, La_Paz, Potosi, Santa_Cruz, Para, Maranhao, Amazonas, Piaui, Ceara, Paraiba, Pernambuco, Bahia, Goias, Mato_Grosso, Minas_Gerais, Rio_De_Janeiro, Sao_Paulo, Alto_Paraguay, Bajo_Paraguay, Chaco, Corrientes, Santa_Fe, Buenos_Aires, Uruguay, Rio_Grande_Do_Sul, Parana, Santa_Catarina, Tucuman, Jujuy, Antofagasta, Tarapaca, Santiago, Araucania, Rio_Negro, La_Pampa, Patagonia *(Ande + Río de la Plata + Brasile — meta spagnola/portoghese; per il solo Brasile del Portogallo servirà un sottoinsieme)* |
 | **INDIE** | Sindh, Gujarat, Bombay, Travancore, Madras, Andhra, Orissa, Bengal, Ceylon, Senegal, Gambia, Guinea, Ivory_Coast, Ghana, Nigeria, Niger_Delta, Gabon, North_Angola, South_Angola, Namaqualand, Cape_Colony, Eastern_Cape, Zululand, Mocambique, Zanzibar, Kenya, Somaliland |
 | **MED_FR** | Provence, Languedoc, Rhone |
 | **NORMANDY_FR** | Normandy, Brittany, Picardy, Flanders, Aquitaine, Burgundy |

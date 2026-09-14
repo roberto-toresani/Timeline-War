@@ -82,7 +82,15 @@ const MultiplayerSync = (function () {
             // Le nostre mosse d'ora in poi si appoggiano su QUESTA versione: la
             // guardia di pushState confronterà con questo numero. Un documento
             // ancora senza `rev` (i salvataggi anteriori a questa modifica) vale 0.
-            if (lastState && typeof lastState.rev === 'number') baseRev = lastState.rev;
+            // baseRev può SOLO avanzare, mai regredire: un pushState riuscito lo
+            // porta a `nextRev` (vedi sotto), ma lo snapshot di Firestore per QUELLA
+            // scrittura arriva con centinaia di ms di ritardo — se nel frattempo
+            // abbiamo già scritto la mossa successiva (i bot spingono a raffica),
+            // quello snapshot è ARRETRATO rispetto a baseRev e rimetterlo indietro
+            // farebbe scattare la guardia di pushState sul push seguente (remoteRev
+            // vero > baseRev regredito): messaggio rosso e catena dei bot bloccata.
+            if (lastState && typeof lastState.rev === 'number' && lastState.rev > baseRev)
+                baseRev = lastState.rev;
             stateListeners.forEach(cb => cb(lastState));
         }, err => {
             console.error('Errore lettura stato condiviso:', err);
@@ -205,8 +213,20 @@ const MultiplayerSync = (function () {
     function pushState(stateObj, opts) {
         if (!isConfigured || !docRef) return;
         const force = !!(opts && opts.force);
+        // Un push FORZATO (reset voluto: partita nuova via startGame, ripristino di
+        // un backup) NON passa dal debounce. Restarci 600 ms lo esporrebbe a essere
+        // ANNULLATO: la prima mossa di un bot parte subito dopo l'avvio (setTimeout
+        // in bot.js), la sua saveAutoSave chiama pushState → clearTimeout(pushTimer)
+        // e il reset non raggiungerebbe mai Firestore — la vecchia partita
+        // continuerebbe a tornare via onSnapshot (è il bug "mi rivede la partita
+        // vecchia"). Eseguendolo subito, niente lo può più cancellare.
         clearTimeout(pushTimer);
-        pushTimer = setTimeout(() => {
+        pushTimer = null;
+        if (force) { flushState(stateObj, true); return; }
+        pushTimer = setTimeout(() => flushState(stateObj, false), 600);
+    }
+
+    function flushState(stateObj, force) {
             firebase.firestore().runTransaction(tx => tx.get(docRef).then(snap => {
                 const remote = snap.exists ? (snap.data() || {}) : {};
                 const remoteRev = (typeof remote.rev === 'number') ? remote.rev : 0;
@@ -231,7 +251,7 @@ const MultiplayerSync = (function () {
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 }));
                 return nextRev;
-            })).then(nextRev => { baseRev = nextRev; }).catch(err => {
+            })).then(nextRev => { if (nextRev > baseRev) baseRev = nextRev; }).catch(err => {
                 if (err && err._guard) {
                     console.warn('pushState RIFIUTATO (' + err._guard + '): lo stato online (turno '
                         + err.remoteTurn + ', rev ' + err.remoteRev + ') è più avanti del nostro (turno '
@@ -241,7 +261,6 @@ const MultiplayerSync = (function () {
                     console.error('Errore salvataggio stato condiviso:', err);
                 }
             });
-        }, 600);
     }
 
     function onPushReject(cb) { pushRejectListeners.push(cb); }
