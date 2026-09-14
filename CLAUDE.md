@@ -121,8 +121,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       il foglio `.sheet-chat` in modalità **peek** (come la Diplomazia: la mappa resta
       visibile e cliccabile a lato — durante l'attesa si chatta guardando i bot). Barra
       dei **canali** (`#chat-channels`): "🌍 Tutti" + un filo **privato** per ogni regno
-      **umano** visibile (`diploKingdomsVisibili` filtrato `!isBot` — coi bot non c'è
-      filo privato, non rispondono in privato). Pallino di non-letti sul dock
+      visibile, esattamente come la diplomazia (`diploKingdomsVisibili`, regola
+      dell'utente): coi regni umani è una chat vera, coi regni-bot è un canale su cui
+      ribattono in personalità (`maybeBotReplyPrivate`, sullo stesso filo). Pallino di
+      non-letti sul dock
       (`chatSeen` per canale in `localStorage`, comodità di chi guarda) e per canale.
       Scorciatoia "💬 Messaggio privato" sulla scheda di un regno umano nel foglio 🕊
       (`relationCard` → `openChatWith`). L'instradamento è per **nome** di regno: il
@@ -157,16 +159,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     se no `conquista`, in mancanza di dottrina la battuta generica `BOT_TAUNTS`.
   - **REATTIVE** (i dieci regni di partenza sono UMANI e possono sfottere/parlare coi
     bot): `handleIncomingChat` gira a ogni `onChatChange` e, per ogni messaggio **nuovo,
-    pubblico, di un umano**, chiama `maybeBotReply`. `mentionedBot` trova il regno-IA
-    nominato (alias tolleranti in `BOT_ALIASES`: "selgiuchidi", "turchi", "orda"… — non il
-    nome ufficiale; ripiego sulle parole del nome), `classifyMessage` deduce il tono a
-    parole chiave (niente NLP), `botReplyLine` sceglie la frase da `risposte` (o dal
+    di un umano**, instrada — se è **pubblico** chiama `maybeBotReply` (il regno-IA
+    nominato ribatte a tutti), se è **privato** (`to`) chiama `maybeBotReplyPrivate` (il
+    regno-IA destinatario ribatte sullo STESSO filo, indirizzando al mittente). `mentionedBot`
+    trova il regno-IA nominato (alias tolleranti in `BOT_ALIASES`: "selgiuchidi", "turchi",
+    "orda"… — non il nome ufficiale; ripiego sulle parole del nome), `classifyMessage` deduce
+    il tono a parole chiave (niente NLP), `botReplyLine` sceglie la frase da `risposte` (o dal
     ripiego generico `REPLY_FALLBACK` per un regno-IA senza tabella). La replica passa da
     `botEmit` (l'invio col gate admin, SENZA il tetto per-turno: una conversazione non si
-    conta a turni), con un ritardo di ~0,7-2,2 s perché sembri una risposta.
-  - **I freni che evitano il degenero**: solo la chat **pubblica** (un `to` è privato, si
-    lascia stare); **mai** rispondere a un altro bot (niente botta-e-risposta infinito fra
-    IA); **una** replica per messaggio (`chatAnswered`, seminato con lo storico al primo
+    conta a turni; `toName`/`toId` la rendono privata), con un ritardo di ~0,7-2,2 s perché
+    sembri una risposta.
+  - **I freni che evitano il degenero**: **mai** rispondere a un altro bot (niente
+    botta-e-risposta infinito fra IA); **una** replica per messaggio (`chatAnswered`, seminato con lo storico al primo
     giro così i bot non rispondono a tutti i messaggi vecchi al caricamento); un **freno
     globale** (`lastBotReplyAt`, una replica ogni ~4 s) contro lo spam; rispondono **solo**
     i regni davvero controllati dall'IA (`Bot.isBot`, cioè `player.bot ≠ null`); e l'**Orda

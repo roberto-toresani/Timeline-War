@@ -4206,17 +4206,16 @@ document.addEventListener('DOMContentLoaded', () => {
             acts.appendChild(look);
         }
 
-        // Filo privato con questo regno (proposta dell'utente: la chat privata sta
-        // in diplomazia). Solo coi regni governati da una PERSONA: un bot non
-        // risponde in privato. Apre il foglio 💬 sul suo canale.
-        if (!altro.bot) {
-            const chat = document.createElement('button');
-            chat.type = 'button'; chat.className = 'rel-chat';
-            chat.textContent = '💬 Messaggio privato';
-            chat.title = 'Apri la chat sul filo riservato con ' + altro.name;
-            chat.addEventListener('click', () => openChatWith(altro));
-            acts.appendChild(chat);
-        }
+        // Filo privato con questo regno (proposta dell'utente: la chat privata si
+        // sblocca in diplomazia). Vale per OGNI regno visibile — coi regni umani è
+        // una chat vera, coi regni-bot è un canale su cui ribattono in personalità.
+        // Apre il foglio 💬 sul suo canale.
+        const chat = document.createElement('button');
+        chat.type = 'button'; chat.className = 'rel-chat';
+        chat.textContent = '💬 Messaggio privato';
+        chat.title = 'Apri la chat sul filo riservato con ' + altro.name;
+        chat.addEventListener('click', () => openChatWith(altro));
+        acts.appendChild(chat);
 
         card.appendChild(acts);
 
@@ -4294,8 +4293,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // lo storico.
     function chatChannels(me) {
         const chans = [{ key: 'all', label: '🌍 Tutti', color: null }];
+        // Un filo privato per OGNI regno visibile, esattamente come la diplomazia
+        // (regola dell'utente): coi regni umani è una chat vera, coi regni-bot è
+        // un canale su cui rispondono in personalità (vedi maybeBotReplyPrivate).
         diploKingdomsVisibili(me).forEach(p => {
-            if (window.Bot && window.Bot.isBot(p)) return;
             chans.push({ key: 'priv:' + p.name, label: p.name, color: p.color });
         });
         if (chatChannel !== 'all' && !chans.some(c => c.key === chatChannel)) {
@@ -4484,14 +4485,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // L'INVIO vero e proprio per conto di un bot. Scrive SOLO il browser che muove
     // i bot — lo stesso gate di Bot.run (R.isAdmin, che rispetta il DEV bypass) —
     // così la battuta esce una volta sola, dal browser che davvero comanda l'IA.
-    function botEmit(botPlayer, text) {
+    // Invia una battuta per conto di un bot. Con `toName`/`toId` è PRIVATA (torna
+    // sul filo del mittente); senza, è pubblica.
+    function botEmit(botPlayer, text, toName, toId) {
         if (!botPlayer || !text) return false;
         if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) return false;
         if (R.isAdmin && !R.isAdmin()) return false;
-        MultiplayerSync.sendChat({
+        const msg = {
             testo: text, regno: botPlayer.name, colore: botPlayer.color,
             aid: botPlayer.id, bot: true, turno: R.turn()
-        });
+        };
+        if (toName) { msg.to = toName; if (toId != null) msg.toId = toId; }
+        MultiplayerSync.sendChat(msg);
         return true;
     }
 
@@ -4662,11 +4667,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!m || m.id == null || chatAnswered.has(m.id)) continue;
             chatAnswered.add(m.id);
             if (m.bot) continue;       // non si risponde a un altro bot
-            if (m.to) continue;        // solo la chat pubblica
-            maybeBotReply(m);
+            if (m.to) maybeBotReplyPrivate(m);   // filo privato con un regno-bot
+            else maybeBotReply(m);               // chat pubblica: chi viene nominato
         }
     }
 
+    // PUBBLICA: chi viene nominato ribatte a tutti.
     function maybeBotReply(m) {
         const target = mentionedBot(m.testo);
         if (!target) return;
@@ -4677,6 +4683,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!line) return;
         // Un attimo di ritardo perché sembri una risposta, non un'eco.
         setTimeout(() => botEmit(target.player, line), 700 + Math.random() * 1500);
+    }
+
+    // PRIVATA: un umano scrive in privato a un regno-bot (il canale si sblocca come
+    // la diplomazia); il bot ribatte sullo STESSO filo, indirizzando la risposta al
+    // mittente. Stesso carattere della chat pubblica; l'Orda resta muta anche qui.
+    function maybeBotReplyPrivate(m) {
+        const target = (m.toId != null && R.players().find(p => String(p.id) === String(m.toId)))
+            || R.players().find(p => p.name === m.to);
+        if (!target || !window.Bot || !window.Bot.isBot(target)) return;
+        const d = (window.Doctrines && Doctrines.of) ? Doctrines.of(target) : null;
+        if (d && Doctrines.faithless && Doctrines.faithless(target)) return;   // l'Orda tace
+        const now = Date.now();
+        if (now - lastBotReplyAt < 4000) return;
+        lastBotReplyAt = now;
+        const line = botReplyLine(d, m);
+        if (!line) return;
+        setTimeout(() => botEmit(target, line, m.regno, m.aid), 700 + Math.random() * 1500);
     }
 
     function renderDiplomacy(player) {
