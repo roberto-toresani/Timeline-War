@@ -66,10 +66,14 @@ const MultiplayerSync = (function () {
     // `turnoDi` rimbalzava avanti e indietro e il giro non arrivava mai pulito al
     // turno umano. Il lease fa sì che fra tutte le sessioni ne guidi UNA sola: chi
     // lo tiene lo rinfresca mentre guida, e se quel tab muore scade da sé dopo
-    // DRIVER_TTL e un'altra sessione può riprenderlo. Vive in un documento riservato
+    // DRIVER_TTL e un'altra sessione può riprenderlo. Vive in un documento dedicato
     // della collezione `presence` (già aperta in lettura/scrittura: nessuna regola
     // Firestore nuova da ripubblicare), filtrato via dalla mappa di presenza.
-    const DRIVER_DOC = '__driver_lease__';
+    // ATTENZIONE: l'id NON può avere doppio underscore ai bordi (`__x__`): Firestore
+    // riserva quel pattern e RIFIUTA ogni read/write con invalid-argument — era il
+    // motivo per cui, dopo il primo deploy, il lease falliva sempre e i bot non
+    // partivano. Un trattino è sicuro e non collide con un codice d'invito.
+    const DRIVER_DOC = 'driver-lease';
     const DRIVER_TTL = 10000;   // ms: oltre questo un lease non rinfrescato è "morto"
     // Identità di QUESTA sessione (per tab): due tab dello stesso account admin sono
     // due client diversi, ed è proprio fra loro che serve distinguere il driver.
