@@ -194,10 +194,27 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   plancia, il link "🛠 Editor" per tornare a `index.html` è visibile solo quando
   `Risiko.isAdmin()` è vero.
 - **Partita e turni**: l'admin avvia la partita (`#start-game-btn` in `index.html`, chiama
-  `GameActions.startGame()`) e passa i turni (`#end-turn-btn`); ogni giocatore ha anche il
+  `GameActions.beginMatch()`) e passa i turni (`#end-turn-btn`); ogni giocatore ha anche il
   proprio bottone Fine turno nella plancia. `turnoDi`/`ordine`/`primoDelGiro` vivono in
   `app.js` ed entrano nel documento di stato — un giocatore può agire solo quando
   `turnoDi` è il suo id (§2.1, rotazione del primo giocatore a ogni giro).
+- **Partita in DUE TEMPI: prepara → invia i link → Avvia (regola dell'utente)**. Scegliere
+  il tipo di partita NON fa più partire i turni: prima si **prepara**, la partita resta
+  **ferma** finché l'admin non dà il via, così c'è il tempo di distribuire i link d'invito.
+  `GameActions.startGame` è spezzato in `prepareGame` (economia §11, presidio neutrali,
+  reset calendario/fedi/eventi/chat; popola `ordine` lasciando `turnoDi = null`) e
+  `beginMatch` (sorteggia l'ordine, `beginTurn`, salva; se `ordine` è vuoto prepara al
+  volo). `startGame` resta come i due tempi in uno (retro-compat). Lo stato **"preparata ma
+  non avviata" non ha un campo nuovo**: è `ordine` pieno + `turnoDi` null — con `turnoDi`
+  null nessun bot si muove e nessuno agisce. I 4 preset dell'editor (`avviaPartitaIA` →
+  `GameSetup.newGame` → `finalize` → `prepareGame`) ora **preparano soltanto** e i link
+  d'invito sono già su ogni scheda-regno; l'admin regola poi **regno per regno** chi
+  controlla (menu `.player-bot`) e infine preme **🏁 Avvia partita** (`beginMatch`, ordine
+  casuale). Il messaggio d'attesa: editor "⏳ In attesa dell'avvio — N regni pronti"
+  (`renderGameControls`), plancia "In attesa che l'admin avvii la partita"
+  (`player-board.js`, quando `R.ordine().length` e `turnoDi` null). Le pagine di lavoro
+  `_dev-start.html`/`_dev-sim.html` chiamano `beginMatch()` dopo `newGame` per avviare
+  subito.
 - **Presidio minimo (§5)**: una provincia **non resta mai sguarnita**. `GameRules.MIN_GARRISON`
   (=1) e `GameRules.spendableTroops(n)` sono l'unica fonte della regola: qualunque cosa porti
   soldati fuori da una provincia lavora sugli **spendibili**, non sui presenti — attacco,
@@ -1060,11 +1077,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     giocare. Nasce `bot=null` (lo gioca l'admin) finché non gli si assegna una strategia.
   - **PRENDERE E RIDARE IL CONTROLLO DI UN REGNO** (i player col codice d'invito, e i
     regni IA come i Mongoli): ogni scheda-giocatore dell'editor ha un menu **`.player-bot`**
-    — "🧑 Admin (nessuna IA)" o una delle strategie di `Bot.KEYS`. Metterlo su Admin
-    scrive `p.bot = null`: `Bot.run` **salta** quel regno e aspetta la mano dell'admin,
-    che lo apre col 👁 (o col link d'invito) e lo gioca come un umano; rimettere una
-    strategia lo ridà all'IA. È l'unico modo pulito di manovrare a mano un bot (se no il
-    driver lo giocherebbe da sé nel suo turno).
+    a **TRE voci** (regola dell'utente): **🧑 Admin (la giochi tu)** · **🔗 Player (link a
+    un altro)** · **🤖 <strategia>** (una di `Bot.KEYS`). **Admin e Player sono lo STESSO
+    stato di gioco** — `p.bot = null`, il turno si ferma e aspetta un umano —: li distingue
+    solo `p.controllo` (`'admin'|'player'|'ai'`, in `normalizePlayer`), un'**etichetta
+    organizzativa** per l'editor (a chi tocca mandare il link), **senza alcun effetto sul
+    motore**. Con `bot=null` `Bot.run` **salta** quel regno e aspetta la mano dell'umano —
+    l'admin lo apre col 👁 (o dal link), un player dal suo `?p=CODICE`; una strategia
+    (`controllo='ai'`) lo ridà all'IA. È l'unico modo pulito di manovrare a mano un bot (se
+    no il driver lo giocherebbe da sé). La voce scelta e il badge "Preso dal giocatore" si
+    aggiornano al volo (`initPalette` nel change handler).
   - **CAMBIARE GLI OBIETTIVI (§10)**: NON c'è UI. Si modificano i binari in
     `js/objectives.js`; siccome ogni ciclo rigenera la sua assegnazione dal codice
     (`closeCycle`/`ensureAssignment`), la modifica vale **dal ciclo successivo** — il

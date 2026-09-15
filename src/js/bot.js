@@ -2275,6 +2275,20 @@
                 return;
             }
 
+            // SALVAGUARDIA multi-client (bug dell'utente: "un bug mi impedisce di
+            // giocare il mio turno"). Chiudo il turno SOLO se è ancora quello del bot
+            // che ho appena giocato. applyCloudState→applyTurnState sovrascrive
+            // `turnoDi` da OGNI snapshot in arrivo, senza protezione: con una plancia
+            // aperta (o un echo di Firebase) `turnoDi` può essere passato all'UMANO
+            // mentre il turnScript girava, e allora GA().endTurn() chiuderebbe il
+            // turno di chi c'è ORA — cioè l'umano, saltandolo. Se non è più il mio
+            // bot, mollo: allo stato autorevole ci pensa il prossimo snapshot.
+            if (!R() || R().turnoDi() !== player.id) {
+                active = false;
+                emit('idle', currentPlayer(), null);
+                return;
+            }
+
             const fine = GA().endTurn();
             emit('end', player, fine);
             timer = setTimeout(() => {

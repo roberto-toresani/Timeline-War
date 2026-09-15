@@ -3,8 +3,8 @@
 // Sparecchia la mappa (proprietari, pedine, strade, cronologia), assegna a ogni
 // regno un piccolo feudo di partenza ben distanziato dagli altri, decide chi
 // gioca l'umano e chi è governato dall'IA (js/bot.js), poi chiama
-// GameActions.startGame() — che è ciò che fissa i valori del §11 e presidia le
-// terre di nessuno.
+// GameActions.prepareGame() — che fissa i valori del §11 e presidia le terre di
+// nessuno, ma lascia la partita FERMA (l'admin dà il via con 🏁 Avvia).
 //
 // La Capitale NON è più regalata (regola dell'utente): i regni partono SENZA
 // Capitale e la prima cosa da fare al turno 1 è costruirla — costa 500 monete e
@@ -218,7 +218,7 @@
         if (suMappa) {
             const regni = prepareExisting(players);
             const esito = finalize(players, regni, o, rand);
-            esito.msg = 'Partita avviata sulla mappa attuale: ' + regni.length + ' regni. ' + esito.avvio;
+            esito.msg = 'Mappa attuale, ' + regni.length + ' regni. ' + esito.avvio;
             esito.suMappa = true;
             return esito;
         }
@@ -313,7 +313,10 @@
         // completo. Salvare due volte esporrebbe il reset alla cancellazione (vedi
         // pushState in sync.js: un push non forzato in mezzo lo annullava e la
         // vecchia partita continuava a tornare da Firestore).
-        const avvio = root.GameActions.startGame({ deferSave: true });
+        // PREPARA soltanto: la partita nasce ferma (ordine pieno, turnoDi null),
+        // così l'admin può inviare i link e poi premere 🏁 Avvia. Il "via" (ordine
+        // sorteggiato + beginTurn) lo dà beginMatch dal bottone dell'editor.
+        const avvio = root.GameActions.prepareGame({ deferSave: true });
 
         // Tassazione al valore iniziale del §11. La strada gratuita NON si regala
         // più all'avvio: nasce dalla costruzione della Capitale (build() fa

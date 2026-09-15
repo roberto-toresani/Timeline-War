@@ -434,9 +434,21 @@
 
     // ---------- avvio partita (admin) ----------
 
+    // La partita nasce in DUE TEMPI (regola dell'utente): prima si PREPARA (si
+    // sceglie chi controlla ogni regno e si generano i link), la partita resta
+    // FERMA; poi, con calma, l'admin distribuisce i link e infine dà il VIA.
+    //  - prepareGame: azzera l'economia al §11, presidia le neutrali, resetta
+    //    calendario/fedi/chat e popola `ordine` (NON mischiato) lasciando
+    //    `turnoDi = null`. Lo stato "preparata ma non avviata" è proprio
+    //    `ordine` pieno + `turnoDi` null: nessun bot si muove, nessun umano agisce.
+    //  - beginMatch: mischia l'ordine (Fisher-Yates), fissa il turno del primo e
+    //    fa `beginTurn`. È il "via" vero.
+    //  - startGame: i due tempi in uno, per retro-compatibilità.
+
     // Porta la partita ai valori iniziali del §11: 5 soldati per provincia
-    // posseduta, 1000 monete, scorte a 0, e fissa l'ordine di turno.
-    function startGame(opts) {
+    // posseduta, 1000 monete, scorte a 0. NON avvia i turni — lascia la partita
+    // pronta e ferma (ordine pieno, turnoDi null).
+    function prepareGame(opts) {
         const players = R().players();
         players.forEach(pl => {
             pl.monete = 1000;
@@ -496,10 +508,39 @@
             MultiplayerSync.clearChat();
         }
 
-        // Giocano solo i regni che hanno almeno una provincia. L'ordine di turno
-        // si sorteggia (Fisher-Yates) a ogni avvio: chi parte non è sempre lo
-        // stesso regno (regola dell'utente).
+        // Giocano solo i regni che hanno almeno una provincia. L'ordine NON si
+        // mischia qui: lo farà beginMatch al "via". Popolarlo con turnoDi=null è
+        // ciò che segna lo stato "preparata ma non avviata".
         const ordine = players.filter(pl => E().ownedPaths(pl.name).length).map(pl => pl.id);
+        R().setTurnState(null, ordine, 0);
+        E().refresh();
+        // Partita NUOVA: il calendario torna al turno 1, cioè REGREDISCE. La
+        // guardia anti-regressione di sync.js bloccherebbe la scrittura, quindi
+        // qui si FORZA — è un reset voluto, non un tab arretrato.
+        // `opts.deferSave`: chi arriva da setup.js (GameSetup.finalize) muta ancora
+        // i regni DOPO prepareGame (codici d'invito, strade gratis, `nato`) e salva
+        // lui alla fine — sempre FORZANDO. Salvare qui in mezzo scriverebbe uno
+        // stato senza i codici d'invito, e nel multiplayer la plancia non
+        // troverebbe più il regno assegnato dal link.
+        if (!(opts && opts.deferSave)) (E().saveForced || E().save)();
+        return done(ordine.length
+            ? 'Partita pronta: ' + ordine.length + ' regni. Invia i link, poi premi 🏁 Avvia.'
+            : 'Nessun regno ha province: assegnale prima dalla mappa.');
+    }
+
+    // Il VIA: sorteggia l'ordine di turno (Fisher-Yates: chi parte non è sempre
+    // lo stesso regno, regola dell'utente), fissa il turno del primo e fa la
+    // Fase 1. Se la partita non è stata preparata (ordine vuoto: es. mappa
+    // dipinta a mano senza preset) prepara al volo, così il bottone 🏁 non è mai
+    // morto.
+    function beginMatch(opts) {
+        let ordine = R().ordine();
+        if (!ordine.length) {
+            prepareGame({ deferSave: true });
+            ordine = R().ordine();
+        } else {
+            ordine = ordine.slice();
+        }
         for (let i = ordine.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [ordine[i], ordine[j]] = [ordine[j], ordine[i]];
@@ -507,19 +548,18 @@
         R().setTurnState(ordine.length ? ordine[0] : null, ordine, 0);
         beginTurn();
         E().refresh();
-        // Partita NUOVA: il calendario torna al turno 1, cioè REGREDISCE. La
-        // guardia anti-regressione di sync.js bloccherebbe la scrittura, quindi
-        // qui si FORZA — è un reset voluto, non un tab arretrato.
-        // `opts.deferSave`: chi arriva da setup.js (GameSetup.finalize) muta ancora
-        // i regni DOPO startGame (codici d'invito, strade gratis, `nato`) e salva
-        // lui alla fine — sempre FORZANDO. Salvare qui in mezzo scriverebbe uno
-        // stato senza i codici d'invito, e nel multiplayer la plancia non
-        // troverebbe più il regno assegnato dal link. Il bottone 🏁 dell'editor
-        // chiama startGame() senza opzioni: lì il salvataggio va fatto qui.
+        // Il calendario può essere appena regredito (partita preparata al turno
+        // 1): si FORZA il salvataggio come in prepareGame.
         if (!(opts && opts.deferSave)) (E().saveForced || E().save)();
         return done(ordine.length
             ? 'Partita avviata: ' + ordine.length + ' regni in gioco.'
             : 'Nessun regno ha province: assegnale prima dalla mappa.');
+    }
+
+    // I due tempi in uno (retro-compatibilità): prepara e avvia di seguito.
+    function startGame(opts) {
+        prepareGame(Object.assign({}, opts, { deferSave: true }));
+        return beginMatch(opts);
     }
 
     // ---------- ciclo del turno ----------
@@ -4010,7 +4050,7 @@
     }
 
     root.GameActions = {
-        startGame, beginTurn, endTurn,
+        startGame, prepareGame, beginMatch, beginTurn, endTurn,
         // EVENTI STORICI (js/events.js): il calendario datato. Chiamati da endTurn;
         // esposti anche qui per poterli guidare a mano nei test.
         applyEvents, tickEvents,

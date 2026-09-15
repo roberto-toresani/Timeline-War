@@ -82,6 +82,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let ROADS = [];          // strade tra province: [{a, b, c}] (a,b = id province adiacenti, c = colore)
     let pendingRoad = null;  // id della prima provincia scelta col pennello strada (attesa della seconda)
     let isAdminMode = false;
+    // Lease del driver dei bot (vedi sync.js): quando più sessioni admin sono aperte
+    // insieme, il lease fa sì che ne guidi UNA sola, così `turnoDi` non rimbalza.
+    let botLeaseTimer = null;      // battito che rinnova il lease mentre si guida
+    let botDriveRetry = null;      // ritenta di prendere il lease se il driver è morto
+    let botAcquiring = false;      // una richiesta di lease è in volo (no doppioni)
+    let botLeaseHeld = false;      // questa sessione tiene il lease (rilascio mirato)
+    let lastBotAcquireAt = 0;      // ultimo tentativo di presa (freno anti-martellamento)
+    const BOT_LEASE_BEAT = 3000;   // ms fra un rinnovo e l'altro (< TTL di sync.js)
+    const BOT_LEASE_RETRY = 11000; // ms: riprova la presa dopo la scadenza del lease
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
     // Presenza dei giocatori: mappa {codice invito: dato} da Firestore (vedi
     // sync.js). Dice quale regno una PERSONA ha preso aprendo il suo link; l'editor
@@ -179,6 +188,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // difensivo e moderato. Lo legge bot.js (doctrineOf/marchTip); di default
         // spento, così ogni altro regno tiene la sua dottrina come sempre.
         if (typeof p.dottrinaSospesa !== 'boolean') p.dottrinaSospesa = false;
+        // CHI GIOCA IL REGNO — etichetta ORGANIZZATIVA dell'admin (regola
+        // dell'utente), non un comportamento del motore: 'ai' (una strategia),
+        // 'player' (lo gioca un altro col link), 'admin' (lo giochi tu). 'admin' e
+        // 'player' sono lo STESSO stato di gioco (bot=null, il turno aspetta un
+        // umano): il campo serve solo all'editor per ricordare a chi mandare i link.
+        // Si deriva dallo stato per i salvataggi vecchi: con una strategia è 'ai',
+        // altrimenti 'admin' (default), a meno di un valore già scritto.
+        if (p.controllo !== 'admin' && p.controllo !== 'player' && p.controllo !== 'ai') {
+            p.controllo = p.bot ? 'ai' : 'admin';
+        }
         if (!p.temporanei) p.temporanei = {};
         // Fase del turno (§2): schiera → costruisci → attacca → sposta. Uno stato
         // salvato prima delle fasi riparte dallo schieramento, che è corretto.
@@ -1051,7 +1070,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Rimette la mappa delle fedi com'era al Mille: ogni provincia torna al suo
     // seed (eccezione per nome, poi blocco regionale — gli stessi due passi di
     // initMap) e nessuna resta agganciata alla corona di un regno (data-fede-conq).
-    // La chiama GameActions.startGame, dov'è il calendario a tornare al turno 1:
+    // La chiama GameActions.prepareGame (il choke point della partita nuova, dove
+    // il calendario torna al turno 1):
     // senza, una partita nuova cominciava nel 1000 con l'Inghilterra protestante,
     // perché la Riforma dalla partita PRECEDENTE era rimasta scritta sulla mappa —
     // e da lì in poi gli scismi del calendario non avevano più niente da spezzare.
@@ -2334,14 +2354,90 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // L'admin fa avanzare la catena dei bot quando il turno corrente è di un'IA.
     // Bot.run() porta il giro fino al prossimo turno umano e si ferma da solo.
+    // GUIDA UNO SOLO (§multi-tab): prima di partire si prende il LEASE condiviso
+    // (sync.js). Se un'altra sessione admin lo tiene, questa aspetta e riprova più
+    // tardi (così, se quel tab muore, dopo la scadenza del lease qui si riprende);
+    // se lo ottiene, guida e rinnova il lease col battito finché la catena dei bot
+    // non finisce (torna il turno umano), poi lo rilascia. È l'UNICO punto che fa
+    // partire i bot: ogni ex-chiamata a Bot.run() passa da qui.
     function maybeDriveBots() {
-        if (!isAdminMode || adminIntervening) return;
-        if (turnoDi === null || turnoDi === undefined) return;
+        if (!isAdminMode || adminIntervening) { clearDriveRetry(); stopBotLease(); return; }
+        if (turnoDi === null || turnoDi === undefined) { clearDriveRetry(); stopBotLease(); return; }
         if (!window.Bot || typeof window.Bot.run !== 'function') return;
         const cur = PLAYERS.find(p => p.id === turnoDi);
-        if (!cur || !window.Bot.isBot(cur)) return;
+        // Non è un turno di bot (o è già in corso): non serve il lease, lo si molla.
+        if (!cur || !window.Bot.isBot(cur)) { clearDriveRetry(); stopBotLease(); return; }
         if (window.Bot.isRunning && window.Bot.isRunning()) return;
-        window.Bot.run();
+        if (botAcquiring) return;
+        if (!MultiplayerSync.acquireDriver) { window.Bot.run(); return; }
+        // Freno: non si martella acquireDriver a ogni snapshot dei bot altrui. Se si
+        // è tentato da poco, si lascia fare al ritentativo programmato (che copre
+        // anche il caso del driver morto). Il ritentativo è più lungo del TTL del
+        // lease, quindi la presa dopo una morte resta garantita.
+        const since = Date.now() - lastBotAcquireAt;
+        if (since < BOT_LEASE_BEAT) { scheduleDriveRetry(); return; }
+        lastBotAcquireAt = Date.now();
+        clearDriveRetry();
+        botAcquiring = true;
+        MultiplayerSync.acquireDriver().then(ok => {
+            botAcquiring = false;
+            if (ok) botLeaseHeld = true;   // preso: da qui ogni uscita passa dal rilascio
+            // Lo stato può essere cambiato mentre la richiesta era in volo.
+            const now = PLAYERS.find(p => p.id === turnoDi);
+            if (!ok) {
+                // Un'altra sessione guida: riprova dopo la scadenza del lease, nel
+                // caso quel tab sia morto (se è vivo, il suo battito lo terrà).
+                if (now && window.Bot.isBot(now) && isAdminMode && !adminIntervening)
+                    scheduleDriveRetry();
+                return;
+            }
+            if (!isAdminMode || adminIntervening || !now || !window.Bot.isBot(now)
+                || (window.Bot.isRunning && window.Bot.isRunning())) {
+                // Il turno è cambiato (o non guidiamo più) mentre prendevamo il
+                // lease: lo rilasciamo invece di guidare a vuoto.
+                stopBotLease();
+                return;
+            }
+            startBotLease();
+            window.Bot.run();
+        });
+    }
+
+    // Battito che rinnova il lease finché i bot girano; quando la catena finisce
+    // (isRunning falso), ferma il battito e rilascia il lease. Se un rinnovo torna
+    // `false` abbiamo perso il lease (un'altra sessione l'ha preso): si stoppano
+    // i bot per non scrivere in concorrenza.
+    function startBotLease() {
+        if (botLeaseTimer) return;
+        botLeaseTimer = setInterval(() => {
+            const running = window.Bot && window.Bot.isRunning && window.Bot.isRunning();
+            if (!running) { stopBotLease(); return; }
+            if (!MultiplayerSync.acquireDriver) return;
+            MultiplayerSync.acquireDriver().then(ok => {
+                if (!ok) { if (window.Bot && window.Bot.stop) window.Bot.stop(); stopBotLease(); }
+            });
+        }, BOT_LEASE_BEAT);
+    }
+
+    function stopBotLease() {
+        if (botLeaseTimer) { clearInterval(botLeaseTimer); botLeaseTimer = null; }
+        // Rilascia SOLO se lo tenevamo davvero: senza questa guardia ogni snapshot
+        // in un turno umano lancerebbe una transazione Firestore a vuoto.
+        if (botLeaseHeld) {
+            botLeaseHeld = false;
+            if (MultiplayerSync.releaseDriver) MultiplayerSync.releaseDriver();
+        }
+    }
+
+    // Ritentativo della presa del lease: unico timer, riprogrammato senza doppioni.
+    // Serve a riprendere la guida se il driver è morto (il suo lease scade) — perciò
+    // l'attesa è più lunga del TTL del lease.
+    function scheduleDriveRetry() {
+        if (botDriveRetry) return;
+        botDriveRetry = setTimeout(() => { botDriveRetry = null; maybeDriveBots(); }, BOT_LEASE_RETRY);
+    }
+    function clearDriveRetry() {
+        if (botDriveRetry) { clearTimeout(botDriveRetry); botDriveRetry = null; }
     }
 
     // ---------- interventi admin (creare regni, prendere bot, ecc.) ----------
@@ -2496,9 +2592,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const beginBtn = document.getElementById('intervene-btn');
         const commitBtn = document.getElementById('intervene-apply-btn');
         const cancelBtn = document.getElementById('intervene-cancel-btn');
-        // "Intervieni" ha senso solo se una partita esiste (regni nel giro): in pura
-        // modalità editor l'admin edita direttamente, senza differire nulla.
-        const gameLive = (ordine && ordine.length > 0) || turnoDi !== null;
+        // "Intervieni" ha senso solo se una partita è VIVA (turni partiti): in pura
+        // modalità editor — e nella pausa "preparata ma non avviata" (ordine pieno,
+        // turnoDi null) — l'admin edita direttamente, senza differire nulla.
+        const gameLive = turnoDi !== null && turnoDi !== undefined;
         if (beginBtn) beginBtn.style.display = (isAdminMode && gameLive && !adminIntervening && !pendingDiff) ? '' : 'none';
         if (commitBtn) commitBtn.style.display = adminIntervening ? '' : 'none';
         if (cancelBtn) cancelBtn.style.display = adminIntervening ? '' : 'none';
@@ -2587,11 +2684,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // vuoto = null → Bot.run lo salta e aspetta la mano dell'admin; una
         // strategia → da lì lo gioca l'IA. Vale anche per un regno appena creato
         // (i Maya, i Cinesi): lo si fa IA o lo si tiene in mano.
+        // Menù a TRE voci (regola dell'utente): Admin (la giochi tu) · Player (link a
+        // un altro) · AI (una strategia). Admin e Player sono lo stesso stato di
+        // gioco (bot=null): la scelta è solo l'etichetta organizzativa `p.controllo`.
         const botKeys = (window.Bot && window.Bot.KEYS) || [];
         const botLabels = { espansione: 'Espansione', costruttore: 'Costruttore', opportunista: 'Opportunista', predone: 'Predone' };
-        const botOptions = ['<option value=""' + (p.bot ? '' : ' selected') + '>🧑 Admin (nessuna IA)</option>']
-            .concat(botKeys.map(k => '<option value="' + k + '"' + (p.bot === k ? ' selected' : '') + '>🤖 ' +
-                (botLabels[k] || (k.charAt(0).toUpperCase() + k.slice(1))) + '</option>')).join('');
+        const ruolo = p.bot ? 'ai' : (p.controllo === 'player' ? 'player' : 'admin');
+        const botOptions =
+            '<option value="admin"' + (ruolo === 'admin' ? ' selected' : '') + '>🧑 Admin (la giochi tu)</option>' +
+            '<option value="player"' + (ruolo === 'player' ? ' selected' : '') + '>🔗 Player (link a un altro)</option>' +
+            botKeys.map(k => '<option value="' + k + '"' + (p.bot === k ? ' selected' : '') + '>🤖 ' +
+                (botLabels[k] || (k.charAt(0).toUpperCase() + k.slice(1))) + '</option>').join('');
 
         // "Preso da un giocatore": un umano ha aperto il link di questo regno (vedi
         // presenceMap / sync.js). Ha senso solo quando il regno NON è dell'IA: se
@@ -2621,7 +2724,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button type="button" class="player-action rename-btn" title="Rinomina">✎</button>
                     <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
                 </div>
-                <select class="player-bot" title="Chi governa il regno: Admin o una strategia dell'IA" style="width:100%;margin-top:4px;font-size:.8rem;">${botOptions}</select>
+                <select class="player-bot" title="Chi gioca il regno: Admin (tu) · Player (link a un altro) · AI (strategia)" style="width:100%;margin-top:4px;font-size:.8rem;">${botOptions}</select>
                 ${claimBadge}
             `;
 
@@ -2629,9 +2732,22 @@ document.addEventListener('DOMContentLoaded', () => {
             botSelect.addEventListener('click', (e) => e.stopPropagation());
             botSelect.addEventListener('change', (e) => {
                 if (!isAdminMode) return;
-                p.bot = e.target.value || null;
+                const v = e.target.value;
+                if (v === 'admin' || v === 'player') {
+                    // Admin e Player: stesso stato di gioco (bot=null), cambia solo
+                    // l'etichetta organizzativa — a chi tocca mandare il link.
+                    p.bot = null;
+                    p.controllo = v;
+                } else {
+                    p.bot = v;
+                    p.controllo = 'ai';
+                }
                 saveAutoSave();
-                showPieceNotice(p.name + (p.bot ? ' è governato dall\'IA (' + e.target.value + ').' : ' è tuo: giocalo dalla plancia (👁).'));
+                initPalette();   // aggiorna il badge "Preso dal giocatore" e la voce scelta
+                const msg = v === 'admin' ? ' lo giochi tu (👁, nessun link da mandare).'
+                    : v === 'player' ? ' lo gioca un altro: copia e mandagli il link 🔗.'
+                    : ' è governato dall\'IA (' + v + ').';
+                showPieceNotice(p.name + msg);
             });
 
             const colorInput = btn.querySelector('input');
@@ -2949,10 +3065,24 @@ document.addEventListener('DOMContentLoaded', () => {
         renderReinforceBoard();
         updateInterventionUI();
         if (turnoDi === null || turnoDi === undefined) {
-            info.textContent = 'Partita non avviata';
-            info.className = '';
+            // Due casi diversi: se l'ordine è già popolato la partita è PREPARATA
+            // e ferma (sala d'attesa) — manca solo il 🏁 Avvia; altrimenti non
+            // c'è ancora nessuna partita.
+            const pronti = (ordine && ordine.length) || 0;
+            info.textContent = pronti
+                ? '⏳ In attesa dell\'avvio — ' + pronti + ' regni pronti. Premi 🏁 Avvia partita.'
+                : 'Partita non avviata';
+            info.className = pronti ? 'active' : '';
+            info.style.borderLeftColor = '';
+            // "Fine turno" non ha senso finché i turni non sono partiti. Si legge
+            // dal DOM (non dalla const endTurnBtn) perché renderGameControls può
+            // girare prima che quella const sia inizializzata (zona morta).
+            const etb0 = document.getElementById('end-turn-btn');
+            if (etb0) etb0.disabled = true;
             return;
         }
+        const etb1 = document.getElementById('end-turn-btn');
+        if (etb1) etb1.disabled = false;
         const p = PLAYERS.find(x => x.id === turnoDi);
         info.textContent = p ? ('Turno di ' + p.name) : 'Turno di un regno rimosso';
         info.className = 'active';
@@ -3046,14 +3176,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (startGameBtn) {
         startGameBtn.addEventListener('click', () => {
             if (!isAdminMode) return;
+            // "🏁 Avvia partita" è il VIA vero (beginMatch): sorteggia l'ordine e
+            // fa partire i turni. Se la partita è già stata preparata (un preset,
+            // ordine pieno) non tocca l'economia; se invece la mappa è dipinta a
+            // mano e basta, beginMatch prepara al volo. Da qui in poi si muovono i
+            // bot.
+            const preparata = (typeof ordine !== 'undefined' && ordine.length > 0) && (turnoDi === null || turnoDi === undefined);
             askConfirm({
                 title: 'Avviare la partita?',
-                text: 'Ogni provincia posseduta torna a 5 soldati e ogni regno a 1000 monete con scorte azzerate.',
+                text: preparata
+                    ? 'I turni partono per tutti, in ordine casuale. Assicurati di aver inviato i link ai giocatori.'
+                    : 'Ogni provincia posseduta torna a 5 soldati e ogni regno a 1000 monete con scorte azzerate, poi i turni partono in ordine casuale.',
                 ok: '🏁 Avvia'
             }, () => {
-                const r = GameActions.startGame();
+                const r = GameActions.beginMatch();
                 showPieceNotice(r.msg);
                 renderGameControls();
+                maybeDriveBots();   // lease-gated: guida uno solo (§multi-tab)
             });
         });
     }
@@ -3064,7 +3203,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = GameActions.endTurn();
             showPieceNotice(r.msg);
             renderGameControls();
-            if (window.Bot) window.Bot.run();
+            maybeDriveBots();   // lease-gated: guida uno solo (§multi-tab)
         });
     }
 
@@ -3168,44 +3307,47 @@ document.addEventListener('DOMContentLoaded', () => {
             ' turni, fino a ' + GameRules.NEUTRAL_MAX + '). Le terre lontane (Americhe, ' +
             'Asia, Africa sub-sahariana) restano a ' + GameRules.NEUTRAL_START +
             ' fino al 5º ciclo, poi ' + GameRules.FAR_GARRISON_LATE + ' dal 6º.';
+        // La partita nasce in DUE TEMPI: qui si PREPARA soltanto (chi controlla
+        // ogni regno, economia, link d'invito) e resta ferma; il via lo dà 🏁.
+        const passo2 = ' La partita resta FERMA: puoi rifinire chi controlla ogni ' +
+            'regno (menu sulla scheda), inviare i link 🔗 e infine premere 🏁 Avvia ' +
+            'partita per far cominciare i turni.';
         // Numero di regni umani da sorteggiare (2+): partita mista, gli altri all'IA.
         const nUmani = (umani | 0) >= 2 ? (umani | 0) : 0;
         const opts = nUmani
             ? {
-                title: 'Seguire ' + nUmani + ' regni tuoi?',
-                text: nUmani + ' regni sulla mappa saranno tuoi: li giochi a turno, uno alla ' +
-                    'volta, e la plancia passa da sé al tuo regno quando torna il suo turno. ' +
-                    'Tutti gli altri li governa l\'IA. Mappa ed economia partono come nella ' +
+                title: 'Preparare la partita con ' + nUmani + ' regni tuoi?',
+                text: nUmani + ' regni sulla mappa saranno tuoi (link distinti); ' +
+                    'tutti gli altri li governa l\'IA. Mappa ed economia partono come nella ' +
                     'partita normale: nessun regno ha una Capitale, la prima cosa da fare al ' +
-                    'turno 1 è costruirla (500 monete). ' + neutrali,
-                ok: '🎭 Comincia'
+                    'turno 1 è costruirla (500 monete). ' + neutrali + passo2,
+                ok: '🎭 Prepara'
             }
             : tuttiUmani
             ? {
-                title: 'Giocare tu tutti i regni?',
-                text: 'Nessuna IA: i regni sulla mappa li muovi tu, uno alla volta, ' +
-                    'nell\'ordine dei turni. La plancia passa da sé al regno di turno, e ' +
-                    'ognuno vede solo quel che vede lui. Mappa ed economia partono come nella ' +
+                title: 'Preparare la partita coi regni tutti umani?',
+                text: 'Nessuna IA: ogni regno è umano (un link ciascuno, o li giochi tu a ' +
+                    'turno). Mappa ed economia partono come nella ' +
                     'partita normale: nessun regno ha una Capitale, la prima cosa da fare al ' +
-                    'turno 1 è costruirla (500 monete). ' + neutrali,
-                ok: '👥 Comincia'
+                    'turno 1 è costruirla (500 monete). ' + neutrali + passo2,
+                ok: '👥 Prepara'
             }
             : mantieniMappa
             ? {
-                title: 'Giocare con i regni che sono sulla mappa?',
+                title: 'Preparare la partita coi regni sulla mappa?',
                 text: 'I territori restano esattamente come li hai dipinti. Ogni regno torna a ' +
                     '1000 monete e 5 soldati per provincia, e il calendario riparte dal turno 1 ' +
                     '(1000 AD). Nessun regno parte con una Capitale: la prima cosa da fare al ' +
                     'turno 1 è costruirla (500 monete). Uno dei regni sarà tuo, gli altri li ' +
-                    'governa l\'IA. ' + neutrali,
-                ok: '⚔️ Comincia'
+                    'governa l\'IA. ' + neutrali + passo2,
+                ok: '⚔️ Prepara'
             }
             : {
                 title: 'Sorteggiare una mappa nuova?',
                 text: 'Attenzione: la mappa attuale viene sparecchiata — province, pedine, strade e ' +
                     'cronologia dei turni. I regni rinascono in ' + window.GameSetup.REGIONS.europa.nome +
                     ' con 3 province a testa, senza Capitale: la prima cosa da fare al turno 1 è ' +
-                    'costruirla (500 monete). ' + neutrali,
+                    'costruirla (500 monete). ' + neutrali + passo2,
                 ok: '🎲 Sorteggia',
                 tone: 'danger'
             };
@@ -3225,7 +3367,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ids = res.regni.reduce((a, r) => a.concat(r.province), []);
                 if (ids.length) mapView.fitToProvinces(ids);
             }
-            if (window.Bot) window.Bot.run();
+            // NIENTE Bot.run qui: la partita è solo PREPARATA (turnoDi null), i
+            // bot si muoveranno al 🏁 Avvia.
         });
     }
 
@@ -5354,6 +5497,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         isBoardMode: () => BOARD_MODE,
         isAdmin: () => isAdminMode,
+        // Fa avanzare la catena dei bot passando dal LEASE condiviso (una sola
+        // sessione guida — §multi-tab). La plancia la chiama al posto di Bot.run().
+        driveBots: () => maybeDriveBots(),
         players: () => PLAYERS,
         turn: () => currentTurn,
         focusId: () => selectedTabPlayerId,

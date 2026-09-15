@@ -576,7 +576,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const endBtn = $('board-end-turn');
         const turnoDi = R.turnoDi();
         if (turnoDi === null || turnoDi === undefined) {
-            state.textContent = 'Partita non avviata';
+            // Se l'ordine è già popolato la partita è PREPARATA e ferma: il
+            // giocatore ha aperto il suo link ma l'admin non ha ancora dato il via.
+            const pronta = R.ordine && R.ordine().length > 0;
+            state.textContent = pronta
+                ? 'In attesa che l\'admin avvii la partita'
+                : 'Partita non avviata';
             state.className = 'turn-wait';
             endBtn.disabled = true;
         } else if (turnoDi === player.id) {
@@ -877,8 +882,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }, () => {
             run(GA().endTurn());
             // Chiuso il turno umano tocca all'IA: la catena dei bot va avanti da
-            // sola e si ferma quando torna il turno di un giocatore umano.
-            if (window.Bot) window.Bot.run();
+            // sola e si ferma quando torna il turno di un giocatore umano. Passa dal
+            // lease (R.driveBots) così, con più tab admin aperti, ne guida uno solo.
+            if (R.driveBots) R.driveBots(); else if (window.Bot) window.Bot.run();
         });
     }
 
@@ -5488,8 +5494,9 @@ document.addEventListener('DOMContentLoaded', () => {
             enterKingdom(player);
             syncSpectateBtn();
             syncSpeedBtn();
-            // Se al caricamento tocca a un regno dell'IA, la partita riparte da sé.
-            if (window.Bot) window.Bot.run();
+            // Se al caricamento tocca a un regno dell'IA, la partita riparte da sé
+            // (dal lease: con più tab admin ne guida uno solo — §multi-tab).
+            if (R.driveBots) R.driveBots(); else if (window.Bot) window.Bot.run();
             return;
         }
         if (attempt < maxAttempts) { setTimeout(() => boot(attempt + 1), 120); return; }

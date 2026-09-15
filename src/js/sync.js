@@ -60,6 +60,20 @@ const MultiplayerSync = (function () {
     let lastChat = [];
     let hasChat = false;
     const CHAT_KEEP = 300;   // quanti messaggi si leggono/tengono: la coda più recente
+    // LEASE DEL DRIVER DEI BOT (§multi-tab): quando più sessioni admin sono aperte
+    // insieme (l'editor in un tab, la plancia in un altro, il telefono), ognuna
+    // faceva girare Bot.run per conto suo e le loro scritture si accavallavano —
+    // `turnoDi` rimbalzava avanti e indietro e il giro non arrivava mai pulito al
+    // turno umano. Il lease fa sì che fra tutte le sessioni ne guidi UNA sola: chi
+    // lo tiene lo rinfresca mentre guida, e se quel tab muore scade da sé dopo
+    // DRIVER_TTL e un'altra sessione può riprenderlo. Vive in un documento riservato
+    // della collezione `presence` (già aperta in lettura/scrittura: nessuna regola
+    // Firestore nuova da ripubblicare), filtrato via dalla mappa di presenza.
+    const DRIVER_DOC = '__driver_lease__';
+    const DRIVER_TTL = 10000;   // ms: oltre questo un lease non rinfrescato è "morto"
+    // Identità di QUESTA sessione (per tab): due tab dello stesso account admin sono
+    // due client diversi, ed è proprio fra loro che serve distinguere il driver.
+    const clientId = Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
     let authReadyResolve;
     const authReady = new Promise(res => { authReadyResolve = res; });
 
@@ -98,7 +112,9 @@ const MultiplayerSync = (function () {
 
         presenceCol.onSnapshot(snap => {
             const map = {};
-            snap.forEach(d => { map[d.id] = d.data(); });
+            // Il doc del lease del driver vive in questa collezione ma NON è presenza:
+            // si salta, o comparirebbe come un finto "regno preso".
+            snap.forEach(d => { if (d.id !== DRIVER_DOC) map[d.id] = d.data(); });
             lastPresence = map;
             hasPresence = true;
             presenceListeners.forEach(cb => cb(map));
@@ -265,6 +281,38 @@ const MultiplayerSync = (function () {
 
     function onPushReject(cb) { pushRejectListeners.push(cb); }
 
+    // ---- LEASE DEL DRIVER DEI BOT ----
+    // Prova a PRENDERE (o rinnovare) il diritto di guidare i bot. Torna una Promise
+    // che risolve `true` se questa sessione può guidare, `false` se un'altra lo sta
+    // già facendo (lease fresco di un altro client). La stessa funzione serve sia
+    // per acquisire sia per il battito di rinnovo: se torna `false` durante la
+    // guida, chi guidava ha perso il lease e deve fermarsi. Senza Firebase
+    // (modalità locale) c'è una sola sessione: risolve sempre `true`.
+    function acquireDriver() {
+        if (!isConfigured || !presenceCol) return Promise.resolve(true);
+        const ref = presenceCol.doc(DRIVER_DOC);
+        return firebase.firestore().runTransaction(tx => tx.get(ref).then(snap => {
+            const cur = snap.exists ? (snap.data() || {}) : null;
+            const now = Date.now();
+            const libero = !cur || !cur.id || cur.id === clientId
+                || typeof cur.at !== 'number' || (now - cur.at) > DRIVER_TTL;
+            if (libero) { tx.set(ref, { id: clientId, at: now }); return true; }
+            return false;
+        })).catch(err => { console.error('acquireDriver:', err); return false; });
+    }
+
+    // Rilascia il lease, ma SOLO se è ancora nostro (non si scippa quello di un
+    // altro). Chiamata quando la catena dei bot finisce (torna il turno umano) o
+    // quando la sessione perde il diritto di guidare.
+    function releaseDriver() {
+        if (!isConfigured || !presenceCol) return Promise.resolve();
+        const ref = presenceCol.doc(DRIVER_DOC);
+        return firebase.firestore().runTransaction(tx => tx.get(ref).then(snap => {
+            const cur = snap.exists ? (snap.data() || {}) : null;
+            if (cur && cur.id === clientId) tx.delete(ref);
+        })).catch(err => console.error('releaseDriver:', err));
+    }
+
     // ---- BACKUP PER TURNO (sottocollezione games/main/turns) ----
     // Salva l'intero stato all'inizio di un decennio, UNA volta per turno: se il
     // documento del turno esiste già non lo si tocca (un client stale non deve
@@ -356,6 +404,8 @@ const MultiplayerSync = (function () {
         clearChat: clearChat,
         pushState: pushState,
         onPushReject: onPushReject,
+        acquireDriver: acquireDriver,
+        releaseDriver: releaseDriver,
         backupTurn: backupTurn,
         listBackups: listBackups,
         getBackup: getBackup,
