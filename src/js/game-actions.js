@@ -477,6 +477,10 @@
             pl.fase = PHASES[0];
             pl.spostamentoFatto = false;
             pl.conquista = null;
+            // Partita nuova: nessun turno globale ancora aperto (idempotenza di
+            // beginTurn). Senza, un beginStamp di una partita vecchia potrebbe
+            // combaciare col turno 1 nuovo e SALTARE la produzione del primo turno.
+            pl.beginStamp = -1;
             E().ownedPaths(pl.name).forEach(path => {
                 const cur = E().countPiece(path, 'soldato');
                 E().addPiece(path, 'soldato', 5 - cur);
@@ -568,6 +572,20 @@
     function beginTurn() {
         const player = R().players().find(p => p.id === R().turnoDi());
         if (!player) return fail('Nessun giocatore di turno.');
+
+        // IDEMPOTENZA (regola dell'utente: "il giro rimbalzava e RICONTAVA il turno,
+        // accumulando le reclute senza che io avessi giocato"). La produzione di un
+        // turno va fatta UNA volta sola: se questo giocatore ha già aperto il turno
+        // globale corrente (`beginStamp`), un nuovo beginTurn è un RIMBALZO di
+        // turnoDi — si esce senza ri-produrre e SENZA azzerare la fase in corso, così
+        // il giocatore non perde quel che stava facendo. Rete di sicurezza dietro le
+        // guardie di monotonìa e del driver unico (app.js): anche se una arriva,
+        // qui il danno (reclute/raccolto doppi) non si materializza.
+        const turnoGlobale = R().turn();
+        if (player.beginStamp === turnoGlobale) {
+            return done('Turno di ' + player.name, { produzione: null, ripetuto: true });
+        }
+        player.beginStamp = turnoGlobale;
 
         const paths = E().ownedPaths(player.name);
         const units = unitsOf(paths);

@@ -153,6 +153,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let turnoDi = null;        // id del giocatore che sta giocando il suo turno
     let ordine = [];           // ordine dei giocatori (id) nel giro
     let primoDelGiro = 0;      // indice in `ordine` di chi apre il round (ruota, §2.1)
+    // GUARDIA DI MONOTONÌA (regola dell'utente: "il turno rimbalzava indietro e
+    // ricontava il giro, accumulando reclute"). `rev` cresce a ogni scrittura
+    // riuscita su Firestore (transazione in sync.js): è un orologio monotòno. Uno
+    // snapshot con rev NON superiore all'ultimo applicato è vecchio/fuori ordine —
+    // applicarlo farebbe ARRETRARE turnoDi. Si scarta in ricezione (vedi il wrap
+    // di onStateChange). Parte a -1 così il primo snapshot passa sempre.
+    let lastAppliedRev = -1;
     // EVENTI STORICI (js/events.js): lo stato GLOBALE del calendario degli eventi
     // datati (crociate, mongoli, peste…). `attivi` = eventi in corso col loro
     // stato persistente; `fatti` = one-shot già scattati (guardia anti-bis). Vive
@@ -198,6 +205,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (p.controllo !== 'admin' && p.controllo !== 'player' && p.controllo !== 'ai') {
             p.controllo = p.bot ? 'ai' : 'admin';
         }
+        // Timbro dell'ultimo turno globale già "aperto" (produzione fatta): serve
+        // all'idempotenza di beginTurn contro i rimbalzi di turnoDi. -1 = mai aperto;
+        // si preserva nei salvataggi (un reload non deve ri-produrre).
+        if (typeof p.beginStamp !== 'number') p.beginStamp = -1;
         if (!p.temporanei) p.temporanei = {};
         // Fase del turno (§2): schiera → costruisci → attacca → sposta. Uno stato
         // salvato prima delle fasi riparte dallo schieramento, che è corretto.
@@ -794,7 +805,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Load state: cloud if configured, else localStorage.
         if (MultiplayerSync.isConfigured) {
-            MultiplayerSync.onStateChange(applyCloudState);
+            // Guardia di monotonìa: uno snapshot con rev non superiore all'ultimo
+            // applicato è vecchio/fuori ordine e va SCARTATO — se no turnoDi
+            // arretra e il giro si riconta (reclute accumulate, regola dell'utente).
+            // Gli usi INTERNI di applyCloudState (commit intervento) chiamano la
+            // funzione diretta e non passano di qui, quindi non ne sono toccati.
+            MultiplayerSync.onStateChange(data => {
+                if (data && typeof data.rev === 'number') {
+                    if (data.rev <= lastAppliedRev) return;   // stantìo: si ignora
+                    lastAppliedRev = data.rev;
+                }
+                applyCloudState(data);
+            });
             MultiplayerSync.onPresenceChange(applyPresence);
             // Una scrittura rifiutata dalla guardia anti-regressione (sync.js) vuol
             // dire che lo stato online è più avanti del nostro: non sovrascriviamo,
@@ -2362,6 +2384,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // partire i bot: ogni ex-chiamata a Bot.run() passa da qui.
     function maybeDriveBots() {
         if (!isAdminMode || adminIntervening) { clearDriveRetry(); stopBotLease(); return; }
+        // Una PLANCIA agganciata a un regno (?p=CODICE) è un GIOCATORE al tavolo, non
+        // il regista: NON deve pilotare i bot, nemmeno se aperta dal browser
+        // dell'admin (stessa auth Firebase → isAdminMode vero). Era la causa del
+        // "turno che rimbalza indietro": editor E plancia, entrambi admin, guidavano
+        // lo stesso turno di bot e le scritture si accavallavano — turnoDi arretrava
+        // e il giro si ricontava (reclute accumulate). Il regista è l'EDITOR (o una
+        // sessione admin NON agganciata); la solitaria (plancia senza codice)
+        // continua a guidare, perché lì non c'è un editor separato.
+        if (myPinnedPlayerId() !== null) { clearDriveRetry(); stopBotLease(); return; }
         if (turnoDi === null || turnoDi === undefined) { clearDriveRetry(); stopBotLease(); return; }
         if (!window.Bot || typeof window.Bot.run !== 'function') return;
         const cur = PLAYERS.find(p => p.id === turnoDi);
