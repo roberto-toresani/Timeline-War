@@ -146,17 +146,35 @@ async function runOnce() {
   }
 }
 
-// Supervisore: qualunque cosa vada storta, si riparte dopo una pausa breve.
+// Supervisore: qualunque cosa vada storta, si riparte. MA su un errore di LOGIN
+// si aspetta a lungo, NON 5 secondi: ritentare in fretta con credenziali sbagliate
+// fa scattare il blocco di Firebase (auth/too-many-requests) e peggiora tutto.
+const SHORT_WAIT = 5000;         // crash normale del browser: riparto subito
+const AUTH_WAIT = 5 * 60 * 1000; // errore di login/blocco: aspetto 5 minuti
+
+function isAuthError(msg) {
+  return /login fallito|auth\/|too-many-requests|credential/i.test(String(msg || ''));
+}
+
 (async function supervisor() {
   log('Motore headless dei bot — avvio. Host:', process.platform, 'Node', process.version);
   for (;;) {
+    let wait = SHORT_WAIT;
     try {
       await runOnce();
       log('Sessione terminata (browser chiuso). Riparto fra 5s…');
     } catch (e) {
-      log('Errore:', (e && e.message) ? e.message : e, '— riparto fra 5s…');
+      const msg = (e && e.message) ? e.message : e;
+      if (isAuthError(msg)) {
+        wait = AUTH_WAIT;
+        log('Errore di LOGIN:', msg);
+        log('  → credenziali sbagliate o Firebase ha bloccato i tentativi. NON martello:');
+        log('  → controlla ADMIN_EMAIL/ADMIN_PASSWORD nel .env, poi riparto da solo fra 5 minuti.');
+      } else {
+        log('Errore:', msg, '— riparto fra 5s…');
+      }
     }
-    await new Promise((r) => setTimeout(r, 5000));
+    await new Promise((r) => setTimeout(r, wait));
   }
 })();
 
