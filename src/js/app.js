@@ -2384,6 +2384,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // partire i bot: ogni ex-chiamata a Bot.run() passa da qui.
     function maybeDriveBots() {
         if (!isAdminMode || adminIntervening) { clearDriveRetry(); stopBotLease(); return; }
+        // Editor "solo intervento" (?nodrive=1): cambia i controlli e gioca i regni
+        // su "Admin", ma NON pilota i bot — il MOTORE headless è l'unico driver.
+        if (isNoDrive()) { clearDriveRetry(); stopBotLease(); return; }
         // Una PLANCIA agganciata a un regno (?p=CODICE) è un GIOCATORE al tavolo, non
         // il regista: NON deve pilotare i bot, nemmeno se aperta dal browser
         // dell'admin (stessa auth Firebase → isAdminMode vero). Era la causa del
@@ -3093,6 +3096,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderGameControls() {
         const info = document.getElementById('game-turn-info');
         if (!info) return;
+        // Avviso "solo intervento": questo editor (?nodrive=1) NON muove i bot — lo
+        // fa il motore headless. Si mostra una volta sola, così sai a colpo d'occhio
+        // che non stai facendo da secondo driver.
+        if (isNoDrive() && info.parentNode && !document.getElementById('nodrive-badge')) {
+            const b = document.createElement('div');
+            b.id = 'nodrive-badge';
+            b.textContent = '🤖 Modalità intervento: i bot li muove il MOTORE. Qui cambi i controlli e giochi i regni su “Admin”.';
+            b.style.cssText = 'margin:4px 0;padding:5px 8px;border-radius:4px;font-size:.78rem;background:rgba(60,120,200,.22);border:1px solid rgba(90,150,230,.6);color:#bcd8ff;';
+            info.parentNode.insertBefore(b, info.nextSibling);
+        }
         renderReinforceBoard();
         updateInterventionUI();
         if (turnoDi === null || turnoDi === undefined) {
@@ -3572,6 +3585,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const p = PLAYERS.find(x => x.invite === code);
             return p ? p.id : null;
         } catch (e) { return null; }
+    }
+
+    // SESSIONE "SOLO INTERVENTO" (URL ?nodrive=1, regola dell'utente): l'admin apre
+    // un editor così per cambiare i controlli dei regni e giocare A MANO i regni
+    // messi su "Admin" (Mongoli, Cinesi…), MA questa scheda NON deve pilotare i bot
+    // — quello lo fa il MOTORE headless (driver/). Così il motore resta l'unico
+    // driver dei bot e non c'è competizione col tab interattivo dell'admin (era la
+    // causa dello scavallamento). `function` (hoistata) perché la chiama
+    // maybeDriveBots, definita più in alto.
+    function isNoDrive() {
+        try { return new URLSearchParams(location.search).get('nodrive') !== null; }
+        catch (e) { return false; }
     }
 
     // CHI ha il diritto di SCRIVERE lo stato condiviso adesso. Le mosse sono già

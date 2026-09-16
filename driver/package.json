@@ -1,0 +1,13 @@
+{
+  "name": "risiko-bot-driver",
+  "version": "1.0.0",
+  "description": "Motore headless: fa girare i turni dei bot di RISIKO ONLINE senza tenere aperta una scheda del browser (A1). Riusa il codice del gioco dentro un Chrome headless su un host sempre acceso.",
+  "private": true,
+  "scripts": {
+    "start": "node driver.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "puppeteer": "^23.11.1"
+  }
+}

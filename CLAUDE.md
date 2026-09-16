@@ -843,6 +843,27 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   quando torna il turno di un umano. **Solo chi è admin** muove i bot (`Risiko.isAdmin()`):
   le scritture di stato restano dell'admin, come da `firestore.rules`.
   Una strategia in più = una voce in `Bot.STRATEGIES`, non un ramo `if` sparso.
+- **IL MOTORE HEADLESS `driver/` (regola dell'utente: turni fluidi senza babysittare
+  una scheda)**. Far girare i bot da una scheda del browser è fragile: i browser
+  CONGELANO le schede in secondo piano (bot che strisciano/si piantano) e più sessioni
+  admin che guidano insieme si scrivono addosso (turno che rimbalza, mosse annullate). La
+  cura vera è `driver/` (Node + Puppeteer): apre l'editor in un **Chrome headless** su un
+  host sempre acceso, fa il login admin e lascia guidare il codice del gioco — headless =
+  mai in secondo piano, e **un solo** motore. Riusa tutto il codice, **niente Blaze**
+  (parla con lo stesso Firestore). Il `driver/README.md` ha setup e flusso.
+  - **`?nodrive=1`** (`isNoDrive` in app.js, letto da `maybeDriveBots`): un editor aperto
+    così **NON pilota i bot** — li muove il motore. Serve all'admin per **subentrare**:
+    mette un regno su **🧑 Admin** (menu `.player-bot`, `bot=null` → il motore lo salta) e
+    lo gioca a mano dalla sua plancia (👁), senza fare da secondo driver. Regola d'oro:
+    col motore acceso, ogni editor interattivo dell'admin va aperto con `?nodrive=1`, e
+    **niente login admin sulle plance dei giocatori** (una plancia agganciata non guida
+    comunque — `myPinnedPlayerId` in `maybeDriveBots`). Badge d'avviso in `renderGameControls`.
+  - **Robustezza del turno** (contro rimbalzi/doppi conteggi anche fuori dal motore): una
+    **guardia di monotonìa** in ricezione (`lastAppliedRev` nel wrap di `onStateChange`)
+    scarta gli snapshot Firestore con `rev` non superiore all'ultimo applicato (turnoDi non
+    arretra mai), e `beginTurn` è **idempotente per turno globale** (`player.beginStamp`):
+    la produzione (reclute/raccolto/spedizioni/festa) si fa una volta sola. Il `rev` cresce
+    a ogni scrittura riuscita (transazione in `sync.js`).
 - **Quello che un bot deve saper fare per non incepparsi** (tutte regole dell'utente,
   nate guardandoli giocare). Un bot che non sa queste cose non gioca male: **si blocca**,
   perché a Popolarità 1 non ha più né reclute né risorse con cui rimediare.
