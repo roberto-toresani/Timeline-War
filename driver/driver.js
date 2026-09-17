@@ -33,6 +33,12 @@ const GAME_URL = process.env.GAME_URL || 'https://roberto-toresani.github.io/Tim
 const EMAIL = process.env.ADMIN_EMAIL;
 const PASSWORD = process.env.ADMIN_PASSWORD;
 
+// Velocità dei bot sul MOTORE: qui nessuno "guarda giocare" l'IA (è headless),
+// quindi la pausa fra un'azione e l'altra è tempo perso. La si porta al minimo,
+// così i turni dei bot scorrono in fretta e i giocatori arrivano subito al loro
+// turno. Nel gioco il default è 600ms; qui ~40ms. Regolabile da .env (BOT_SPEED_MS).
+const BOT_SPEED_MS = Number(process.env.BOT_SPEED_MS) || 40;
+
 // Ogni quanto "svegliare" il driver dei bot (watchdog): idempotente, il gioco
 // controlla da sé lease e se sta già girando. È la rete che rialza il motore se
 // un giro si fosse impuntato.
@@ -107,10 +113,15 @@ async function runOnce() {
     // Primo calcio e poi WATCHDOG: sveglia il driver dei bot a intervalli. È
     // idempotente (il gioco gestisce lease e "sta già girando"), quindi non fa
     // danni e rialza il motore se un giro si fosse impuntato.
-    const kick = () => page.evaluate(function () {
+    // Porta i bot a velocità massima (nessuno li guarda qui) e dà il calcio al
+    // driver. Bot.speed va rimesso a ogni giro perché è una variabile di modulo,
+    // ripristinata al default a ogni caricamento della pagina.
+    const kick = () => page.evaluate(function (spd) {
+      try { if (window.Bot && window.Bot.speed) window.Bot.speed(spd); } catch (e) {}
       try { if (window.Risiko && Risiko.driveBots) Risiko.driveBots(); } catch (e) {}
-    }).catch(function () {});
+    }, BOT_SPEED_MS).catch(function () {});
     await kick();
+    log('Velocità bot impostata a', BOT_SPEED_MS + 'ms/azione.');
     watchdog = setInterval(kick, WATCHDOG_MS);
 
     // Heartbeat: a chi tocca ora (così vedi che scorre).
