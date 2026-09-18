@@ -290,7 +290,13 @@
         }
         const umanoIds = new Set(umani.map(p => p.id));
         if (root.Bot) {
-            if (tuttiUmani) players.forEach(pl => { pl.bot = null; });
+            // TUTTI UMANI: nessun bot, e ogni regno riparte "dell'admin" (controllo
+            // 'admin') — è l'admin a giocarli tutti finché non ne affida qualcuno a un
+            // player remoto (menu 🔗 Player sulla scheda). Senza azzerare `controllo`,
+            // un'etichetta vecchia ('ai' o 'player') di una partita precedente restava
+            // appiccicata al regno pur essendo bot=null, incoerente col menu e con la
+            // plancia che segue i turni dell'admin.
+            if (tuttiUmani) players.forEach(pl => { pl.bot = null; pl.controllo = 'admin'; });
             else root.Bot.assignStrategies(players, umanoIds, rand);
         }
         // ...e nemmeno una strategia: l'Orda la gioca l'ADMIN (`bot:null`, come
@@ -316,7 +322,10 @@
         // PREPARA soltanto: la partita nasce ferma (ordine pieno, turnoDi null),
         // così l'admin può inviare i link e poi premere 🏁 Avvia. Il "via" (ordine
         // sorteggiato + beginTurn) lo dà beginMatch dal bottone dell'editor.
-        const avvio = root.GameActions.prepareGame({ deferSave: true });
+        // `senzaIA`: in modalità tutti-umani la partita non avrà bot MAI, nemmeno per
+        // i regni che nascono da un evento (Orda, Selgiuchidi, Portogallo…): li gioca
+        // l'admin. Il flag vive nello stato e prepareGame è il choke point che lo fissa.
+        const avvio = root.GameActions.prepareGame({ deferSave: true, senzaIA: tuttiUmani });
 
         // Tassazione al valore iniziale del §11. La strada gratuita NON si regala
         // più all'avvio: nasce dalla costruzione della Capitale (build() fa

@@ -496,6 +496,12 @@
         // partita nuova non eredita orde o pestilenze da quella prima.
         if (R().setEventi) R().setEventi({ attivi: [], fatti: [] });
 
+        // MODALITÀ SENZA IA (opts.senzaIA, da GameSetup.finalize quando tuttiUmani):
+        // la partita non avrà bot. Si fissa qui, il choke point di ogni partita nuova,
+        // così "Gioca con l'IA" la azzera e il preset tutti-umani la alza. Da qui gli
+        // eventi che generano regni li fanno nascere in mano all'admin (bot:null).
+        if (R().setSenzaIA) R().setSenzaIA(!!(opts && opts.senzaIA));
+
         // ...e con lui la mappa delle FEDI: gli scismi (Religions.SCHISMS) sono
         // sul calendario, quindi una partita che riparte dal turno 1 deve
         // ripartire dalle confessioni del Mille. Senza, la Riforma della partita
@@ -971,6 +977,9 @@
             state: rec.stato,          // lo stato persistente DI QUESTO evento
             map: E(),                  // lettura mappa: non muta niente
             R: R(),
+            // MODALITÀ SENZA IA: gli agganci d'evento (es. il "grande passo" dell'Orda
+            // che riassegna una strategia) la leggono per non ridare un regno all'IA.
+            senzaIA: !!(R().senzaIA && R().senzaIA()),
             // Pergamena a inizio turno ai regni toccati (rispetta la nebbia in
             // player-board), come gli editti: vive in player.eventiAvvisi.
             notify: (regni, avviso) => eventNotify(regni, avviso),
@@ -1316,10 +1325,14 @@
         // manderebbero in confusione. Capita quando si ricarica la mappa iniziale
         // e si ricomincia con una partita nuova: il calendario riparte da zero
         // (`eventi` azzerato) ma l'anagrafica dei regni resta.
+        // In modalità SENZA IA il regno d'evento nasce in mano all'ADMIN (bot:null),
+        // non governato dall'IA: è la baseline multiplayer senza bot (regola
+        // dell'utente). Fuori da quella modalità vale la strategia della spec.
+        const wantBot = (R().senzaIA && R().senzaIA()) ? null : (s.bot || null);
         const pl = R().players().find(p => p.name === s.name) ||
-            R().addKingdom({ name: s.name, color: s.color, bot: s.bot || null });
+            R().addKingdom({ name: s.name, color: s.color, bot: wantBot });
         if (!pl) return null;
-        pl.bot = s.bot || null;
+        pl.bot = wantBot;
         // FONDAZIONE: nasce ADESSO, anche se il record è riusato (stessa mappa
         // ricaricata). Da qui la GRAZIA DELL'INSEDIAMENTO (§8) gli conta i suoi
         // primi decenni come li ha contati a chi c'era dal turno 1: un regno che

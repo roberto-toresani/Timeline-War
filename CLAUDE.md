@@ -36,6 +36,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ bot.js             regni governati dall'IA: 4 strategie + driver dei turni
 │  ├─ setup.js           "Nuova partita": sorteggio feudi, Capitali, umano vs bot
 │  ├─ start-map.js       MAPPA INIZIALE: salva/ricarica la posizione di partenza
+│  ├─ save-slots.js      ARCHIVIO DI PARTITE: salva/carica/nuova, slot locali con nome — solo admin
 │  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
 │  ├─ chronicle.js       calendario (1 turno = 1 decennio) e fondazione delle città — puro
 │  ├─ map-anchors.js     DOVE si posano le cose: ancora di terra e approdo — puro
@@ -763,6 +764,34 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   POST fallisce e si ripiega sul download del browser: il file va copiato a mano in
   `src/data/`. **Se il server era già acceso quando serve.ps1 è cambiato, va
   riavviato**, altrimenti il salvataggio ripiega sul download.
+- **ARCHIVIO DI PARTITE (`js/save-slots.js`, regola dell'utente: salvare/caricare/nuova
+  senza interferenze)**: prima esisteva **un solo slot** — la chiave localStorage
+  `antigravity_map_save` e il documento fisso `games/main` su Firestore — quindi preparare
+  o caricare una partita **sovrascriveva** la precedente. L'archivio tiene **partite intere
+  con un nome** in localStorage (chiave `risiko_save_slots`, un oggetto `{id:{name,savedAt,
+  turno,regni,data}}` con `data` = lo snapshot completo): più partite convivono senza
+  cancellarsi. È il terzo dei tre meccanismi di persistenza, da non confondere:
+  - la **MAPPA INIZIALE** (`start-map.js`) è una *posizione di partenza* (proprietari,
+    risorse, pedine, strade, anagrafica regni) — una mappa, non una partita;
+  - il **BACKUP PER TURNO** (app.js/sync.js, `backupTurn`/`restoreTurn`) tiene un decennio
+    alla volta su Firestore, per rimediare a un danno *dentro* una partita;
+  - l'**ARCHIVIO** tiene partite intere, in locale, sul browser dell'admin.
+  - **Un solo percorso di applicazione**: `buildSnapshot()` resta l'unica fotografia dello
+    stato, ed è esposta come `Risiko.snapshot()`. Il caricamento passa per `applySnapshot()`
+    — estratta da `loadAutoSave` apposta, così un load da slot e l'autosave **non possono
+    divergere** — e da `Risiko.loadSnapshot(data)`, che ferma i bot, ridipinge e fa il push
+    **FORZATO** al cloud (`forcePushOnce`): una partita caricata può **arretrare il
+    calendario**, come un ripristino, quindi scavalca la guardia anti-regressione di sync.js.
+  - **Solo admin, solo editor** (scelta dell'utente): il pannello 🗄 *Partite salvate* sta
+    in `index.html` (nome + 💾 Salva; select + 📂 Carica + 🗑; 🆕 Nuova partita). La 🆕
+    riusa `StartMap.load()` (mappa iniziale a "non avviata", con la sua conferma). Ogni voce
+    che abbandona la partita in corso chiede conferma `danger`. Salvare con un nome già
+    esistente **sovrascrive** quello slot (previa conferma), non crea un doppione.
+  - **Il tetto è localStorage** (~5 MB): lo snapshot include tutta la `TURN_HISTORY`, quindi
+    molte partite lunghe possono riempirlo. `writeSlots` intercetta la quota superata e
+    **avvisa** (elimina qualche partita e riprova) invece di fallire in silenzio.
+  - **`Risiko.loadSnapshot` è gated `isAdminMode`**: un non-admin non riscrive lo stato
+    condiviso (come da `firestore.rules`), quindi caricare da slot ha senso solo per l'admin.
 - **`src/mappe/` è un'altra cosa**: lì sta la copia **congelata** della mappa definitiva
   (`mappa-definitiva.js`) con la sua pagina di sola lettura
   (`mappa-definitiva.html`: zoom/pan propri, regni isolabili dalla legenda, risorse,
@@ -800,6 +829,37 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   - **La plancia si apre senza codice d'invito** (`play.html` liscio): non c'è un regno
     "tuo", e un link `?p=` incollerebbe la pagina a quel regno anche dopo un
     ricaricamento (`resolvePlayer`). Senza codice, `boot` entra nel regno di turno.
+- **MODALITÀ SENZA IA: il flag `senzaIA` nello stato (regola dell'utente — baseline
+  stabile per il multiplayer)**. La stessa `tuttiUmani` è anche la modalità multiplayer
+  vera senza bot: ogni regno lo gioca l'admin o un player col proprio `?p=CODICE` (i
+  codici d'invito ci sono già su ogni scheda). Il motivo di stabilità: i bot sono di gran
+  lunga il mutatore di stato più veloce e voluminoso (decine di azioni per turno via
+  `Bot.run`, un solo browser admin a guidarli, il motore headless `driver/` che esiste
+  solo per babysittarli) — toglierli riduce drasticamente la superficie di crash e le
+  corse di scrittura, anche se non corregge i bug del motore condiviso, che restano ma
+  scattano molto meno spesso e in modo riproducibile.
+  - **`tuttiUmani` non basta da solo**: mette `bot=null` sui regni PRESENTI, ma gli
+    EVENTI che generano regni (Orda, Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia)
+    li farebbero comunque nascere governati dall'IA (`spec.bot`), reintroducendo bot a
+    metà partita. Perciò serve un flag **persistente** che sopravviva fino al turno
+    dell'evento: `soloGame()` (che inferisce "niente IA" da "nessun regno ha strategia")
+    è inaffidabile qui, perché uno spawn d'evento romperebbe l'inferenza.
+  - **Il flag `senzaIA`** vive nello stato accanto a `eventi` (app.js: `let senzaIA`,
+    accessori `Risiko.senzaIA()`/`setSenzaIA`, campo in `buildSnapshot`/`applyTurnState`,
+    reset a false in `scenario.apply`). Lo **alza `prepareGame`** — il choke point di ogni
+    partita nuova — dall'opzione `opts.senzaIA`, che `GameSetup.finalize` passa quando
+    `tuttiUmani`; ogni partita "Gioca con l'IA" lo lascia a false. Viaggia nel salvataggio
+    e in pass-through ai client, quindi un reload o un player che riceve lo snapshot sa che
+    la partita non ha bot.
+  - **Chi lo rispetta**: `eventSpawnKingdom` (game-actions) calcola `wantBot =
+    R().senzaIA() ? null : (spec.bot||null)` — i regni d'evento nascono in mano all'admin;
+    e il "grande passo del 1350" dell'Orda (events.js `onRound`) NON le riassegna una
+    strategia (`if (!ctx.senzaIA) orda.bot = …`), letto via `ctx.senzaIA` esposto da
+    `makeEventCtx`. Le ondate di rinforzo dell'Orda (`eventReinforce`) versano comunque le
+    reclute libere: le schiera l'admin che la gioca. Verificato: prepare tutti-umani →
+    `senzaIA=true`, 0 bot su 10, persiste al reload; "Gioca con l'IA" → `senzaIA=false`, 9
+    bot. **La FASE 2 (bug del motore condiviso con partite umane deterministiche) resta da
+    fare.**
 - **Il codice d'invito INCHIODA a un regno solo** (regola dell'utente, e fondamentale nel
   multiplayer vero: ogni player apre il PROPRIO `?p=CODICE`, quindi ci sono 2+ regni umani
   e senza questo la plancia dell'uno rimbalzerebbe sul regno dell'altro a fine turno).
@@ -2385,8 +2445,30 @@ deve mai spegnere il server.
   usali solo come riferimento. Non sono committati.
 - `DEV_ADMIN_BYPASS = true` in `js/app.js` dà a tutti i permessi admin: è **solo per test**,
   va rimesso a `false` prima del rilascio.
+- **MODALITÀ SOLO-LOCALE per lo sviluppo — `?local=1`** (`forceLocal` in `sync.js`): il
+  server locale (`scripts/serve.ps1`) serve `firebase-config.js` **configurato** su
+  `timeline-war` (il progetto di PRODUZIONE), quindi una partita di prova aperta in locale
+  scrive sul database live e ne riceve lo stato — le prove si accavallano col gioco vero e
+  il `turnoDi` locale viene sovrascritto da quello del cloud. Per provare **senza toccare
+  la produzione**: aprire l'editor/plancia con `?local=1`. `MultiplayerSync` calcola
+  `forceLocal` da quel parametro (memorizzato in `sessionStorage` come `risiko_local_only`,
+  così sopravvive alla navigazione editor↔plancia; si spegne con `?local=0`) e forza
+  `isConfigured=false`: Firebase non si connette, lo stato vive **solo** in `localStorage`
+  (`antigravity_map_save`), e ogni guardia `if (isConfigured)` ricade nel comportamento in
+  memoria. Poiché è una sandbox a scheda singola, `forceLocal` **concede anche l'admin**
+  (`MultiplayerSync.localOnly` letto da app.js accanto a `DEV_ADMIN_BYPASS`; `isAdmin`
+  inizializzato a `forceLocal` in sync.js, così i punti che leggono `MultiplayerSync.isAdmin`
+  diretto — es. il gate di `saveAutoSave` — si comportano da admin). Sul deploy vero nessuno
+  passa `?local=1`, quindi il multiplayer resta pieno.
+- **Attenzione, scritture verso la produzione**: qualunque test che chiami `newGame`/
+  `beginMatch`/`startGame` (o prema i bottoni partita) in locale **senza** `?local=1`
+  invia lo stato a `games/main` su `timeline-war`. La guardia anti-regressione di sync.js
+  (transazione col `rev`) rifiuta alcune scritture con `failed-precondition` (le 400 in
+  console), ma la **preparazione** può comunque atterrare sul cloud e sovrascrivere una
+  partita in corso. Usare sempre `?local=1` per le prove.
 - `firebase-config.js` contiene placeholder `INSERISCI_...`: finché non c'è un vero progetto
-  Firebase, il multiplayer resta in modalità locale (nessuna sync).
+  Firebase, il multiplayer resta in modalità locale (nessuna sync). **Oggi NON è più un
+  placeholder**: è configurato su `timeline-war` (vedi `?local=1` qui sopra).
 - Le chiavi Firebase nel client **non sono segrete**: la sicurezza è data da `firestore.rules`.
 - **Mai leggere per intero** `assets/world_map.svg` e `data/embedded_map.js` (~1,3 MB / ~325k
   token: sfondano il contesto). Accesso sempre mirato: Grep per `id`/nome provincia + Edit

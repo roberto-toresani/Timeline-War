@@ -114,6 +114,27 @@
                         </div>
                     </div>
 
+                    <!-- ARCHIVIO DI PARTITE (js/save-slots.js): salva la partita in corso
+                         con un nome, ricaricane una salvata, o riparti da zero. Ogni
+                         partita è uno slot a sé in localStorage: non si sovrascrivono
+                         più a vicenda. Solo admin, archivio di QUESTO browser. -->
+                    <div id="save-slots-controls" style="margin-bottom:10px;">
+                        <h3 style="margin:0 0 8px 0; border:none;">🗄 Partite salvate</h3>
+                        <div style="display:flex; gap:5px;">
+                            <input id="save-slot-name" placeholder="nome della partita" style="flex:1;" />
+                            <button id="save-slot-btn" title="Salva la partita in corso">💾 Salva</button>
+                        </div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <select id="save-slot-select" style="flex:1;"></select>
+                            <button id="save-slot-load-btn" title="Carica la partita scelta">📂 Carica</button>
+                            <button id="save-slot-delete-btn" title="Elimina la partita scelta">🗑</button>
+                        </div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <button id="save-slot-new-btn" style="flex:1;">🆕 Nuova partita (mappa iniziale)</button>
+                        </div>
+                        <div id="save-slot-info" style="font-size:.75rem; opacity:.8; margin-top:4px;"></div>
+                    </div>
+
                     <!-- Comandi partita (admin): avviano il gioco vero e passano i turni.
                          La partita nasce in DUE TEMPI: prima si PREPARA (bottoni più in
                          basso), poi si preme 🏁 Avvia partita per far cominciare i turni
@@ -290,11 +311,15 @@
     <script src="js/doctrines.js?v=101"></script>
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=100"></script>
-    <script src="js/app.js?v=107"></script>
+    <script src="js/app.js?v=108"></script>
     <script src="js/game-actions.js?v=109"></script>
     <script src="js/bot.js?v=98"></script>
     <script src="js/setup.js?v=85"></script>
     <script src="js/start-map.js?v=83"></script>
+    <!-- Archivio locale di partite intere (salva/carica/nuova): dopo app.js
+         (usa Risiko.snapshot/loadSnapshot) e start-map.js (la "Nuova" riusa
+         il caricamento della mappa iniziale). -->
+    <script src="js/save-slots.js?v=1"></script>
 </body>
 
 </html>

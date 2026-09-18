@@ -348,7 +348,9 @@
                     const orda = ctx.R.players().find(p => p.name === m.name);
                     if (orda && !orda.dottrinaSospesa) {
                         orda.dottrinaSospesa = true;   // bot.js: da qui gioca senza dottrina
-                        orda.bot = m.stanziale.bot;    // difensiva e moderata
+                        // In modalità SENZA IA l'Orda la gioca l'admin: resta bot:null,
+                        // non le si riassegna una strategia (regola dell'utente).
+                        if (!ctx.senzaIA) orda.bot = m.stanziale.bot;   // difensiva e moderata
                     }
                     return;
                 }

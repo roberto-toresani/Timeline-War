@@ -2,11 +2,35 @@
 // contiene l'intero stato di gioco. Chiunque puo' leggerlo in tempo reale (onSnapshot),
 // ma solo l'utente con UID === ADMIN_UID puo' scriverlo (vedi firestore.rules per l'enforcement reale).
 const MultiplayerSync = (function () {
-    const isConfigured = typeof firebaseConfig !== 'undefined'
+    // MODALITÀ SOLO-LOCALE (per lo sviluppo/test): quando è attiva, il layer NON si
+    // connette a Firebase — lo stato vive solo in questa scheda (autosave in
+    // localStorage), come quando Firebase non è configurato. Serve a provare la partita
+    // senza toccare il database di PRODUZIONE (timeline-war), a cui il server locale è
+    // altrimenti collegato. Si accende con `?local=1` nell'URL (e resta accesa per la
+    // sessione, così sopravvive alla navigazione editor↔plancia); si spegne con
+    // `?local=0`. È un interruttore da sviluppatore: sul deploy vero nessuno passa quei
+    // parametri, quindi il multiplayer resta pieno.
+    const forceLocal = (function () {
+        try {
+            const p = new URLSearchParams(location.search).get('local');
+            const KEY = 'risiko_local_only';
+            if (p === '1') { sessionStorage.setItem(KEY, '1'); return true; }
+            if (p === '0') { sessionStorage.removeItem(KEY); return false; }
+            return sessionStorage.getItem(KEY) === '1';
+        } catch (e) { return false; }
+    })();
+    const isConfigured = !forceLocal
+        && typeof firebaseConfig !== 'undefined'
         && firebaseConfig.apiKey
         && firebaseConfig.apiKey.indexOf('INSERISCI') === -1;
+    if (forceLocal && typeof console !== 'undefined') {
+        console.warn('[Risiko] MODALITÀ SOLO-LOCALE attiva (?local=1): nessuna connessione a Firebase, stato solo in questa scheda.');
+    }
 
-    let isAdmin = false;
+    // In solo-locale l'unico utente della sandbox è admin (nessun login vero possibile
+    // senza Firebase): così i punti che leggono MultiplayerSync.isAdmin direttamente
+    // (es. il gate di saveAutoSave) si comportano come col vero admin.
+    let isAdmin = forceLocal;
     let roleListeners = [];
     let stateListeners = [];
     let pushRejectListeners = [];   // avvisati quando una scrittura è rifiutata dal guard
@@ -397,6 +421,9 @@ const MultiplayerSync = (function () {
 
     return {
         isConfigured: isConfigured,
+        // Vero quando l'interruttore ?local=1 ha forzato la modalità solo-locale: app.js
+        // lo legge per concedere l'admin (sandbox a scheda singola, nessun login vero).
+        localOnly: forceLocal,
         get isAdmin() { return isAdmin; },
         authReady: authReady,
         onRoleChange: onRoleChange,

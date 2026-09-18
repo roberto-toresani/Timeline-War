@@ -165,6 +165,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // stato persistente; `fatti` = one-shot già scattati (guardia anti-bis). Vive
     // qui come turnoDi/ordine, viaggia nello snapshot e lo muta game-actions.
     let eventi = { attivi: [], fatti: [] };
+    // MODALITÀ SENZA IA (regola dell'utente: baseline stabile per il multiplayer):
+    // quando è true, la partita non ha bot — ogni regno lo gioca l'admin o un player
+    // umano col codice d'invito. Vive nello stato e si salva come `eventi`, così gli
+    // EVENTI che generano regni (Orda, Selgiuchidi, Portogallo…) sanno di doverli far
+    // nascere `bot:null` (in mano all'admin) invece che governati dall'IA. Lo alza
+    // prepareGame (da GameSetup.finalize, opzione tuttiUmani); lo azzera ogni partita
+    // normale "Gioca con l'IA".
+    let senzaIA = false;
 
     const TESORO_INIZIALE = 1000;   // §11
     const SOLDATI_INIZIALI = 5;     // §11, per provincia posseduta
@@ -3068,9 +3076,13 @@ document.addEventListener('DOMContentLoaded', () => {
     wireAdminLogin();
     MultiplayerSync.onRoleChange(applyRole);
 
-    if (DEV_ADMIN_BYPASS) {
+    if (DEV_ADMIN_BYPASS || MultiplayerSync.localOnly) {
         // Force admin locally so the whole UI is unlocked during testing.
-        // Cloud writes will still fail without a real Firebase login — that's fine while offline.
+        // DEV_ADMIN_BYPASS: interruttore di codice (resta false sul rilascio).
+        // MultiplayerSync.localOnly: interruttore d'URL ?local=1 (modalità solo-locale,
+        // Firebase spento) — è una sandbox a scheda singola, quindi chi la apre è admin.
+        // Le scritture cloud non partono comunque (Firebase disconnesso), lo stato resta
+        // in localStorage.
         applyRole(true);
     }
 
@@ -3371,7 +3383,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ? {
                 title: 'Preparare la partita coi regni tutti umani?',
                 text: 'Nessuna IA: ogni regno è umano (un link ciascuno, o li giochi tu a ' +
-                    'turno). Mappa ed economia partono come nella ' +
+                    'turno). Anche i regni che nascono da un evento (l\'Orda Mongola, i ' +
+                    'Selgiuchidi, il Portogallo…) restano in mano all\'admin, non all\'IA. ' +
+                    'Mappa ed economia partono come nella ' +
                     'partita normale: nessun regno ha una Capitale, la prima cosa da fare al ' +
                     'turno 1 è costruirla (500 monete). ' + neutrali + passo2,
                 ok: '👥 Prepara'
@@ -3560,6 +3574,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ordine: ordine,
             primoDelGiro: primoDelGiro,
             eventi: eventi,
+            senzaIA: senzaIA,
             // Intervento admin in attesa del prossimo cambio turno (vedi
             // commitIntervention). Viaggia nello stato — anche in PASS-THROUGH sui
             // client non-admin — così un reload non lo perde e una mossa altrui non
@@ -3646,29 +3661,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const data = JSON.parse(json);
-            if (data.players) {
-                mergePlayerData(data.players);
-                initPalette();
-            }
-            if (data.history) TURN_HISTORY = data.history;
-
-            if (data.turn !== undefined) {
-                currentTurn = data.turn;
-                updateTurnUI();
-                loadTurnFromHistory();
-            } else if (data.provinces) {
-                internalApplyMapData(data.provinces);
-            }
-            if ('resources' in data) applyResourceState(data.resources || {});
-            if ('religions' in data) applyReligionState(data.religions || {});
-            if ('pieces' in data) applyPieceState(data.pieces || {});
-            if ('roads' in data) applyRoadState(data.roads || []);
-            applyTurnState(data);
-            renderPlayerTabs();
+            applySnapshot(JSON.parse(json));
         } catch (e) {
             console.error("Failed to load auto-save", e);
         }
+    }
+
+    // Applica uno snapshot (stessa forma di buildSnapshot) allo stato vivo.
+    // Estratto da loadAutoSave perché serve anche a CARICARE una partita
+    // dall'archivio locale (js/save-slots.js): un caricamento da slot deve
+    // passare esattamente per lo stesso percorso dell'autosave, o le due strade
+    // potrebbero divergere. NON ridisegna né salva: se ne occupa il chiamante.
+    function applySnapshot(data) {
+        if (!data) return false;
+        if (data.players) {
+            mergePlayerData(data.players);
+            initPalette();
+        }
+        if (data.history) TURN_HISTORY = data.history;
+
+        if (data.turn !== undefined) {
+            currentTurn = data.turn;
+            updateTurnUI();
+            loadTurnFromHistory();
+        } else if (data.provinces) {
+            internalApplyMapData(data.provinces);
+        }
+        if ('resources' in data) applyResourceState(data.resources || {});
+        if ('religions' in data) applyReligionState(data.religions || {});
+        if ('pieces' in data) applyPieceState(data.pieces || {});
+        if ('roads' in data) applyRoadState(data.roads || []);
+        applyTurnState(data);
+        renderPlayerTabs();
+        return true;
     }
 
     // Lo stato salvato e' autoritativo sull'elenco giocatori: cosi' aggiunte E rimozioni
@@ -3693,6 +3718,10 @@ document.addEventListener('DOMContentLoaded', () => {
         primoDelGiro = (data && typeof data.primoDelGiro === 'number') ? data.primoDelGiro : 0;
         eventi = (data && data.eventi && Array.isArray(data.eventi.attivi) && Array.isArray(data.eventi.fatti))
             ? data.eventi : { attivi: [], fatti: [] };
+        // Il flag senza-IA viaggia nello stato: un reload o un client che riceve lo
+        // snapshot deve sapere che questa partita non ha bot. Assente = stato vecchio
+        // (partita con IA) → false.
+        senzaIA = !!(data && data.senzaIA);
         // Intervento admin in attesa: si ADOTTA dallo stato solo se il campo c'è
         // (assente = stato vecchio → si tiene quello in memoria, non lo si cancella).
         // Presente e null = già applicato altrove → si azzera. La APPLICAZIONE resta
@@ -5684,6 +5713,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // e lo scrive game-actions (applyEvents/tickEvents); qui vive e si salva.
         eventi: () => eventi,
         setEventi(e) { eventi = (e && Array.isArray(e.attivi) && Array.isArray(e.fatti)) ? e : { attivi: [], fatti: [] }; },
+        // MODALITÀ SENZA IA: la legge game-actions (eventSpawnKingdom, makeEventCtx)
+        // per far nascere i regni d'evento in mano all'admin invece che all'IA.
+        senzaIA: () => senzaIA,
+        setSenzaIA(v) { senzaIA = !!v; },
         // Aggiunge un REGNO a partita in corso (evento: spawnKingdom). Come
         // addPlayer, ma con nome/colore dati; restituisce il record creato. NON
         // tocca province né ordine dei turni — quello lo fa game-actions, che
@@ -5918,6 +5951,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 applyRoadState(data.roads || []);
                 turnoDi = null;
                 eventi = { attivi: [], fatti: [] };
+                senzaIA = false;
                 ordine = [];
                 primoDelGiro = 0;
                 renderPlayerTabs();
@@ -5925,6 +5959,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveAutoSave();
                 return true;
             }
+        },
+
+        // --- ARCHIVIO DI PARTITE (js/save-slots.js) ---
+        // A differenza dello scenario (una MAPPA: solo posizione di partenza) e
+        // del backup per turno (Firestore, un decennio alla volta), questo è
+        // l'ARCHIVIO LOCALE di partite intere: salva, carica, riparti da zero
+        // senza che una sovrascriva l'altra. `snapshot()` fotografa lo stato
+        // completo (uguale all'autosave); `loadSnapshot()` lo rimette come
+        // partita VIVA — ferma i bot, ridipinge e fa il push FORZATO al cloud
+        // (una partita caricata può arretrare il calendario, come un ripristino).
+        snapshot() { return buildSnapshot(); },
+        loadSnapshot(data) {
+            if (!isAdminMode) return false;
+            if (window.Bot) window.Bot.stop();
+            if (!applySnapshot(data)) return false;
+            refreshMapDisplay();
+            forcePushOnce = true;
+            saveAutoSave();
+            return true;
         },
 
         // Vista mappa (disponibile solo dopo initMap).

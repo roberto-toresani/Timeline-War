@@ -391,6 +391,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // (mostrerebbe un regno che non è tuo). Si resta dove si è finché il giro
         // non riporta il comando a un regno umano.
         if (window.Bot && window.Bot.isBot(next)) return false;
+        // Un regno affidato a un PLAYER remoto (controllo 'player') lo gioca LUI dal
+        // suo ?p=CODICE, non la plancia dell'admin che segue i turni: si salta, come
+        // un bot. Così la plancia senza codice diventa "la plancia dei regni che
+        // gestisco io" (admin + regni d'evento/editor, tutti controllo 'admin'),
+        // hoppando fra i miei turni e lasciando i turni altrui alle loro plance
+        // agganciate — niente due scritture sullo stesso regno (regola dell'utente:
+        // baseline multiplayer stabile).
+        if (next.controllo === 'player') return false;
         if (spectating) setSpectate(false);
         enterKingdom(next);
         // L'avviso va in coda apposta: il cambio di regno avviene dentro il refresh
