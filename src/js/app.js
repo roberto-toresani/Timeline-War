@@ -153,6 +153,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let turnoDi = null;        // id del giocatore che sta giocando il suo turno
     let ordine = [];           // ordine dei giocatori (id) nel giro
     let primoDelGiro = 0;      // indice in `ordine` di chi apre il round (ruota, §2.1)
+    // PASSAGGIO DI TURNO (regola dell'utente: "le schede non parlano tra loro").
+    // Quando QUESTO browser chiude il suo turno, setTurnState avanza turnoDi al
+    // giocatore SEGUENTE prima che saveAutoSave scriva. shouldPushState valuterebbe
+    // allora l'autorizzazione sul turno ENTRANTE (un altro browser) e scarterebbe
+    // il push: gli altri tab resterebbero fermi al turno vecchio. hasHandoff segna
+    // che c'è una transizione appena fatta LOCALMENTE (solo game-actions chiama
+    // setTurnState; la ricezione in applyTurnState assegna turnoDi diretto, quindi
+    // un osservatore non lo alza mai) e handoffFrom è l'attore USCENTE, che ha il
+    // diritto di scrivere la transizione anche verso un turno altrui. È un one-shot:
+    // saveAutoSave lo consuma dopo aver valutato il push.
+    let hasHandoff = false;
+    let handoffFrom = null;
     // GUARDIA DI MONOTONÌA (regola dell'utente: "il turno rimbalzava indietro e
     // ricontava il giro, accumulando reclute"). `rev` cresce a ogni scrittura
     // riuscita su Firestore (transazione in sync.js): è un orologio monotòno. Uno
@@ -3624,9 +3636,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function shouldPushState() {
         if (!MultiplayerSync.isConfigured) return true;   // locale: nessun conflitto
         if (forcePushOnce) return true;                    // reset/intervento voluto
+        // Autore del turno CORRENTE: il caso normale (le mosse dentro il proprio turno).
+        if (canWriteForTurn(turnoDi)) return true;
+        // FINE TURNO: la transizione la scrive l'attore USCENTE, anche se il turno
+        // entra a un altro browser. Senza, chi chiude il proprio turno passando a un
+        // giocatore "preso" da un altro tab non riuscirebbe a propagare l'avanzamento
+        // — era il bug "le schede non parlano tra loro". Vale una volta (vedi
+        // saveAutoSave, che azzera hasHandoff dopo aver valutato il push).
+        if (hasHandoff && canWriteForTurn(handoffFrom)) return true;
+        return false;
+    }
+
+    // Questo browser è il legittimo scrittore per il turno del giocatore `who`?
+    function canWriteForTurn(who) {
         // Nessuna partita in corso: fase di setup della mappa nell'editor (solo admin).
-        if (turnoDi === null || turnoDi === undefined) return isAdminMode;
-        const cur = PLAYERS.find(p => p.id === turnoDi);
+        if (who === null || who === undefined) return isAdminMode;
+        const cur = PLAYERS.find(p => p.id === who);
         if (!cur) return isAdminMode;
         // Turno di un BOT: lo pilota l'admin, che quindi ne scrive le mosse.
         if (window.Bot && window.Bot.isBot(cur)) return isAdminMode;
@@ -3650,6 +3675,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // shouldPushState() impedisce a un osservatore di sovrascrivere la partita.
         if (!adminIntervening && shouldPushState()) MultiplayerSync.pushState(stateSnapshot, { force: forcePushOnce });
         forcePushOnce = false;
+        // La transizione di fine turno (se c'era) è stata valutata: one-shot consumato,
+        // così non autorizza per sbaglio un push successivo estraneo al passaggio.
+        hasHandoff = false; handoffFrom = null;
     }
 
     function loadAutoSave() {
@@ -5705,6 +5733,11 @@ document.addEventListener('DOMContentLoaded', () => {
         ordine: () => ordine.slice(),
         primoDelGiro: () => primoDelGiro,
         setTurnState(t, o, primo) {
+            // Cambio di attore (fine turno): ricordo chi ESCE, così shouldPushState
+            // autorizza la scrittura della transizione anche se il turno entra a un
+            // altro browser. Un beginTurn che riscrive lo stesso turnoDi non è una
+            // transizione e non tocca il flag.
+            if (t !== turnoDi) { hasHandoff = true; handoffFrom = turnoDi; }
             turnoDi = t;
             if (o) ordine = o.slice();
             if (typeof primo === 'number') primoDelGiro = primo;
