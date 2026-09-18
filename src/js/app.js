@@ -165,6 +165,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // saveAutoSave lo consuma dopo aver valutato il push.
     let hasHandoff = false;
     let handoffFrom = null;
+    // Contatore monotòno dei passaggi di turno del giro: +1 a ogni cambio di
+    // turnoDi (setTurnState). Entra nello snapshot come `turnProgress` e il guard di
+    // sync.js lo usa per rifiutare le scritture che riporterebbero il turno indietro
+    // (vedi buildSnapshot). Si adotta dallo stato ricevuto in applyTurnState, così
+    // ogni sessione parte dal valore autorevole.
+    let turnProgress = 0;
     // GUARDIA DI MONOTONÌA (regola dell'utente: "il turno rimbalzava indietro e
     // ricontava il giro, accumulando reclute"). `rev` cresce a ogni scrittura
     // riuscita su Firestore (transazione in sync.js): è un orologio monotòno. Uno
@@ -3585,6 +3591,15 @@ document.addEventListener('DOMContentLoaded', () => {
             turnoDi: turnoDi,
             ordine: ordine,
             primoDelGiro: primoDelGiro,
+            // OROLOGIO MONOTÒNO DEL GIRO (regola dell'utente: "una volta che il turno
+            // passa da 1 a 2 non si deve ASSOLUTAMENTE tornare indietro"). Cresce di 1
+            // a ogni passaggio di turno (setTurnState); il guard di scrittura in
+            // sync.js rifiuta un push non-forzato che lo farebbe ARRETRARE. È più fine
+            // del backstop sul `turn` (decennio): stessa decade, ma posizione nel giro
+            // precedente = stato di un driver in ritardo → scartato. Ferma il rimbalzo
+            // 1→2→1→2 fra due bot guidati da due sessioni, e con esso il ri-conteggio
+            // del giro (reclute doppie).
+            turnProgress: turnProgress,
             eventi: eventi,
             senzaIA: senzaIA,
             // Intervento admin in attesa del prossimo cambio turno (vedi
@@ -3744,6 +3759,10 @@ document.addEventListener('DOMContentLoaded', () => {
         turnoDi = (data && data.turnoDi !== undefined) ? data.turnoDi : null;
         ordine = (data && Array.isArray(data.ordine)) ? data.ordine.slice() : [];
         primoDelGiro = (data && typeof data.primoDelGiro === 'number') ? data.primoDelGiro : 0;
+        // Orologio monotòno del giro: si adotta il valore autorevole dello stato
+        // ricevuto (assente = stato vecchio → 0). Da qui il prossimo passaggio di
+        // turno LOCALE incrementa sopra questo numero, così ogni sessione concorda.
+        turnProgress = (data && typeof data.turnProgress === 'number') ? data.turnProgress : 0;
         eventi = (data && data.eventi && Array.isArray(data.eventi.attivi) && Array.isArray(data.eventi.fatti))
             ? data.eventi : { attivi: [], fatti: [] };
         // Il flag senza-IA viaggia nello stato: un reload o un client che riceve lo
@@ -5737,7 +5756,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // autorizza la scrittura della transizione anche se il turno entra a un
             // altro browser. Un beginTurn che riscrive lo stesso turnoDi non è una
             // transizione e non tocca il flag.
-            if (t !== turnoDi) { hasHandoff = true; handoffFrom = turnoDi; }
+            if (t !== turnoDi) { hasHandoff = true; handoffFrom = turnoDi; turnProgress++; }
             turnoDi = t;
             if (o) ordine = o.slice();
             if (typeof primo === 'number') primoDelGiro = primo;

@@ -276,6 +276,8 @@ const MultiplayerSync = (function () {
                 const remoteRev = (typeof remote.rev === 'number') ? remote.rev : 0;
                 const remoteTurn = (typeof remote.turn === 'number') ? remote.turn : null;
                 const newTurn = (typeof stateObj.turn === 'number') ? stateObj.turn : null;
+                const remoteProg = (typeof remote.turnProgress === 'number') ? remote.turnProgress : null;
+                const newProg = (typeof stateObj.turnProgress === 'number') ? stateObj.turnProgress : null;
                 if (!force) {
                     // (1) Il documento online è più avanti di quello su cui ci
                     //     basiamo: un altro browser ha già scritto qualcosa che non
@@ -288,6 +290,16 @@ const MultiplayerSync = (function () {
                     //     il 25) — e si rifiuta anche se il rev combaciasse.
                     if (remoteTurn !== null && newTurn !== null && newTurn < remoteTurn)
                         throw { _guard: 'turn', remoteRev, baseRev, remoteTurn, newTurn };
+                    // (3) Backstop sul PASSAGGIO DI TURNO (regola dell'utente: "da 1 a 2
+                    //     non si torna indietro"). turnProgress cresce di 1 a ogni
+                    //     cambio di turnoDi: un push con un valore INFERIORE a quello
+                    //     online è lo stato di un driver in ritardo che riporterebbe il
+                    //     turno alla posizione precedente del giro (rimbalzo
+                    //     1→2→1→2). Più fine del backstop sul turno: intercetta anche i
+                    //     salti DENTRO lo stesso decennio. I reset voluti (force) lo
+                    //     scavalcano.
+                    if (remoteProg !== null && newProg !== null && newProg < remoteProg)
+                        throw { _guard: 'progress', remoteRev, baseRev, remoteTurn, newTurn };
                 }
                 const nextRev = Math.max(remoteRev, baseRev) + 1;
                 tx.set(docRef, Object.assign({}, stateObj, {
