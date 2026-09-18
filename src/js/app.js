@@ -840,6 +840,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data && typeof data.rev === 'number') {
                     if (data.rev <= lastAppliedRev) return;   // stantìo: si ignora
                     lastAppliedRev = data.rev;
+                    // ECHO DI NOI STESSI: Firestore ci rimanda ogni nostra scrittura.
+                    // Se lo stato locale è già ANDATO OLTRE (i bot hanno continuato a
+                    // muovere mentre il write faceva il giro di rete), ri-applicare il
+                    // nostro vecchio snapshot farebbe ARRETRARE turnoDi/turnProgress e
+                    // cancellerebbe il progresso — poi la scrittura correttiva, con un
+                    // progresso più basso, verrebbe RIFIUTATA dal guard ("salvataggio
+                    // annullato"). Si marca come applicato (sopra) ma NON si applica:
+                    // siamo già quello stato, o più avanti.
+                    if (MultiplayerSync.lastPushedRev && data.rev <= MultiplayerSync.lastPushedRev())
+                        return;
                 }
                 applyCloudState(data);
             });

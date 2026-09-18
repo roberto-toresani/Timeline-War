@@ -57,6 +57,17 @@ const MultiplayerSync = (function () {
     // partita: un tab rimasto indietro (turno 13) che stampa il suo stato sopra
     // quello vero (turno 25). Vedi anche il backstop sul `turn` in pushState.
     let baseRev = 0;
+    // Rev dell'ULTIMA scrittura andata a buon fine di QUESTA sessione. Diverso da
+    // baseRev (che cresce anche in RICEZIONE): serve a riconoscere il nostro stesso
+    // ECHO. Firestore ci rimanda via onSnapshot ogni scrittura che facciamo; se la
+    // ri-applichiamo mentre lo stato locale è già ANDATO OLTRE (i bot continuano a
+    // muovere durante il giro di rete della scrittura), turnoDi/turnProgress
+    // ARRETRANO al momento di quella scrittura e il progresso in memoria si perde —
+    // poi la scrittura correttiva ha un turnProgress più basso e il guard la
+    // rifiuta ("salvataggio annullato"): il progresso dei bot si cancella. app.js
+    // salta l'applicazione di uno snapshot con rev ≤ a questo (è roba nostra, già
+    // nostra o superata). Sale solo, mai scende.
+    let lastPushedRev = 0;
     // BACKUP PER TURNO (§salvataggi robusti, richiesta dell'utente): a ogni nuovo
     // decennio si salva l'intero stato in un documento a parte, così si può sempre
     // ricaricare la partita dall'inizio di un turno precedente. Sottocollezione
@@ -307,7 +318,12 @@ const MultiplayerSync = (function () {
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 }));
                 return nextRev;
-            })).then(nextRev => { if (nextRev > baseRev) baseRev = nextRev; }).catch(err => {
+            })).then(nextRev => {
+                if (nextRev > baseRev) baseRev = nextRev;
+                // Segna che QUESTO rev è nostro: il suo echo via onSnapshot non va
+                // ri-applicato (ci farebbe arretrare — vedi lastPushedRev).
+                if (nextRev > lastPushedRev) lastPushedRev = nextRev;
+            }).catch(err => {
                 if (err && err._guard) {
                     console.warn('pushState RIFIUTATO (' + err._guard + '): lo stato online (turno '
                         + err.remoteTurn + ', rev ' + err.remoteRev + ') è più avanti del nostro (turno '
@@ -447,6 +463,9 @@ const MultiplayerSync = (function () {
         clearChat: clearChat,
         pushState: pushState,
         onPushReject: onPushReject,
+        // Rev dell'ultima scrittura riuscita di questa sessione: app.js scarta gli
+        // echo dei propri stessi push (rev ≤ questo) per non arretrare.
+        lastPushedRev: function () { return lastPushedRev; },
         acquireDriver: acquireDriver,
         releaseDriver: releaseDriver,
         backupTurn: backupTurn,
