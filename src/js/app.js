@@ -3668,8 +3668,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (who === null || who === undefined) return isAdminMode;
         const cur = PLAYERS.find(p => p.id === who);
         if (!cur) return isAdminMode;
-        // Turno di un BOT: lo pilota l'admin, che quindi ne scrive le mosse.
-        if (window.Bot && window.Bot.isBot(cur)) return isAdminMode;
+        // Turno di un BOT: lo scrive SOLO la sessione che tiene il lease del driver
+        // (botLeaseHeld), non un admin qualunque. Con più tab admin aperti (editor +
+        // mappa generale) tutti erano "admin" e scrivevano lo stato del bot: le mosse
+        // del vero driver venivano rifiutate dal guard di progressione ("salvataggio
+        // annullato") e il bot passava il turno SENZA che le sue azioni si salvassero
+        // — "i bot non progrediscono". Il lease è già l'unico che fa girare Bot.run;
+        // qui lo si rende anche l'unico che ne PERSISTE le mosse. (In locale non si
+        // arriva mai qui: shouldPushState torna true a monte.)
+        if (window.Bot && window.Bot.isBot(cur)) return isAdminMode && botLeaseHeld;
         // Turno di un UMANO: scrive solo il browser che comanda QUEL regno.
         const pin = myPinnedPlayerId();
         if (pin !== null) return pin === cur.id;           // la plancia col suo codice
