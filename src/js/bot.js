@@ -2264,13 +2264,32 @@
         emit('start', player, null);
         const it = turnScript(player);
 
+        // ANTI-STALL (bug dell'utente: "più regni si bloccano, si riattivano solo con
+        // Ctrl+F5"). Se una qualsiasi delle chiamate del `tick` — showResult, endTurn,
+        // botOfTurn, playTurn ricorsivo — lancia un'eccezione, il setTimeout successivo
+        // non viene armato e `active` resta true PER SEMPRE: da lì `Bot.run` rifiuta
+        // ("sto già girando") e `maybeDriveBots` non prova nemmeno a ripartire perché
+        // `isRunning()` continua a dire di sì. Il watchdog del motore headless
+        // (`Risiko.driveBots`) non sblocca (rientra e rispetta lo stesso guard),
+        // quindi l'unica cura era il reload. Ora ogni ramo del tick è avvolto in un
+        // try/catch che, se qualcosa esplode, RESETTA `active` e lascia che la catena
+        // riparta al prossimo giro di watchdog invece di piantarsi.
+        const bail = (err) => {
+            console.error('[bot] tick interrotto', err);
+            try { clearTimeout(timer); } catch (e) {}
+            timer = null;
+            active = false;
+            try { emit('idle', currentPlayer(), null); } catch (e) {}
+        };
+
         const tick = () => {
             let step;
             try { step = it.next(); }
             catch (err) { console.error('[bot] turno interrotto', err); step = { done: true }; }
 
             if (!step.done) {
-                showResult(player, step.value);
+                try { showResult(player, step.value); }
+                catch (err) { bail(err); return; }
                 timer = setTimeout(tick, velocita);
                 return;
             }
@@ -2283,19 +2302,30 @@
             // mentre il turnScript girava, e allora GA().endTurn() chiuderebbe il
             // turno di chi c'è ORA — cioè l'umano, saltandolo. Se non è più il mio
             // bot, mollo: allo stato autorevole ci pensa il prossimo snapshot.
-            if (!R() || R().turnoDi() !== player.id) {
+            let stillMine = false;
+            try { stillMine = !!R() && R().turnoDi() === player.id; }
+            catch (err) { bail(err); return; }
+            if (!stillMine) {
                 active = false;
-                emit('idle', currentPlayer(), null);
+                try { emit('idle', currentPlayer(), null); } catch (e) {}
                 return;
             }
 
-            const fine = GA().endTurn();
-            emit('end', player, fine);
+            let fine;
+            try { fine = GA().endTurn(); }
+            catch (err) { bail(err); return; }
+            try { emit('end', player, fine); } catch (e) {}
             timer = setTimeout(() => {
-                const next = botOfTurn();
-                if (next) { playTurn(next); return; }
+                let next = null;
+                try { next = botOfTurn(); }
+                catch (err) { bail(err); return; }
+                if (next) {
+                    try { playTurn(next); }
+                    catch (err) { bail(err); }
+                    return;
+                }
                 active = false;
-                emit('idle', currentPlayer(), null);
+                try { emit('idle', currentPlayer(), null); } catch (e) {}
             }, velocita);
         };
 

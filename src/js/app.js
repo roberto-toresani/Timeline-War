@@ -2812,8 +2812,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     p.bot = v;
                     p.controllo = 'ai';
                 }
+                // Cambio di controllo DURANTE il turno di quel regno: se ora tocca a
+                // un bot, `shouldPushState` guarderebbe `botLeaseHeld` e — l'editor
+                // admin il lease non lo tiene (ce l'ha il motore headless) — RIFIUTA
+                // il push. Risultato: il regno era su "player", l'admin lo passa a
+                // "AI" per farlo giocare dal motore, ma il cambio resta locale e il
+                // motore continua a vederlo come umano. È un'azione di regia
+                // dell'admin, esattamente come un intervento: si forza il push.
+                forcePushOnce = true;
                 saveAutoSave();
                 initPalette();   // aggiorna il badge "Preso dal giocatore" e la voce scelta
+                // Se il turno è del regno appena passato all'IA e questa sessione
+                // è quella che pilota i bot (editor senza ?nodrive, solitaria), dà
+                // subito il calcio al driver — così non si aspetta il prossimo
+                // watchdog del motore headless per veder partire il turno.
+                if (p.id === turnoDi && p.bot) maybeDriveBots();
                 const msg = v === 'admin' ? ' lo giochi tu (👁, nessun link da mandare).'
                     : v === 'player' ? ' lo gioca un altro: copia e mandagli il link 🔗.'
                     : ' è governato dall\'IA (' + v + ').';
