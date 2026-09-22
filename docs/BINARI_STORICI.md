@@ -61,24 +61,33 @@ DAVVERO per quella regione — così l'ambizione resta sulla scala giusta E rest
 storicamente credibile, perché è la stessa storia che il binario racconterebbe comunque,
 solo in anticipo.
 
-Applicato a otto regni (Bisanzio e Inghilterra non ne hanno bisogno: i loro capitoli non
-ripetono mai una regione già a tetto):
+**Verificato riga per riga sul codice vivo di `objectives.js` (2026-09-22, riallineamento
+dei docs col codice reale)**: 17 traboccamenti attivi, su 7 dei 10 regni. **Castiglia,
+Emirato dei Mori e Inghilterra non ne hanno NESSUNO** (non solo "non ne hanno bisogno":
+verificato che nessuna loro voce dichiara `arg.oltre` — anche dove la vecchia versione di
+questo documento ne dava per scontato uno, es. Castiglia ANDALUS→IBERIA/IBERIA→MAGHREB e
+Mori HOLY_LAND→ARABIA, che **non sono mai esistiti nel codice**: erano intenzione di design
+mai scritta, o scritta e poi sostituita da un capitolo diverso senza aggiornare questi docs).
 
-| regno | trabocca da → a | quando |
-|---|---|---|
-| Castiglia | ANDALUS → IBERIA | cap III, se al-Andalus è già intera |
-| Castiglia | IBERIA → MAGHREB | cap V, se la penisola è già intera |
-| Francia | NORMANDY_FR → MED_FR | cap III (Bouvines coincide con gli Albigesi, 1209-1229) |
-| Francia | NORMANDY_FR → ITALIA_NORD | cap V, un ciclo prima del vero 1494 di Carlo VIII |
-| Califfato Fatimide | HOLY_LAND → ARABIA | cap III, la stessa meta di fa5-1 in anticipo |
-| Sacro Romano Impero | ITALIA_NORD → ADRIATIC | cap III |
-| Sacro Romano Impero | GERMANIA → RENO | cap III (Secondario) |
-| Sacro Romano Impero | GERMANIA → AUSTRIA_EST | cap IV, la stessa meta di sr5-1 in anticipo |
-| Sacro Romano Impero | AUSTRIA_EST → BALCANI | cap V, la stessa meta di sr8-1 tre cicli prima |
-| Ducato di Polonia | BALTICO → RUS_NORD | cap V |
-| Kievan Rus' | RUS_NORD → EST_RUSSO | cap III e cap IV, la stessa meta di ru5-1 in anticipo |
-| Ducato di Ungheria | PANNONIA → BALCANI | cap III, la stessa meta di un4-1 in anticipo |
-| Califfato Abbaside | MESOPOTAMIA → PERSIA | cap III, la stessa meta di ab4-1 in anticipo |
+| regno | trabocca da → a | quando | voce |
+|---|---|---|---|
+| Regno di Francia | NORMANDY_FR → MED_FR | cap III (Bouvines coincide con gli Albigesi, 1209-1229) | fr3-1 |
+| Regno di Francia | NORMANDY_FR → ITALIA_NORD | cap V, un ciclo prima del vero 1494 di Carlo VIII | fr5-1 |
+| Sacro Romano Impero | ITALIA_NORD → ADRIATIC | cap III | sr3-1 |
+| Sacro Romano Impero | AUSTRIA_EST → PANNONIA | cap V (**non** BALCANI: la vecchia versione di questo doc sbagliava la meta) | sr5-1 |
+| Ducato di Polonia | POLONIA_EST → RUS_NORD | cap II (**non** cap V da BALTICO: la vecchia versione di questo doc sbagliava sia il ciclo sia la regione di partenza) | po2-1 |
+| Ducato di Polonia | RUTENIA → RUS_NORD | cap VII, "Verso la Russia" — lo stesso intervento polacco nei Torbidi (1605-1618) | po7-1 |
+| Kievan Rus' | RUS_NORD → EST_RUSSO | cap IV (una volta sola, non due: la vecchia versione di questo doc ne contava due) | ru4-1 |
+| Kievan Rus' | CAUCASO → PERSIA | cap V, le guerre russo-persiane in anticipo | ru5-2 |
+| Kievan Rus' | RUTENIA → POLONIA | cap VI, "L'invasione d'Europa" | ru6-1 |
+| Kievan Rus' | BALTICO_NORD → BALTICO | cap VIII, oltre la finestra di Pietro il Grande | ru8-1 |
+| Ducato di Ungheria | ADRIATIC → BALCANI_OVEST | cap II | un2-1 |
+| Ducato di Ungheria | PANNONIA → BALCANI | cap III, la stessa meta di un4-1 in anticipo | un3-1 |
+| Ducato di Ungheria | AUSTRIA_EST → ITALIA_NORD | cap V (non presente nella vecchia versione di questo doc) | un5-1 |
+| Impero Bizantino | GREECE → BALCANI | cap II (la vecchia versione di questo doc diceva che Bisanzio non ne avesse bisogno: falso) | bi2-1 |
+| Impero Bizantino | BALCANI_OVEST → PANNONIA | cap VI (idem) | bi6-1 |
+| Califfato Abbaside | PERSIA_OVEST → PERSIA_EST | cap II (**non** MESOPOTAMIA→PERSIA al cap III, che non è mai esistito) | ab2-2 |
+| Califfato Abbaside | PERSIA_EST → ARABIA | cap III, la stessa meta di ab4-1 in anticipo | ab3-2 |
 
 ## La scala dell'ambizione
 
@@ -127,15 +136,15 @@ I capitoli riscritti per questa regola:
 | Ducato di Ungheria | III | «Mohi» | **Le fortezze di pietra** — l'incastellamento di Béla IV |
 | Kievan Rus' | III | «Il giogo» | **L'ascesa di Mosca** — fra i principati divisi |
 | Kievan Rus' | V | «La fine del giogo» | **Oltre il Volga** |
-| Califfato Fatimide | IV | «Ain Jalut» | **I mamelucchi** — il Levante armato |
+| Emirato dei Mori | IV | «Ain Jalut» | **I mamelucchi** — il Levante armato |
 | Califfato Abbaside | III | «1258, il sacco di Baghdad» | **Il cuore della Mesopotamia** |
 | Califfato Abbaside | IV | «L'Ilkhanato» | **L'altopiano persiano** |
 | Califfato Abbaside | V | «Timur» | **La Persia in armi** |
 | Ducato di Ungheria | VI | «Mohács» | **Il regno in armi** |
-| Califfato Fatimide | VI | «La marea ottomana» | **La cittadella del Cairo** |
+| Emirato dei Mori | VI | «La marea ottomana» | **La cittadella del Cairo** |
 | Sacro Romano Impero | VIII | «Ricacciare l'Ottomano» | **La marcia d'Oriente** |
 
-Le **crociate** restano nominate (Francia I, Inghilterra II, Bisanzio I, Fatimidi III): sono
+Le **crociate** restano nominate (Francia I, Inghilterra II, Bisanzio I, Mori III): sono
 un evento che *sbarca direttamente* sulla sua meta invece di attraversare il mondo, e
 soprattutto quegli obiettivi chiedono comunque una cosa che il giocatore controlla —
 radunare uomini su una costa, possedere N province — non che la crociata riesca.
@@ -191,18 +200,18 @@ della partita, così che gli obiettivi che inserisco io — quando quelli dell'u
 possono usare — restino **in linea con quella rotta**. È il *cosa a grandi linee*; i capitoli
 di sopra e i numeri di `objectives.js` sono l'attuazione. Dove i due divergono, è segnato.
 
-| regno | cicli 1‑5 | cicli 6‑8 | stato vs binario attuale |
+| regno | cicli 1‑5 | cicli 6‑8 | stato vs binario attuale (verificato 2026-09-22) |
 |---|---|---|---|
 | **Inghilterra** | Regno Unito + Irlanda, crociata, invasione del continente e Cent'Anni | dominio navale del mondo: Stati Uniti, India, ecc. | ✅ allineato |
-| **Francia** | espansione e consolidamento del regno, crociata, Cent'Anni | Italia, navigazione oltreoceano in **Africa + Canada** | ⚠ verificare che la spedizione (VIII) punti a Canada/Africa |
-| **Sacro Romano Impero** | espansione **prima su Austria e Italia**, unificazione Germania; **poi vira verso Paesi Bassi e Danimarca** | lotta per i confini verso Boemia, Austria e Balcani | ⚠ Paesi Bassi/Danimarca assenti dal binario (la svolta a nord manca) |
-| **Spagna (Castiglia)** | Reconquista, lotta agli arabi; poi Sud Italia | dominio coloniale in **centro e sud America** (come nella storia) | ⚠ colonie oggi verso Nord America: serve una meta centro/sud‑americana |
-| **Fatimidi** | espansione verso Spagna, Egitto e **intero Nord Africa** | espansione su **Mar Rosso e Sud Italia** | ⚠ Egitto/Nordafrica arrivano tardi, Mar Rosso è a V, Sud Italia assente |
-| **Abbasidi** | guerre sante in Medio Oriente, difesa dei confini contro i Mongoli, conquista dell'**intera Persia** | **mira espansionistica marcata**, non solo difesa della Persia: India, Africa orientale, lotta ai cristiani in **Turchia** | ⚠ 6‑8 oggi tutto Persia difensiva — va reso più aggressivo |
-| **Kievan Rus'** | espansione e lotta ai Mongoli; **discesa in Europa e verso il Mediterraneo** | conquista dell'**Asia centrale**, lotta ai cattolici polacchi | ⚠ discesa a sud assente |
-| **Polonia** | consolidamento territori, avvicinamento al mare, difesa dei confini | **combattere i russi** ed espansione **verso est** | ⚠ binario oggi difensivo (diluvio, spartizioni) |
-| **Ungheria** | espansione in Europa centrale, presa dei Balcani, lotta alle potenze del centro Europa, espansione verso **Austria** | espansione verso **Grecia** e lotta ai **russi** | ⚠ Austria, Grecia, russi assenti |
-| **Bisanzio** | **niente evento crociata**, ma di fatto combatte gli arabi (Selgiuchidi e Abbasidi) **in Turchia**; espansione in Grecia, navi verso Sud Italia | conquista e difesa della Turchia, espansione in Italia e nei Balcani | ✅ coerente: il fronte anatolico (ANATOLIA III/V) È la lotta agli arabi; nessuna Terra Santa |
+| **Francia** | espansione e consolidamento del regno, crociata, Cent'Anni | Italia, navigazione oltreoceano in **Africa + Canada** | ✅ VIII (`fr8-1`) fonda città in AMERICA **e** sbarca in AFRICA (Maghreb escluso) — non esiste una regione Canada dedicata, l'America resta condivisa con l'Inghilterra (come NORMANDY_FR/ITALIA_NORD, "la stessa guerra vista da due lati") |
+| **Sacro Romano Impero** | espansione **prima su Austria e Italia**, unificazione Germania; **poi vira verso Paesi Bassi e Danimarca** | lotta per i confini verso Boemia, Austria e Balcani | ⚠ tuttora assente il nord (Paesi Bassi/Danimarca); il codice conferma invece la direzione a oriente (ITALIA_NORD→ADRIATIC al cap III, AUSTRIA_EST→PANNONIA al cap V) — probabilmente più fedele alla storia vera (l'Impero non ha mai tenuto stabilmente Paesi Bassi o Danimarca, ma respinge davvero gli Ottomani), da confermare con l'utente se la nota del 2026-09-14 va considerata superata |
+| **Spagna (Castiglia)** | Reconquista, lotta agli arabi; poi Sud Italia | dominio coloniale in **centro e sud America** (come nella storia) | ✅ risolto (2026-09-22): VI (`ca6-1`) sbarca in AMERICA_CENTRO ("I conquistadores"), VII (`ca7-1`) fonda città in AMERICA_SUD ("Pizarro e l'impero d'argento") |
+| **Emirato dei Mori** *(ex "Califfato Fatimide")* | espansione verso Spagna, Egitto e **intero Nord Africa** | espansione su **Mar Rosso e Sud Italia** | ⚠ ancora così: MAGHREB arriva solo al ciclo VII, nessuna meta "Mar Rosso" dedicata (ARABIA nel codice è solo abbaside, i Mori non la usano), Sicilia/Creta è solo un Terziario navale al ciclo III, non un vero fronte "Sud Italia" |
+| **Abbasidi** | guerre sante in Medio Oriente, difesa dei confini contro i Mongoli, conquista dell'**intera Persia** | **mira espansionistica marcata**, non solo difesa della Persia: India, Africa orientale, lotta ai cristiani in **Turchia** | ⚠ parzialmente risolto: V (`ab5-2`) tocca già il Corno d'Africa (AFRICA_CE, via nave), VII (`ab7-3`) sbarca in Anatolia "per strapparla ai cristiani" — ma VI e VIII restano centrati sulla Persia (fede, provCount, Hudavendigar), l'India resta assente |
+| **Kievan Rus'** | espansione e lotta ai Mongoli; **discesa in Europa e verso il Mediterraneo** | conquista dell'**Asia centrale**, lotta ai cattolici polacchi | ⚠ parzialmente risolto: VI (`ru6-1`, "L'invasione d'Europa") trabocca già verso la Polonia quando la Rutenia è tutta russa, V (`ru5-2`) trabocca verso la Persia — ma nessuno dei due arriva davvero al Mediterraneo |
+| **Polonia** | consolidamento territori, avvicinamento al mare, difesa dei confini | **combattere i russi** ed espansione **verso est** | ✅ risolto: II (`po2-1`) e VII (`po7-1`, "Verso la Russia") traboccano entrambi verso RUS_NORD quando le terre lituano-rutene sono già polacche — è lo stesso intervento reale nei Torbidi russi (1605-1618) |
+| **Ungheria** | espansione in Europa centrale, presa dei Balcani, lotta alle potenze del centro Europa, espansione verso **Austria** | espansione verso **Grecia** e lotta ai **russi** | ⚠ parzialmente risolto: l'Austria c'è (V, `un5-1`, con trabocco oltre le Alpi in Italia) — Grecia e lotta ai russi restano assenti. Storicamente l'Ungheria non ha mai avuto un vero fronte greco o russo: valutare con l'utente se derubricare questi due punti |
+| **Bisanzio** | **niente evento crociata**, ma di fatto combatte gli arabi (Selgiuchidi e Abbasidi) **in Turchia**; espansione in Grecia, navi verso Sud Italia | conquista e difesa della Turchia, espansione in Italia e nei Balcani | ✅ coerente, e **con traboccamenti veri** che questo doc prima non registrava: GREECE→BALCANI al cap II (`bi2-1`), BALCANI_OVEST→PANNONIA al cap VI (`bi6-1`) — il fronte anatolico (ANATOLIA III/V) resta la lotta agli arabi; nessuna Terra Santa |
 | **Selgiuchidi** *(bot, almeno all'inizio)* | conquista Turchia e Costantinopoli | lotta ai cristiani fino al centro Europa, se riescono | ✅ dottrina (`marcia`, doctrines.js) |
 | **Mongoli** *(bot, almeno all'inizio)* | invasione di Russia e Medio Oriente | ritirata e consolidamento in Asia centrale | ✅ dottrina (`marcia` + stanziale al 1350) |
 | **Portogallo** *(bot, almeno all'inizio)* | difesa dei confini | viaggi navali verso il Sud America appena possibile | ✅ dottrina (`soloMare`/coloniale) |
@@ -218,14 +227,18 @@ di sopra e i numeri di `objectives.js` sono l'attuazione. Dove i due divergono, 
 - **Sacro Romano Impero**: l'espansione **prima** su Austria e Italia, **poi** vira a nord
   verso Paesi Bassi e Danimarca.
 
-**Nodo colonie — in parte sciolto (2026-09-14):** Inghilterra→Nord America,
-Spagna→centro/sud America, Portogallo→sud America, Francia→Canada+Africa. Le regioni
-`AMERICA_CENTRO` e `AMERICA_SUD` sono ora **definite** in `objectives.js` (id verificati),
-accanto alla `AMERICA` (Nord) già esistente. Restano da fare, quando si scriveranno i
-capitoli coloniali: (a) **agganciarle** ai binari di Spagna (centro+sud) e Portogallo
-(sud); (b) per il Portogallo, un **sottoinsieme Brasile** di `AMERICA_SUD`, così Spagna e
-Portogallo non puntino allo stesso teatro identico; (c) una meta **Canada** per la Francia
-(oggi non esiste una regione dedicata al nord‑ovest atlantico).
+**Nodo colonie — Castiglia risolta (2026-09-22), il resto come nel 2026-09-14:**
+Inghilterra→Nord America (AMERICA), Spagna→centro/sud America (**ora agganciata**:
+AMERICA_CENTRO al VI, AMERICA_SUD al VII), Portogallo→sud America (dottrina `coloniale`,
+non un binario a capitoli), Francia→AMERICA (condivisa con l'Inghilterra) + AFRICA
+subsahariana. Restano da fare, se si vuole completare il nodo: (a) per il Portogallo, un
+**sottoinsieme Brasile** di `AMERICA_SUD`, così Spagna e Portogallo non puntino allo stesso
+teatro identico; (b) una meta **Canada** dedicata per la Francia — sulla mappa esistono già
+le province (Quebec, Ontario, Newfoundland, Manitoba, Alberta, Saskatchewan, British
+Columbia, verificato in `map_data.js`), ma finché la Francia condivide AMERICA con
+l'Inghilterra come "la stessa guerra coloniale vista da due lati" (lo stesso pattern di
+NORMANDY_FR e ITALIA_NORD) non è chiaro che una regione Canada separata aggiunga qualcosa:
+da discutere con l'utente prima di scriverla.
 
 ---
 
@@ -237,12 +250,12 @@ Portogallo non puntino allo stesso teatro identico; (c) una meta **Canada** per 
 |---|---|---|---|
 | I | 1000-1099 | La Reconquista comincia | `conquista ANDALUS` |
 | II | 1100-1199 | Verso il Tago | `conquista IBERIA` |
-| III | 1200-1299 | Las Navas de Tolosa | `unifica ANDALUS` |
-| IV | 1300-1399 | Lo Stretto | `sbarca MAGHREB` |
-| V | 1400-1499 | Granada e l'Atlantico | `unifica IBERIA` *(trabocca in `MAGHREB` se la penisola è già intera — §Un capitolo non si salta mai)* |
-| VI | 1500-1599 | L'impero dove non tramonta il sole | `spedizione` |
-| VII | 1600-1699 | Difendere l'impero | `flotta` |
-| VIII | 1700-1799 | Le riforme borboniche | `regna` |
+| III | 1200-1299 | Las Navas de Tolosa | espandi il regno *(`provCount`, non `unifica ANDALUS`: al cap III la mira è già il conteggio province totali)* |
+| IV | 1300-1399 | Lo Stretto | consolida IBERIA *(`regione IBERIA`, non `sbarca MAGHREB`: lo sbarco in Maghreb è il Secondario `ca4-2`)* |
+| V | 1400-1499 | Granada e l'Atlantico | vara un Veliero *(`naviTipo: vascello`, non `unifica IBERIA` — **nessun trabocco**: Castiglia non ha `arg.oltre` da nessuna parte nel codice, a differenza di quanto diceva la vecchia versione di questo doc)* |
+| VI | 1500-1599 | I conquistadores | sbarca AMERICA_CENTRO *(`ca6-1`, corretto il 2026-09-22: prima puntava per errore alla stessa AMERICA di Inghilterra/Francia — il Messico di Cortés, non le tredici colonie)* |
+| VII | 1600-1699 | Pizarro e l'impero d'argento | fonda città in AMERICA_SUD *(`ca7-1`, corretto insieme al VI: il Perù di Pizarro)* |
+| VIII | 1700-1799 | Le riforme borboniche | fonda N Città *(`cittaCount`, non `regna`)* |
 | IX | 1800-1899 | La penisola invasa | `tieni IBERIA` |
 | X | 1900-1999 | La ricostruzione | `arricchisci` |
 
@@ -252,27 +265,27 @@ Portogallo non puntino allo stesso teatro identico; (c) una meta **Canada** per 
 |---|---|---|---|
 | I | 1000-1099 | L'appello di Clermont | `raduna MED_FR` |
 | II | 1100-1199 | Oltremare | `presidia Aleppo` |
-| III | 1200-1299 | Bouvines e il Midi | `conquista NORMANDY_FR` |
+| III | 1200-1299 | Bouvines e il Midi | `conquista NORMANDY_FR` *(trabocca in `MED_FR` se già intera — Béziers/Albigesi)* |
 | IV | 1300-1399 | I Cent'Anni | `tieni NORMANDY_FR` |
-| V | 1400-1499 | Cacciare l'inglese | `unifica NORMANDY_FR` |
-| VI | 1500-1599 | Le guerre d'Italia | `conquista ITALIA_NORD` |
-| VII | 1600-1699 | I confini naturali | `conquista RENO` |
-| VIII | 1700-1799 | Le colonie | `spedizione` |
+| V | 1400-1499 | Cacciare l'inglese | `unifica NORMANDY_FR` *(trabocca in `ITALIA_NORD` se già intera)* |
+| VI | 1500-1599 | Le guerre d'Italia e gli Ugonotti | `conquista ITALIA_NORD` |
+| VII | 1600-1699 | I confini naturali e la revoca dell'Editto di Nantes | fonda AMERICA (Nuova Francia) *(`fr7-1`, `tutti`: Veliero + colonia — **non** `conquista RENO`: RENO è ancora definita fra i SET ma non è più usata da nessun binario; il capitolo VII è stato riscritto sulla colonia americana, non sul Reno)* |
+| VIII | 1700-1799 | Le colonie | fonda AMERICA + sbarca AFRICA *(`fr8-1`, `tutti`: Città americana + provincia africana, Maghreb escluso)* |
 | IX | 1800-1899 | L'egemonia continentale | `conquista GERMANIA` |
 | X | 1900-1999 | Tenere | `tieni` |
 
-## Califfato Fatimide — *dal Mediterraneo all'Egitto, e ritorno*
+## Emirato dei Mori — *dal Mediterraneo all'Egitto, e ritorno* (già "Califfato Fatimide": rinominato per riflettere Almoravidi e Almohadi, i veri protagonisti della guerra in Iberia — vedi `docs/CRONOLOGIA_STORICA.md`)
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
-| I | 1000-1099 | Il mare dei Fatimidi | `sbarca IBERIA` |
-| II | 1100-1199 | L'emirato e l'Egitto | `conquista IBERIA` |
-| III | 1200-1299 | Saladino | `conquista HOLY_LAND` |
-| IV | 1300-1399 | Ain Jalut | `tieni LEVANT` |
-| V | 1400-1499 | Le vie del Mar Rosso | `conquista ARABIA` |
-| VI | 1500-1599 | La marea ottomana | `tieni EGYPT` |
+| I | 1000-1099 | Le vele degli Almoravidi | `conquista IBERIA` *(`fa1`: sbarco e presa, ratchet come ogni `regione`)* |
+| II | 1100-1199 | Gli Almohadi e l'Egitto | `conquista IBERIA` *(`fa2-1`, non `EGYPT`: l'Egitto è il Secondario `fa2-2` — **nessun trabocco**: i Mori non hanno `arg.oltre` da nessuna parte)* |
+| III | 1200-1299 | Saladino | conquista Terra Santa *(`province: [Palestine, Lebanon]`, elenco fisso — non `regione HOLY_LAND`, e HOLY_LAND non è mai usata dai Mori)* |
+| IV | 1300-1399 | I mamelucchi | `conquista EGYPT` *(non `tieni LEVANT`: LEVANT è definita ma non usata da nessun binario)* |
+| V | 1400-1499 | Le vie del Mar Rosso | regna *(`turniPopolarita`, non `conquista ARABIA`: ARABIA nel codice è usata solo dagli Abbasidi, mai dai Mori)* |
+| VI | 1500-1599 | La cittadella del Cairo | fonda N Città *(`cittaCount`, non `tieni EGYPT`)* |
 | VII | 1600-1699 | Il Nordafrica | `conquista MAGHREB` |
-| VIII | 1700-1799 | I bey e i mamelucchi | `fonda EGYPT` |
+| VIII | 1700-1799 | I bey e i mamelucchi | flotta + fortezza *(`tutti`: una barca e una Fortezza, non `fonda EGYPT`)* |
 | IX | 1800-1899 | Il canale | `arricchisci` |
 | X | 1900-1999 | L'indipendenza | `regna` |
 
@@ -314,14 +327,14 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
-| I | 1000-1099 | I ducati | `presidia GERMANIA` |
-| II | 1100-1199 | Le città imperiali | `fonda GERMANIA` |
-| III | 1200-1299 | L'Italia di Federico II | `conquista ITALIA_NORD` |
-| IV | 1300-1399 | La Bolla d'Oro | `unifica GERMANIA` |
-| V | 1400-1499 | Gli Asburgo | `conquista AUSTRIA_EST` |
-| VI | 1500-1599 | La fede spezzata | `converti GERMANIA` |
+| I | 1000-1099 | I ducati | presidia il regno *(`guarnigioni`, non `presidia GERMANIA`: GERMANIA come regione non è usata prima del cap VII)* |
+| II | 1100-1199 | Le città imperiali | fonda una Città *(`citta`, non `fonda GERMANIA`: nessuna regione, una Città qualunque)* |
+| III | 1200-1299 | L'Italia di Federico II | `conquista ITALIA_NORD` *(trabocca in `ADRIATIC` se già intera)* |
+| IV | 1300-1399 | La Bolla d'Oro | `conquista BALTICO_EST` *(non `unifica GERMANIA`: il cap IV chiede le coste baltiche di Tallin/Tartu/Riga/Courland, non la Germania)* |
+| V | 1400-1499 | Gli Asburgo | `conquista AUSTRIA_EST` *(trabocca in `PANNONIA` se già intera — **non** in `BALCANI`: la vecchia versione di questo doc sbagliava la meta)* |
+| VI | 1500-1599 | La fede spezzata | fonda città fra Austria/Bohemia/Franconia *(`cittaRegioneCount` su `IMPERO_CENTRO` — verificato: il template `fede` **non compare da nessuna parte** nel cap VI del codice attuale, né come Primario né come Secondario/Terziario (`sr6-2` è scorte di pietra, `sr6-3` è tipiCollegati). CLAUDE.md §Religione afferma il contrario ("il Sacro Romano Impero VI... vive la CONSEGUENZA della Riforma... col template `fede`"): va corretto anche lì, o il capitolo va riscritto per usarlo davvero)* |
 | VII | 1600-1699 | I Trent'Anni | `tieni GERMANIA` |
-| VIII | 1700-1799 | Verso oriente | `conquista BALCANI` |
+| VIII | 1700-1799 | Verso oriente | erigi una Fortezza *(`fortezza`, non `conquista BALCANI`: BALCANI non compare nel cap VIII del codice attuale)* |
 | IX | 1800-1899 | L'unificazione | `unifica GERMANIA` |
 | X | 1900-1999 | La potenza continentale | `regna` |
 
@@ -329,14 +342,14 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
-| I | 1000-1099 | Sbocco al mare | `presidia BALTICO` |
-| II | 1100-1199 | La flotta baltica | `flotta` |
-| III | 1200-1299 | L'orda | `tieni POLONIA` |
-| IV | 1300-1399 | Casimiro il Grande | `fonda POLONIA` |
-| V | 1400-1499 | L'unione e Grunwald | `conquista BALTICO` |
-| VI | 1500-1599 | Il granaio d'Europa | `arricchisci` |
-| VII | 1600-1699 | Il diluvio | `tieni POLONIA` |
-| VIII | 1700-1799 | Le spartizioni | `presidia` la Capitale |
+| I | 1000-1099 | Sbocco al mare | presidia le coste *(`guarnigioniCostiere`, non `presidia BALTICO`: BALTICO come regione non è mai usata da questo binario)* |
+| II | 1100-1199 | Verso le terre lituane | `conquista POLONIA_EST` *(trabocca in `RUS_NORD` se già intera — **non** `flotta`: il capitolo non parla mai di navi, era un titolo rimasto sbagliato da prima del 2026-09-22)* |
+| III | 1200-1299 | La frammentazione | presidia i confini *(`guarnigioniConfine`, non `tieni POLONIA`: POLONIA come regione non compare in questo capitolo)* |
+| IV | 1300-1399 | Casimiro il Grande e l'unione di Krewo | `fonda POLONIA` |
+| V | 1400-1499 | L'unione e Grunwald | espandi il regno *(`provCount`, non `conquista BALTICO`: BALTICO non è mai usata come regione da conquistare da nessun binario, solo come meta di trabocco di Kievan Rus' VIII)* |
+| VI | 1500-1599 | L'Unione di Lublino e il granaio d'Europa | fonda N Città *(`cittaCount`, non `arricchisci`)* |
+| VII | 1600-1699 | Il diluvio | `conquista RUTENIA` *("Verso la Russia", trabocca in `RUS_NORD` se già intera — non `tieni POLONIA`: il capitolo è offensivo, non difensivo)* |
+| VIII | 1700-1799 | Le spartizioni | espandi il regno *(`provCount`, non `presidia` la Capitale: la Capitale non compare in questo capitolo, che ha invece `provCount`/`guarnigioniConfine`/`popolarita`)* |
 | IX | 1800-1899 | Senza stato | `riprendi` |
 | X | 1900-1999 | Rinascere | `unifica POLONIA` |
 
@@ -344,14 +357,14 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
-| I | 1000-1099 | Le terre della Rus' | `conquista RUS_NORD` |
+| I | 1000-1099 | Le terre della Rus' | espandi il regno *(`provCount`, non `conquista RUS_NORD`: RUS_NORD come regione entra in gioco solo dal cap IV)* |
 | II | 1100-1199 | Kiev di pietra | `fonda Kiev` |
-| III | 1200-1299 | Il giogo | `tieni RUS_NORD` |
-| IV | 1300-1399 | Raccogliere le terre russe | `unifica RUS_NORD` |
-| V | 1400-1499 | La fine del giogo | `conquista EST_RUSSO` |
-| VI | 1500-1599 | Verso oriente | `unifica EST_RUSSO` |
-| VII | 1600-1699 | La Siberia | `conquista` l'estremo est |
-| VIII | 1700-1799 | La finestra sul Baltico | `conquista BALTICO` |
+| III | 1200-1299 | L'ascesa di Mosca | presidia Uralsk *(`provincia`, non `tieni RUS_NORD`: la frontiera è una provincia sola, Uralsk — non un'intera regione)* |
+| IV | 1300-1399 | Raccogliere le terre russe | `unifica RUS_NORD` *(trabocca in `EST_RUSSO` se già intera — **una volta sola**, non due come diceva la vecchia versione di questo doc)* |
+| V | 1400-1499 | Oltre il Volga | `conquista EST_RUSSO` *(il Secondario `ru5-2` trabocca `CAUCASO`→`PERSIA`, ma non è il Primario)* |
+| VI | 1500-1599 | Verso oriente | `conquista RUTENIA` *("L'invasione d'Europa", trabocca in `POLONIA` se già intera — **non** `unifica EST_RUSSO`: EST_RUSSO non compare in questo capitolo)* |
+| VII | 1600-1699 | La Siberia | presidia Minsk *(`provincia`, non `conquista` l'estremo est: la Siberia vera è il Secondario `ru7-2`, il Primario è ancora un confine occidentale, Minsk)* |
+| VIII | 1700-1799 | La finestra sul Baltico | `conquista BALTICO_NORD` *(trabocca in `BALTICO` se già intera — non `conquista BALTICO` direttamente: BALTICO_NORD, cioè Ingria/Carelia/coste estone-livoni, viene prima)* |
 | IX | 1800-1899 | L'impero | `conquista CAUCASO` |
 | X | 1900-1999 | La potenza | `regna` |
 
@@ -359,14 +372,14 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
-| I | 1000-1099 | Il regno prospero | `regna` |
-| II | 1100-1199 | L'Adriatico | `conquista ADRIATIC` |
-| III | 1200-1299 | Mohi | `tieni PANNONIA` |
-| IV | 1300-1399 | Gli Angioini | `conquista BALCANI` |
-| V | 1400-1499 | Hunyadi e Belgrado | `presidia BALCANI` |
-| VI | 1500-1599 | Mohács | `presidia` la Capitale |
-| VII | 1600-1699 | L'occupazione | `riprendi` |
-| VIII | 1700-1799 | La riconquista | `unifica PANNONIA` |
+| I | 1000-1099 | Il regno prospero | regna *(`sicurezza`, coerente con `regna`)* |
+| II | 1100-1199 | L'Adriatico | `conquista ADRIATIC` *(trabocca in `BALCANI_OVEST` se già intera)* |
+| III | 1200-1299 | Le fortezze di pietra | `tieni PANNONIA` *(trabocca in `BALCANI` se già intera — il tema si chiamava "Mohi" nella vecchia versione di questo doc: rinominato per la regola "un capitolo non può poggiare su un evento", vedi sopra)* |
+| IV | 1300-1399 | Gli Angioini | fonda BALCANI *(`cittaRegione`, non `conquista BALCANI`: al cap IV si chiede una Città nei Balcani, non la conquista dell'intera regione — quella arriva all'VIII)* |
+| V | 1400-1499 | Hunyadi e Belgrado | `conquista AUSTRIA_EST` *(trabocca in `ITALIA_NORD` se già intera — **non** `presidia BALCANI`: al cap V la mira è l'Austria, non i Balcani)* |
+| VI | 1500-1599 | Il regno in armi | `presidia` la Capitale + fortezza *(`tutti`, coerente)* |
+| VII | 1600-1699 | Il regno riunito | `unifica PANNONIA` *(non `riprendi`: il cap VII chiede l'intera Pannonia, 5/5 province — la riconquista/BALCANI è all'VIII)* |
+| VIII | 1700-1799 | Verso mezzogiorno | `conquista BALCANI` *(7 province — non `unifica PANNONIA`, che è già compiuta al VII)* |
 | IX | 1800-1899 | Il dualismo | `fonda PANNONIA` |
 | X | 1900-1999 | Il Trianon | `tieni PANNONIA` |
 
@@ -375,13 +388,13 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | La riconquista balcanica | `conquista Macedonia+Bulgaria` |
-| II | 1100-1199 | I Comneni | `conquista(4) GREECE` |
-| III | 1200-1299 | La riscossa d'Anatolia | `conquista+presidia(6) ANATOLIA` |
-| IV | 1300-1399 | Le frontiere vigilate | `presidia(5) ogni confine` |
+| II | 1100-1199 | I Comneni | `conquista GREECE` *(trabocca in `BALCANI` se già intera)* |
+| III | 1200-1299 | La riscossa d'Anatolia | `presidia(6) ANATOLIA` *(**nessun trabocco** in questo capitolo)* |
+| IV | 1300-1399 | Le frontiere vigilate | `presidia ogni confine` |
 | V | 1400-1499 | La cristianità in pericolo | `presidia(8) ANATOLIA` |
-| VI | 1500-1599 | La rinascita imperiale | `fonda+presidia(6) una Città` |
-| VII | 1600-1699 | Verso l'Adriatico | `conquista Albania+Serbia+Montenegro` |
-| VIII | 1700-1799 | Le terre perdute dell'Islam | `conquista ISLAM_ORIGINE` |
+| VI | 1500-1599 | La rinascita imperiale | `conquista BALCANI_OVEST` *(trabocca in `PANNONIA` se già intera — verificato: nel cap VI attuale non c'è nessuna voce "Città" (né Primario né Secondario/Terziario): le tre voci sono BALCANI_OVEST, strade collegate e oro)* |
+| VII | 1600-1699 | Verso l'Adriatico | `conquista ADRIATIC` *(non "Albania+Serbia+Montenegro": quell'elenco fisso è sparito, ora è la regione `ADRIATIC` — Croazia/Dalmazia/Istria — col ratchet)* |
+| VIII | 1700-1799 | Le terre perdute dell'Islam | erigi una Fortezza *(`fortezza`, non `conquista ISLAM_ORIGINE`: ISLAM_ORIGINE è definita fra i SET ma **non è più usata** — il cap VIII oggi è `fortezza`+`capitale`+`turniTassaDura`)* |
 | IX | 1800-1899 | L'impero commerciale | `arricchisci` |
 | X | 1900-1999 | Costantinopoli | `tieni GREECE` |
 
@@ -406,13 +419,13 @@ conseguenza:
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Sbocco sul Mediterraneo | `presidia Syria` |
-| II | 1100-1199 | La Terra Santa | `conquista HOLY_LAND` |
-| III | 1200-1299 | 1258, Baghdad | `tieni MESOPOTAMIA` |
-| IV | 1300-1399 | L'Ilkhanato | `conquista PERSIA` |
-| V | 1400-1499 | Timur | `tieni PERSIA` |
-| VI | 1500-1599 | I Safavidi | `converti PERSIA` |
-| VII | 1600-1699 | Isfahan | `fonda Isfahan` |
-| VIII | 1700-1799 | Il declino | `tieni PERSIA` |
+| II | 1100-1199 | La Terra Santa | `conquista HOLY_LAND` *(il Secondario `ab2-2` trabocca `PERSIA_OVEST`→`PERSIA_EST`, ma non è il Primario)* |
+| III | 1200-1299 | Il cuore della Mesopotamia | converti Terra Santa *(`fede` su `HOLY_LAND` — "scaccia i cristiani": non `tieni MESOPOTAMIA`, MESOPOTAMIA è definita fra i SET ma **non è mai usata**; il Secondario `ab3-2` trabocca `PERSIA_EST`→`ARABIA`, ma non è il Primario)* |
+| IV | 1300-1399 | L'altopiano persiano | `conquista ARABIA` *(non `conquista PERSIA`: la Persia armata è il Secondario `ab4-2` — `regioneGuarnigioni`, non `regione`, quindi non traboccabile)* |
+| V | 1400-1499 | La Persia in armi | fonda ARABIA *(`cittaRegione`, non `tieni PERSIA`)* |
+| VI | 1500-1599 | I Safavidi | `converti PERSIA` + fonda N Città *(`tutti`: `fede` su PERSIA (soglia 5) col capo `cittaCount` — coerente con `converti PERSIA` ma non da solo)* |
+| VII | 1600-1699 | Isfahan | espandi il regno *(`provCount`, non `fonda Isfahan`: Isfahan come provincia nominata non compare più, l'VII oggi è dominio territoriale + sbarco in Anatolia come Terziario `ab7-3`)* |
+| VIII | 1700-1799 | Il declino | conquista Hudavendigar *(`provincia`, "La marcia su Costantinopoli" — non `tieni PERSIA`: la Persia non compare più nell'VIII)* |
 | IX | 1800-1899 | Fra due imperi | `presidia PERSIA` |
 | X | 1900-1999 | Il petrolio | `arricchisci` |
 
@@ -420,51 +433,65 @@ conseguenza:
 
 # Le regioni
 
-Province verificate su `src/data/map_data.js` (628 province). Gli id SVG sostituiscono gli
-spazi con `_`. In **grassetto** le regioni già esistenti in `objectives.js`.
+**Riscritta il 2026-09-22 direttamente dalle costanti `const X = new Set([...])` in testa a
+`objectives.js`** (righe ~46-207), non più dal vecchio foglio: quelle SONO il codice, quindi
+questa tabella non può più andare fuori sincrono sulle liste di province. Gli id SVG
+sostituiscono gli spazi con `_`. In **grassetto** le regioni **davvero usate** da almeno un
+binario oggi; le altre sono definite in `SETS` ma **nessuna voce le referenzia** — codice
+morto, non un errore, ma da sapere prima di scrivere un capitolo nuovo che le dia per buone.
 
-| regione | province |
-|---|---|
-| **ANDALUS** | Toledo, Badajoz, Andalusia, Granada, Valencia, Alentejo |
-| **IBERIA** | Galicia, Asturias, Navarra, Castile, Aragon, Catalonia, Toledo, Estremadura, Valencia, Badajoz, Alentejo, Andalusia, Granada |
-| **BRITISH** | Home_Counties, East_Anglia, Midlands, Wales, West_Country, Yorkshire, Lancashire, Lowlands, Highlands, Leinster, Ulster, Munster, Connaught |
-| **IRELAND** | Leinster, Ulster, Munster, Connaught |
-| **FRANCIA** | Normandy, Brittany, Picardy, Maine_Anjou, Poitou, Guyenne, Aquitaine, Burgundy *(le terre angioine, **Fiandre escluse**: il capitolo III inglese chiede una provincia di Francia* e *le Fiandre)* |
-| **AMERICA** | Maine, New_Hampshire, Massachusetts, Connecticut, New_York, New_Jersey, Delaware, Maryland, Virginia, North_Carolina, South_Carolina, Georgia, Florida *(Nord — meta inglese)* |
-| **AMERICA_CENTRO** | Mexico, Veracruz, Guerrero, Oaxaca, Chiapas, Jalisco, Bajio, Yucatan, Guatemala, Honduras, San_Salvador, Nicaragua, Costa_Rica, Panama, Cuba, Haiti, Santo_Domingo, West_Indies *(Nuova Spagna + istmo + Caraibi — meta spagnola; definita, non ancora agganciata a capitoli)* |
-| **AMERICA_SUD** | Zulia, Miranda, Bolivar, Antioquia, Cundinamarca, Cauca, Guayana, Guaviare, Ecuador, Pastaza, Lima, Cajamarca, Arequipa, Ica, Acre, La_Paz, Potosi, Santa_Cruz, Para, Maranhao, Amazonas, Piaui, Ceara, Paraiba, Pernambuco, Bahia, Goias, Mato_Grosso, Minas_Gerais, Rio_De_Janeiro, Sao_Paulo, Alto_Paraguay, Bajo_Paraguay, Chaco, Corrientes, Santa_Fe, Buenos_Aires, Uruguay, Rio_Grande_Do_Sul, Parana, Santa_Catarina, Tucuman, Jujuy, Antofagasta, Tarapaca, Santiago, Araucania, Rio_Negro, La_Pampa, Patagonia *(Ande + Río de la Plata + Brasile — meta spagnola/portoghese; per il solo Brasile del Portogallo servirà un sottoinsieme)* |
-| **INDIE** | Sindh, Gujarat, Bombay, Travancore, Madras, Andhra, Orissa, Bengal, Ceylon, Senegal, Gambia, Guinea, Ivory_Coast, Ghana, Nigeria, Niger_Delta, Gabon, North_Angola, South_Angola, Namaqualand, Cape_Colony, Eastern_Cape, Zululand, Mocambique, Zanzibar, Kenya, Somaliland |
-| **MED_FR** | Provence, Languedoc, Rhone |
-| **NORMANDY_FR** | Normandy, Brittany, Picardy, Flanders, Aquitaine, Burgundy |
-| **ADRIATIC** | Croatia, Dalmatia, Istria |
-| **GREECE** | Thessalia, Attica, Peloponnese, Crete, West_Aegean_Islands, Albania, Northern_Thrace |
-| **EGYPT** | Matruh, Lower_Egypt, Upper_Egypt, Middle_Egypt, Egyptian_Desert |
-| **ISLANDS** | Sicily, Sardinia |
-| **HOLY_LAND** | Palestine, Aleppo, Lebanon, Syria |
-| **LEVANT** | Lebanon, Syria, Palestine |
-| **ANATOLIA** | Trabzon, Hudavendigar, Aydin, Konya, Kastamonu, Ankara, Erzurum, Diyarbakir, Adana *(l'Anatolia asiatica per intero, 9 province — Bisanzio, capitoli III/V)* |
-| **TRANSGIORDANIA** | Transjordan, Lebanon *(non più usata: era il condizionale bizantino III, caduto con la storia riscritta)* |
-| **SICILIA_CALABRIA** | Sicily, Calabria *(Bisanzio, capitoli IV/V: lo sbarco in Italia)* |
-| **ISLAM_ORIGINE** | Sicily, Diyarbakir, Mosul, Deir_Ez_Zor, Aleppo, Syria, Palestine, Lebanon, Transjordan, Sinai *(le terre musulmane del Mille raggiungibili da Bisanzio, capitolo VIII — vedi data/start_religions.js)* |
-| **MAGHREB** | Inner_Morocco, Oran, Constantine, Tunisia, Tripoli *(Castiglia IV, Fatimidi VII)* |
-| **ITALIA_NORD** | Piedmont, Lombardy, Venetia, Tuscany, Romagna *(Sacro Romano Impero III, Francia VI — la stessa contesa vista dai due lati)* |
-| **ITALIA_SUD** | Abruzzo, Umbria, Campania, Apulia, Calabria *(non più usata: era il condizionale bizantino V, caduto con la storia riscritta)* |
-| **GERMANIA** | Anhalt, Saxony, Franconia, Bavaria, Rhineland, Hesse, Brandenburg *(Sacro Romano Impero III/IV/VI/VII)* |
-| **AUSTRIA_EST** | Austria, Bohemia, Moravia, Silesia, Styria, Tyrol *(Sacro Romano Impero V)* |
-| **RENO** | Rhineland, Flanders, Picardy *(Sacro Romano Impero, Francia VII)* |
-| **BALTICO** | East_Prussia, West_Prussia, Pomerania, Courland *(Polonia V, Kievan Rus' VIII — la stessa costa contesa)* |
-| **POLONIA** | Mazovia, Posen, Silesia, West_Galicia, East_Galicia, Volhynia *(Polonia III/IV/VII)* |
-| **PANNONIA** | Central_Hungary, Transdanubia, West_Slovakia, East_Slovakia, Slavonia *(Ungheria III/VII/VIII)* |
-| **BALCANI** | Serbia, Bosnia, Bulgaria, Macedonia, Albania, Wallachia, Moldavia *(Ungheria IV/V/VII, Sacro Romano Impero VIII)* |
-| **RUS_NORD** | Novgorod, Moscow, Tver, Pskov, Smolensk, Ryazan *(Kievan Rus' III/IV)* |
-| **EST_RUSSO** | Kazan, Astrakhan, Ural, Uralsk, Perm, Tartaria *(Kievan Rus' V/VI)* |
-| **SIBERIA** | Krasnoyarsk, Buryatia, Irkutsk, Tomsk, Trans_Baikal, Sakhalin, Chukotka, Kamchatka, Amur *(Kievan Rus' VII — la marcia di Yermak; non è nel foglio delle regioni originali)* |
-| CAUCASO | North_Caucasus, Greater_Caucasus, Georgia, Armenia, Azerbaijan *(riservata al ciclo IX di Kievan Rus', non ancora scritto)* |
-| **ANATOLIA** | Ankara, Konya, Adana, Trabzon, Erzurum, Diyarbakir |
-| **MESOPOTAMIA** | Baghdad, Basra, Mosul *(Abbaside III)* |
-| **PERSIA** | Isfahan, Fars, Khorasan, Persian_Kurdistan, Irakajemi, Tabriz, Urmia *(Abbaside IV/V/VI/VIII)* |
-| **ARABIA** | Yemen, Oman *(Fatimidi V)* |
-| SCANDINAVIA | Jutland, Scania, Gotaland, Western_Norway, Eastern_Norway *(dottrina di Norvegia/Svezia, js/doctrines.js — non un binario)* |
+| regione | province | usata da (verificato sul codice) |
+|---|---|---|
+| **ANDALUS** | Toledo, Badajoz, Andalusia, Granada, Valencia, Alentejo | Castiglia I |
+| **IBERIA** | Galicia, Asturias, Navarra, Castile, Aragon, Catalonia, Toledo, Estremadura, Valencia, Badajoz, Alentejo, Andalusia, Granada | Castiglia II/IV, Emirato dei Mori I/II |
+| **BRITISH** | Home_Counties, East_Anglia, Midlands, Wales, West_Country, Yorkshire, Lancashire, Lowlands, Highlands, Leinster, Ulster, Munster, Connaught | Inghilterra I/III |
+| **IRELAND** | Leinster, Ulster, Munster, Connaught | Inghilterra V |
+| **FRANCIA** | Normandy, Brittany, Picardy, Maine_Anjou, Poitou, Guyenne, Aquitaine, Burgundy *(le terre angioine, **Fiandre escluse**)* | Inghilterra III (Secondario)/VI |
+| **AMERICA** | Maine, New_Hampshire, Massachusetts, Connecticut, New_York, New_Jersey, Delaware, Maryland, Virginia, North_Carolina, South_Carolina, Georgia, Florida *(Nord — condivisa)* | Inghilterra VII, Francia VII/VIII — **non più Castiglia** (spostata su AMERICA_CENTRO/SUD il 2026-09-22) |
+| **AMERICA_CENTRO** | Mexico, Veracruz, Guerrero, Oaxaca, Chiapas, Jalisco, Bajio, Yucatan, Guatemala, Honduras, San_Salvador, Nicaragua, Costa_Rica, Panama, Cuba, Haiti, Santo_Domingo, West_Indies | **Castiglia VI** (agganciata il 2026-09-22: "I conquistadores") |
+| **AMERICA_SUD** | Zulia, Miranda, Bolivar, Antioquia, Cundinamarca, Cauca, Guayana, Guaviare, Ecuador, Pastaza, Lima, Cajamarca, Arequipa, Ica, Acre, La_Paz, Potosi, Santa_Cruz, Para, Maranhao, Amazonas, Piaui, Ceara, Paraiba, Pernambuco, Bahia, Goias, Mato_Grosso, Minas_Gerais, Rio_De_Janeiro, Sao_Paulo, Alto_Paraguay, Bajo_Paraguay, Chaco, Corrientes, Santa_Fe, Buenos_Aires, Uruguay, Rio_Grande_Do_Sul, Parana, Santa_Catarina, Tucuman, Jujuy, Antofagasta, Tarapaca, Santiago, Araucania, Rio_Negro, La_Pampa, Patagonia | **Castiglia VII** (agganciata il 2026-09-22: "Pizarro e l'impero d'argento"); per il solo Brasile del Portogallo servirebbe ancora un sottoinsieme dedicato |
+| **INDIE** | Sindh, Gujarat, Bombay, Travancore, Madras, Andhra, Orissa, Bengal, Ceylon, Senegal, Gambia, Guinea, Ivory_Coast, Ghana, Nigeria, Niger_Delta, Gabon, North_Angola, South_Angola, Namaqualand, Cape_Colony, Eastern_Cape, Zululand, Mocambique, Zanzibar, Kenya, Somaliland | Inghilterra VIII |
+| **MED_FR** | Provence, Languedoc, Rhone | Francia I (base), III (meta di trabocco da NORMANDY_FR) |
+| **NORMANDY_FR** | Normandy, Brittany, Picardy, Flanders, French_Low_Countries, Aquitaine, Burgundy *(7 province, non 6: French_Low_Countries mancava nella versione precedente di questo doc)* | Inghilterra II (via mare), Francia III/IV/V |
+| **ADRIATIC** | Croatia, Dalmatia, Istria | Ungheria I/II (trabocca da qui verso BALCANI_OVEST), meta di trabocco di Sacro Romano Impero III, Bisanzio VII |
+| **GREECE** | Thessalia, Attica, Peloponnese, Crete, Albania, Northern_Thrace *(6 province: West_Aegean_Islands nella versione precedente di questo doc non esiste in questo SET)* | Bisanzio II (trabocca verso BALCANI) |
+| **EGYPT** | Matruh, Lower_Egypt, Upper_Egypt, Middle_Egypt, Egyptian_Desert | Emirato dei Mori II/IV |
+| **ISLANDS** | Sicily, Sardinia | Castiglia II |
+| **HOLY_LAND** | Palestine, Aleppo, Lebanon, Syria | Abbaside II — **non** l'Emirato dei Mori (la vecchia versione di questo doc lo dava per scontato, ma i Mori non la referenziano mai; il cap III dei Mori usa un elenco fisso `province: [Palestine, Lebanon]`, non questa `regione`) |
+| LEVANT | Lebanon, Syria, Palestine | *nessuno — definita, mai usata* |
+| **ANATOLIA** | Trabzon, Hudavendigar, Aydin, Konya, Kastamonu, Ankara, Erzurum, Diyarbakir, Adana *(9 province — la vecchia versione di questo doc la elencava DUE volte con contenuti diversi: un bug del documento, non del codice, che ha una sola costante)* | Bisanzio II/III/V, Abbaside VII (via mare) |
+| TRANSGIORDANIA | Transjordan, Lebanon | *nessuno — era il condizionale bizantino III, caduto con la storia riscritta* |
+| **SICILIA_CALABRIA** | Sicily, Calabria | Bisanzio IV (lo sbarco in Italia) |
+| ITALIA_SUD | Abruzzo, Umbria, Campania, Apulia, Calabria | *nessuno — era il condizionale bizantino V, caduto con la storia riscritta* |
+| ISLAM_ORIGINE | Sicily, Diyarbakir, Mosul, Deir_Ez_Zor, Aleppo, Syria, Palestine, Lebanon, Transjordan, Sinai | *nessuno — la vecchia versione di questo doc diceva "Bisanzio capitolo VIII", ma quel capitolo oggi è `fortezza`+`capitale`+`turniTassaDura`: non la referenzia più* |
+| **MAGHREB** | Inner_Morocco, Oran, Constantine, Tunisia, Tripoli | Castiglia IV (via mare), Emirato dei Mori VII |
+| **ITALIA_NORD** | Piedmont, Lombardy, Venetia, Tuscany, Romagna | Sacro Romano Impero III (meta di trabocco da qui), Francia VI, Castiglia VIII (via mare), meta di trabocco di Francia V e Ungheria V |
+| **GERMANIA** | Anhalt, Saxony, Franconia, Bavaria, Rhineland, Hesse, Brandenburg | **solo** Sacro Romano Impero VII (**non** III/IV/VI come diceva la versione precedente: III è ITALIA_NORD, IV è BALTICO_EST, VI è IMPERO_CENTRO) |
+| **AUSTRIA_EST** | Austria, Bohemia, Moravia, Silesia, Styria, Tyrol | Sacro Romano Impero V (trabocca verso PANNONIA), Ungheria V (trabocca verso ITALIA_NORD) |
+| RENO | Rhineland, Flanders, Picardy | *nessuno — la vecchia versione di questo doc la dava per il cap VII di Impero e Francia, ma nessuno dei due la usa più (entrambi riscritti su altro: l'Impero su GERMANIA, la Francia sulla Nuova Francia in AMERICA)* |
+| **BALTICO** | East_Prussia, West_Prussia, Pomerania, Courland | **solo** meta di trabocco di Kievan Rus' VIII (**non** Polonia V, che oggi usa `provCount`, non questa regione) |
+| **POLONIA** | Mazovia, Posen, Silesia, West_Galicia, East_Galicia, Volhynia | Polonia IV (una Città qui), meta di trabocco di Kievan Rus' VI |
+| **POLONIA_EST** *(non nella versione precedente di questo doc)* | Vilnius, Brest, Minsk, Volhynia, Mogilev | Polonia II (trabocca verso RUS_NORD) |
+| **PANNONIA** | Central_Hungary, Transdanubia, West_Slovakia, East_Slovakia, Slavonia | Ungheria VII (base), meta di trabocco di Ungheria III, Sacro Romano Impero V, Bisanzio VI |
+| **BALCANI** | Northern_Serbia, Bosnia, Bulgaria, Macedonia, Albania, Wallachia, Moldavia | Ungheria VIII (base), meta di trabocco di Ungheria III e Bisanzio II |
+| **BALCANI_OVEST** *(non nella versione precedente di questo doc)* | Albania, Northern_Serbia, Montenegro, Bosnia, Macedonia | meta di trabocco di Ungheria II, base di Bisanzio VI (trabocca verso PANNONIA) |
+| **RUS_NORD** | Novgorod, Moscow, Tver, Pskov, Smolensk, Ryazan | Kievan Rus' IV (trabocca verso EST_RUSSO), meta di trabocco di Polonia II e VII |
+| **RUTENIA** *(non nella versione precedente di questo doc)* | Kiev, Chernihiv, Mogilev, Minsk, Brest, Volhynia | Polonia VII "Verso la Russia" (trabocca verso RUS_NORD), Kievan Rus' VI "L'invasione d'Europa" (trabocca verso POLONIA) |
+| **BALTICO_NORD** *(non nella versione precedente di questo doc)* | Ingria, East_Karelia, Talinn, Tartu, Riga | Kievan Rus' VIII (trabocca verso BALTICO) |
+| **EST_RUSSO** | Kazan, Astrakhan, Ural, Uralsk, Perm, Tartaria | Kievan Rus' V (base), meta di trabocco di Kievan Rus' IV |
+| **CAUCASO** | Stavropol, Dagestan, Kuban, Georgia, Azerbaijan, Armenia | Kievan Rus' V, Secondario (trabocca verso PERSIA) — **non** "riservata al ciclo IX, non ancora scritto": è già attiva |
+| MESOPOTAMIA | Baghdad, Basra, Mosul | *nessuno — la vecchia versione di questo doc diceva "Abbaside III", ma quel capitolo usa `fede` su HOLY_LAND, mai questa regione* |
+| **PERSIA** | Isfahan, Fars, Khorasan, Persian_Kurdistan, Irakajemi, Tabriz, Urmia | Abbaside IV (Secondario, guarnigioni)/VI (dentro `fede`, combinato), meta di trabocco di Kievan Rus' V |
+| **PERSIA_OVEST** *(non nella versione precedente di questo doc)* | Isfahan, Irakajemi, Persian_Kurdistan, Tabriz, Urmia | Abbaside II, Secondario (trabocca verso PERSIA_EST) |
+| **PERSIA_EST** *(non nella versione precedente di questo doc)* | Semnan, Khorasan, Kerman, Mazandaran, Fars | Abbaside III, Secondario (trabocca verso ARABIA), meta di trabocco di Abbaside II |
+| **ARABIA** | Nejd, Yemen, Oman *(3 province: Nejd mancava nella versione precedente di questo doc)* | Abbaside IV (base)/V (una Città qui), meta di trabocco di Abbaside III — **non** usata dall'Emirato dei Mori |
+| **BALTICO_EST** *(non nella versione precedente di questo doc)* | Talinn, Tartu, Riga, Courland | Sacro Romano Impero IV |
+| **IMPERO_CENTRO** *(non nella versione precedente di questo doc)* | Austria, Bohemia, Franconia | Sacro Romano Impero VI (Città qui) |
+| **SICILIA_CRETA** *(non nella versione precedente di questo doc)* | Sicily, Crete | Emirato dei Mori III |
+| **AFRICA_CE** *(non nella versione precedente di questo doc)* | Eritrea, Somaliland, Kenya, Zanzibar, Tanganyika, Mocambique, Uganda | Abbaside V (via mare, dentro un `tutti`) |
+| **AFRICA** *(non nella versione precedente di questo doc)* | Senegal, Gambia, Guinea, Ivory_Coast, Ghana, Nigeria, Niger_Delta, Gabon, North_Angola, South_Angola, Namaqualand, Cape_Colony, Eastern_Cape, Zululand, Mocambique, Zanzibar, Kenya, Somaliland, Eritrea, Tanganyika, Uganda | Francia VIII (via mare, dentro un `tutti`; Maghreb escluso) |
+| SIBERIA | Krasnoyarsk, Buryatia, Irkutsk, Tomsk, Trans_Baikal, Sakhalin, Chukotka, Kamchatka, Amur *(non è nel foglio delle regioni originali)* | Kievan Rus' VII, Secondario (la marcia di Yermak) |
+| SCANDINAVIA | Jutland, Scania, Gotaland, Western_Norway, Eastern_Norway | dottrina di Norvegia/Svezia, `js/doctrines.js` — non fa parte di `SETS` in `objectives.js`, non un binario |
 
 ---
 
@@ -473,14 +500,22 @@ spazi con `_`. In **grassetto** le regioni già esistenti in `objectives.js`.
 Erano tre questioni aperte quando solo Inghilterra e Bisanzio avevano un binario completo.
 Sono risolte tutte e tre, e i dieci binari coprono ora i capitoli I-VIII in `objectives.js`:
 
-**1. Le fedi corrono su un calendario più veloce.** Gli scismi sono compressi apposta
-(`Religions.SCHISMS`: Grande Scisma turno 5, Riforma turno 12, Wahhabismo 16) perché a
-scala storica la Riforma cadrebbe al turno 52 e nessuna partita la vedrebbe. Il capitolo VI
-del Sacro Romano Impero («La fede spezzata») e il VI degli Abbasidi («I Safavidi») parlano
-quindi di un fatto che nel gioco è già accaduto da tempo. Risolto scegliendo la seconda
-strada indicata qui: i due capitoli non annunciano lo scisma, ne vivono la CONSEGUENZA —
-«ricomponi l'impero attorno alla fede che ti è rimasta» — col nuovo template `fede`
-(vocabolario `converti`), che misura la confessione di OGGI, non quella di partenza.
+**1. Le fedi corrono sull'anno vero.** Il Grande Scisma resta anticipato al turno 5
+(scelta dell'utente, per essere incontrato presto in partita); la Riforma è invece al
+turno 52 = 1510-1519, il decennio delle 95 Tesi di Lutero (`Religions.SCHISMS`),
+corretto un errore rimasto a lungo dove scattava al turno 12 = 1110, quattro secoli
+prima di Lutero. Il turno 52 cade dentro il ciclo VI (1500-1599): il capitolo VI del
+Sacro Romano Impero («La fede spezzata») e
+il VI degli Abbasidi («I Safavidi») raccontano entrambi un fatto avvenuto proprio in
+quel giro di secolo, ma **solo gli Abbasidi lo vivono davvero col template `fede`**
+(`ab6-1`, dentro un `tutti` con `cittaCount`): misura la confessione di OGGI, non
+quella di partenza, quindi se lo scisma non è ancora scattato nei primi turni del
+ciclo l'obiettivo misura semplicemente 0 finché non arriva, senza bisogno di saperlo
+in anticipo. **Il Sacro Romano Impero VI, verificato il 2026-09-22, NON usa `fede`**:
+le sue tre voci sono `cittaRegioneCount(IMPERO_CENTRO)`, scorte di pietra e
+`tipiCollegati` — il titolo «La fede spezzata» resta, la CONSEGUENZA meccanica no. Se
+si vuole che anche l'Impero viva davvero lo scisma nei numeri, il capitolo va
+riscritto per usare `fede` su GERMANIA o su IMPERO_CENTRO, non solo rititolato.
 
 **2. I capitoli VI-VIII sono ora binari veri, non tracce.** Restava vero che una partita
 tipica finisce fra il terzo e il quinto ciclo, ma l'utente ha chiesto la copertura completa
@@ -499,10 +534,15 @@ regione che sono ADESSO della tua famiglia di fede di stato, per conquista o per
 non guarda la fede di partenza (quella la misurano `ANDALUS`/`ISLAM_ORIGINE`). Con
 l'occasione sono stati scritti altri due template che il vocabolario non prevedeva ma che i
 capitoli tardi degli otto binari nuovi chiedevano: `capitale` (presidia la Capitale ovunque
-sia ADESSO — Polonia VIII, Ungheria VI — perché la Capitale si costruisce, si sposta e si
-conquista e un capitolo non può nominare una provincia fissa) e `fortezza` (possiedi una
-Fortezza, booleano come `mercato` — l'ultima difesa di un binario che finisce sotto
-assedio, spesso combinato con `capitale` via `tutti`). La `spedizione` restava data per
-mancante ma non lo era: un capitolo non chiede di salpare, chiede di ARRIVARE, e per quello
-bastano `regione` + `viaSea` sulla meta d'oltremare (Inghilterra VII/VIII, Castiglia e
-Francia VI/VIII).
+sia ADESSO — **Ungheria VI** (Primario) e **Bisanzio VIII** (Secondario), più **Francia IV**
+(Secondario `fr4-2`, dentro un `tutti` con una Città) — non Polonia VIII come diceva la
+versione precedente di questo doc: verificato il 2026-09-22 con un giro completo su
+`Objectives.BINARI`, `po8` non usa mai `capitale`, le sue tre voci sono
+`provCount`/`guarnigioniConfine`/`popolarita` — perché la Capitale si costruisce,
+si sposta e si conquista e un capitolo non può nominare una provincia fissa) e `fortezza`
+(possiedi una Fortezza, booleano come `mercato` — l'ultima difesa di un binario che finisce
+sotto assedio, spesso combinato con `capitale` via `tutti`, come in Ungheria VI e Bisanzio
+VIII). La `spedizione` restava data per mancante ma non lo era: un capitolo non chiede di
+salpare, chiede di ARRIVARE, e per quello bastano `regione` + `viaSea` sulla meta
+d'oltremare (Inghilterra II/VII/VIII, Castiglia VI/VIII, Francia VII/VIII — **non** Francia
+VI, che è la sola conquista di ITALIA_NORD via terra, senza mare).

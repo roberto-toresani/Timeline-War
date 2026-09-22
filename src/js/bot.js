@@ -815,7 +815,7 @@
     // ---------- FASE 2 · NAVI: rompere l'assedio del mare (§9.2) ----------
     // Un regno costiero che ha finito le province a portata di TERRA non deve
     // fermarsi: costruisce una Nave e sbarca sul continente. È il caso
-    // dell'Inghilterra oltre la Manica e dei Fatimidi oltre Gibilterra — senza
+    // dell'Inghilterra oltre la Manica e dei Mori oltre Gibilterra — senza
     // scafo restavano bloccati sull'isola/in Africa perché `attackTargets`
     // mostra un bersaglio di mare SOLO se una nave è già ancorata lì (§9.2), e
     // quindi `bestAttack` finiva a vuoto e il turno moriva. La macchina d'assalto
@@ -1422,7 +1422,7 @@
                 // LO SBARCO sul continente vale un premio a sé (§9.2): oltremare la
                 // Popolarità non conta (la costa presa non è collegata, popValueOf
                 // tace), ma una testa di ponte è espansione vera — è così che
-                // l'Inghilterra passa la Manica e i Fatimidi Gibilterra invece di
+                // l'Inghilterra passa la Manica e i Mori Gibilterra invece di
                 // restare fermi. Senza, un attacco di mare aveva premio ~1 e perdeva
                 // sempre contro qualsiasi conquista di terra.
                 // OBIETTIVI (§10): una provincia che il foglio degli obiettivi
@@ -2105,7 +2105,7 @@
         }
 
         // NAVE (§9.2): se il regno è costiero e ha finito le prede di terra ma ne
-        // ha oltremare (l'Inghilterra dietro la Manica, i Fatimidi dietro
+        // ha oltremare (l'Inghilterra dietro la Manica, i Mori dietro
         // Gibilterra), si arma una barca sulla costa giusta. Da lì l'attacco di
         // mare lo fa `bestAttack` da sé, perché ora `attackTargets` vede lo scafo.
         if (GA().phaseOf(player) === 'costruisci') {

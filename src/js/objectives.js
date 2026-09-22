@@ -47,7 +47,7 @@
     // al-Andalus: le province che al Mille nascono musulmane (data/start_religions.js).
     // "3 province che in partenza erano arabe" = 3 di queste ancora tue.
     const ANDALUS = new Set(['Toledo', 'Badajoz', 'Andalusia', 'Granada', 'Valencia', 'Alentejo']);
-    // Penisola iberica (per lo sbarco fatimide "2 province iberiche").
+    // Penisola iberica (per lo sbarco dei Mori "2 province iberiche").
     const IBERIA = new Set(['Galicia', 'Asturias', 'Navarra', 'Castile', 'Aragon', 'Catalonia',
         'Toledo', 'Estremadura', 'Valencia', 'Badajoz', 'Alentejo', 'Andalusia', 'Granada']);
     // Isole Britanniche (per "unifica l'isola" inglese).
@@ -64,7 +64,7 @@
     const NORMANDY_FR = new Set(['Normandy', 'Brittany', 'Picardy', 'Flanders', 'French_Low_Countries', 'Aquitaine', 'Burgundy']);
     // Ciclo II: cuore della Grecia, oltre a Macedonia/Bulgaria già bizantine dal Ciclo I.
     const GREECE = new Set(['Thessalia', 'Attica', 'Peloponnese', 'Crete', 'Albania', 'Northern_Thrace']);
-    // Ciclo II: l'Egitto, meta dell'espansione fatimide verso est.
+    // Ciclo II: l'Egitto, meta dell'espansione dei Mori verso est.
     const EGYPT = new Set(['Matruh', 'Lower_Egypt', 'Upper_Egypt', 'Middle_Egypt', 'Egyptian_Desert']);
     // Ciclo II: le isole del Mediterraneo occidentale, meta navale di Castiglia.
     const ISLANDS = new Set(['Sicily', 'Sardinia']);
@@ -105,7 +105,7 @@
     const ITALIA_SUD = new Set(['Abruzzo', 'Umbria', 'Campania', 'Apulia', 'Calabria']);
     // Ciclo VIII bizantino: le terre che nel Mille erano musulmane e che
     // Bisanzio può realisticamente raggiungere — frontiera anatolica,
-    // Mesopotamia, Levante fatimide e la Sicilia degli emiri
+    // Mesopotamia, Levante dei Mori e la Sicilia degli emiri
     // (data/start_religions.js, non calcolato: sono le stesse eccezioni,
     // lette una volta e fissate qui come per ANDALUS).
     const ISLAM_ORIGINE = new Set(['Sicily', 'Diyarbakir', 'Mosul', 'Deir_Ez_Zor', 'Aleppo',
@@ -119,18 +119,53 @@
     const RENO = new Set(['Rhineland', 'Flanders', 'Picardy']);
     const BALTICO = new Set(['East_Prussia', 'West_Prussia', 'Pomerania', 'Courland']);
     const POLONIA = new Set(['Mazovia', 'Posen', 'Silesia', 'West_Galicia', 'East_Galicia', 'Volhynia']);
+    // La marcia a oriente del ducato (Polonia C2): le terre lituano-rutene in cui
+    // la Polonia si espande dopo lo sbocco al mare. È una `regione` scalabile, non
+    // un elenco fisso: un ducato che ha già preso Vilnius e Brest nel ciclo I non
+    // deve trovarsi un Primario già compiuto al turno 1 del ciclo II — il ratchet
+    // (misura + passo) gli chiede comunque di spingersi oltre. Trabocca in RUS_NORD
+    // per chi le possiede già tutte.
+    const POLONIA_EST = new Set(['Vilnius', 'Brest', 'Minsk', 'Volhynia', 'Mogilev']);
     const PANNONIA = new Set(['Central_Hungary', 'Transdanubia', 'West_Slovakia', 'East_Slovakia', 'Slavonia']);
-    const BALCANI = new Set(['Serbia', 'Bosnia', 'Bulgaria', 'Macedonia', 'Albania', 'Wallachia', 'Moldavia']);
+    // NB: l'id SVG della Serbia è `Northern_Serbia` (nome mostrato "Serbia"); il
+    // vecchio `'Serbia'` era un id morto che non combaciava con nessuna provincia
+    // posseduta — la regione contava 6 province invece di 7. Corretto.
+    const BALCANI = new Set(['Northern_Serbia', 'Bosnia', 'Bulgaria', 'Macedonia', 'Albania', 'Wallachia', 'Moldavia']);
+    // I Balcani occidentali (Bisanzio C6, "la rinascita imperiale"): la costa
+    // dalmato-albanese che l'impero riprende risalendo dall'Epiro. È una `regione`
+    // scalabile, non l'elenco fisso Albania/Serbia/Montenegro che nasceva già
+    // compiuto per chi le teneva. Trabocca verso la Pannonia (il Danubio).
+    const BALCANI_OVEST = new Set(['Albania', 'Northern_Serbia', 'Montenegro', 'Bosnia', 'Macedonia']);
     const RUS_NORD = new Set(['Novgorod', 'Moscow', 'Tver', 'Pskov', 'Smolensk', 'Ryazan']);
+    // La Rutenia contesa fra Polonia e Rus' (Bielorussia + Ucraina): le terre che
+    // le due corone si strappano a vicenda. La usano Polonia C7 ("Verso la Russia",
+    // trabocca a est in RUS_NORD) e Kievan Rus' C6 ("L'invasione d'Europa",
+    // trabocca a ovest in POLONIA). Scalabile: un elenco fisso Kiev/Mogilev nasceva
+    // già compiuto per chi le teneva.
+    const RUTENIA = new Set(['Kiev', 'Chernihiv', 'Mogilev', 'Minsk', 'Brest', 'Volhynia']);
+    // La finestra sul Baltico di Pietro il Grande (Kievan Rus' C8): Ingria e
+    // Carelia più le province baltiche estoni-livoni. Trabocca verso il Baltico
+    // prussiano (BALTICO).
+    const BALTICO_NORD = new Set(['Ingria', 'East_Karelia', 'Talinn', 'Tartu', 'Riga']);
     const EST_RUSSO = new Set(['Kazan', 'Astrakhan', 'Ural', 'Uralsk', 'Perm', 'Tartaria']);
+    // Il Caucaso (Kievan Rus' C5, "Le terre orientali armate"): la discesa verso il
+    // Caucaso e la Transcaucasia. Scalabile, non l'elenco fisso Stavropol/Dagestan;
+    // trabocca in Persia (le guerre russo-persiane) per chi lo tiene tutto.
+    const CAUCASO = new Set(['Stavropol', 'Dagestan', 'Kuban', 'Georgia', 'Azerbaijan', 'Armenia']);
     // La Siberia (Kievan Rus', capitolo VII): non è nel foglio delle regioni
     // originali — la marcia di Yermak, id verificati sulla mappa.
     const SIBERIA = new Set(['Krasnoyarsk', 'Buryatia', 'Irkutsk', 'Tomsk', 'Trans_Baikal',
         'Sakhalin', 'Chukotka', 'Kamchatka', 'Amur']);
     const MESOPOTAMIA = new Set(['Baghdad', 'Basra', 'Mosul']);
     const PERSIA = new Set(['Isfahan', 'Fars', 'Khorasan', 'Persian_Kurdistan', 'Irakajemi', 'Tabriz', 'Urmia']);
+    // La Persia spezzata in due frontiere per i secondari abbasidi (C2/C3), così
+    // non sono l'elenco fisso Isfahan/Irakajemi e Semnan/Khorasan che nasceva già
+    // compiuto. OVEST (le marche occidentali, C2) trabocca a EST; EST (l'altopiano
+    // orientale, C3) è l'ultima frontiera. Il full PERSIA resta al C4 (ab4-2).
+    const PERSIA_OVEST = new Set(['Isfahan', 'Irakajemi', 'Persian_Kurdistan', 'Tabriz', 'Urmia']);
+    const PERSIA_EST = new Set(['Semnan', 'Khorasan', 'Kerman', 'Mazandaran', 'Fars']);
     // La penisola arabica: le tre province della penisola sulla mappa (Nejd,
-    // Yemen, Oman). Usata da Abbasidi (C4/C5) e Fatimidi (C5).
+    // Yemen, Oman). Usata da Abbasidi (C4/C5) e Mori (C5).
     const ARABIA = new Set(['Nejd', 'Yemen', 'Oman']);
     // Baltico orientale (Sacro Romano Impero C4): «una provincia baltica tra
     // Tallin, Tartu, Riga e Courland» — possederne almeno una.
@@ -138,7 +173,7 @@
     // Cuore dell'impero (Sacro Romano Impero C6): «fonda 2 città tra Austria,
     // Bohemia e Franconia».
     const IMPERO_CENTRO = new Set(['Austria', 'Bohemia', 'Franconia']);
-    // «Conquista o Sicilia o Creta» (Fatimidi C3): possederne almeno una.
+    // «Conquista o Sicilia o Creta» (Mori C3): possederne almeno una.
     const SICILIA_CRETA = new Set(['Sicily', 'Crete']);
     // Africa centro-orientale (Abbasidi C5, richiesta dell'utente): il Corno
     // d'Africa e la costa swahili — Eritrea, Somalia, Kenya e dintorni.
@@ -175,8 +210,9 @@
         ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT,
         ISLANDS, HOLY_LAND, IRELAND, FRANCIA, AMERICA, INDIE,
         ANATOLIA, TRANSGIORDANIA, SICILIA_CALABRIA, ITALIA_SUD, ISLAM_ORIGINE,
-        MAGHREB, ITALIA_NORD, GERMANIA, AUSTRIA_EST, RENO, BALTICO, POLONIA, PANNONIA,
-        BALCANI, RUS_NORD, EST_RUSSO, SIBERIA, MESOPOTAMIA, PERSIA, ARABIA,
+        MAGHREB, ITALIA_NORD, GERMANIA, AUSTRIA_EST, RENO, BALTICO, POLONIA, POLONIA_EST, PANNONIA,
+        BALCANI, BALCANI_OVEST, RUTENIA, BALTICO_NORD, RUS_NORD, EST_RUSSO, CAUCASO, SIBERIA, MESOPOTAMIA,
+        PERSIA, PERSIA_OVEST, PERSIA_EST, ARABIA,
         BALTICO_EST, IMPERO_CENTRO, SICILIA_CRETA, AFRICA_CE, AFRICA,
         AMERICA_CENTRO, AMERICA_SUD
     };
@@ -558,15 +594,15 @@
             // Ciclo VI — l'impero dove non tramonta il sole: il Veliero E
             // l'approdo insieme (`tutti`), perché la spedizione non è la nave in
             // mare, è dove scende.
-            { ciclo: 6, epoca: '1500-1599', tema: 'L’impero dove non tramonta il sole', voci: [
-                { id: 'ca6-1', tipo: 'navale', titolo: 'I galeoni della Corona',
+            { ciclo: 6, epoca: '1500-1599', tema: 'I conquistadores', voci: [
+                { id: 'ca6-1', tipo: 'navale', titolo: 'Cortés e i galeoni della Corona',
                   tmpl: 'tutti', arg: {
-                      capo: { tmpl: 'regione', arg: { set: 'AMERICA', viaSea: true } },
+                      capo: { tmpl: 'regione', arg: { set: 'AMERICA_CENTRO', viaSea: true } },
                       altri: [{ tmpl: 'naviTipo', arg: { tipo: 'vascello' }, soglia: 1 }]
                   },
                   n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  testo: n => `Vara un Veliero e manda la Corona oltreoceano: conquista ${pl(n, 'una provincia', 'province')} nel Nuovo Mondo.`,
-                  check: n => `un Veliero posseduto e province nel Nuovo Mondo ≥ ${n}` },
+                  testo: n => `Vara un Veliero e manda la Corona oltreoceano: conquista ${pl(n, 'una provincia', 'province')} nella Nuova Spagna.`,
+                  check: n => `un Veliero posseduto e province nella Nuova Spagna ≥ ${n}` },
                 { id: 'ca6-2', tipo: 'economia', titolo: 'L’oro delle Indie',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 600, avanzare: 1000, eccedere: 1600, passo: 200 },
@@ -583,15 +619,15 @@
             // (revisione dell'utente). Due Città oltreoceano sono 2000 monete
             // più le risorse, portate dove il Veliero le ha scaricate: è la
             // definizione di un obiettivo che al ciclo 2 non esisteva.
-            { ciclo: 7, epoca: '1600-1699', tema: 'Difendere l’impero', voci: [
-                { id: 'ca7-1', tipo: 'crescita', titolo: 'Le città del Nuovo Mondo',
+            { ciclo: 7, epoca: '1600-1699', tema: 'Pizarro e l’impero d’argento', voci: [
+                { id: 'ca7-1', tipo: 'crescita', titolo: 'Le città del Perù',
                   tmpl: 'tutti', arg: {
-                      capo: { tmpl: 'cittaRegioneCount', arg: { set: 'AMERICA' } },
+                      capo: { tmpl: 'cittaRegioneCount', arg: { set: 'AMERICA_SUD' } },
                       altri: [{ tmpl: 'naviTipo', arg: { tipo: 'vascello' }, soglia: 1 }]
                   },
                   n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  testo: n => `Fonda ${n} Città nel Nuovo Mondo.`,
-                  check: n => `Città in America ≥ ${n} e almeno un Veliero` },
+                  testo: n => `Fonda ${n} Città in Sudamerica.`,
+                  check: n => `Città in Sudamerica ≥ ${n} e almeno un Veliero` },
                 { id: 'ca7-2', tipo: 'crescita', titolo: 'La pace armata',
                   tmpl: 'sicurezza', arg: {},
                   n: { resistere: 4, avanzare: 5, eccedere: 5, passo: 1 },
@@ -747,7 +783,7 @@
             // Ciclo VI — le guerre d'Italia (1494 in poi): Carlo VIII e Francesco I
             // scendono oltre le Alpi. Lo stesso Nord Italia che il Sacro Romano
             // Impero rivendica al suo capitolo III — è la stessa guerra.
-            { ciclo: 6, epoca: '1500-1599', tema: 'Le guerre d’Italia', voci: [
+            { ciclo: 6, epoca: '1500-1599', tema: 'Le guerre d’Italia e gli Ugonotti', voci: [
                 { id: 'fr6-1', tipo: 'espansione', titolo: 'Oltre le Alpi',
                   tmpl: 'regione', arg: { set: 'ITALIA_NORD' },
                   n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
@@ -764,14 +800,12 @@
                   testo: n => `Conserva ${n} monete d’oro.`,
                   check: n => `monete ≥ ${n}` }
             ] },
-            // Ciclo VII — i confini naturali: Richelieu e Luigi XIV spingono sul
-            // Reno. Il legno del Secondario è quello del Veliero coloniale del
-            // capitolo dopo.
-            { ciclo: 7, epoca: '1600-1699', tema: 'I confini naturali', voci: [
-                // Le tre terre del Reno da sole erano un obiettivo da ciclo 2:
-                // confinano con la Francia e si prendono per terra. Al ciclo 7
-                // il confine naturale vuol dire tenerle TUTTE e mettere piede
-                // oltre il fiume, in Germania.
+            // Ciclo VII — Richelieu, la Fronda e la revoca dell'Editto di Nantes
+            // (1685) segnano il secolo in patria; oltremare la corona fonda la
+            // Nuova Francia. (NB: qui si chiedeva un tempo di tenere le tre terre
+            // del Reno — RENO è ancora definita fra i SET ma oggi non è più usata
+            // da nessun binario; il capitolo è stato riscritto sulla colonia.)
+            { ciclo: 7, epoca: '1600-1699', tema: 'I confini naturali e la revoca dell’Editto di Nantes', voci: [
                 { id: 'fr7-1', tipo: 'navale', titolo: 'La Nuova Francia',
                   tmpl: 'tutti', arg: {
                       capo: { tmpl: 'regione', arg: { set: 'AMERICA', viaSea: true } },
@@ -816,14 +850,14 @@
                   check: n => `Popolarità ≥ ${n}` }
             ] }
         ],
-        'Califfato Fatimide': [
-            { ciclo: 1, epoca: '1000-1099', tema: 'Il mare dei Fatimidi', voci: [
+        'Emirato dei Mori': [
+            { ciclo: 1, epoca: '1000-1099', tema: 'Le vele degli Almoravidi', voci: [
                 { id: 'fa1', tipo: 'espansione', titolo: 'Verso al-Andalus',
                   tmpl: 'regione', arg: { set: 'IBERIA' },
                   n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
                   testo: n => `Conquista e difendi ${pl(n, 'una provincia', 'province')} nella penisola iberica.`,
                   check: n => `province iberiche possedute ≥ ${n}` },
-                { id: 'fa2', tipo: 'economia', titolo: 'La pergamena del califfo',
+                { id: 'fa2', tipo: 'economia', titolo: 'La pergamena dell’emiro',
                   tmpl: 'collegate', arg: {},
                   n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
                   testo: n => `Collega ${n} tuoi territori con strade.`,
@@ -834,7 +868,7 @@
                   testo: () => 'Costruisci un Mercato.',
                   check: () => 'possiedi un Mercato' }
             ] },
-            { ciclo: 2, epoca: '1100-1199', tema: 'L’emirato e l’Egitto', voci: [
+            { ciclo: 2, epoca: '1100-1199', tema: 'Gli Almohadi e l’Egitto', voci: [
                 { id: 'fa2-1', tipo: 'espansione', titolo: 'L’emirato resiste',
                   tmpl: 'regione', arg: { set: 'IBERIA' },
                   n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
@@ -851,7 +885,7 @@
                   testo: n => `Immagazzina ${n} scorte di grano.`,
                   check: n => `scorte di grano ≥ ${n}` }
             ] },
-            // Ciclo III — Saladino riprende Gerusalemme (1187): il califfato
+            // Ciclo III — Saladino riprende Gerusalemme (1187): l’emirato
             // torna in Terra Santa. Il secondario prepara già la difesa del
             // Levante che il capitolo dopo (Ain Jalut) chiede di tenere.
             { ciclo: 3, epoca: '1200-1299', tema: 'Saladino', voci: [
@@ -882,7 +916,7 @@
                   n: { resistere: 3, avanzare: 5, eccedere: 5, passo: 1 },
                   testo: n => `Assicurati tutte le province d’Egitto: possiedi ${n} delle 5.`,
                   check: n => `province di EGYPT possedute ≥ ${n}` },
-                { id: 'fa4-2', tipo: 'economia', titolo: 'Le riserve del califfato',
+                { id: 'fa4-2', tipo: 'economia', titolo: 'Le riserve dell’emirato',
                   tmpl: 'scorteTutte', arg: {},
                   n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
                   testo: n => `Tieni almeno ${n} scorte di ogni tipo di risorsa.`,
@@ -908,13 +942,13 @@
                   n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
                   testo: n => `Completa almeno ${n} conquiste via nave (sbarchi vinti).`,
                   check: n => `conquiste navali ≥ ${n}` },
-                { id: 'fa5-3', tipo: 'espansione', titolo: 'Il califfato esteso',
+                { id: 'fa5-3', tipo: 'espansione', titolo: 'L’emirato esteso',
                   tmpl: 'provCount', arg: {},
                   n: { resistere: 9, avanzare: 12, eccedere: 15, passo: 1 },
-                  testo: n => `Possiedi ${n} province in tutto il califfato.`,
+                  testo: n => `Possiedi ${n} province in tutto l’emirato.`,
                   check: n => `province ≥ ${n}` }
             ] },
-            // Ciclo VI — il CANCELLO DI SPESA del binario fatimide: la
+            // Ciclo VI — il CANCELLO DI SPESA del binario dei Mori: la
             // cittadella del Cairo. Una Fortezza costa 2000 monete e sei
             // risorse diverse (COSTS.fortezza) — nessun regno la mette in piedi
             // nei primi cicli, ed è questo che rende il capitolo un capitolo
@@ -925,12 +959,12 @@
                 // già è un tetto (`tetto`), e la soglia non può crescerci sopra
                 // — l'obiettivo nascerebbe già compiuto. Quel che scala senza
                 // tetto sono gli insediamenti che devi ancora costruire.
-                { id: 'fa6-1', tipo: 'crescita', titolo: 'Le città del califfato',
+                { id: 'fa6-1', tipo: 'crescita', titolo: 'Le città dell’emirato',
                   tmpl: 'cittaCount', arg: {},
                   n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Possiedi ${n} Città in tutto il califfato.`,
+                  testo: n => `Possiedi ${n} Città in tutto l’emirato.`,
                   check: n => `Città possedute ≥ ${n}` },
-                { id: 'fa6-2', tipo: 'espansione', titolo: 'Il califfato si allarga',
+                { id: 'fa6-2', tipo: 'espansione', titolo: 'L’emirato si allarga',
                   tmpl: 'provCount', arg: {},
                   n: { resistere: 11, avanzare: 15, eccedere: 18, passo: 1 },
                   testo: n => `Espanditi a ${n} province.`,
@@ -964,7 +998,7 @@
                   testo: n => `Collega alla Capitale almeno ${n} tipi di risorse diverse.`,
                   check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
-            // Ciclo VIII — i bey: il califfato è ormai una costellazione di
+            // Ciclo VIII — i bey: l’emirato è ormai una costellazione di
             // città che si governano da sé. La misura è quante ne hai, non che
             // tu ne abbia una (che era l'obiettivo del ciclo 2 francese).
             { ciclo: 8, epoca: '1700-1799', tema: 'I bey e i mamelucchi', voci: [
@@ -979,7 +1013,7 @@
                 // FOGLIO: «Completa tutte le costruzioni per la sanità». Non c'è un
                 // conteggio delle migliorie di Sanità: reso con un Benessere alto.
                 // TODO(rivedere): contare le migliorie §6.1 di Sanità.
-                { id: 'fa8-2', tipo: 'crescita', titolo: 'La sanità del califfato',
+                { id: 'fa8-2', tipo: 'crescita', titolo: 'La sanità dell’emirato',
                   tmpl: 'benessere', arg: {},
                   n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
                   testo: n => `Investi nella sanità: tieni il Benessere al livello ${n}.`,
@@ -1255,11 +1289,18 @@
             // mette radici a est. Il Benessere prepara il terreno prima che la
             // fede si spezzi al capitolo dopo — si governa mentre si può ancora.
             { ciclo: 5, epoca: '1400-1499', tema: 'Gli Asburgo', voci: [
+                // SCALABILE (regola dell'utente): la regione AUSTRIA_EST col
+                // ratchet, non l'elenco fisso Austria/Moravia. Trabocca verso la
+                // Pannonia (l'Ungheria asburgica) per chi tiene già le terre austriache.
                 { id: 'sr5-1', tipo: 'espansione', titolo: 'Gli Asburgo',
-                  tmpl: 'province', arg: { ids: ['Austria', 'Moravia'] },
-                  n: { resistere: 1, avanzare: 1, eccedere: 3, passo: 1 },
-                  testo: n => `Annetti Austria e Moravia all’Impero${n > 1 ? `, difese con ${n} uomini l’una` : ''}.`,
-                  check: n => `possiedi Austria e Moravia${n > 1 ? ` con soldati ≥ ${n}` : ''}` },
+                  tmpl: 'regione', arg: { set: 'AUSTRIA_EST', oltre: 'PANNONIA' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `La casa d’Austria mette radici a est: possiedi ${pl(n, 'una provincia', 'province')} fra le terre austriache (Austria, Bohemia, Moravia, Silesia, Styria, Tyrol).`,
+                  check: n => `province di AUSTRIA_EST possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre l’Austria, in Pannonia',
+                  testoOltre: n => `Le terre austriache sono già imperiali: scendi in Ungheria — possiedi ${pl(n, 'una provincia', 'province')} pannoniche.`,
+                  checkOltre: n => `province di PANNONIA possedute ≥ ${n}` },
                 { id: 'sr5-2', tipo: 'crescita', titolo: 'Il regno che prospera',
                   tmpl: 'benessere', arg: {},
                   n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
@@ -1358,13 +1399,23 @@
                   testo: n => `Collega alla Capitale almeno ${n} tipi di risorse diverse.`,
                   check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
-            { ciclo: 2, epoca: '1100-1199', tema: 'La flotta baltica', voci: [
+            { ciclo: 2, epoca: '1100-1199', tema: 'Verso le terre lituane', voci: [
+                // SCALABILE, non un elenco fisso (regola dell'utente): un ducato che
+                // ha già preso Vilnius e Brest nel ciclo I si trovava il Primario
+                // del ciclo II già compiuto al primo turno — «conquista Vilnius,
+                // Brest e Volinya» quando ne possiede già due su tre. Ora è una
+                // `regione` (POLONIA_EST) col ratchet: chi ne tiene già N deve
+                // spingersi a N+passo, cioè conquistarne ancora. Trabocca in
+                // RUS_NORD per chi le possiede già tutte.
                 { id: 'po2-1', tipo: 'espansione', titolo: 'Verso oriente',
-                  tmpl: 'province', arg: { ids: ['Vilnius', 'Brest', 'Volhynia'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Espanditi a est: conquista Vilnius, Brest e Volinya, difese con ${n} uomini l’una.`
-                                    : 'Espanditi a est: conquista Vilnius, Brest e Volinya.',
-                  check: n => n > 0 ? `Vilnius, Brest e Volinya con soldati ≥ ${n}` : 'possiedi Vilnius, Brest e Volinya' },
+                  tmpl: 'regione', arg: { set: 'POLONIA_EST', oltre: 'RUS_NORD' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
+                  testo: n => `Espanditi a oriente, nelle terre lituano-rutene: possiedi ${pl(n, 'una provincia', 'province')} fra Vilnius, Brest, Minsk, Volinya e Mogilev.`,
+                  check: n => `province lituano-rutene possedute ≥ ${n}`,
+                  nOltre: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  titoloOltre: 'Oltre, verso la Rus’',
+                  testoOltre: n => `Le terre lituano-rutene sono già tue: spingiti verso la Rus’ — possiedi ${pl(n, 'una provincia', 'province')} settentrionali russe.`,
+                  checkOltre: n => `province di RUS_NORD possedute ≥ ${n}` },
                 // xlsx: qui il Benessere, non un doppione di "Le vie del regno"
                 // (che è già il Terziario del ciclo I).
                 { id: 'po2-2', tipo: 'crescita', titolo: 'Il regno che prospera',
@@ -1405,7 +1456,7 @@
             ] },
             // Ciclo IV — Casimiro il Grande (1333-1370): "trovò una Polonia di
             // legno e la lasciò di pietra". La pietra del ciclo prima serve qui.
-            { ciclo: 4, epoca: '1300-1399', tema: 'Casimiro il Grande', voci: [
+            { ciclo: 4, epoca: '1300-1399', tema: 'Casimiro il Grande e l’unione di Krewo', voci: [
                 { id: 'po4-1', tipo: 'crescita', titolo: 'Una Polonia di pietra',
                   tmpl: 'cittaRegione', arg: { set: 'POLONIA' },
                   n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
@@ -1443,7 +1494,7 @@
             ] },
             // Ciclo VI — il granaio d'Europa (1500s, età dell'oro del grano
             // polacco): il ciclo del commercio granario riempie l'erario.
-            { ciclo: 6, epoca: '1500-1599', tema: 'Il granaio d’Europa', voci: [
+            { ciclo: 6, epoca: '1500-1599', tema: 'L’Unione di Lublino e il granaio d’Europa', voci: [
                 // Il PRIMARIO è la Città, non l'oro: un tesoro è un livello da
                 // TENERE, quindi la sua soglia arriva a dove sei e si ferma
                 // (vedi `soglia`) — come mira primaria di un capitolo tardo
@@ -1469,12 +1520,18 @@
             // Fortezza che il capitolo dopo — le spartizioni — chiede di
             // difendere: la pietra del ciclo prima serve a questo.
             { ciclo: 7, epoca: '1600-1699', tema: 'Il diluvio', voci: [
+                // SCALABILE (regola dell'utente): la regione RUTENIA col ratchet,
+                // non l'elenco fisso Kiev/Mogilev. Trabocca a est nella Rus'
+                // settentrionale per chi tiene già la Rutenia (verso Mosca).
                 { id: 'po7-1', tipo: 'espansione', titolo: 'Verso la Russia',
-                  tmpl: 'province', arg: { ids: ['Kiev', 'Mogilev'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Avanza verso la Russia: conquista Kiev e Mogilev, difese con ${n} uomini.`
-                                    : 'Avanza verso la Russia: conquista Kiev e Mogilev.',
-                  check: n => n > 0 ? `Kiev e Mogilev con soldati ≥ ${n}` : 'possiedi Kiev e Mogilev' },
+                  tmpl: 'regione', arg: { set: 'RUTENIA', oltre: 'RUS_NORD' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Avanza verso la Russia: possiedi ${pl(n, 'una provincia', 'province')} della Rutenia (fra Kiev, Cernihiv, Mogilev, Minsk, Brest e Volinya).`,
+                  check: n => `province di RUTENIA possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre la Rutenia, verso Mosca',
+                  testoOltre: n => `La Rutenia è già tua: spingiti verso Mosca — possiedi ${pl(n, 'una provincia', 'province')} della Rus’ settentrionale.`,
+                  checkOltre: n => `province di RUS_NORD possedute ≥ ${n}` },
                 { id: 'po7-2', tipo: 'espansione', titolo: 'L’esercito in campo',
                   tmpl: 'guarnigioni', arg: { soglia: 3 },
                   n: { resistere: 7, avanzare: 10, eccedere: 13, passo: 1 },
@@ -1597,12 +1654,18 @@
                   n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
                   testo: n => `Spingi la Rus’ a oriente: possiedi ${n} delle 6 terre a est di Mosca.`,
                   check: n => `province di EST_RUSSO possedute ≥ ${n}` },
+                // SCALABILE (regola dell'utente): la regione CAUCASO col ratchet,
+                // non l'elenco fisso Stavropol/Dagestan. Trabocca in Persia (le
+                // guerre russo-persiane) per chi tiene già tutto il Caucaso.
                 { id: 'ru5-2', tipo: 'espansione', titolo: 'Le terre orientali armate',
-                  tmpl: 'province', arg: { ids: ['Stavropol', 'Dagestan'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Conquista Stavropol e Dagestan, difese con ${n} uomini l’una.`
-                                    : 'Conquista e difendi Stavropol e Dagestan.',
-                  check: n => n > 0 ? `Stavropol e Dagestan con soldati ≥ ${n}` : 'possiedi Stavropol e Dagestan' },
+                  tmpl: 'regione', arg: { set: 'CAUCASO', oltre: 'PERSIA' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Scendi verso il Caucaso: possiedi ${pl(n, 'una provincia', 'province')} fra Stavropol, Dagestan, Kuban, Georgia, Azerbaigian e Armenia.`,
+                  check: n => `province del Caucaso possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre il Caucaso, in Persia',
+                  testoOltre: n => `Il Caucaso è già tuo: spingiti in Persia — possiedi ${pl(n, 'una provincia', 'province')} persiane.`,
+                  checkOltre: n => `province di PERSIA possedute ≥ ${n}` },
                 { id: 'ru5-3', tipo: 'crescita', titolo: 'Il regno che prospera',
                   tmpl: 'benessere', arg: {},
                   n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
@@ -1612,12 +1675,18 @@
             // Ciclo VI — verso oriente: Ivan il Terribile prende Kazan e
             // Astrakhan, Yermak apre la strada alla Siberia del capitolo dopo.
             { ciclo: 6, epoca: '1500-1599', tema: 'Verso oriente', voci: [
+                // SCALABILE (regola dell'utente): la regione RUTENIA col ratchet,
+                // non l'elenco fisso Mogilev/Chernihiv. Trabocca a ovest, in Polonia,
+                // per chi tiene già tutta la Rutenia.
                 { id: 'ru6-1', tipo: 'espansione', titolo: 'L’invasione d’Europa',
-                  tmpl: 'province', arg: { ids: ['Mogilev', 'Chernihiv'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Comincia l’invasione d’Europa: conquista e difendi Mogilev e Cernihiv con ${n} uomini.`
-                                    : 'Comincia l’invasione d’Europa: conquista e difendi Mogilev e Cernihiv.',
-                  check: n => n > 0 ? `Mogilev e Cernihiv con soldati ≥ ${n}` : 'possiedi Mogilev e Cernihiv' },
+                  tmpl: 'regione', arg: { set: 'RUTENIA', oltre: 'POLONIA' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
+                  testo: n => `Comincia l’invasione d’Europa: possiedi ${pl(n, 'una provincia', 'province')} della Rutenia (fra Kiev, Cernihiv, Mogilev, Minsk, Brest e Volinya).`,
+                  check: n => `province di RUTENIA possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre la Rutenia, in Polonia',
+                  testoOltre: n => `La Rutenia è già tua: sfonda a occidente — possiedi ${pl(n, 'una provincia', 'province')} polacche.`,
+                  checkOltre: n => `province di POLONIA possedute ≥ ${n}` },
                 { id: 'ru6-2', tipo: 'economia', titolo: 'Il tesoro per la Siberia',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 1200, avanzare: 2000, eccedere: 3000, passo: 300 },
@@ -1652,12 +1721,18 @@
             // Ciclo VIII — la finestra sul Baltico: Pietro il Grande e la Grande
             // Guerra del Nord, San Pietroburgo come porta sull’Europa.
             { ciclo: 8, epoca: '1700-1799', tema: 'La finestra sul Baltico', voci: [
+                // SCALABILE (regola dell'utente): la regione BALTICO_NORD col
+                // ratchet, non l'elenco fisso Ingria/East Karelia. Trabocca nel
+                // Baltico prussiano per chi tiene già la costa estone-livone.
                 { id: 'ru8-1', tipo: 'espansione', titolo: 'La finestra sul Baltico',
-                  tmpl: 'province', arg: { ids: ['Ingria', 'East_Karelia'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Apri la finestra sull’Europa nordica: prendi Ingria e East Karelia, difese con ${n} uomini.`
-                                    : 'Apri la finestra sull’Europa nordica: prendi Ingria e East Karelia.',
-                  check: n => n > 0 ? `Ingria e East Karelia con soldati ≥ ${n}` : 'possiedi Ingria e East Karelia' },
+                  tmpl: 'regione', arg: { set: 'BALTICO_NORD', oltre: 'BALTICO' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Apri la finestra sull’Europa nordica: possiedi ${pl(n, 'una provincia', 'province')} fra Ingria, East Karelia, Tallin, Tartu e Riga.`,
+                  check: n => `province del Baltico nord-orientale possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre, nel Baltico prussiano',
+                  testoOltre: n => `La costa baltica è già tua: spingiti nel Baltico prussiano — possiedi ${pl(n, 'una provincia', 'province')} fra Prussia, Pomerania e Courland.`,
+                  checkOltre: n => `province di BALTICO possedute ≥ ${n}` },
                 { id: 'ru8-2', tipo: 'crescita', titolo: 'Il regno che si governa',
                   tmpl: 'popolarita', arg: {},
                   n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
@@ -1690,11 +1765,19 @@
                   check: () => 'possiedi un Mercato' }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'L’Adriatico', voci: [
+                // SCALABILE (regola dell'utente): la regione ADRIATIC col ratchet,
+                // non l'elenco fisso Croatia/Dalmatia/Istria che, prese nel ciclo I,
+                // lasciava il Primario compiuto. Trabocca verso i Balcani (giù per
+                // la costa dalmata) per chi possiede già le tre.
                 { id: 'un2-1', tipo: 'espansione', titolo: 'Il dominio adriatico',
-                  tmpl: 'province', arg: { ids: ['Croatia', 'Dalmatia', 'Istria'] },
-                  n: { resistere: 2, avanzare: 4, eccedere: 6, passo: 1 },
-                  testo: n => `Conquista e tieni tutte e 3 le province adriatiche (Croatia, Dalmatia, Istria) e difendile con ${n} uomini ciascuna.`,
-                  check: n => `le 3 province adriatiche, soldati ≥ ${n} ciascuna` },
+                  tmpl: 'regione', arg: { set: 'ADRIATIC', oltre: 'BALCANI_OVEST' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 3, passo: 1 },
+                  testo: n => `Domina l’Adriatico: possiedi ${pl(n, 'una provincia', 'province')} fra Croatia, Dalmatia e Istria.`,
+                  check: n => `province adriatiche (Croatia/Dalmatia/Istria) ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre l’Adriatico, nei Balcani',
+                  testoOltre: n => `La costa adriatica è già tua: scendi nei Balcani — possiedi ${pl(n, 'una provincia', 'province')} fra Albania, Serbia, Montenegro, Bosnia e Macedonia.`,
+                  checkOltre: n => `province dei Balcani occidentali possedute ≥ ${n}` },
                 { id: 'un2-2', tipo: 'crescita', titolo: 'La città di Buda',
                   tmpl: 'citta', arg: {},
                   n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
@@ -1758,11 +1841,18 @@
             // fermato. Il secondario mette da parte la pietra per la Fortezza
             // che Mohács, al capitolo dopo, chiederà attorno alla Capitale.
             { ciclo: 5, epoca: '1400-1499', tema: 'Hunyadi e Belgrado', voci: [
+                // SCALABILE (regola dell'utente): la regione AUSTRIA_EST col
+                // ratchet, non l'elenco fisso Austria/Styria. Trabocca oltre le Alpi
+                // nel Nord Italia per chi possiede già le terre austriache.
                 { id: 'un5-1', tipo: 'espansione', titolo: 'Verso le Alpi',
-                  tmpl: 'province', arg: { ids: ['Austria', 'Styria'] },
-                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
-                  testo: n => `Conquista Austria e Styria e difendile con ${n} uomini l’una.`,
-                  check: n => `Austria e Styria con soldati ≥ ${n} ciascuna` },
+                  tmpl: 'regione', arg: { set: 'AUSTRIA_EST', oltre: 'ITALIA_NORD' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Spingi il regno verso le Alpi: possiedi ${pl(n, 'una provincia', 'province')} fra le terre austriache (Austria, Bohemia, Moravia, Silesia, Styria, Tyrol).`,
+                  check: n => `province di AUSTRIA_EST possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre le Alpi, in Italia',
+                  testoOltre: n => `Le terre alpine sono già tue: scendi in Italia — possiedi ${pl(n, 'una provincia', 'province')} del Nord Italia.`,
+                  checkOltre: n => `province di ITALIA_NORD possedute ≥ ${n}` },
                 { id: 'un5-2', tipo: 'economia', titolo: 'Le pietre per l’ultima difesa',
                   tmpl: 'scorte', arg: { res: 'pietra' },
                   n: { resistere: 4, avanzare: 6, eccedere: 9, passo: 2 },
@@ -1864,11 +1954,19 @@
                   check: n => `province collegate ≥ ${n}` }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'I Comneni', voci: [
+                // SCALABILE (regola dell'utente): non l'elenco fisso Thessalia/Attica
+                // — un impero che le teneva già dal ciclo I si trovava il Primario
+                // compiuto al primo turno. Ora è la regione GREECE col ratchet;
+                // trabocca nei Balcani per chi possiede già tutta la Grecia.
                 { id: 'bi2-1', tipo: 'espansione', titolo: 'La riconquista della Grecia',
-                  tmpl: 'province', arg: { ids: ['Thessalia', 'Attica'] },
-                  n: { resistere: 1, avanzare: 1, eccedere: 3, passo: 1 },
-                  testo: n => `Riconquista la Grecia: conquista Thessalia e Attica${n > 1 ? `, difese con ${n} uomini l’una` : ''}.`,
-                  check: n => `possiedi Thessalia e Attica${n > 1 ? ` con soldati ≥ ${n}` : ''}` },
+                  tmpl: 'regione', arg: { set: 'GREECE', oltre: 'BALCANI' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Riconquista la Grecia: possiedi ${pl(n, 'una provincia', 'province')} greche.`,
+                  check: n => `province di GREECE possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre la Grecia, nei Balcani',
+                  testoOltre: n => `La Grecia è già tua: risali nei Balcani — possiedi ${pl(n, 'una provincia', 'province')} balcaniche.`,
+                  checkOltre: n => `province di BALCANI possedute ≥ ${n}` },
                 // La svolta di storia (regola dell'utente): Bisanzio non tiene più
                 // Gerusalemme — non ci va nemmeno. La minaccia del ciclo II sono i
                 // Selgiuchidi in Anatolia, non la Terra Santa. Al posto de "La
@@ -1955,12 +2053,19 @@
             // ricostruisce. Una Città nuova, le strade che la reggono, l'erario
             // che si riempie di nuovo.
             { ciclo: 6, epoca: '1500-1599', tema: 'La rinascita imperiale', voci: [
+                // SCALABILE (regola dell'utente): non l'elenco fisso
+                // Albania/Serbia/Montenegro, che nasceva già compiuto per chi le
+                // teneva. La regione BALCANI_OVEST col ratchet; trabocca verso la
+                // Pannonia (il Danubio) per chi le possiede già tutte.
                 { id: 'bi6-1', tipo: 'espansione', titolo: 'Verso i Balcani',
-                  tmpl: 'province', arg: { ids: ['Albania', 'Northern_Serbia', 'Montenegro'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Conquista Albania, Serbia e Montenegro e difendile con ${n} uomini ciascuna.`
-                                    : 'Conquista e difendi Albania, Serbia e Montenegro.',
-                  check: n => n > 0 ? `Albania, Serbia e Montenegro, soldati ≥ ${n} ciascuna` : 'possiedi Albania, Serbia e Montenegro' },
+                  tmpl: 'regione', arg: { set: 'BALCANI_OVEST', oltre: 'PANNONIA' },
+                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
+                  testo: n => `Riprendi i Balcani occidentali: possiedi ${pl(n, 'una provincia', 'province')} fra Albania, Serbia, Montenegro, Bosnia e Macedonia.`,
+                  check: n => `province dei Balcani occidentali possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre i Balcani, al Danubio',
+                  testoOltre: n => `I Balcani occidentali sono già tuoi: risali verso il Danubio — possiedi ${pl(n, 'una provincia', 'province')} pannoniche.`,
+                  checkOltre: n => `province di PANNONIA possedute ≥ ${n}` },
                 { id: 'bi6-2', tipo: 'economia', titolo: 'Le strade imperiali ricostruite',
                   tmpl: 'collegate', arg: {},
                   n: { resistere: 5, avanzare: 7, eccedere: 10, passo: 1 },
@@ -2036,11 +2141,18 @@
                   n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
                   testo: n => `Riconquista le province cristiane in Terra Santa: possiedi ${n} fra Palestina, Aleppo, Libano e Siria.`,
                   check: n => `province di Terra Santa possedute ≥ ${n}` },
+                // SCALABILE (regola dell'utente): la regione PERSIA_OVEST col
+                // ratchet, non l'elenco fisso Isfahan/Irakajemi. Trabocca
+                // nell'altopiano orientale per chi tiene già le marche occidentali.
                 { id: 'ab2-2', tipo: 'preparazione', titolo: 'Le sentinelle d’Oriente',
-                  tmpl: 'province', arg: { ids: ['Isfahan', 'Irakajemi'] },
-                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Conquista e difendi le province di Isfahan e Irakajemi con almeno ${n} uomini l’una.`,
-                  check: n => `Isfahan e Irakajemi, soldati ≥ ${n} ciascuna` },
+                  tmpl: 'regione', arg: { set: 'PERSIA_OVEST', oltre: 'PERSIA_EST' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Presidia le marche persiane occidentali: possiedi ${pl(n, 'una provincia', 'province')} fra Isfahan, Irakajemi, Kurdistan, Tabriz e Urmia.`,
+                  check: n => `province di PERSIA_OVEST possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre, sull’altopiano orientale',
+                  testoOltre: n => `Le marche occidentali sono già tue: spingiti sull’altopiano orientale — possiedi ${pl(n, 'una provincia', 'province')} fra Semnan, Khorasan, Kerman, Mazandaran e Fars.`,
+                  checkOltre: n => `province di PERSIA_EST possedute ≥ ${n}` },
                 { id: 'ab2-3', tipo: 'crescita', titolo: 'Lo splendore Abbaside',
                   tmpl: 'tutti', arg: { capo: { tmpl: 'tipiCollegati', arg: {} },
                                         altri: [{ tmpl: 'citta', arg: { connected: true }, soglia: 0 }] },
@@ -2062,11 +2174,18 @@
                   n: { resistere: 2, avanzare: 4, eccedere: 4, passo: 1 },
                   testo: n => `Scaccia i cristiani dalla Terra Santa: ${n} sue province della tua fede.`,
                   check: n => `province di Terra Santa della tua fede ≥ ${n}` },
-                { id: 'ab3-2', tipo: 'espansione', titolo: 'Semnan e Khorasan',
-                  tmpl: 'province', arg: { ids: ['Semnan', 'Khorasan'] },
-                  n: { resistere: 1, avanzare: 1, eccedere: 3, passo: 1 },
-                  testo: n => `Conquista e difendi Semnan e Khorasan${n > 1 ? ` con almeno ${n} uomini l’una` : ''}.`,
-                  check: n => `possiedi Semnan e Khorasan${n > 1 ? ` con soldati ≥ ${n}` : ''}` },
+                // SCALABILE (regola dell'utente): la regione PERSIA_EST col ratchet,
+                // non l'elenco fisso Semnan/Khorasan. Trabocca nella penisola arabica
+                // per chi tiene già tutto l'altopiano orientale.
+                { id: 'ab3-2', tipo: 'espansione', titolo: 'L’altopiano orientale',
+                  tmpl: 'regione', arg: { set: 'PERSIA_EST', oltre: 'ARABIA' },
+                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
+                  testo: n => `Spingi il Califfato sull’altopiano orientale: possiedi ${pl(n, 'una provincia', 'province')} fra Semnan, Khorasan, Kerman, Mazandaran e Fars.`,
+                  check: n => `province di PERSIA_EST possedute ≥ ${n}`,
+                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
+                  titoloOltre: 'Oltre la Persia, in Arabia',
+                  testoOltre: n => `L’altopiano orientale è già tuo: scendi nella penisola arabica — possiedi ${pl(n, 'una provincia', 'province')} arabiche.`,
+                  checkOltre: n => `province di ARABIA possedute ≥ ${n}` },
                 { id: 'ab3-3', tipo: 'economia', titolo: 'Il tesoro del bazar',
                   tmpl: 'oro', arg: {},
                   n: { resistere: 800, avanzare: 1300, eccedere: 2000, passo: 200 },
@@ -2468,8 +2587,8 @@
 
     // ------------------------------------------------------------------------
     //  LA LEVA (regola dell'utente): un obiettivo compiuto non paga solo in
-    //  prestigio — una promessa lontana, e per giunta oggi sospesa
-    //  (GameRules.PRESTIGE_ENABLED) — ma in UOMINI, subito. Chi porta a casa un
+    //  prestigio — una promessa lontana che si accumula in player.puntiPrestigio
+    //  senza soglie né conversioni — ma in UOMINI, subito. Chi porta a casa un
     //  obiettivo riceve tanti soldati quanti erano i suoi punti (5 · 3 · 2, cioè
     //  al massimo 10 per ciclo) da schierare dal PRIMO TURNO del ciclo successivo.
     //  È di proposito un handicap, come il punteggio: dieci uomini sono mezzo

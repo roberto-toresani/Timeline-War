@@ -50,7 +50,7 @@ window.MAPPA_DEFINITIVA = {
     },
     {
       "id": 10,
-      "name": "Califfato Fatimide",
+      "name": "Emirato dei Mori",
       "color": "#04fb4e"
     }
   ],
@@ -62,7 +62,7 @@ window.MAPPA_DEFINITIVA = {
     "Western_Thrace": "Impero Bizantino",
     "Hudavendigar": "Impero Bizantino",
     "Baghdad": "Califfato Abbaside",
-    "Tunisia": "Califfato Fatimide",
+    "Tunisia": "Emirato dei Mori",
     "Midlands": "Regno di Inghilterra",
     "Anhalt": "Sacro Romano Impero",
     "Saxony": "Sacro Romano Impero",
@@ -74,8 +74,8 @@ window.MAPPA_DEFINITIVA = {
     "Asturias": "Regno di Castiglia",
     "Navarra": "Regno di Castiglia",
     "Castile": "Regno di Castiglia",
-    "Constantine": "Califfato Fatimide",
-    "Oran": "Califfato Fatimide",
+    "Constantine": "Emirato dei Mori",
+    "Oran": "Emirato dei Mori",
     "Luristan": "Califfato Abbaside",
     "Basra": "Califfato Abbaside",
     "Tver": "Kievan Ru's",

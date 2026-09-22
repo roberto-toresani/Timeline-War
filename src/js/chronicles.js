@@ -126,13 +126,13 @@
             nota: 'Il confine scende verso mezzogiorno.'
         },
 
-        // LE FLOTTE FATIMIDI. Il Califfato del Cairo, potenza di mare nel
-        // Mediterraneo. Gruppo 'marina' (la specifica soffoca la generica).
+        // LE FLOTTE DEI MORI. L'Emirato del Maghreb e d'Iberia, potenza di mare
+        // nel Mediterraneo. Gruppo 'marina' (la specifica soffoca la generica).
         {
-            id: 'flotte-fatimidi', regni: ['Califfato Fatimide'], gruppo: 'marina',
+            id: 'flotte-mori', regni: ['Emirato dei Mori'], gruppo: 'marina',
             quando: c => c.shipCount() >= 1,
-            titolo: 'Le flotte del Califfato',
-            testo: 'Dagli arsenali del Cairo salpa la prima flotta califfale: il Mediterraneo, che i Fatimidi chiamano il proprio mare, si copre delle loro vele.',
+            titolo: 'Le flotte dell’Emirato',
+            testo: 'Dagli arsenali della costa salpa la prima flotta dell’emiro: il Mediterraneo, che i Mori chiamano il proprio mare, si copre delle loro vele.',
             nota: 'Il mare di mezzo cambia padrone.'
         },
 
@@ -149,7 +149,7 @@
         // ---------- vignette GENERICHE (a qualunque regno le tocchi) ----------
 
         // La prima nave d\'assalto: il regno che scopre il mare. Chi ha una
-        // vignetta navale propria (Inghilterra col Veliero, Fatimidi) la riceve
+        // vignetta navale propria (Inghilterra col Veliero, i Mori) la riceve
         // al posto di questa, o in aggiunta — dipende dal gruppo.
         {
             id: 'prima-flotta', gruppo: 'marina',

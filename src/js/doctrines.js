@@ -183,7 +183,7 @@
             }
         },
 
-        // 1150 — nasce in mezzo alla lotta fra Castiglia e Fatimidi, e ne resta
+        // 1150 — nasce in mezzo alla lotta fra Castiglia e i Mori, e ne resta
         // fuori: non si espande via terra, si difende, commercia, e quando ha
         // scafi salpa per l'Africa e per l'oceano.
         'Regno di Portogallo': {
@@ -191,7 +191,7 @@
             fede: 'cristiani',
             amici: ['Regno di Castiglia'],
             pattoAmico: 'nonBelligeranza',
-            // Coi Fatimidi mai: la barriera di fede lo direbbe già, ma per il
+            // Coi Mori mai: la barriera di fede lo direbbe già, ma per il
             // Portogallo è dottrina, non prudenza.
             vietaFede: ['musulmani'],
             soloMare: true,

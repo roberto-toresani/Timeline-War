@@ -323,9 +323,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     che ti ha aperto il corridoio `rinforzi` (regola dell'utente: un alleato oltremare
     è proprio quello che ha più bisogno d'essere soccorso) — entro la portata dello
     scafo (§9.2). È un rinforzo, non un attacco — la meta dev'essere già di uno dei
-    due — e il carico è un tetto oltre al presidio (`moveTargets` restituisce
-    `viaMare`/`scafo`/`carico`/`alleato`/`owner` come `attackTargets`; `finalMove`
-    rileva il mare da `areLandAdjacent` e sceglie lo scafo con `hullForLanding`).
+    due — e il carico è un tetto oltre al presidio. **Il MEZZO lo sceglie il
+    giocatore, come per l'attacco** (regola dell'utente): via nave si va **anche fra
+    due confinanti**, perché è il modo di portarsi dietro lo scafo. `moveTargets` dà
+    a ogni meta TUTTE le sue strade — `viaTerra` e `scafi` (i tipi che la
+    raggiungono), più `viaMare` = "il mare è l'unica strada" per chi non sceglie (i
+    bot) — e la plancia le filtra col selettore `.bp-vessels` di `renderMove`
+    (stato `moveVessel`, azzerato al cambio di partenza/fase): `moveChoices` in
+    `player-board.js` veste le carte per il mezzo scelto (via terra le confinanti;
+    con una nave quel che QUELLA nave raggiunge, confinanti comprese) ed è l'unica
+    fonte per elenco E mappa (`syncMapOrders`), così accendono le stesse province.
+    Una testa di ponte senza confinanti proprie presceglie da sé la nave
+    (`moveVesselAuto`) invece di mostrare un "via terra" vuoto. `finalMove` va via
+    mare se riceve `scafoVoluto` **oppure** se le province non confinano
+    (`areLandAdjacent`), e sceglie lo scafo con `hullForLanding`.
     **Verso una provincia tua la nave viaggia con gli uomini** e resta ancorata
     all'arrivo, come nello sbarco; **verso un porto ALLEATO no**: scarica e torna
     all'ormeggio di partenza, perché le navi sono di chi possiede la provincia e
@@ -519,11 +530,11 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     si raggiunge una provincia propria — il **confine di terra** o una **nave** ancorata
     alla partenza (regola dell'utente) — ma non è mai un attacco: la costa dev'essere
     già dell'alleato, e la nave rientra invece di restare ancorata da lui).
-  - **Solo l'alleanza costa a romperla**: `−2` prestigio (`Diplomacy.BREAK_PRESTIGE`, su
-    `puntiOro`). I patti leggeri si sciolgono **gratis** — è il loro vantaggio (impegni
-    meno). Il prestigio è **oggi spento** (`GameRules.PRESTIGE_ENABLED = false`), quindi il
-    `−2` è un no-op finché non si riaccende il §10: **la regola è già codificata**, morde
-    da sé quando torna il prestigio.
+  - **Solo l'alleanza costa a romperla**: `−1` prestigio (`Diplomacy.BREAK_PRESTIGE`),
+    scalato da `player.puntiPrestigio` (l'unico contatore permanente del §10). Vale sia
+    per l'alleanza piena sia per quella a tempo (`isFullAlliance`/`costsPrestige`); i
+    patti leggeri — non belligeranza, rinforzi, vista — si sciolgono **gratis**, è il
+    loro vantaggio (impegni meno).
   - **Attacco a un alleato: consenso o tradimento.** In `attack()` (parametro finale
     `tradimento`) colpire un partner di non-aggressione è bloccato, salvo: (1) il
     **consenso** del proprietario a quella provincia — `grantAttack` lascia un permesso
@@ -924,6 +935,62 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     arretra mai), e `beginTurn` è **idempotente per turno globale** (`player.beginStamp`):
     la produzione (reclute/raccolto/spedizioni/festa) si fa una volta sola. Il `rev` cresce
     a ogni scrittura riuscita (transazione in `sync.js`).
+  - **SISTEMA MAIL (regola dell'utente)**: quando il turno passa a un giocatore
+    umano il motore gli manda una **mail personalizzata** (testo diverso per
+    regno — `driver/mail-templates.js`, curato a mano per i 10 regni di
+    partenza, ripiego generico per i regni d'evento) col link della plancia e
+    due scorciatoie di **auto-schieramento** ("schiera ai confini e passa il
+    turno", "schiera in Capitale e passa il turno"). Ogni giocatore ha **6 ore**
+    per giocare; scadute, il motore chiude il turno secondo la **preferenza**
+    salvata (`player.autoTurno = 'niente'|'confini'|'capitale'`, di default
+    *niente*: chiude senza schierare — le obbligatorie le posa d'ufficio
+    `endTurn`, le libere restano in serbatoio e si sommano al turno dopo).
+    - **Dove vive lo stato**: `normalizePlayer` in app.js aggiunge tre campi
+      persistenti — `p.email` (editabile dall'editor sulla scheda-regno),
+      `p.autoTurno` (idem, e anche dalla plancia), `p.turnStartedAt` (timbro
+      d'apertura turno). Il timbro è scritto da **`beginTurn`** dopo la
+      guardia idempotente di `beginStamp`, così un rimbalzo non riazzera il
+      cronometro; sopravvive a un salvataggio e a un restart del motore.
+    - **Come esegue l'auto-turno**: `GameActions.autoPlayTurn(playerId, mode)`
+      (esportato) distribuisce le reclute libere secondo `mode` — `capitale`
+      tutte sulla Capitale (`R.getCapitalPathFor`), `confini` round-robin
+      sulle province con almeno un vicino di terra NON mio (le vere frontiere
+      di terra; regno tutto interno → tutte le province) — poi chiama
+      `endTurn`. Bypassa `requirePhase` perché può scattare in qualunque fase
+      (`player.fase = 'sposta'` prima di `endTurn`). Le libere non spese
+      restano in serbatoio.
+    - **Il player può ancora giocare, o pilotare da fuori**: la mail porta
+      `PLAY_BASE_URL?p=CODICE` (plancia normale) e le due scorciatoie
+      `&autoplay=confini|capitale`, intercettate da `player-board.js` in
+      `boot()` — se è davvero il turno di chi ha aperto il link,
+      `GameActions.autoPlayTurn` scatta e la URL viene ripulita del parametro
+      (F5 non ripete l'azione). Se non è più il suo turno (mail letta tardi),
+      viene ignorato in silenzio.
+    - **Chi manda le mail**: il **`driver/` stesso** — un modulo `mailer.js`
+      (nodemailer + Gmail SMTP, app-password) inizializzato una volta per
+      sessione; se `.env` non ha le SMTP_* stampa un avviso e prosegue
+      **senza** mail (il timer 6h continua a funzionare — è comunque il
+      motore a farlo scattare). Setup: `driver/README.md` § "Mail del turno".
+      Il testo dei 10 regni di partenza sta in `driver/mail-templates.js`;
+      chi aggiunge un regno d'evento e vuole un testo su misura lo mette lì
+      (per NOME esatto), altrimenti prende `_default`.
+    - **Chi rileva il cambio turno e il timeout**: il **heartbeat esistente**
+      del driver (ogni `HEARTBEAT_MS`, 15s) — legge `Risiko.turnoDi()` e i
+      campi del player, dedupla mail e auto-turno per chiave
+      `turno_globale:playerId` (`lastMailedTurn`/`lastAutoTurnKey`, in
+      memoria di sessione), seed al primo giro dopo un (ri)avvio per non
+      duplicare la notifica del turno in corso. Nessun timer separato: un
+      solo battito che fa tutto.
+    - **Anti-corsa admin**: `autoPlayTurn` non ha un gate esplicito ma è
+      chiamato solo (a) dal driver, che è admin, o (b) dal player col link
+      `?autoplay=`, cioè da chi ha il pin di quel regno — il push allo stato
+      è protetto da `shouldPushState()`/`canWriteForTurn` come per ogni altra
+      azione del turno.
+    - **UI in plancia**: nella topbar (`play.html`, `#board-turn-time` +
+      `#board-auto`, visibili solo quando è il proprio turno) compare "5h
+      42m rimasti" — accende `.low` nell'ultima ora e `.critical` negli
+      ultimi 30' — e il menù della preferenza (che modifica `player.autoTurno`
+      e chiama `R.save()`). Il timer aggiorna ogni 30 s (`turnDeadlineTimer`).
 - **Quello che un bot deve saper fare per non incepparsi** (tutte regole dell'utente,
   nate guardandoli giocare). Un bot che non sa queste cose non gioca male: **si blocca**,
   perché a Popolarità 1 non ha più né reclute né risorse con cui rimediare.
@@ -1033,7 +1100,7 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     preso non la tiene più (l'ha persa a sua volta): la vendetta ha smarrito il colpevole.
 - **Espansione via mare: costruire navi e sbarcare** (regola dell'utente). Un regno
   costiero che ha finito le province a portata di TERRA non deve fermarsi —
-  l'Inghilterra deve passare la Manica, i Fatimidi Gibilterra (e prendersi la Spagna,
+  l'Inghilterra deve passare la Manica, i Mori Gibilterra (e prendersi la Spagna,
   come nella storia). La macchina d'assalto sapeva già sbarcare (`attackTargets`
   restituisce i bersagli di mare con `viaMare`/`scafo`/`carico`, §9.2): l'unico pezzo
   che mancava ai bot era **costruire lo scafo**, quindi `bestAttack` finiva a vuoto e il
@@ -1247,7 +1314,7 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     superstiti di presidio, fede **convertita** (la fede segue la spada) e lock; persa →
     l'oste è perduta. Con una gamba sola è caduto il vecchio **patto di vista** fra i due
     crociati (non ci sono più due crociati). Aleppo è neutrale sulla mappa iniziale, ma al
-    turno 11 può essere di un Califfato (Abbaside/Fatimide): l'assalto combatte chi la tiene
+    turno 11 può essere di un Califfato Abbaside o dell'Emirato dei Mori: l'assalto combatte chi la tiene
     in quel momento. L'orchestrazione della crociata (raduno → assalto → pergamena) vive in
     una funzione sola, `crusadeHost` in `events.js`, condivisa con la crociata inglese: **una
     gamba = una chiamata**.
@@ -1401,12 +1468,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       vera, così crescono di pari passo. Il getter è `Doctrines.cycleLevy(nome)`; in
       `closeCycle` si versa solo se la leva degli obiettivi è 0 (un regno con binario
       non lo dichiara). I bot la spendono da sé (`deployPlan`).
-    - **Portogallo** (turno 16 = 1150): Beira, Estremadura (la provincia "Portugal"), Alentejo
+    - **Portogallo** (turno 11 = 1100, inizio ciclo 2): Beira, Estremadura (la provincia "Portugal"), Alentejo
       con 5 uomini, **solo dove è libero** e senza ripiego — occupato il posto, non nasce.
       Parte con **2000 monete e 3 Legno**: `soloMare` + `conservatore` gli lasciano una cosa
       sola, sbarcare su **coste libere** (l'Africa con la Nave, l'oceano col Veliero), mai
-      prendere terra ai vicini. Firma con la **Castiglia**, mai coi Fatimidi.
-    - **Bulgaria** (turno 19 = 1180): nelle province ancora libere fra Moldavia, Bessarabia,
+      prendere terra ai vicini. Firma con la **Castiglia**, mai coi Mori.
+    - **Bulgaria** (turno 11 = 1100, inizio ciclo 2): nelle province ancora libere fra Moldavia, Bessarabia,
       Dobrudja e Wallachia (6 uomini); **nessuna libera = non compare**. **Non è un regno
       espansionista** (regola dell'utente): prende la provincia di **Bulgaria** e poi
       basta — `soloMete`, quindi nemmeno una terra di nessuno in più; da lì si rafforza,
@@ -1545,10 +1612,17 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     seggio ma con la pedina ancora piantata su una provincia neutrale —
     `getCapitalPathFor` non trovava niente e il regno perdeva Popolarità, raccolto e
     reclute **per sempre**, senza che nulla lo dicesse. Era il blocco definitivo.
-  - **Scismi su calendario compresso** (`Religions.SCHISMS`, applicati da
-    `Risiko.applySchisms` in `endTurn`): a scala storica la Riforma cadrebbe al turno 52 e
-    nessuna partita la vedrebbe, quindi i turni sono compressi (Grande Scisma 5, Riforma
-    12, Wahhabismo 16, Vecchi Credenti 18). Uno scisma trasforma le province di una fede
+  - **Scismi (`Religions.SCHISMS`, applicati da `Risiko.applySchisms` in `endTurn`)**:
+    due soli, oggi (Wahhabismo e Vecchi Credenti sono confluiti in sunniti/ortodossi,
+    vedi LEGACY sotto — non sono più scismi a sé). Il **Grande Scisma** resta
+    anticipato al turno 5 (scelta dell'utente, per essere incontrato presto in
+    partita); la **Riforma** è invece al suo **anno vero**, turno 52 = 1510-1519, il
+    decennio delle 95 Tesi di Lutero (1517) — (regola dell'utente, corretto un errore
+    rimasto a lungo: prima scattava al turno 12 = 1110, quattro secoli prima di
+    Lutero). Il turno 52 combacia con il ciclo VI degli obiettivi (§10, "La fede
+    spezzata", 1500-1599), che già dava per scontato — a parole — che la Riforma
+    fosse avvenuta per allora: l'errore era solo nel codice dello scisma, non nel
+    disegno del binario storico. Uno scisma trasforma le province di una fede
     in un'altra dentro certe regioni e **srotola la pergamena** da sé (riusa
     `showFoundation`, tipo `scisma`), così vale sia per il turno umano sia per quelli dei
     bot. La linea cattolico/ortodosso è diagonale: la fascia meridionale contesa (Balcani,
@@ -2021,15 +2095,25 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     stesso binario** già chiede DAVVERO per quella regione (regola dell'utente: la
     ponderazione conta più del meccanismo — non si passa da "2-3 province di Spagna" a
     "tutto il Nordafrica", e non si chiede alla Germania 8 province italiane solo perché
-    ha già la sua massima estensione storica). Applicato: Castiglia (ANDALUS→IBERIA,
-    IBERIA→MAGHREB), Francia (NORMANDY_FR→MED_FR a cap3, →ITALIA_NORD a cap5, un ciclo
-    prima del vero 1494 di Carlo VIII), Fatimidi (HOLY_LAND→ARABIA), Sacro Romano Impero
-    (ITALIA_NORD→ADRIATIC, GERMANIA→RENO a cap3, GERMANIA→AUSTRIA_EST a cap4,
-    AUSTRIA_EST→BALCANI a cap5), Polonia (BALTICO→RUS_NORD), Kievan Rus'
-    (RUS_NORD→EST_RUSSO, due volte), Ungheria (PANNONIA→BALCANI), Abbaside
-    (MESOPOTAMIA→PERSIA).
+    ha già la sua massima estensione storica). **Riverificato riga per riga il 2026-09-22**
+    (i docs erano andati fuori sincrono col codice — vedi `docs/BINARI_STORICI.md` §"Un
+    capitolo non si salta mai" per la tabella completa con la voce esatta di ogni riga):
+    17 traboccamenti attivi su 7 regni, non 8 — **Castiglia, Emirato dei Mori e Inghilterra
+    non ne hanno nessuno**, contrariamente a quel che questo paragrafo diceva prima (le
+    coppie Castiglia ANDALUS→IBERIA/IBERIA→MAGHREB e Mori HOLY_LAND→ARABIA non sono mai
+    esistite nel codice). Applicato davvero: Francia (NORMANDY_FR→MED_FR a cap3,
+    →ITALIA_NORD a cap5), Sacro Romano Impero (ITALIA_NORD→ADRIATIC a cap3,
+    AUSTRIA_EST→PANNONIA a cap5 — **non** →BALCANI, e **nessun** GERMANIA→RENO/
+    GERMANIA→AUSTRIA_EST: quelle due non sono mai esistite), Polonia (POLONIA_EST→RUS_NORD
+    a cap2, RUTENIA→RUS_NORD a cap7 — **non** BALTICO→RUS_NORD a cap5), Kievan Rus'
+    (RUS_NORD→EST_RUSSO una sola volta a cap4, CAUCASO→PERSIA a cap5, RUTENIA→POLONIA a
+    cap6, BALTICO_NORD→BALTICO a cap8), Ungheria (ADRIATIC→BALCANI_OVEST a cap2,
+    PANNONIA→BALCANI a cap3, AUSTRIA_EST→ITALIA_NORD a cap5), Bisanzio (GREECE→BALCANI a
+    cap2, BALCANI_OVEST→PANNONIA a cap6 — Bisanzio **non** ne era priva, contrariamente a
+    quel che si credeva), Abbaside (PERSIA_OVEST→PERSIA_EST a cap2, PERSIA_EST→ARABIA a
+    cap3 — **non** MESOPOTAMIA→PERSIA a cap3, mai esistita).
   - **Tutti e dieci i binari coprono ora i capitoli I-VIII** (regola dell'utente: la
-    storia vera di ogni regno, non solo il modello inglese). Castiglia, Francia, Fatimidi,
+    storia vera di ogni regno, non solo il modello inglese). Castiglia, Francia, l'Emirato dei Mori,
     Sacro Romano Impero, Polonia, Kievan Rus', Ungheria e Abbaside sono stati stesi seguendo
     lo stesso principio dell'Inghilterra e di Bisanzio: **Secondario e Terziario non
     ripetono il Primario a un numero più alto — preparano quello del capitolo DOPO**
@@ -2040,20 +2124,25 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     Il *cosa* di ogni capitolo sta in `docs/BINARI_STORICI.md`, i numeri solo in
     `objectives.js`. Tre template nuovi servivano ai capitoli tardi: `fede` (vocabolario
     `converti` — quante province di una regione sono ADESSO della tua famiglia di fede di
-    stato, per conquista o scisma: il Sacro Romano Impero VI e gli Abbasidi VI la vivono
-    come CONSEGUENZA della Riforma/dei Safavidi, non come suo annuncio, perché nel
-    calendario compresso degli scismi §Religione l'evento è già accaduto da tempo),
-    `capitale` (presidia la Capitale ovunque sia ADESSO — Polonia VIII, Ungheria VI — perché
+    stato, per conquista o scisma: **solo gli Abbasidi VI** la vivono davvero come
+    CONSEGUENZA dei Safavidi con questo template (`ab6-1`, combinato con `cittaCount`); il
+    Sacro Romano Impero VI, riverificato il 2026-09-22, **non usa `fede`**: le sue tre voci
+    sono `cittaRegioneCount(IMPERO_CENTRO)`/scorte di pietra/`tipiCollegati` — il titolo «La
+    fede spezzata» resta un titolo, non (ancora) un meccanismo),
+    `capitale` (presidia la Capitale ovunque sia ADESSO — **Ungheria VI** (Primario),
+    **Bisanzio VIII** e **Francia IV** (Secondari) — non Polonia VIII: riverificato il
+    2026-09-22 con un giro completo su `Objectives.BINARI`, `po8` non lo usa mai — perché
     la Capitale si costruisce, si sposta e si conquista e un capitolo non può nominare una
     provincia fissa) e `fortezza`/`fortezze` (possiedi una / N Fortezze: l'ultima difesa di
     un binario che finisce sotto assedio, spesso combinato con `capitale` via `tutti`), più
-    `cittaCount`/`cittaRegioneCount` (QUANTE Città, non «una Città»). Tre coppie di regni
-    condividono apposta la stessa regione per raccontare la stessa guerra da due lati —
-    Inghilterra/Francia su `NORMANDY_FR` (i Cent'Anni), Sacro Romano Impero/Francia su
-    `ITALIA_NORD` (le guerre d'Italia), Polonia/Kievan Rus' su `BALTICO`.
+    `cittaCount`/`cittaRegioneCount` (QUANTE Città, non «una Città»). Regioni condivise fra
+    coppie di regni per raccontare la stessa guerra da due lati — Inghilterra/Francia su
+    `NORMANDY_FR` (i Cent'Anni), Sacro Romano Impero/Francia su `ITALIA_NORD` (le guerre
+    d'Italia), Polonia/Kievan Rus' su `RUTENIA` (non `BALTICO`, che nessuno dei due usa
+    come base: è solo la meta finale del trabocco di Kievan Rus' VIII).
   - **LA SCALA DELL'AMBIZIONE** (regola dell'utente): *"un obiettivo del ciclo 6 o 7 non
     può essere una conquista che era fattibile già nei primi cicli"* — l'esempio era il
-    Maghreb dei Fatimidi, due province che confinano con l'Egitto, chieste al ciclo VII.
+    Maghreb dei Mori, due province che confinano con l'Egitto, chieste al ciclo VII.
     La scala sta scritta in testa a `BINARI` in `objectives.js`: I-II la propria terra ·
     III-IV la regione confinante · V un teatro intero · VI il primo **cancello di spesa**
     (Veliero, Fortezza, la seconda o terza Città — quel che i primi cicli non potevano
@@ -2140,9 +2229,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       della fila delle pergamene (evento, editto, naufragio, commercio, patto, manutenzione).
       Nel foglio 👑 la riga `.bo-leva` dice quanti uomini valgono gli obiettivi **già**
       compiuti; lo storico segna la leva incassata a ogni ciclo.
-- **Prestigio sospeso**: `GameRules.PRESTIGE_ENABLED = false` (scelta dell'utente). Non si
-  accumula e il blocco sparisce dalla plancia; il §10 e il codice restano. Si riaccende
-  cambiando quella sola costante.
+- **Prestigio, regole vive (2026-09-21)**: un solo contatore permanente
+  `player.puntiPrestigio` (mostrato in cima al foglio 👑 Corona da `renderObjectives`).
+  Tre sole fonti (regola dell'utente): **obiettivi del ciclo** (Primario 5, Secondario 3,
+  Terziario 2 — versati da `archiveObjectives` in `closeCycle`); **+1** quando si conquista
+  una **Capitale nemica** (`applyBattleOutcome`, ramo `hadEnemyCapital`, adozione o
+  declassamento è indifferente; il rapporto di battaglia lo mostra via `res.prestigio`);
+  **−1** quando si **rompe un'alleanza** (`breakPact` → `Diplomacy.BREAK_PRESTIGE = 1`,
+  solo `alleanza`/`alleanzaTempo`; i patti leggeri sono gratis, `costsPrestige`). Rimossi:
+  il malus/bonus da Popolarità (`popEffectOf` non ha più il campo `prestigio`), il campo
+  per-ciclo `prestigioCiclo`, i "Punti d'Oro" e la conversione a soglia 10, il vecchio
+  cruscotto `#bp-prestige-block` in `play.html` e la funzione `renderPrestige` in
+  `player-board.js`.
 - **Guardare l'IA non deve costare niente.** Due regole, tutte e due imparate sul
   campo:
   1. **Nessuno muove la telecamera tranne il giocatore.** `fitToProvinces` non si

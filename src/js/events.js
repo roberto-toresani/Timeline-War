@@ -215,7 +215,7 @@
         }
     };
 
-    // 1150 — IL PORTOGALLO, fra Castiglia e Fatimidi. Non vuole espandersi via
+    // 1150 — IL PORTOGALLO, fra Castiglia e i Mori. Non vuole espandersi via
     // terra: si difende, commercia e guarda al mare. Per questo parte più ricco
     // (2000 monete) e con del legname in magazzino: sono gli scafi la sua storia.
     const PORTOGALLO = {
@@ -303,14 +303,14 @@
             onStart(ctx) { ctx.spawnKingdom(SELGIUCHIDI); }
         },
         {
-            id: 'regno-portogallo', turn: 16, fino: null, tipo: 'regno',
+            id: 'regno-portogallo', turn: 11, fino: null, tipo: 'regno',
             titolo: 'Il Regno di Portogallo',
-            testo: 'Nella lotta fra Castiglia e Fatimidi nasce una corona che guarda all\'oceano.',
+            testo: 'Nella lotta fra Castiglia e i Mori nasce una corona che guarda all\'oceano.',
             nota: '',
             onStart(ctx) { ctx.spawnKingdom(PORTOGALLO); }
         },
         {
-            id: 'regno-bulgaria', turn: 19, fino: null, tipo: 'regno',
+            id: 'regno-bulgaria', turn: 11, fino: null, tipo: 'regno',
             titolo: 'La rivolta bulgara',
             testo: 'Sul basso Danubio i boiari alzano lo stendardo: la Bulgaria torna a essere un regno.',
             nota: '',
