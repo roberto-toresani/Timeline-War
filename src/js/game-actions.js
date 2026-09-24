@@ -456,8 +456,6 @@
             pl.recluteDaSchierare = 0;
             pl.recluteVincolate = {};
             pl.schierateTurno = {};
-            pl.prestigioCiclo = 0;
-            pl.puntiOro = 0;
             // Il BINARIO STORICO riparte dal primo capitolo: una partita nuova
             // non eredita il punto a cui era arrivata la storia di quella prima.
             pl.capitolo = 1;
@@ -592,6 +590,12 @@
             return done('Turno di ' + player.name, { produzione: null, ripetuto: true });
         }
         player.beginStamp = turnoGlobale;
+        // MAIL DEL TURNO (regola dell'utente): timbro d'inizio turno per il
+        // conto delle 6h. Vive nello stato — non solo in memoria del driver —
+        // così un riavvio del motore non azzera il cronometro. Solo se è
+        // davvero l'apertura di un turno nuovo (dopo la guardia idempotente
+        // di beginStamp), non a ogni rimbalzo.
+        player.turnStartedAt = Date.now();
 
         const paths = E().ownedPaths(player.name);
         const units = unitsOf(paths);
@@ -624,8 +628,6 @@
 
         player.monete += prod.monete;
         GR().RES.forEach(k => { player.scorte[k] += prod.risorse[k]; });
-        player.prestigioCiclo = Math.max(0, Math.min(10, player.prestigioCiclo + prod.prestigio));
-
         // Le libere si sommano a quelle avanzate dal turno prima; le vincolate
         // entrano nel serbatoio della loro provincia. Lo storico di cosa è stato
         // posato riparte da zero: si ritira solo dentro il proprio turno.
@@ -2538,12 +2540,12 @@
 
     // Rompe un patto (o tutti quelli con `partnerId` se `tipo` è null: è il caso
     // di un attacco, atto di guerra che scioglie ogni accordo). Solo la rottura
-    // di un'ALLEANZA costa prestigio (§10, D.BREAK_PRESTIGE): i patti leggeri no.
-    // Il prestigio è oggi spento (GameRules.PRESTIGE_ENABLED=false), quindi il
-    // −2 su puntiOro è un no-op finché non si riaccende il §10 — la regola è
-    // già qui, pronta. `tradimento` cambia solo il testo dell'avviso al tradito;
-    // il rancore lo segna già la conquista (recordGrudge). `silent` evita il
-    // doppio refresh/save quando la chiama attack() a metà transazione.
+    // di un'ALLEANZA (piena o a tempo) costa prestigio (§10, D.BREAK_PRESTIGE =
+    // -1 su player.puntiPrestigio): «gli altri accordi» — non belligeranza,
+    // rinforzi, vista — si sciolgono gratis. `tradimento` cambia solo il testo
+    // dell'avviso al tradito; il rancore lo segna già la conquista
+    // (recordGrudge). `silent` evita il doppio refresh/save quando la chiama
+    // attack() a metà transazione.
     function breakPact(player, partnerId, tipo, opts) {
         const altro = R().players().find(p => String(p.id) === String(partnerId));
         if (!altro) return fail('Regno sconosciuto.');
@@ -2558,7 +2560,7 @@
         const tradimento = !!(opts && opts.tradimento);
         const perde = miei.concat(suoi).some(p => D().costsPrestige(p.tipo));
         unbondPact(player, altro, tipo || null);
-        if (perde) player.puntiOro = Math.max(0, (player.puntiOro || 0) - D().BREAK_PRESTIGE);
+        if (perde) player.puntiPrestigio = Math.max(0, (player.puntiPrestigio || 0) - D().BREAK_PRESTIGE);
         pushPactNotice(altro, {
             tipo: tradimento ? 'tradito' : 'rotto',
             patto: tipo || presenti[0].tipo, conNome: player.name
@@ -3063,6 +3065,15 @@
                 E().redrawProvince(to);
                 if (!winner.bot) winner.capitalePresa = { toId: to.id };
             }
+            // PRESTIGIO (§10, regola dell'utente): prendere una Capitale nemica
+            // vale +1 punto di prestigio, sia che venga adottata (prima Capitale
+            // del vincitore) sia che venga declassata a Città (chi ne aveva già
+            // una). È l'unica fonte permanente di prestigio dalla guerra —
+            // l'altro punto di ingresso è la leva degli obiettivi (Objectives).
+            if (hadEnemyCapital) {
+                winner.puntiPrestigio = (winner.puntiPrestigio || 0) + 1;
+                res.prestigio = 1;
+            }
             // IL BOTTINO (regola dell'utente): ogni provincia presa paga subito
             // GameRules.CONQUEST_BOUNTY monete. Sta qui, nell'unico punto della
             // regola di conquista, così vale per l'attacco di terra, lo sbarco,
@@ -3222,7 +3233,7 @@
             conversione = applyBattleOutcome(player, to, res, defTroops, mercArrivati);
             // CONQUISTA VIA NAVE (§10, richiesta dell'utente): uno sbarco vinto
             // conta come conquista navale, cumulativa nella partita — la leggono i
-            // template `conquisteNavali` (Polonia C3, Fatimidi C5).
+            // template `conquisteNavali` (Polonia C3, Mori C5).
             if (viaMare) player.conquisteNavali = (player.conquisteNavali || 0) + 1;
 
             // I superstiti entrano tutti nella provincia presa, ma la ripartizione
@@ -3652,22 +3663,35 @@
         return new Set(E().landNeighbors(fromId).filter(id => owned.has(id)));
     }
 
+    // Ogni meta porta TUTTE le strade con cui ci si arriva (regola dell'utente,
+    // come per l'attacco: il mezzo lo sceglie il giocatore): `viaTerra` se
+    // confina, `scafi` = i tipi di nave ancorati alla partenza che la
+    // raggiungono. Una confinante costiera ha ENTRAMBE — e via nave ci si va
+    // anche fra confinanti, se si vuole portarsi dietro lo scafo. `viaMare`
+    // resta "il mare è l'UNICA strada": è quel che la plancia mostra quando il
+    // giocatore non ha scelto una nave, e quel che i bot usano.
     function moveTargets(player, fromId) {
-        const seen = new Set();
-        const card = (p, viaMare, scafi, alleato) => ({
+        const card = (p, rec) => ({
             id: p.id, label: R().provinceLabel(p),
             troops: E().countPiece(p, 'soldato'),
             // Chi governa la meta: serve solo all'alleato, ed è il nome che la
             // plancia deve dire prima di regalargli dei soldati.
             owner: E().owner(p) || null,
-            // Come per gli sbarchi (§9.2): via terra o via nave. Un rinforzo via
-            // mare porta al massimo il CARICO dello scafo, oltre al presidio (§5).
-            viaMare: !!viaMare,
-            alleato: !!alleato,
-            scafi: viaMare ? scafi.slice() : [],
-            scafo: viaMare ? scafi[scafi.length - 1] : null,
-            carico: viaMare ? E().shipCapacity(scafi[scafi.length - 1]) : null
+            viaTerra: !!rec.viaTerra,
+            // Un rinforzo via mare porta al massimo il CARICO dello scafo (§9.2),
+            // oltre al presidio (§5). Il più capiente fa da default.
+            viaMare: !rec.viaTerra && rec.scafi.length > 0,
+            alleato: !!rec.alleato,
+            scafi: rec.scafi.slice(),
+            scafo: rec.scafi.length ? rec.scafi[rec.scafi.length - 1] : null,
+            carico: rec.scafi.length ? E().shipCapacity(rec.scafi[rec.scafi.length - 1]) : null
         });
+        const recs = new Map();
+        const recOf = (id, alleato) => {
+            let rec = recs.get(id);
+            if (!rec) { rec = { viaTerra: false, scafi: [], alleato: !!alleato }; recs.set(id, rec); }
+            return rec;
+        };
 
         // Chi può RICEVERE rinforzi da me (§Diplomazia, privilegio 'rinforzi', che
         // l'alleanza comprende), per nome di regno. La risposta si chiede una volta
@@ -3683,11 +3707,9 @@
             return ok;
         };
 
-        const out = [];
         // Via terra: le CONFINANTI mie (requisito dell'utente: un solo confine).
         ownAdjacent(player, fromId).forEach(id => {
-            const p = E().path(id);
-            if (p) { seen.add(id); out.push(card(p, false, null)); }
+            if (E().path(id)) recOf(id, false).viaTerra = true;
         });
 
         // CORRIDOIO (§Diplomazia, privilegio 'rinforzi' — o un'alleanza, che lo
@@ -3695,12 +3717,10 @@
         // confinante via terra. I soldati diventano suoi, ad aiutarlo a tenere il
         // fronte: è un rinforzo, non una conquista. La meta porta `alleato:true`.
         E().landNeighbors(fromId).forEach(id => {
-            if (seen.has(id)) return;
+            if (recs.has(id)) return;
             const p = E().path(id);
-            if (!p) return;
-            if (!canReinforce(E().owner(p))) return;
-            seen.add(id);
-            out.push(card(p, false, null, true));
+            if (!p || !canReinforce(E().owner(p))) return;
+            recOf(id, true).viaTerra = true;
         });
 
         // Via mare: con una nave ancorata qui si rinforza una costiera entro
@@ -3709,31 +3729,30 @@
         // attacco — la meta dev'essere già TUA, oppure di un ALLEATO che ti ha
         // aperto il corridoio (§Diplomazia): il mare è la via naturale per
         // soccorrere chi non confina con te. A parità di meta si tengono tutti
-        // gli scafi che ci arrivano, il più capiente fa da default.
+        // gli scafi che ci arrivano, il più capiente fa da default. Le confinanti
+        // NON si saltano: lì la nave è la seconda strada, e sceglie il giocatore.
         const from = E().path(fromId);
         if (from && E().owner(from) === player.name) {
-            const best = new Map();
             E().ships(from).forEach(h => {
                 const r = E().shipRange(h.tipo);
                 if (!(r > 0)) return;
                 E().seaReach(fromId, r).forEach(id => {
-                    if (seen.has(id)) return;                       // già confinante via terra
                     const p = E().path(id);
                     if (!p) return;
                     const owner = E().owner(p);
                     const mia = owner === player.name;
                     if (!mia && !canReinforce(owner)) return;       // mie, o dell'alleato
-                    let rec = best.get(id);
-                    if (!rec) { rec = { tipi: [], alleato: !mia }; best.set(id, rec); }
-                    if (rec.tipi.indexOf(h.tipo) < 0) {
-                        rec.tipi.push(h.tipo);
-                        rec.tipi.sort((a, b) => E().shipCapacity(a) - E().shipCapacity(b));
+                    const rec = recOf(id, !mia);
+                    if (rec.scafi.indexOf(h.tipo) < 0) {
+                        rec.scafi.push(h.tipo);
+                        rec.scafi.sort((a, b) => E().shipCapacity(a) - E().shipCapacity(b));
                     }
                 });
             });
-            best.forEach((rec, id) => out.push(card(E().path(id), true, rec.tipi, rec.alleato)));
         }
 
+        const out = [];
+        recs.forEach((rec, id) => out.push(card(E().path(id), rec)));
         return out.sort((a, b) => a.label.localeCompare(b.label));
     }
 
@@ -3778,13 +3797,14 @@
             }
         }
 
-        // Confinano via terra? È uno spostamento normale. Se no (solo fra province
-        // proprie), serve una nave ancorata alla partenza che copra la distanza
-        // (§9.2): il rinforzo navale dopo uno sbarco. Come per l'attacco,
-        // `scafoVoluto` fissa la nave quando è il giocatore a sceglierla; senza, si
-        // prende il meno capiente che basti (non si sciupa un Veliero dove arriva
-        // una Nave).
-        const viaMare = !E().areLandAdjacent(fromId, toId);
+        // Confinano via terra? È uno spostamento normale. Se no, serve una nave
+        // ancorata alla partenza che copra la distanza (§9.2): il rinforzo navale
+        // dopo uno sbarco. Come per l'attacco, `scafoVoluto` fissa la nave quando
+        // è il giocatore a sceglierla — e allora si va via mare ANCHE fra
+        // confinanti (regola dell'utente: il mezzo lo sceglie lui, ed è il modo
+        // di portarsi dietro lo scafo); senza, si prende il meno capiente che
+        // basti (non si sciupa un Veliero dove arriva una Nave).
+        const viaMare = !!scafoVoluto || !E().areLandAdjacent(fromId, toId);
         let scafo = null;
 
         const mobili = spare(from);
@@ -3799,8 +3819,12 @@
                     .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
                     .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); });
                 if (!arriva.length) {
-                    return fail(R().provinceLabel(to) + ' non confina con ' + R().provinceLabel(from) +
-                        ' e nessuna nave ancorata lì la raggiunge.');
+                    return fail(scafoVoluto
+                        ? 'Nessun' + (scafoVoluto === 'vascello' ? ' Veliero' : 'a Nave') + ' ancorat' +
+                          (scafoVoluto === 'vascello' ? 'o' : 'a') + ' a ' + R().provinceLabel(from) +
+                          ' arriva a ' + R().provinceLabel(to) + ': non è una costa a portata.'
+                        : R().provinceLabel(to) + ' non confina con ' + R().provinceLabel(from) +
+                          ' e nessuna nave ancorata lì la raggiunge.');
                 }
                 const capMax = Math.max.apply(null, arriva.map(h => E().shipCapacity(h.tipo)));
                 return fail('La nave regge al massimo ' + capMax + ' uomini: riduci il carico.');
@@ -4080,8 +4104,74 @@
             Object.assign({ prov: tocchi[0] || null, provs: tocchi, editto: true }, esito || {}));
     }
 
+    // AUTO-TURNO (regola dell'utente, sistema mail): il driver chiude il turno
+    // di un giocatore che non è tornato in 6 ore, secondo la sua preferenza.
+    //  - 'capitale': tutte le reclute LIBERE nella Capitale (se non regge, cade
+    //    la parte in più — le libere non spese restano in serbatoio, si sommano
+    //    al turno dopo).
+    //  - 'confini': distribuisce le libere ROUND-ROBIN sulle province con almeno
+    //    un vicino di terra non mio (le vere frontiere di terra). Un regno tutto
+    //    interno ripiega sulle sue province qualunque.
+    //  - 'niente'/altro: chiude il turno senza schierare — le obbligatorie le
+    //    posa d'ufficio `endTurn` (forcePendingBound), come già faceva.
+    // Non passa da `deploy()` per due motivi: (1) quello richiede fase 'schiera',
+    // e l'auto-turno può scattare in qualunque fase; (2) può schierare in un
+    // punto solo per volta, quindi 'confini' sarebbe N chiamate — qui usiamo
+    // `putSoldiers` diretto, che è già l'atto fisico.
+    function autoPlayTurn(playerId, mode) {
+        const player = R().players().find(p => p.id === playerId);
+        if (!player) return fail('Regno sconosciuto.');
+        if (player.id !== R().turnoDi()) return fail('Non è il turno di ' + player.name + '.');
+
+        const dove = [];
+        let posate = 0;
+        const libere = player.recluteDaSchierare || 0;
+
+        if (libere > 0 && (mode === 'confini' || mode === 'capitale')) {
+            const owned = E().ownedPaths(player.name);
+            let targets = [];
+            if (mode === 'capitale') {
+                const cap = R().getCapitalPathFor(player);
+                if (cap) targets = [cap];
+                else if (owned.length) targets = [owned[0]];   // ripiego: primo feudo
+            } else {
+                const mineIds = new Set(owned.map(p => p.id));
+                const frontiere = owned.filter(p =>
+                    (E().landNeighbors(p.id) || []).some(nId => !mineIds.has(nId)));
+                targets = frontiere.length ? frontiere : owned;
+            }
+            let restanti = libere;
+            let i = 0;
+            let cicliVuoti = 0;
+            while (restanti > 0 && targets.length && cicliVuoti < targets.length) {
+                const path = targets[i % targets.length];
+                if (roomFor(path) > 0) {
+                    putSoldiers(player, path, 1);
+                    restanti--; posate++;
+                    if (!dove.includes(path.id)) dove.push(path.id);
+                    cicliVuoti = 0;
+                } else {
+                    cicliVuoti++;
+                }
+                i++;
+            }
+            player.recluteDaSchierare = restanti;
+        }
+
+        // Salta ogni requirePhase residuo (nessuno lo fa dopo di qui, ma non voglio
+        // che un futuro cambio a `endTurn` lo introduca senza preavviso).
+        player.fase = 'sposta';
+        const res = endTurn();
+        if (res && res.ok === false) return res;
+        return done('Turno di ' + player.name + ' concluso' +
+            (posate ? ' (auto: ' + posate + (posate === 1 ? ' recluta schierata' : ' reclute schierate') + ' — ' + mode + ')'
+                    : ' senza schieramento') + '.',
+            { prov: dove[0] || null, provs: dove, auto: mode || 'niente', posate });
+    }
+
     root.GameActions = {
         startGame, prepareGame, beginMatch, beginTurn, endTurn,
+        autoPlayTurn,
         // EVENTI STORICI (js/events.js): il calendario datato. Chiamati da endTurn;
         // esposti anche qui per poterli guidare a mano nei test.
         applyEvents, tickEvents,

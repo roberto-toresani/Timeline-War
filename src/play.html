@@ -48,6 +48,15 @@
                 <span class="reinf-label">da schierare</span>
             </div>
             <div id="board-turn-state" class="turn-wait">Partita non avviata</div>
+            <!-- Sistema mail (regola dell'utente): 6h per giocare, poi il motore
+                 chiude il turno secondo la preferenza qui sotto. Il conto delle
+                 6h parte dall'apertura del turno di questo regno (beginTurn). -->
+            <div id="board-turn-time" class="turn-time" style="display:none" title="Hai 6 ore per giocare il turno, poi il motore lo chiude d'ufficio."></div>
+            <select id="board-auto" class="board-auto" style="display:none" title="Cosa fa il motore se non torni entro 6 ore">
+                <option value="niente">Se scadono le 6h: salta</option>
+                <option value="confini">Se scadono le 6h: schiera ai confini</option>
+                <option value="capitale">Se scadono le 6h: schiera in Capitale</option>
+            </select>
             <button id="board-end-turn" type="button" disabled>Fine turno</button>
             <!-- Vista generale: toglie la nebbia e mostra tutta la mappa, per
                  guardare i regni dell'IA giocare. Non dà poteri: le azioni
@@ -328,25 +337,12 @@
 
                                 <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del
                                      regno, con spunta AUTOMATICA dal vivo e storico sempre
-                                     disponibile. Iniettato da renderObjectives in player-board.js. -->
+                                     disponibile. Iniettato da renderObjectives in player-board.js.
+                                     Il totale di `puntiPrestigio` è mostrato in cima a questo
+                                     blocco: è l'unico cruscotto del prestigio (il vecchio
+                                     #bp-prestige-block a "punti d'oro" è stato tolto — non c'è
+                                     più il ciclo a 10 con conversione). -->
                                 <div id="bp-objectives" class="bp-objectives"></div>
-
-                                <!-- Prestigio sospeso su richiesta: GameRules.PRESTIGE_ENABLED = false
-                                     spegne il blocco (player-board.js lo nasconde). Il markup resta
-                                     al suo posto, si riaccende cambiando quella costante. -->
-                                <div id="bp-prestige-block">
-                                    <div class="bp-title">Prestigio</div>
-                                    <div class="bp-hero">
-                                        <span class="bp-hero-num" id="bp-gold-points">—</span>
-                                        <span class="bp-hero-unit">punti d'oro</span>
-                                        <span class="bp-soon">in arrivo</span>
-                                    </div>
-                                    <div class="bp-ticks" id="bp-cycle-ticks"></div>
-                                    <div class="bp-note" id="bp-cycle-note">Ciclo di 10 turni: arrivare a 10 punti vale 1 punto d'oro.</div>
-
-                                    <div class="bp-title">Obiettivi del ciclo</div>
-                                    <div id="bp-goals"></div>
-                                </div>
                             </div>
                         </div>
 
@@ -526,9 +522,9 @@
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=100"></script>
     <script src="js/app.js?v=108"></script>
-    <script src="js/game-actions.js?v=109"></script>
+    <script src="js/game-actions.js?v=111"></script>
     <script src="js/bot.js?v=98"></script>
-    <script src="js/player-board.js?v=110"></script>
+    <script src="js/player-board.js?v=111"></script>
 </body>
 
 </html>

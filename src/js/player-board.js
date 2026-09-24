@@ -58,6 +58,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // muovere, e la selezione ereditata dalla fase precedente non comanda nulla.
     // Ricliccare la partenza la libera (torna al primo passo).
     let moveArmed = false;
+    // CON CHE COSA SI SPOSTA (regola dell'utente, come per l'attacco): null = via
+    // terra, altrimenti il tipo di scafo. Via nave lo scafo viaggia con gli uomini
+    // e resta ancorato all'arrivo, quindi ha senso anche fra due confinanti — è
+    // il modo di spostare una nave. Si azzera col cambio di partenza;
+    // `moveVesselAuto` dice che nessuno l'ha ancora scelto a mano, e allora una
+    // partenza senza confinanti proprie (una testa di ponte) presceglie da sé la
+    // nave, invece di mostrare un "via terra" vuoto.
+    let moveVessel = null;
+    let moveVesselProv = null;
+    let moveVesselAuto = true;
 
     // Stato dei moduli di commercio (§7): si tiene qui perché render() ricostruisce
     // l'HTML a ogni azione (anche dei bot) e i menù a tendina perderebbero la scelta.
@@ -330,7 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
         moveArmed = false;
         lastBattle = null;
         battleOpen = false;
-        conquestPromptFor = null;
+        conquestSeen = null;
+        conquestDismissed = null;
         R.clearAttackArrows();
         R.clearTargets();
         closeOrder();
@@ -609,6 +620,66 @@ document.addEventListener('DOMContentLoaded', () => {
         // tocca a te la linguetta del turno si accende, così non la si cerca.
         const tab = $('board-right-tab');
         if (tab) tab.classList.toggle('now', turnoDi === player.id && !rightOpen());
+
+        // SISTEMA MAIL (regola dell'utente): quando tocca a questo regno, mostra
+        // il conto delle 6h che restano e permette di cambiare la preferenza di
+        // auto-turno (che il driver esegue allo scadere). Chi non ha ancora un
+        // `turnStartedAt` (salvataggi vecchi) è come se l'avesse aperto adesso —
+        // il timbro lo scrive `beginTurn`, quindi la prossima apertura è
+        // corretta.
+        renderTurnDeadline(player, turnoDi === player.id);
+    }
+
+    // SISTEMA MAIL — riquadro tempo rimanente + preferenza auto-turno.
+    // Non è un'azione: è un promemoria + una preferenza salvata sul record del
+    // giocatore. Si mostra solo nel proprio turno; il timer aggiorna ogni 30 s.
+    const TURN_DEADLINE_MS = 6 * 60 * 60 * 1000;
+    let turnDeadlineTimer = null;
+    function renderTurnDeadline(player, mine) {
+        const timeEl = $('board-turn-time');
+        const autoEl = $('board-auto');
+        if (!timeEl || !autoEl) return;
+
+        if (!mine) {
+            timeEl.style.display = 'none';
+            autoEl.style.display = 'none';
+            if (turnDeadlineTimer) { clearInterval(turnDeadlineTimer); turnDeadlineTimer = null; }
+            return;
+        }
+        timeEl.style.display = '';
+        autoEl.style.display = '';
+
+        // La preferenza vive sul record del regno (game-actions.normalizePlayer).
+        // Il salvataggio va SEMPRE a saveAutoSave (canWriteForTurn: è il TUO turno).
+        if (autoEl.value !== (player.autoTurno || 'niente')) autoEl.value = player.autoTurno || 'niente';
+        if (!autoEl.dataset.wired) {
+            autoEl.dataset.wired = '1';
+            autoEl.addEventListener('change', () => {
+                const cur = currentPlayer();
+                if (!cur) return;
+                cur.autoTurno = (autoEl.value === 'confini' || autoEl.value === 'capitale') ? autoEl.value : 'niente';
+                if (R.save) R.save();
+            });
+        }
+
+        const paint = () => {
+            const started = player.turnStartedAt || 0;
+            if (!started) { timeEl.textContent = 'timer non partito'; return; }
+            const left = TURN_DEADLINE_MS - (Date.now() - started);
+            if (left <= 0) {
+                timeEl.textContent = 'tempo scaduto — il motore chiuderà il turno';
+                timeEl.classList.remove('low');
+                timeEl.classList.add('critical');
+                return;
+            }
+            const h = Math.floor(left / 3600000);
+            const m = Math.floor((left % 3600000) / 60000);
+            timeEl.textContent = h + 'h ' + (m < 10 ? '0' : '') + m + 'm rimasti';
+            timeEl.classList.toggle('critical', left < 30 * 60 * 1000);   // ultimi 30'
+            timeEl.classList.toggle('low', left >= 30 * 60 * 1000 && left < 60 * 60 * 1000); // ultima ora
+        };
+        paint();
+        if (!turnDeadlineTimer) turnDeadlineTimer = setInterval(paint, 30 * 1000);
     }
 
     // ---------- vista generale (spettatore) ----------
@@ -925,7 +996,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Cambiata la fase vera si riparte puliti: cartella chiusa e partenza
         // dello spostamento da riscegliere (entrando in `sposta` la selezione è
         // quella dell'attacco appena chiuso, e non deve comandare).
-        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; moveArmed = false; }
+        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; moveArmed = false; moveVessel = null; }
         return (openFolder && GA().PHASES.indexOf(openFolder) >= 0) ? openFolder : cur;
     }
 
@@ -1161,36 +1232,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ---------- pannello sinistro ----------
-
-    function renderPrestige(player) {
-        // Prestigio sospeso (GameRules.PRESTIGE_ENABLED): il blocco sparisce
-        // invece di mostrare numeri che non si muovono mai.
-        const block = $('bp-prestige-block');
-        if (!GR().PRESTIGE_ENABLED) {
-            if (block) block.style.display = 'none';
-            return;
-        }
-        if (block) block.style.display = '';
-        setText('bp-gold-points', player.puntiOro || 0);
-        const n = player.prestigioCiclo || 0;
-        $('bp-cycle-ticks').innerHTML = Array.from({ length: 10 },
-            (_, i) => '<span class="bp-tick' + (i < n ? ' on' : '') + '"></span>').join('');
-        setText('bp-cycle-note', n + ' / 10 punti nel ciclo · a 10 scatta 1 punto d\'oro.');
-
-        $('bp-goals').innerHTML = [
-            { kind: 'Primario', pts: 6 },
-            { kind: 'Secondario', pts: 2 },
-            { kind: 'Terziario', pts: 2 }
-        ].map(g => `
-            <div class="bp-goal">
-                <div class="bp-goal-head">
-                    <span class="bp-goal-kind">${g.kind}</span>
-                    <span class="bp-goal-pts">${g.pts} pt</span>
-                </div>
-                <div class="bp-goal-text"><span class="bp-soon">assegnato a inizio ciclo</span></div>
-            </div>
-        `).join('');
-    }
 
     // ---------- Obiettivi di prestigio (§10) ----------
     // Il piano del regno nella corona: le tre medaglie (5/3/2), la spunta
@@ -1989,6 +2030,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return R.engine.ships(path).filter(h => h.tipo === tipo).length;
     }
 
+    // Le mete dello spostamento SECONDO IL MEZZO scelto (regola dell'utente, come
+    // per l'attacco): via terra le confinanti; con una nave quel che QUELLA nave
+    // raggiunge — confinanti comprese, perché via nave lo scafo viaggia con gli
+    // uomini e resta ancorato all'arrivo. Le carte escono già vestite per il
+    // mezzo (viaMare/scafo/carico), così cursore, elenco e conferma non devono
+    // sapere che la scelta esiste. La chiamano renderMove e syncMapOrders: la
+    // mappa e l'elenco devono accendere le stesse province.
+    function moveChoices(player, path) {
+        const all = GA().moveTargets(player, path.id);
+        if (moveVesselProv !== path.id) { moveVessel = null; moveVesselAuto = true; moveVesselProv = path.id; }
+        const flotta = [];
+        R.engine.ships(path).forEach(h => { if (flotta.indexOf(h.tipo) < 0) flotta.push(h.tipo); });
+        if (moveVessel && flotta.indexOf(moveVessel) < 0) moveVessel = null;
+        // Testa di ponte senza confinanti proprie: si parte per forza via mare,
+        // e la nave più capiente che arriva a qualcosa si presceglie da sé.
+        if (!moveVessel && moveVesselAuto && !all.some(t => t.viaTerra)) {
+            const utili = flotta.filter(tipo => all.some(t => t.scafi.indexOf(tipo) >= 0));
+            if (utili.length) {
+                moveVessel = utili.sort((a, b) => R.engine.shipCapacity(b) - R.engine.shipCapacity(a))[0];
+            }
+        }
+        if (moveVessel) {
+            const cap = R.engine.shipCapacity(moveVessel);
+            return all.filter(t => t.scafi.indexOf(moveVessel) >= 0)
+                .map(t => Object.assign({}, t, { viaMare: true, scafo: moveVessel, carico: cap }));
+        }
+        return all.filter(t => t.viaTerra)
+            .map(t => Object.assign({}, t, { viaMare: false, scafo: null, carico: null }));
+    }
+
     function attackGroup(player, path) {
         const g = document.createElement('div');
         g.className = 'bp-act-group';
@@ -2374,7 +2445,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // rompe ogni patto col difensore e, se c'era un'alleanza, costa prestigio.
         const tradisce = !!t.patto && !t.consenso;
         const costo = t.alleanza
-            ? ' e ti costa −' + ((window.Diplomacy && Diplomacy.BREAK_PRESTIGE) || 2) + ' prestigio'
+            ? ' e ti costa −' + ((window.Diplomacy && Diplomacy.BREAK_PRESTIGE) || 1) + ' prestigio'
             : '';
         const testoPatto = tradisce
             ? ' ATTENZIONE: hai un patto con ' + t.owner + '. Colpirlo è un TRADIMENTO: rompe ogni ' +
@@ -2434,7 +2505,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ' per ' + t.label + '.' + testoAlleato + testoNave +
                 ' È l\'unico spostamento del turno: dopo non se ne fanno altri.',
             ok: navale ? '⚓ Imbarca' : t.alleato ? '🛡 Invia' : '➜ Sposta'
-        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, n)); });
+        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, n, navale ? t.scafo : undefined)); });
     }
 
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
@@ -2519,39 +2590,39 @@ document.addEventListener('DOMContentLoaded', () => {
     // Vinta una battaglia con più superstiti, la ripartizione (quanti occupano,
     // quanti rientrano) va decisa. La sezione nel pannello destro resta come
     // ripiego, ma l'avviso salta fuori CENTRALE sopra la mappa: si decide lì,
-    // senza andare a cercare la sezione. Si mostra una volta per conquista;
-    // "Decido dopo" la chiude e lascia il pannello a farla concludere.
-    let conquestPromptFor = null;
-    let conquestSeen = null;   // la presa vista al render precedente (vedi sotto)
+    // senza andare a cercare la sezione.
+    //
+    // IL POP-UP DEVE USCIRE SEMPRE DOPO UN ATTACCO VINTO (regola dell'utente): la
+    // scelta di quante truppe lasciare NON deve poter sfuggire — se non compare, il
+    // giocatore spreca lo spostamento di fine turno e può perdere obiettivi. Perciò
+    // la logica NON tiene più un flag "già mostrata una volta" (che, se il timer
+    // moriva mentre la scena o una pergamena era a schermo, lasciava la presa senza
+    // modale e risolta d'ufficio a fine turno — bug segnalato). Ora si pilota SOLO
+    // dal vivo: finché `conquestPending` esiste e non è stata RIMANDATA a mano con
+    // "Decido dopo", il ciclo continua a riprovare a ogni render finché lo schermo
+    // non si libera e la apre. Non esiste più uno stato in cui la presa resta senza
+    // modale senza che il giocatore l'abbia esplicitamente chiusa.
+    let conquestSeen = null;       // la presa vista al render precedente (vedi sotto)
+    let conquestDismissed = null;  // la presa che il giocatore ha RIMANDATO ("Decido dopo")
 
-    function showConquestPrompt(player) {
+    function ensureConquestModal(player) {
         const c = GA().conquestPending(player);
-        if (!c) { conquestPromptFor = null; conquestSeen = null; return; }
+        if (!c) { conquestSeen = null; return; }
         if (!isPlaying(player)) return;
         const key = c.fromId + '>' + c.toId + '@' + R.turn();
-        if (conquestPromptFor === key) return;              // già proposta per questa presa
+        if (key === conquestDismissed) return;               // rimandata a mano
         if (document.getElementById('ui-conquest')) return;  // già aperta
         const retry = (ms) => {
-            clearTimeout(showConquestPrompt._t);
-            showConquestPrompt._t = setTimeout(render, ms);
+            clearTimeout(ensureConquestModal._t);
+            ensureConquestModal._t = setTimeout(() => ensureConquestModal(currentPlayer()), ms);
         };
         // Una modale/pergamena per volta: se qualcosa è già a schermo, si RIPROVA
-        // al render successivo. Prima qui si tornava SENZA riprogrammare un
-        // retry: se una pergamena (es. l'eco storica della battaglia) o una
-        // conferma era aperta quando scadeva l'ultimo timer, il ciclo di
-        // ritentativi MORIVA e la modale di ripartizione non compariva più — la
-        // conquista finiva risolta d'ufficio a fine turno (tutti restano) senza
-        // che il giocatore avesse deciso quanti uomini mandare, e non c'era modo
-        // di rifarla (bug segnalato dall'utente). Ora si continua a riprovare
-        // finché lo schermo non si libera.
+        // (il ciclo non muore mai: si riprogramma sempre finché lo schermo è
+        // occupato).
         if (document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) {
-            retry(350);
+            retry(300);
             return;
         }
-        // Non coprire la scena della battaglia: la si lascia finire — e si
-        // aspetta anche il respiro dopo (battleFxBusy in app.js tiene conto di
-        // entrambi), così l'avviso non piomba sull'ultimo fotogramma. Si riprova
-        // da soli finché la scena non ha chiuso.
         // Una presa APPENA comparsa non apre mai la modale al primo colpo:
         // `attack()` salva e ridisegna la plancia PRIMA di restituire il
         // risultato, quindi in quel render la scena della battaglia non è ancora
@@ -2563,49 +2634,34 @@ document.addEventListener('DOMContentLoaded', () => {
             retry(120);
             return;
         }
+        // Non coprire la scena della battaglia: la si lascia finire — e si aspetta
+        // anche il respiro dopo (battleFxBusy in app.js tiene conto di entrambi).
         const inCorso = R.battleFxBusy ? R.battleFxBusy() : !!document.querySelector('svg.battle-focus');
         if (inCorso) {
-            retry(350);
+            retry(300);
             return;
         }
-
-        conquestPromptFor = key;
         openConquestModal(player, c);
     }
 
-    // Arma la modale di conquista DAL RISULTATO dell'attacco (chiamata da run()).
-    // È il canale principale, indipendente dal ciclo di render: appena la scena
-    // della battaglia e le eventuali pergamene si liberano, apre la ripartizione.
-    // showConquestPrompt (in render) resta come rete di sicurezza. Legge sempre
-    // `conquestPending` dal vivo, quindi se la presa è già stata risolta (o la
-    // conquista è sparita) semplicemente non fa nulla.
+    // Rete di sicurezza dal ciclo di render (chiamata in coda a render()).
+    function showConquestPrompt(player) { ensureConquestModal(player); }
+
+    // Canale principale, dal RISULTATO dell'attacco (chiamato da run()): appena la
+    // scena della battaglia e le eventuali pergamene si liberano, apre la
+    // ripartizione. Condivide lo stesso timer di ensureConquestModal, quindi i due
+    // canali non si accavallano. Legge sempre `conquestPending` dal vivo: se la
+    // presa è già risolta o sparita, non fa nulla.
     function armConquestPrompt(result) {
         const delay = (result && result.battle && R.battleFxMs) ? R.battleFxMs() + 300 : 60;
-        clearTimeout(armConquestPrompt._t);
-        const tick = () => {
-            const player = currentPlayer();
-            if (!player || !isPlaying(player)) return;            // turno cambiato
-            const c = GA().conquestPending(player);
-            if (!c) return;                                       // già risolta o sparita
-            const key = c.fromId + '>' + c.toId + '@' + R.turn();
-            if (conquestPromptFor === key) return;                // già mostrata per questa presa
-            if (document.getElementById('ui-conquest')) return;   // già aperta
-            // Una cosa per volta: aspetta che scena e pergamene si liberino.
-            const busy = R.battleFxBusy ? R.battleFxBusy() : !!document.querySelector('svg.battle-focus');
-            if (busy || document.getElementById('ui-foundation') || document.getElementById('ui-confirm')) {
-                armConquestPrompt._t = setTimeout(tick, 300);
-                return;
-            }
-            conquestPromptFor = key;
-            conquestSeen = key;
-            openConquestModal(player, c);
-        };
-        armConquestPrompt._t = setTimeout(tick, delay);
+        clearTimeout(ensureConquestModal._t);
+        ensureConquestModal._t = setTimeout(() => ensureConquestModal(currentPlayer()), delay);
     }
 
     function openConquestModal(player, c) {
         const old = document.getElementById('ui-conquest');
         if (old) old.remove();
+        const key = c.fromId + '>' + c.toId + '@' + R.turn();
 
         const wrap = document.createElement('div');
         wrap.id = 'ui-conquest';
@@ -2633,17 +2689,21 @@ document.addEventListener('DOMContentLoaded', () => {
         range.addEventListener('input', sync);
         sync();
 
-        const close = () => { document.removeEventListener('keydown', onKey); wrap.remove(); };
+        // Chiudere senza confermare è "Decido dopo": si segna la presa come
+        // RIMANDATA, così il pop-up non ripiomba a ogni render — ma resta il
+        // pannello #bp-conquest a farla concludere. Solo una chiusura DELIBERATA
+        // (bottone o Esc) sopprime il pop-up; un timer morto non può più farlo.
+        const close = () => { conquestDismissed = key; document.removeEventListener('keydown', onKey); wrap.remove(); };
         function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
         wrap.querySelector('.uq-later').addEventListener('click', close);
         wrap.querySelector('.uq-go').addEventListener('click', () => {
-            close();
+            document.removeEventListener('keydown', onKey);
+            wrap.remove();
             run(GA().resolveConquest(player, parseInt(range.value, 10)));
         });
         // NIENTE chiusura al clic-fuori (a differenza delle altre modali): la
-        // ripartizione è una decisione obbligata e cliccare la mappa per
-        // continuare la faceva sparire per sempre (conquestPromptFor già segnato),
-        // lasciando la presa risolta d'ufficio. Si esce solo con un bottone o Esc.
+        // ripartizione è una decisione obbligata; cliccare la mappa non la chiude.
+        // Si esce solo con un bottone o Esc (che vale "Decido dopo").
         document.addEventListener('keydown', onKey);
         document.body.appendChild(wrap);
         wrap.querySelector('.uq-go').focus();
@@ -2708,36 +2768,82 @@ document.addEventListener('DOMContentLoaded', () => {
         const available = R.countPiece(path, 'soldato');
         const mobili = spareOf(path);
 
-        const targets = GA().moveTargets(player, path.id);
-        if (!targets.length) {
+        const tutte = GA().moveTargets(player, path.id);
+        if (!tutte.length) {
             box.innerHTML = '<div class="bp-empty-hint">Da ' + R.provinceLabel(path) +
-                ' non confina nessun\'altra tua provincia.</div>';
+                ' non confina nessun\'altra tua provincia, e nessuna nave ancorata qui raggiunge una tua costa.</div>';
             return;
         }
+        const targets = moveChoices(player, path);
 
         box.insertAdjacentHTML('beforeend',
             '<div class="bp-hint map-hint">Parti da <b>' + R.provinceLabel(path) + '</b>: se ne muovono <b>' +
             mobili + '</b> su ' + available + '. Le province dove possono arrivare sono ' +
             '<b>accese sulla mappa</b>: cliccane una e decidi lì quanti partono.</div>');
 
+        // ---- CON CHE COSA SI PARTE (regola dell'utente, come per l'attacco) ----
+        // Via terra i confinanti; con una nave quel che quella nave raggiunge,
+        // confinanti comprese: lo scafo viaggia con gli uomini e resta ancorato
+        // all'arrivo, ed è così che una nave si sposta. Chi non ha scafi qui non
+        // vede nemmeno la riga.
+        const flotta = [];
+        R.engine.ships(path).forEach(h => {
+            const e = flotta.find(x => x.tipo === h.tipo);
+            if (e) e.n++; else flotta.push({ tipo: h.tipo, n: 1 });
+        });
+        if (flotta.length) {
+            const row = document.createElement('div');
+            row.className = 'bp-vessels';
+            const pick = (tipo, testo, sub) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'bp-vessel' + (moveVessel === tipo ? ' on' : '');
+                b.innerHTML = '<span class="bv-name">' + testo + '</span>' +
+                    '<span class="bv-sub">' + sub + '</span>';
+                b.addEventListener('click', () => {
+                    moveVessel = tipo; moveVesselAuto = false;
+                    closeOrder();
+                    render();
+                });
+                row.appendChild(b);
+            };
+            const terra = tutte.filter(t => t.viaTerra).length;
+            pick(null, '→ Via terra', terra ? 'fino a ' + mobili + ' uomini' : 'nessuna confinante tua');
+            flotta.forEach(f => {
+                const cap = R.engine.shipCapacity(f.tipo);
+                const coste = tutte.filter(t => t.scafi.indexOf(f.tipo) >= 0).length;
+                pick(f.tipo,
+                    (f.tipo === 'vascello' ? '🚢 Veliero' : '⛵ Nave') + (f.n > 1 ? ' ×' + f.n : ''),
+                    'porta ' + cap + ' uomini · ' + coste + (coste === 1 ? ' costa' : ' coste') + ' · resta all\'arrivo');
+            });
+            box.appendChild(row);
+        }
+
         // Cambiare partenza dev'essere un gesto, non un rompicapo: sulla mappa
         // basta ricliccare la provincia di partenza, ma quella è una scorciatoia
         // che nessuno indovina — qui c'è scritta.
         box.appendChild(actionButton('↩ Cambia partenza', 'scegli un\'altra provincia', null, () => {
             moveArmed = false;
+            moveVessel = null;
             closeOrder();
             render();
         }));
 
+        if (!targets.length) {
+            box.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">' + (moveVessel
+                ? 'Questa nave non raggiunge nessuna tua costa (né di un alleato) da qui.'
+                : 'Nessuna tua provincia confina via terra: scegli la nave qui sopra.') + '</div>');
+            return;
+        }
+
         // Come per l'attacco, l'elenco resta la strada lunga: un regno grande ha
         // decine di destinazioni e la lista le scorrerebbe tutte. Serve soprattutto
         // ai rinforzi via nave, che sulla mappa possono cadere dall'altra parte.
-        const viaMareN = targets.filter(t => t.viaMare).length;
         const fold = document.createElement('details');
         fold.className = 'bp-fold';
         fold.open = targets.length > ORDER_MAX_MARKS;
         fold.innerHTML = '<summary>Tutte le destinazioni <span class="bp-fold-hint">' +
-            targets.length + ' destinazioni' + (viaMareN ? ', ' + viaMareN + ' via nave' : '') +
+            targets.length + (moveVessel ? ' coste a portata della nave' : ' destinazioni via terra') +
             '</span></summary>';
         const body = document.createElement('div');
         body.className = 'bp-fold-body';
@@ -3514,7 +3620,7 @@ document.addEventListener('DOMContentLoaded', () => {
         order.n = Math.max(1, Math.min(order.n, order.max));
 
         const t = order.target;
-        const chiave = [order.kind, order.fromId, t.id, order.max, attackVessel].join('|');
+        const chiave = [order.kind, order.fromId, t.id, order.max, attackVessel, moveVessel].join('|');
         if (chiave !== orderKey) { buildOrderHud(player, path); orderKey = chiave; }
         syncOrderHud();
 
@@ -3681,7 +3787,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? targets.filter(t => t.viaMare && t.scafi.indexOf(attackVessel) >= 0)
                 : targets.filter(t => !t.viaMare);
         } else if (f === 'sposta' && !player.spostamentoFatto && spareOf(path)) {
-            scelti = GA().moveTargets(player, path.id);
+            scelti = moveChoices(player, path);
         }
 
         scelti.forEach(t => orderTargets.set(t.id, t));
@@ -5207,7 +5313,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         syncEditorLink();
         renderTopbar(player, paths);
-        renderPrestige(player);
         renderObjectives(player);
         renderPopEffect(pop);
         renderPhases(player);
@@ -5502,6 +5607,32 @@ document.addEventListener('DOMContentLoaded', () => {
             enterKingdom(player);
             syncSpectateBtn();
             syncSpeedBtn();
+            // AUTO-TURNO da link (regola dell'utente, sistema mail): il player ha
+            // cliccato la scorciatoia della mail (?autoplay=confini|capitale) —
+            // se è davvero il suo turno lo si chiude con quella preferenza e si
+            // mostra una notifica. Se non tocca a lui, si ignora silenziosamente
+            // (nessun errore: la mail può essere aperta dopo che i bot hanno già
+            // fatto il loro giro). Il push allo stato lo fa endTurn come sempre.
+            const autoplayMode = new URLSearchParams(location.search).get('autoplay');
+            if (autoplayMode === 'confini' || autoplayMode === 'capitale') {
+                if (player.id === R.turnoDi() && window.GameActions && GameActions.autoPlayTurn) {
+                    const out = GameActions.autoPlayTurn(player.id, autoplayMode);
+                    if (out && out.ok !== false && R.showFoundation) {
+                        R.showFoundation({
+                            tipo: 'editto',
+                            titolo: autoplayMode === 'capitale' ? 'Auto-schieramento in Capitale' : 'Auto-schieramento ai confini',
+                            testo: (out.posate ? out.posate + (out.posate === 1 ? ' recluta libera è stata schierata' : ' reclute libere sono state schierate') + (autoplayMode === 'capitale' ? ' in Capitale' : ' ai confini') + '.' : 'Il turno è stato chiuso senza schierare (nessuna recluta libera da posare).'),
+                            regno: player.name, colore: player.color
+                        });
+                    }
+                }
+                // Tolgo `autoplay` dalla URL così un F5 non ripeterebbe l'azione.
+                try {
+                    const url = new URL(location.href);
+                    url.searchParams.delete('autoplay');
+                    history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
+                } catch (e) { /* browser vecchio: non è grave */ }
+            }
             // Se al caricamento tocca a un regno dell'IA, la partita riparte da sé
             // (dal lease: con più tab admin ne guida uno solo — §multi-tab).
             if (R.driveBots) R.driveBots(); else if (window.Bot) window.Bot.run();

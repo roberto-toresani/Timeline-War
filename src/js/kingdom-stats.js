@@ -15,14 +15,15 @@
     // Monete incassate da OGNI città per turno (§7). La Capitale conta come città.
     const TAX_INCOME = { leggera: 50, normale: 100, dura: 150 };
 
-    // Effetti per livello di Popolarità (§8). La colonna prestigio segue il §10:
-    // Popolarità ≥ 4 → +1/turno, Popolarità 1 → −1/turno.
+    // Effetti per livello di Popolarità (§8). La Popolarità NON dà più prestigio
+    // (regola dell'utente 2026-09-21): il §10 attinge da altre fonti — obiettivi,
+    // Capitale nemica presa, alleanza rotta.
     const POP_EFFECT = {
-        1: { soldati: -2, risorse: -2, prestigio: -1 },
-        2: { soldati: -1, risorse: -1, prestigio: 0 },
-        3: { soldati: 0, risorse: 0, prestigio: 0 },
-        4: { soldati: 1, risorse: 1, prestigio: 0 },
-        5: { soldati: 2, risorse: 2, prestigio: 1 }
+        1: { soldati: -2, risorse: -2 },
+        2: { soldati: -1, risorse: -1 },
+        3: { soldati: 0, risorse: 0 },
+        4: { soldati: 1, risorse: 1 },
+        5: { soldati: 2, risorse: 2 }
     };
 
     // Arrotondamento del regolamento (§8): per difetto, salvo parte decimale > 0,8.
@@ -33,7 +34,7 @@
     }
 
     function popEffect(level) {
-        return POP_EFFECT[level] || { soldati: 0, risorse: 0, prestigio: 0 };
+        return POP_EFFECT[level] || { soldati: 0, risorse: 0 };
     }
 
     // Somma di tutte le pedine del regno, per tipo.

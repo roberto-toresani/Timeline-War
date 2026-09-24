@@ -310,11 +310,6 @@
         return g.n + ' ' + (RES_LABEL[g.tipo] || g.tipo);
     }
 
-    // PRESTIGIO SOSPESO (scelta dell'utente): il §10 resta scritto e il codice
-    // resta al suo posto, ma per ora non si accumula e la plancia non lo mostra.
-    // Rimettere a true per riaccenderlo: non serve toccare altro.
-    const PRESTIGE_ENABLED = false;
-
     // BOTTINO DI CONQUISTA (regola dell'utente): prendere una provincia paga
     // SUBITO, in monete. È l'incentivo che mancava alla guerra — il prestigio è
     // sospeso e la Popolarità premia solo le conquiste attorno alla Capitale
@@ -426,13 +421,13 @@
         const hasCapital = units.capitale > 0;
         const zero = {
             monete: 0, risorse: emptyScorte(), reclute: 0, vincolate: {}, recluteTotali: 0,
-            prestigio: 0, collegate: 0, hasCapital: false
+            collegate: 0, hasCapital: false
         };
         // Senza Capitale non si raccoglie nulla (§2, §4): niente monete, niente
         // risorse, niente reclute. Il regno resta fermo finché non la costruisce.
         if (!hasCapital) return zero;
 
-        const popMod = popularity ? popEffectOf(popularity) : { soldati: 0, risorse: 0, prestigio: 0 };
+        const popMod = popularity ? popEffectOf(popularity) : { soldati: 0, risorse: 0 };
 
         // Monete: solo le Città pagano, la Capitale conta come Città (§7).
         const rate = TAX_INCOME[tax] || TAX_INCOME.normale;
@@ -464,7 +459,6 @@
             reclute: plan.libere,
             vincolate: plan.perProvincia,
             recluteTotali: plan.total,
-            prestigio: PRESTIGE_ENABLED ? popMod.prestigio : 0,
             collegate, hasCapital: true
         };
     }
@@ -485,14 +479,16 @@
         }
     }
 
-    // Effetti per livello di Popolarità (§8 + §10 per il prestigio).
+    // Effetti per livello di Popolarità (§8). La Popolarità NON dà più prestigio
+    // (regola dell'utente: il prestigio arriva solo dalla presa di una Capitale
+    // nemica, dagli obiettivi §10 e dalla rottura di un'alleanza).
     function popEffectOf(level) {
         const t = {
-            1: { soldati: -2, risorse: -2, prestigio: -1 },
-            2: { soldati: -1, risorse: -1, prestigio: 0 },
-            3: { soldati: 0, risorse: 0, prestigio: 0 },
-            4: { soldati: 1, risorse: 1, prestigio: 0 },
-            5: { soldati: 2, risorse: 2, prestigio: 1 }
+            1: { soldati: -2, risorse: -2 },
+            2: { soldati: -1, risorse: -1 },
+            3: { soldati: 0, risorse: 0 },
+            4: { soldati: 1, risorse: 1 },
+            5: { soldati: 2, risorse: 2 }
         };
         return t[level] || t[3];
     }
@@ -587,7 +583,7 @@
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
         WELFARE, WELFARE_COST, WELFARE_INDEX,
         welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
-        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, PRESTIGE_ENABLED, CONQUEST_BOUNTY,
+        NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, CONQUEST_BOUNTY,
         FAR_UNTIL_TURN, FAR_GARRISON_LATE, isFarProvince,
         NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,

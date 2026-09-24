@@ -14,10 +14,11 @@
 // Mille e gli scismi che spezzano una fede col passare dei decenni. Chi dipinge
 // e chi muta la mappa è app.js/game-actions.js; qui c'è solo il sapere.
 //
-// Il tempo è quello di Chronicle (1 turno = 1 decennio, turno 1 = 1000-1009), ma
-// gli scismi corrono su un CALENDARIO COMPRESSO (scelta dell'utente): a scala
-// storica la Riforma cadrebbe al turno 52 e nessuna partita la vedrebbe. Qui i
-// turni sono scelti perché una partita normale li incontri (vedi SCHISMS).
+// Il tempo è quello di Chronicle (1 turno = 1 decennio, turno 1 = 1000-1009). Il
+// Grande Scisma resta compresso al turno 5 (scelta dell'utente, per essere
+// incontrato presto in partita); la Riforma invece è all'ANNO VERO — turno 52 =
+// 1510-1519, il decennio delle 95 Tesi di Lutero (1517) — non più anticipata
+// artificialmente: il protestantesimo non può nascere nel 1100 (vedi SCHISMS).
 // ============================================================
 
 (function (root) {
@@ -38,7 +39,7 @@
         cristiani:     { label: 'Cristiani',      famiglia: 'cristiani', colore: '#c9a227', da: 1 },
         cattolici:     { label: 'Cattolici',      famiglia: 'cristiani', colore: '#d4b03a', da: 1 },
         ortodossi:     { label: 'Ortodossi',      famiglia: 'cristiani', colore: '#8e7cc3', da: 1 },
-        protestanti:   { label: 'Protestanti',    famiglia: 'cristiani', colore: '#3f7fbf', da: 12 },
+        protestanti:   { label: 'Protestanti',    famiglia: 'cristiani', colore: '#3f7fbf', da: 52 },
         // ---- musulmani (già divisi al Mille) ----
         sunniti:       { label: 'Sunniti',        famiglia: 'musulmani', colore: '#2e8b57', da: 1 },
         sciiti:        { label: 'Sciiti',         famiglia: 'musulmani', colore: '#1f6f4a', da: 1 },
@@ -142,7 +143,7 @@
         return faithByRegion(x, y);
     }
 
-    // ---------- scismi (calendario compresso) ----------
+    // ---------- scismi ----------
     // Uno scisma trasforma, a un certo turno, le province di una fede in un'altra.
     // Ogni regola: { from, to, rects?, names? }. Senza né `rects` né `names` vale
     // ovunque (catch-all); altrimenti una provincia è colpita se il suo centro
@@ -153,7 +154,10 @@
     // greci si mangerebbe anche Italia, Polonia e Ungheria (cattoliche). Per la
     // fascia meridionale contesa si va quindi per NOME; i rettangoli restano solo
     // dove non ci sono cattolici (Anatolia bizantina, cuore della Rus').
-    // `turn` è compresso: scelto per essere incontrato in una partita normale.
+    // `turn` = 1000 + (turn-1)*10: il Grande Scisma resta anticipato al turno 5
+    // (scelta dell'utente), la Riforma è al suo anno vero (52 = 1510-1519) — coerente
+    // col ciclo VI degli obiettivi (`objectives.js`, "La fede spezzata", 1500-1599),
+    // che già dava per scontato che la Riforma fosse avvenuta per allora.
     const SCHISMS = [
         {
             id: 'grande-scisma', turn: 5,
@@ -188,7 +192,7 @@
             ]
         },
         {
-            id: 'riforma', turn: 12,
+            id: 'riforma', turn: 52,
             titolo: 'La Riforma',
             testo: 'Dalla Germania la protesta contro Roma dilaga: nasce il Protestantesimo.',
             nota: 'Il Nord d\'Europa abbandona l\'obbedienza al Papa.',

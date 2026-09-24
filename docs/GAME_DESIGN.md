@@ -138,8 +138,7 @@ giocatori, turno, storico). Salvato in localStorage/Firestore e in Save/Load.
 {
   id, name, color,
   monete: int,                 // tesoro
-  prestigioCiclo: 0..10,       // prestigio del ciclo corrente (si azzera ogni 10 turni), cap 10
-  puntiOro: int,               // Punti Prestigio d'Oro permanenti = punteggio di vittoria (§10)
+  puntiPrestigio: int,         // prestigio permanente (§10): obiettivi + Capitali nemiche − alleanze rotte
   tassazione: 'leggera'|'normale'|'dura',
   capitaleProvincia: id|null,  // provincia con la Capitale (chiave per la Popolarità, §8)
   popolarita: 1..5,            // calcolata (§8): totale + i 3 componenti Difesa/Benessere/Tassa
@@ -460,24 +459,24 @@ svanisce. Vale per tutti (umano e IA), vive in `popularity.js` (`graceBonus`, pa
 `m.turn`). Costanti `GRACE_START`/`GRACE_EVERY`/`GRACE_LAST`.
 
 ### Effetti per livello **[REGOLA]**
-| Liv | Soldati/turno | Risorse/turno | Prestigio/turno |
-|---|---|---|---|
-| 1 | −2 | −2 | −1 |
-| 2 | −1 | −1 | 0 |
-| 3 | 0 | 0 | 0 |
-| 4 | +1 | +1 | 0 |
-| 5 | +2 | +2 | +1 |
+| Liv | Soldati/turno | Risorse/turno |
+|---|---|---|
+| 1 | −2 | −2 |
+| 2 | −1 | −1 |
+| 3 | 0 | 0 |
+| 4 | +1 | +1 |
+| 5 | +2 | +2 |
 
 **[PROPOSTA]** "Risorse/turno ±N" = N unità totali aggiunte/tolte alla raccolta del turno
 (sui tipi raccolti). Da confermare.
 
-**Nota Prestigio:** la colonna "Prestigio/turno" qui sopra è **superata** dal sistema a cicli
-del §10 (Popolarità ≥ 4 → +1 Prestigio/turno; Popolarità 1 → −1/turno, **malus mantenuto**).
+**Nota Prestigio:** la Popolarità **non** dà più prestigio (regola dell'utente). Le fonti di
+prestigio sono ora solo tre — obiettivi, Capitale nemica presa (+1), alleanza rotta (−1). Vedi §10.
 
 ### Pannello Popolarità (UI) **[REGOLA]**
 Nella **scheda personale** del giocatore, a partire dalla **costruzione della Capitale**, compare
 un **pannello dedicato** che si **aggiorna automaticamente** ed evolve, mostrando:
-- **Popolarità** totale (1–5) e l'effetto corrente (soldati/risorse/prestigio).
+- **Popolarità** totale (1–5) e l'effetto corrente (soldati/risorse).
 - I tre componenti **Difesa / Benessere / Tassa** con il loro livello e il **dettaglio dei
   sotto-fattori** (province nemiche confinanti con la Capitale, guardia cittadina, generale,
   diversità risorse, cibo collegato, livello di tassazione).
@@ -812,35 +811,33 @@ degli avversari): misura il successo politico, economico e strategico del regno.
 
 - **Nessuna scadenza fissa a turni.** La partita si chiude quando lo si **decide**.
 - **Sconfitta:** un giocatore è eliminato quando **perde tutte le province**.
-- **Vittoria:** vince chi ha **più Punti Prestigio d'Oro** al momento in cui si decide di
-  terminare la partita. (Restare l'**unico regno** in gioco è comunque una vittoria immediata.)
-- **Punto Prestigio d'Oro:** ogni ciclo in cui raggiungi i **10 punti prestigio** vale **1 punto
-  d'oro** (vedi sotto). I punti d'oro si accumulano per tutta la partita e sono il vero punteggio.
+- **Vittoria:** vince chi ha **più Punti Prestigio** al momento in cui si decide di terminare la
+  partita. (Restare l'**unico regno** in gioco è comunque una vittoria immediata.)
+- **Il Prestigio è un solo contatore permanente** (`player.puntiPrestigio`): non si azzera a
+  fine ciclo e non c'è più conversione in "Punti d'Oro" (regola dell'utente, 2026-09-21).
 
-### Cicli di 10 turni
-Il Prestigio si assegna a **cicli di 10 turni**. All'inizio di ogni ciclo, ogni giocatore riceve
-una serie di **obiettivi** da completare entro i 10 turni successivi, **bilanciati** in base allo
-stato della partita e **ispirati al contesto storico** del regno rappresentato.
+### Fonti di prestigio (regola dell'utente)
+- **Obiettivi del ciclo** — Primario 5, Secondario 3, Terziario 2 (max 10 per ciclo). Rimangono
+  il canale principale: guidano il **binario storico** di ogni regno (vedi cicli qui sotto).
+- **Conquista di una Capitale nemica: +1 Prestigio**, a prescindere dagli obiettivi. Vale sia
+  che venga *adottata* (prima Capitale del vincitore) sia che venga *declassata* a Città (chi
+  ne aveva già una).
+- **Rottura di un'ALLEANZA: −1 Prestigio.** Solo alleanza (piena o a tempo); i patti leggeri
+  — non belligeranza, invio di rinforzi, condivisione della vista — si sciolgono **gratis**.
 
-### Punti per ciclo (fino a 10)
-- **Popolarità:** **+1** Prestigio per ogni turno con Popolarità **alta (≥ 4)**; **−1** per ogni
-  turno a Popolarità **1** (malus mantenuto **[REGOLA]**). Pop. 2–3 → 0.
-- **Obiettivo Primario:** **6** punti — il più complesso/strategico (espansione, costruzione,
-  controllo di aree specifiche).
-- **Obiettivo Secondario:** **2** punti — difficoltà intermedia, integra il primario.
-- **Obiettivo Terziario:** **2** punti — più semplice/situazionale, flessibilità tattica.
+**Popolarità e Punto d'Oro rimossi (2026-09-21):** la Popolarità non produce più prestigio
+(né bonus né malus). Il vecchio sistema a ciclo di 10 punti convertiti in "Punto Prestigio
+d'Oro" è stato tolto: il contatore è unico e permanente.
 
-- **Conquista di una Capitale nemica: +2 Prestigio**, **a prescindere dagli obiettivi** (non serve
-  che sia il tuo obiettivo). È solo un altro modo di guadagnare prestigio nel ciclo.
 - **Perdere la propria Capitale: nessun malus di prestigio** — il danno meccanico (perdita di
   raccolta, monete, popolarità, difesa) è già sufficiente. Si premia l'attaccante, non si punisce
   due volte il difensore. *(Le Città non danno prestigio di conquista, salvo decisione futura.)*
 
-**Tetto e punto d'oro [REGOLA]:** in un ciclo puoi accumulare prestigio da **più fonti insieme**
-(Popolarità + obiettivi + conquiste). Il totale del ciclo è **cappato a 10**: puoi anche superarlo,
-ma il massimo resta 10 e l'eccesso è perso. **Raggiungere 10 in un ciclo → 1 Punto Prestigio d'Oro.**
-I punti prestigio "normali" sono per-ciclo (ci si riparte ogni 10 turni); i **punti d'oro** sono
-permanenti e decretano il vincitore.
+### Cicli di 10 turni
+Gli **obiettivi** si assegnano a cicli di 10 turni. All'inizio di ogni ciclo, ogni regno riceve
+una serie di obiettivi da completare entro i 10 turni successivi, **bilanciati** in base allo
+stato della partita e **ispirati al contesto storico** del regno rappresentato. Il prestigio
+guadagnato con un obiettivo si versa nel contatore permanente e non si perde a fine ciclo.
 
 ### La LEVA: un obiettivo compiuto vale UOMINI **[REGOLA]**
 Il prestigio è una promessa lontana — si incassa a fine partita — e da solo non basta a far
@@ -909,10 +906,10 @@ il vero bilanciamento. → *in discussione.*
 - Risorse: **1/turno per provincia collegata** (niente sviluppo).
 - **Popolarità** (§8): formula `(Difesa+Benessere+Tassa)/3`, i tre indici coi loro calcoli,
   migliorie civiche (§6.1), arrotondamento (>0,8), pannello dedicato.
-- **Prestigio** (§10): cicli di 10 turni; tutte le fonti (Popolarità ≥4 +1/turno e 1 −1/turno;
-  obiettivi 6/2/2; conquista Capitale +2) confluiscono in un totale **cappato a 10**; raggiungere
-  10 = **1 Punto Prestigio d'Oro**. **Vittoria = più punti d'oro** quando si decide di finire (o
-  ultimo regno in gioco); niente malus per la Capitale persa.
+- **Prestigio** (§10): un solo contatore permanente `puntiPrestigio`. Fonti: obiettivi del ciclo
+  (5/3/2), conquista di una Capitale nemica (+1), rottura di un'alleanza (−1, solo alleanza).
+  **Vittoria = più prestigio** quando si decide di finire (o ultimo regno in gioco); niente
+  malus per la Capitale persa e la Popolarità non produce più prestigio.
 
 **Ancora aperte:**
 - **Obiettivi di ciclo**: progettare esempi concreti (per civiltà/situazione) — *prossima discussione*.

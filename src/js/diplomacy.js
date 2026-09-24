@@ -7,17 +7,19 @@
 //  patti, di peso diverso:
 //
 //   alleanza          — dà TUTTI i privilegi; senza scadenza. Romperla costa
-//                       PRESTIGIO (§10): la parola data pesa.
+//                       -1 PRESTIGIO (§10): la parola data pesa.
 //   alleanzaTempo     — come l'alleanza ma dura DIPLO.TIMED turni e poi scade
-//                       da sé (scadenza = gratis; romperla PRIMA = costo pieno).
+//                       da sé (scadenza = gratis; romperla PRIMA = -1 come
+//                       l'alleanza piena).
 //   nonBelligeranza   — non vi attaccate. Leggero: si rompe SENZA costo.
 //   rinforzi          — accesso militare: rinforzi/passaggio fra i territori.
 //                       Leggero, rottura gratis.
 //   vista             — vi vedete oltre la nebbia. Leggero, rottura gratis.
 //
 // I patti leggeri costano poco a impegnarsi e niente a sciogliersi: è il loro
-// vantaggio. Solo l'alleanza dà tutto, e solo lei fa perdere prestigio se
-// tradita. In più, un alleato può CONCEDERE all'altro di attaccare un suo
+// vantaggio. Solo l'alleanza (piena o a tempo) dà tutto, e solo lei fa
+// perdere prestigio se tradita — «gli altri accordi» del §10 non pesano
+// sull'onore. In più, un alleato può CONCEDERE all'altro di attaccare un suo
 // territorio: con quel consenso l'attacco non rompe il patto e non costa nulla.
 //
 // Questo file è PURO come popularity.js/terrain.js: conosce i patti e i loro
@@ -44,7 +46,7 @@
     };
 
     const TIMED = 5;            // durata dell'alleanza a tempo, in turni
-    const BREAK_PRESTIGE = 2;   // prestigio perso rompendo un'alleanza (§10)
+    const BREAK_PRESTIGE = 1;   // prestigio perso rompendo un'alleanza (§10)
 
     // I PRIVILEGI che ogni patto concede. Un'alleanza (piena o a tempo) li dà
     // tutti; ogni patto leggero ne dà uno solo. Chi aggiunge un privilegio lo

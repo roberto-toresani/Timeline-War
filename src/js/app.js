@@ -202,13 +202,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p.scorte) p.scorte = GameRules.emptyScorte();
         GameRules.RES.forEach(k => { if (typeof p.scorte[k] !== 'number') p.scorte[k] = 0; });
         if (!p.tassazione) p.tassazione = 'normale';
+        // MAIL DEL TURNO (regola dell'utente): l'e-mail del giocatore, editabile
+        // dall'editor sulla scheda-regno, e la preferenza di AUTO-TURNO che il
+        // driver esegue allo scadere delle 6h — `confini` schiera le reclute
+        // libere sulle province di frontiera, `capitale` in Capitale, `niente`
+        // (default) chiude il turno senza schierare. Il TIMBRO d'inizio turno
+        // vive qui (impostato da beginTurn) per far sopravvivere il conto delle
+        // 6h a un riavvio del driver, invece di ripartire il cronometro.
+        if (typeof p.email !== 'string') p.email = '';
+        if (p.autoTurno !== 'confini' && p.autoTurno !== 'capitale' && p.autoTurno !== 'niente') p.autoTurno = 'niente';
+        if (typeof p.turnStartedAt !== 'number') p.turnStartedAt = 0;
         // Reclute in attesa: le LIBERE in un contatore, le OBBLIGATORIE per
         // provincia (nascono da Capitale/Città/Fortezza e restano lì, §5.1).
         if (typeof p.recluteDaSchierare !== 'number') p.recluteDaSchierare = 0;
         if (!p.recluteVincolate) p.recluteVincolate = {};
         if (!p.schierateTurno) p.schierateTurno = {};
-        if (typeof p.prestigioCiclo !== 'number') p.prestigioCiclo = 0;
-        if (typeof p.puntiOro !== 'number') p.puntiOro = 0;
         if (typeof p.stradeGratis !== 'number') p.stradeGratis = 0;
         // TURNO DI FONDAZIONE: 1 per i regni d'inizio partita, il turno dell'evento
         // per chi nasce a partita in corso (game-actions.eventSpawnKingdom). Serve
@@ -2795,6 +2803,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
                 </div>
                 <select class="player-bot" title="Chi gioca il regno: Admin (tu) · Player (link a un altro) · AI (strategia)" style="width:100%;margin-top:4px;font-size:.8rem;">${botOptions}</select>
+                <input type="email" class="player-email" title="E-mail del giocatore: gli arriva un avviso quando tocca a lui" placeholder="e-mail del giocatore (facoltativa)" value="${(p.email || '').replace(/"/g, '&quot;')}" style="width:100%;margin-top:4px;font-size:.8rem;padding:2px 4px;" />
+                <select class="player-auto" title="Cosa fa il motore se non gioca entro 6 ore" style="width:100%;margin-top:4px;font-size:.8rem;">
+                    <option value="niente"${p.autoTurno === 'niente' ? ' selected' : ''}>Se non gioca in 6h: niente (salta il turno)</option>
+                    <option value="confini"${p.autoTurno === 'confini' ? ' selected' : ''}>Se non gioca in 6h: schiera ai confini</option>
+                    <option value="capitale"${p.autoTurno === 'capitale' ? ' selected' : ''}>Se non gioca in 6h: schiera in Capitale</option>
+                </select>
                 ${claimBadge}
             `;
 
@@ -2833,7 +2847,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 showPieceNotice(p.name + msg);
             });
 
-            const colorInput = btn.querySelector('input');
+            const emailInput = btn.querySelector('.player-email');
+            emailInput.addEventListener('click', (e) => e.stopPropagation());
+            emailInput.addEventListener('change', (e) => {
+                if (!isAdminMode) return;
+                p.email = (e.target.value || '').trim();
+                saveAutoSave();
+            });
+
+            const autoSelect = btn.querySelector('.player-auto');
+            autoSelect.addEventListener('click', (e) => e.stopPropagation());
+            autoSelect.addEventListener('change', (e) => {
+                if (!isAdminMode) return;
+                const v = e.target.value;
+                p.autoTurno = (v === 'confini' || v === 'capitale') ? v : 'niente';
+                saveAutoSave();
+            });
+
+            const colorInput = btn.querySelector('input[type="color"]');
             colorInput.addEventListener('click', (e) => e.stopPropagation());
             colorInput.addEventListener('input', (e) => {
                 if (!isAdminMode) return;
@@ -4389,8 +4420,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Archivia la spunta di un ciclo concluso e somma i punti TENUTI a fine
-    // ciclo. Unico punto che tocca `puntiPrestigio`: lo chiamano la migrazione
-    // qui sopra e GameActions.closeCycle.
+    // ciclo su `puntiPrestigio` (il contatore permanente del §10, alimentato
+    // anche dalla presa di una Capitale nemica in applyBattleOutcome e dalla
+    // rottura di un'alleanza in breakPact). Lo chiamano la migrazione qui
+    // sopra e GameActions.closeCycle.
     // Torna il record archiviato: closeCycle ci timbra sopra la LEVA (i soldati
     // versati per gli obiettivi compiuti, §10) — che NON si scrive qui, perché
     // questa funzione la chiama anche la migrazione dei salvataggi vecchi, e un
@@ -6005,7 +6038,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (owner) provinces[p.id] = owner;
                 });
                 return {
-                    players: PLAYERS.map(p => ({ id: p.id, name: p.name, color: p.color })),
+                    players: PLAYERS.map(p => { const r = { id: p.id, name: p.name, color: p.color }; if (p.invite) r.invite = p.invite; return r; }),
                     provinces,
                     resources: collectResources(svg),
                     religions: collectReligions(svg),

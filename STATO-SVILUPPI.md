@@ -35,7 +35,8 @@ e in particolare al momento del commit.
   editto, regno che nasce); un passaggio di mano per editto converte come una conquista; e una
   **partita nuova riparte dalle confessioni del Mille** (`Risiko.resetReligions` in
   `startGame`), invece di ereditare la Riforma di quella precedente.
-- **Popolarità e Prestigio** — definiti a design; prestigio convertibile in punti d'oro.
+- **Popolarità e Prestigio** — Popolarità operativa (§8); Prestigio come contatore permanente
+  a tre fonti (obiettivi, +1 Capitale nemica presa, −1 alleanza rotta).
 - **Figure di gioco (pedine)** — aggiunte con editor sulla mappa (WIP). Ogni pedina è
   **scontornata di nero** (strato di contorno in `data/piece_icons.js`, costanti `PC_INK`
   / `PC_OUT` / `PC_LINE`): si legge anche de-zoomando e anche quando la provincia ha lo
@@ -207,8 +208,13 @@ e in particolare al momento del commit.
 - **Vista generale nella plancia (nuovo)** — bottone 🌍 nella barra: toglie la nebbia e
   mostra tutta la mappa per guardare giocare l'IA; 👑 riporta al proprio regno. Non cambia
   i permessi, solo cosa si vede.
-- **Prestigio sospeso** — `GameRules.PRESTIGE_ENABLED = false`: non si accumula e il blocco
-  sparisce dalla plancia. Il codice e il §10 restano al loro posto.
+- **Prestigio, tre fonti sole (2026-09-21)** — contatore unico e permanente
+  `player.puntiPrestigio`. Sorgenti: **obiettivi** del ciclo (5/3/2, versati da
+  `archiveObjectives`), **+1** alla presa di una **Capitale nemica** (in
+  `applyBattleOutcome`), **−1** alla rottura di un'**alleanza** piena o a tempo
+  (`Diplomacy.BREAK_PRESTIGE = 1`, in `breakPact`; gli accordi leggeri sono gratis).
+  Rimossi: il canale Popolarità → prestigio, i "Punti d'Oro", il ciclo cappato a 10
+  e il vecchio cruscotto `#bp-prestige-block`.
 - **Fix adiacenze** — l'alone costiero (`map-decor.js`) è un clone di `#map-group` senza id
   ma con la stessa classe `state`: entrava nel grafo dei confini come un nodo `""`
   confinante con tutto il mondo. Ora l'elenco delle province passa da `provincePaths()`

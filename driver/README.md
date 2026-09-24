@@ -113,6 +113,63 @@ giocatori.)
 - `GAME_URL` — la pagina da pilotare (default: l'editor del sito live).
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — credenziali admin (obbligatorie).
 
+## Mail del turno (regola dell'utente)
+
+Quando il turno passa a un giocatore umano, il motore gli manda una mail
+personalizzata col link della plancia e due scorciatoie di auto-schieramento
+("schiera ai confini e passa il turno", "schiera in Capitale e passa il turno").
+Ogni giocatore ha **6 ore** per giocare: dopo, il motore chiude il turno da
+sé secondo la preferenza salvata sulla sua scheda-regno (di default *niente*).
+
+### Setup una volta
+
+1. **Un account Gmail dedicato** (consigliato — es. `risiko-motore@gmail.com`).
+2. Nel Google Account attiva la **verifica in due passaggi**, poi vai in
+   **Sicurezza → Password per le app** e crea una **app-password** — è una
+   password di 16 caratteri specifica per il mailer, che NON è la tua
+   password Google.
+3. Nel file `driver/.env` metti (accanto a `ADMIN_EMAIL`/`ADMIN_PASSWORD`):
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=risiko-motore@gmail.com
+   SMTP_PASS=xxxx-xxxx-xxxx-xxxx      (l'app-password, senza spazi)
+   MAIL_FROM="Risiko Online <risiko-motore@gmail.com>"
+   PLAY_BASE_URL=https://roberto-toresani.github.io/Timeline-War/play.html
+   TURN_DEADLINE_HOURS=6
+   ```
+4. Riavvia il motore (`npm start`). A avvio vedrai `[mail] SMTP OK · from: …`:
+   se invece leggi `SMTP verify FALLITO`, ricontrolla utente e app-password.
+
+### Dove si scrive l'e-mail del giocatore
+
+Nell'**editor**, sulla **scheda-regno**, c'è la casella *"e-mail del
+giocatore (facoltativa)"* e il menù *"Se scadono le 6h: niente / schiera ai
+confini / schiera in Capitale"*. Se un regno è senza e-mail, semplicemente
+non riceve la mail (il timer 6h scatta lo stesso).
+
+### Il testo cambia col regno
+
+I dieci regni di partenza hanno una mail curata a mano
+(`driver/mail-templates.js`): l'Inghilterra riceve un testo diverso dagli
+Abbasidi. I regni d'evento (Selgiuchidi, Portogallo, Bulgaria, Norvegia,
+Svezia, Orda) e ogni regno rinominato ricevono un fallback generico.
+
+### Come si comporta il timer
+
+Il conto delle 6h parte quando il turno del giocatore **si apre** davvero
+(`beginTurn`, timbrato in `player.turnStartedAt`), non quando il precedente
+ha cliccato "Fine turno" — se in mezzo ci sono bot, contano loro non il
+giocatore. Il timer è persistente nello stato del gioco: un riavvio del
+motore NON azzera il cronometro. Al passaggio di turno la scheda-plancia
+mostra "5h 42m rimasti" accanto al bottone Fine turno.
+
+### Se lasci vuote le SMTP\_\*
+
+Il motore parte lo stesso e stampa `[mail] SMTP non configurato: nessuna
+mail verrà inviata`. Il timer 6h continua a funzionare: allo scadere
+esegue comunque l'auto-turno o salta il turno.
+
 ## Diagnostica
 
 - **"login fallito"**: email/password sbagliate nel `.env`, o l'account non è
