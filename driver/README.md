@@ -179,3 +179,30 @@ esegue comunque l'auto-turno o salta il turno.
   dall'editor (menu del regno) e riavvia la partita.
 - **Non parte Chromium**: su alcuni Linux servono librerie di sistema; su
   Windows/Mac di norma funziona subito dopo `npm install`.
+
+## Motore in cloud (GitHub Actions) — col PC spento
+
+`.github/workflows/motore.yml` lancia questo motore **ogni 10 minuti** sui server
+di GitHub, per 9 minuti a giro (`RUN_FOR_MIN`). A ogni giro: muove i bot di turno,
+manda la mail a chi tocca, chiude i turni oltre le 6 ore. Il repo è pubblico,
+quindi i minuti sono gratuiti. Interrompere un bot a metà turno è sicuro: al giro
+dopo riprende dalla fase in cui era.
+
+**Per accenderlo** (una volta): su GitHub → *Settings → Secrets and variables →
+Actions → New repository secret*, crea questi secret con gli stessi valori di
+`driver/.env`: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`. Finché mancano, ogni giro esce subito.
+Per provarlo subito: *Actions → Motore della partita → Run workflow*.
+
+- **Granularità**: un turno scade fra 6h00 e ~6h15 (il cron di GitHub può tardare
+  di qualche minuto). I bot avanzano a ondate di 9 minuti ogni 10.
+- **Insieme all'editor**: un editor aperto normalmente fa da secondo motore; il
+  lease in Firestore fa guidare uno solo. Per intervenire senza fare da driver,
+  `index.html?nodrive=1`.
+- **Mail doppie**: impossibili anche con due motori accesi (PC + cloud) — la
+  chiave dell'ultima mail vive in `presence/driver-mail` e si prende in
+  transazione.
+- **I log sono pubblici**: il motore non scrive credenziali e maschera gli
+  indirizzi mail.
+- **60 giorni**: GitHub spegne i cron di un repo senza commit da 60 giorni; si
+  riaccende da *Actions → Enable workflow*.
