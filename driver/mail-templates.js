@@ -32,9 +32,9 @@ function timbro(ctx) {
         '• Non hai tempo? Schiera in Capitale e passa il turno:',
         '  ' + ctx.playUrl + (ctx.playUrl.indexOf('?') >= 0 ? '&' : '?') + 'autoplay=capitale',
         '',
-        'Hai 6 ore per giocare. Dopo, il motore chiuderà il turno secondo la',
-        'preferenza che hai scelto sulla plancia (di default: salta senza',
-        'schierare).',
+        'Hai 6 ore per giocare (di notte, dalle 23:30 alle 8:30, il tempo non',
+        'scorre). Dopo, il motore chiuderà il turno secondo la preferenza che',
+        'hai scelto sulla plancia (di default: salta senza schierare).',
         '',
         '— Il consiglio del regno'
     ].join('\n');

@@ -44,7 +44,8 @@ const PASSWORD = process.env.ADMIN_PASSWORD;
 // configurarla in casi normali.
 const PLAY_BASE_URL = process.env.PLAY_BASE_URL || GAME_URL.replace(/index\.html(\?.*)?$/, 'play.html');
 
-// TIMEOUT DEL TURNO UMANO (regola dell'utente): 6 ore. Espresso in ore per
+// TIMEOUT DEL TURNO UMANO (regola dell'utente): 6 ore di tempo "diurno" — la
+// fascia 23:30-8:30 (ora italiana) non conta, vedi GameRules.turnActiveMs. Espresso in ore per
 // coerenza col testo della mail e con la plancia; il codice lavora in ms.
 const TURN_DEADLINE_MS = (Number(process.env.TURN_DEADLINE_HOURS) || 6) * 60 * 60 * 1000;
 
@@ -232,7 +233,15 @@ async function runOnce() {
             email: p.email || '',
             invite: p.invite || '',
             autoTurno: p.autoTurno || 'niente',
-            turnStartedAt: p.turnStartedAt || 0
+            turnStartedAt: p.turnStartedAt || 0,
+            // Tempo che CONTA (notti 23:30-8:30 escluse), dalla stessa funzione
+            // della plancia: GameRules.turnActiveMs. Calcolato nella pagina,
+            // col fuso Europe/Rome fissato lì dentro.
+            turnActiveMs: (p.turnStartedAt && window.GameRules && GameRules.turnActiveMs)
+              ? GameRules.turnActiveMs(p.turnStartedAt, Date.now())
+              : (p.turnStartedAt ? Date.now() - p.turnStartedAt : 0),
+            // Pausa notturna (23:30-8:30, ora italiana): la mail aspetta le 8:30.
+            quiet: !!(window.GameRules && GameRules.isTurnQuietTime && GameRules.isTurnQuietTime(Date.now()))
           };
         });
         if (!s) return;
@@ -266,8 +275,11 @@ async function runOnce() {
         // "🧑 Admin" lo gioca l'admin, niente mail e niente chiusura d'ufficio.
         if (!s.player) return;
 
-        // MAIL — se il turno è cambiato dall'ultima mail mandata.
-        if (mailer && s.email && key !== lastMailedTurn
+        // MAIL — se il turno è cambiato dall'ultima mail mandata. Di notte
+        // (23:30-8:30) NON parte: resta in sospeso e la manda il primo battito
+        // dopo le 8:30, quando anche il cronometro riprende. Se nel frattempo il
+        // giocatore ha già giocato, la chiave è cambiata e la mail non parte più.
+        if (mailer && s.email && !s.quiet && key !== lastMailedTurn
             && (await claimMail(page, key)) !== false) {
           lastMailedTurn = key;
           var playUrl = PLAY_BASE_URL + (PLAY_BASE_URL.indexOf('?') >= 0 ? '&' : '?') + 'p=' + encodeURIComponent(s.invite);
@@ -279,10 +291,12 @@ async function runOnce() {
           }).catch(function (e) { log('mail: eccezione', (e && e.message) || e); });
         }
 
-        // TIMEOUT 6h — chiude il turno secondo la preferenza salvata.
+        // TIMEOUT 6h — chiude il turno secondo la preferenza salvata. Le ore
+        // fra le 23:30 e le 8:30 (ora italiana) non contano: il cronometro di
+        // notte è fermo (s.turnActiveMs le ha già tolte).
         // Se il player ha rimesso mano al motore in mezzo (autoTurno cambiato)
         // rispetta la sua ultima scelta.
-        if (s.turnStartedAt && (Date.now() - s.turnStartedAt) > TURN_DEADLINE_MS) {
+        if (s.turnStartedAt && s.turnActiveMs > TURN_DEADLINE_MS) {
           if (key !== lastAutoTurnKey) {
             lastAutoTurnKey = key;
             log('· 6h scadute per', s.chi, '— chiudo il turno (' + s.autoTurno + ')');

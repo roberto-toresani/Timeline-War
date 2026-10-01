@@ -578,7 +578,60 @@
         return discountedCost(base, player && player.festaRisorse);
     }
 
+    // TIMER DEL TURNO (sistema mail, regola dell'utente): 6 ore per giocare,
+    // ma la NOTTE non conta — dalle 23:30 alle 8:30 (ora italiana) il cronometro
+    // è fermo. Il fuso è fissato su Europe/Rome apposta: il motore in cloud
+    // (GitHub Actions) gira in UTC, e senza il fuso esplicito la pausa notturna
+    // cadrebbe un'ora o due fuori posto. Unica fonte per il motore (driver.js,
+    // che la chiama dentro la pagina) e per il conto alla rovescia della plancia.
+    const TURN_DEADLINE_MS = 6 * 60 * 60 * 1000;
+    const QUIET_FROM = 23 * 60 + 30;   // minuti dalla mezzanotte: 23:30
+    const QUIET_TO = 8 * 60 + 30;      // 08:30
+    const TURN_TZ = 'Europe/Rome';
+    let romeFmt = null;
+    // Minuti (con frazione) trascorsi dalla mezzanotte di Roma all'istante `t`.
+    function romeMinuteOfDay(t) {
+        try {
+            if (!romeFmt) romeFmt = new Intl.DateTimeFormat('en-GB', {
+                timeZone: TURN_TZ, hourCycle: 'h23',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            const parts = {};
+            romeFmt.formatToParts(new Date(t)).forEach(p => { parts[p.type] = p.value; });
+            return (+parts.hour % 24) * 60 + (+parts.minute) + (+parts.second) / 60 + (t % 1000) / 60000;
+        } catch (e) {
+            const d = new Date(t);   // ripiego: ora locale della macchina
+            return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60 + d.getMilliseconds() / 60000;
+        }
+    }
+    function isQuietMinute(m) { return m >= QUIET_FROM || m < QUIET_TO; }
+    function isTurnQuietTime(t) { return isQuietMinute(romeMinuteOfDay(t)); }
+    // Millisecondi di tempo "che conta" fra `start` e `end`, notti escluse.
+    // Si cammina a tratti fra un confine e l'altro della fascia (al più due per
+    // giorno), quindi costa poco anche su un turno rimasto aperto settimane. I
+    // cambi d'ora legale cadono alle 2-3 di notte, dentro la pausa: non spostano
+    // i confini delle 23:30 e delle 8:30.
+    function turnActiveMs(start, end) {
+        if (!start || !(end > start)) return 0;
+        let t = start, active = 0, guard = 0;
+        while (t < end && guard++ < 5000) {
+            const m = romeMinuteOfDay(t);
+            let toBoundary;   // minuti al prossimo cambio di fascia
+            if (isQuietMinute(m)) toBoundary = (m >= QUIET_FROM ? 1440 - m + QUIET_TO : QUIET_TO - m);
+            else toBoundary = QUIET_FROM - m;
+            const next = Math.min(end, t + Math.max(1000, Math.round(toBoundary * 60000)));
+            if (!isQuietMinute(m)) active += next - t;
+            t = next;
+        }
+        return active;
+    }
+    // Quanto resta del turno (ms, mai negativo) all'istante `now`.
+    function turnTimeLeft(start, now) {
+        return Math.max(0, TURN_DEADLINE_MS - turnActiveMs(start, now));
+    }
+
     const api = {
+        TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime,
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
         WELFARE, WELFARE_COST, WELFARE_INDEX,

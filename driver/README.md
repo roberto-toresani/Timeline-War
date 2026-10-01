@@ -161,7 +161,12 @@ Il conto delle 6h parte quando il turno del giocatore **si apre** davvero
 (`beginTurn`, timbrato in `player.turnStartedAt`), non quando il precedente
 ha cliccato "Fine turno" — se in mezzo ci sono bot, contano loro non il
 giocatore. Il timer è persistente nello stato del gioco: un riavvio del
-motore NON azzera il cronometro. Al passaggio di turno la scheda-plancia
+motore NON azzera il cronometro. **Di notte il cronometro è fermo**: le ore
+fra le 23:30 e le 8:30 (ora italiana, Europe/Rome anche col motore in cloud
+che gira in UTC) non contano nelle 6h — un turno aperto alle 22:00 scade alle
+13:00 del giorno dopo. Anche la **mail** di notte aspetta: un turno che si apre
+dopo le 23:30 viene annunciato al primo giro del motore dopo le 8:30. Il calcolo è `GameRules.turnActiveMs`, lo stesso per
+motore e plancia. Al passaggio di turno la scheda-plancia
 mostra "5h 42m rimasti" accanto al bottone Fine turno.
 
 ### Se lasci vuote le SMTP\_\*

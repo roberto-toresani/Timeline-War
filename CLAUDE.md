@@ -952,6 +952,14 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     salvata (`player.autoTurno = 'niente'|'confini'|'capitale'`, di default
     *niente*: chiude senza schierare — le obbligatorie le posa d'ufficio
     `endTurn`, le libere restano in serbatoio e si sommano al turno dopo).
+    - **La NOTTE non esiste per il timer** (regola dell'utente): la fascia
+      23:30-8:30 (ora italiana, fuso Europe/Rome fissato anche per il motore in
+      cloud che gira in UTC) è tolta dal conto — un turno aperto alle 23:30
+      comincia a scorrere alle 8:30. Unica fonte `GameRules.turnActiveMs` /
+      `turnTimeLeft` / `isTurnQuietTime` (game-rules.js), usata dal motore
+      (calcolata dentro la pagina) e dal conto alla rovescia della plancia.
+      Anche la **mail** di notte aspetta: il motore la manda al primo battito
+      dopo le 8:30 (`!s.quiet` in driver.js).
     - **Dove vive lo stato**: `normalizePlayer` in app.js aggiunge tre campi
       persistenti — `p.email` (editabile dall'editor sulla scheda-regno),
       `p.autoTurno` (idem, e anche dalla plancia), `p.turnStartedAt` (timbro

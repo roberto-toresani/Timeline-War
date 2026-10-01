@@ -635,7 +635,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // SISTEMA MAIL — riquadro tempo rimanente + preferenza auto-turno.
     // Non è un'azione: è un promemoria + una preferenza salvata sul record del
     // giocatore. Si mostra solo nel proprio turno; il timer aggiorna ogni 30 s.
-    const TURN_DEADLINE_MS = 6 * 60 * 60 * 1000;
+    // Il conto (notti 23:30-8:30 escluse) vive in GameRules, lo stesso che usa
+    // il motore per chiudere il turno: plancia e motore non possono divergere.
+    const TURN_DEADLINE_MS = (window.GameRules && GameRules.TURN_DEADLINE_MS) || 6 * 60 * 60 * 1000;
     let turnDeadlineTimer = null;
     function renderTurnDeadline(player, mine) {
         const timeEl = $('board-turn-time');
@@ -667,7 +669,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const paint = () => {
             const started = player.turnStartedAt || 0;
             if (!started) { timeEl.textContent = 'timer non partito'; return; }
-            const left = TURN_DEADLINE_MS - (Date.now() - started);
+            const now = Date.now();
+            const left = (window.GameRules && GameRules.turnTimeLeft)
+                ? GameRules.turnTimeLeft(started, now)
+                : TURN_DEADLINE_MS - (now - started);
+            const paused = !!(window.GameRules && GameRules.isTurnQuietTime && GameRules.isTurnQuietTime(now));
             if (left <= 0) {
                 timeEl.textContent = 'tempo scaduto — il motore chiuderà il turno';
                 timeEl.classList.remove('low');
@@ -676,7 +682,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const h = Math.floor(left / 3600000);
             const m = Math.floor((left % 3600000) / 60000);
-            timeEl.textContent = h + 'h ' + (m < 10 ? '0' : '') + m + 'm rimasti';
+            timeEl.textContent = h + 'h ' + (m < 10 ? '0' : '') + m + 'm rimasti'
+                + (paused ? ' · ⏸ pausa notturna fino alle 8:30' : '');
             timeEl.classList.toggle('critical', left < 30 * 60 * 1000);   // ultimi 30'
             timeEl.classList.toggle('low', left >= 30 * 60 * 1000 && left < 60 * 60 * 1000); // ultima ora
         };
