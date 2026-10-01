@@ -627,7 +627,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // `turnStartedAt` (salvataggi vecchi) è come se l'avesse aperto adesso —
         // il timbro lo scrive `beginTurn`, quindi la prossima apertura è
         // corretta.
-        renderTurnDeadline(player, turnoDi === player.id);
+        // Il conto alla rovescia vale solo per un regno affidato a un PLAYER: è
+        // l'unico che il motore chiude d'ufficio dopo 6 ore.
+        renderTurnDeadline(player, turnoDi === player.id && !player.bot && player.controllo === 'player');
     }
 
     // SISTEMA MAIL — riquadro tempo rimanente + preferenza auto-turno.

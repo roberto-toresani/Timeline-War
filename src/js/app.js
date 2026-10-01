@@ -2868,12 +2868,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button type="button" class="player-action remove-btn" title="Rimuovi">×</button>
                 </div>
                 <select class="player-bot" title="Chi gioca il regno: Admin (tu) · Player (link a un altro) · AI (strategia)" style="width:100%;margin-top:4px;font-size:.8rem;">${botOptions}</select>
+                ${ruolo === 'player' ? `
                 <input type="email" class="player-email" title="E-mail del giocatore: gli arriva un avviso quando tocca a lui" placeholder="e-mail del giocatore (facoltativa)" value="${(p.email || '').replace(/"/g, '&quot;')}" style="width:100%;margin-top:4px;font-size:.8rem;padding:2px 4px;" />
                 <select class="player-auto" title="Cosa fa il motore se non gioca entro 6 ore" style="width:100%;margin-top:4px;font-size:.8rem;">
                     <option value="niente"${p.autoTurno === 'niente' ? ' selected' : ''}>Se non gioca in 6h: niente (salta il turno)</option>
                     <option value="confini"${p.autoTurno === 'confini' ? ' selected' : ''}>Se non gioca in 6h: schiera ai confini</option>
                     <option value="capitale"${p.autoTurno === 'capitale' ? ' selected' : ''}>Se non gioca in 6h: schiera in Capitale</option>
-                </select>
+                </select>` : ''}
                 ${claimBadge}
             `;
 
@@ -2912,22 +2913,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 showPieceNotice(p.name + msg);
             });
 
+            // Mail e auto-turno esistono solo per un regno affidato a un PLAYER
+            // remoto (regola dell'utente): l'admin gioca da sé, l'IA da sola.
             const emailInput = btn.querySelector('.player-email');
-            emailInput.addEventListener('click', (e) => e.stopPropagation());
-            emailInput.addEventListener('change', (e) => {
-                if (!isAdminMode) return;
-                p.email = (e.target.value || '').trim();
-                saveAutoSave();
-            });
+            if (emailInput) {
+                emailInput.addEventListener('click', (e) => e.stopPropagation());
+                emailInput.addEventListener('change', (e) => {
+                    if (!isAdminMode) return;
+                    p.email = (e.target.value || '').trim();
+                    saveAutoSave();
+                });
+            }
 
             const autoSelect = btn.querySelector('.player-auto');
-            autoSelect.addEventListener('click', (e) => e.stopPropagation());
-            autoSelect.addEventListener('change', (e) => {
-                if (!isAdminMode) return;
-                const v = e.target.value;
-                p.autoTurno = (v === 'confini' || v === 'capitale') ? v : 'niente';
-                saveAutoSave();
-            });
+            if (autoSelect) {
+                autoSelect.addEventListener('click', (e) => e.stopPropagation());
+                autoSelect.addEventListener('change', (e) => {
+                    if (!isAdminMode) return;
+                    const v = e.target.value;
+                    p.autoTurno = (v === 'confini' || v === 'capitale') ? v : 'niente';
+                    saveAutoSave();
+                });
+            }
 
             const colorInput = btn.querySelector('input[type="color"]');
             colorInput.addEventListener('click', (e) => e.stopPropagation());
