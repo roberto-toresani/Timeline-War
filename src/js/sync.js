@@ -166,7 +166,8 @@ const MultiplayerSync = (function () {
             let interv = null;
             snap.forEach(d => {
                 if (d.id === INTERVENTION_DOC) { interv = d.data() || null; return; }
-                if (d.id !== DRIVER_DOC) map[d.id] = d.data();
+                // driver-lease e driver-mail (deduplica mail del motore): non presenza.
+                if (d.id.indexOf('driver-') !== 0) map[d.id] = d.data();
             });
             // Il canale dell'intervento si notifica solo quando CAMBIA: il lease del
             // driver rinfresca questa collezione ogni pochi secondi.

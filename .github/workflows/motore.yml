@@ -1,0 +1,78 @@
+# MOTORE IN CLOUD — il driver headless (driver/) lanciato da GitHub ogni 10
+# minuti, così bot, mail del turno e scadenza delle 6 ore funzionano anche col
+# PC spento. Ogni giro dura RUN_FOR_MIN minuti e poi esce; il successivo lo
+# lancia il cron. Il repo è pubblico: i minuti di Actions sono gratuiti, ma i
+# LOG sono pubblici — il driver non vi scrive credenziali e maschera le mail.
+#
+# Credenziali: Settings → Secrets and variables → Actions → New repository
+# secret (gli stessi nomi di driver/.env). Finché ADMIN_EMAIL manca, il giro
+# esce subito senza fare nulla.
+#
+# NB: GitHub sospende i cron di un repo senza attività da 60 giorni, e nelle ore
+# di punta può ritardare un giro di qualche minuto.
+
+name: Motore della partita
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un giro alla volta: se il precedente è ancora acceso, il nuovo aspetta.
+concurrency:
+  group: motore
+  cancel-in-progress: false
+
+jobs:
+  motore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: driver
+    env:
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      MAIL_FROM: ${{ secrets.MAIL_FROM }}
+      GAME_URL: https://roberto-toresani.github.io/Timeline-War/index.html
+      PLAY_BASE_URL: https://roberto-toresani.github.io/Timeline-War/play.html
+      TURN_DEADLINE_HOURS: '6'
+      RUN_FOR_MIN: '9'
+    steps:
+      - name: Credenziali presenti?
+        id: check
+        working-directory: .
+        run: |
+          if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+            echo "Secrets ADMIN_EMAIL/ADMIN_PASSWORD mancanti: il motore in cloud resta spento."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ok == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ok == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: driver/package-lock.json
+      - name: Cache del Chrome di Puppeteer
+        if: steps.check.outputs.ok == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-${{ hashFiles('driver/package-lock.json') }}
+      - name: Dipendenze
+        if: steps.check.outputs.ok == 'true'
+        run: npm ci
+      - name: Giro del motore
+        if: steps.check.outputs.ok == 'true'
+        run: node driver.js

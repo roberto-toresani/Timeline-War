@@ -89,6 +89,42 @@ let lastMailedTurn = null;
 let lastAutoTurnKey = null;
 let seededKeys = false;
 
+// DEDUPLICA PERSISTENTE DELLE MAIL: la chiave dell'ultima mail mandata vive su
+// Firestore (doc presence/driver-mail, collezione già aperta in scrittura),
+// non solo in memoria. Serve al motore IN CLOUD (GitHub Actions, RUN_FOR_MIN),
+// che parte e si spegne ogni pochi minuti: con la sola memoria o rimanderebbe
+// la stessa mail a ogni avvio, o (col seed) non la manderebbe mai. In
+// transazione, così due motori accesi insieme (PC + cloud) non la mandano due
+// volte. Torna true = tocca a me mandarla, false = già mandata, null = errore
+// (ripiego sulla memoria).
+const PERSISTENT_MAIL_KEY = true;
+async function claimMail(page, key) {
+  try {
+    return await page.evaluate(async function (k) {
+      const db = firebase.firestore();
+      const ref = db.collection('presence').doc('driver-mail');
+      return db.runTransaction(function (tx) {
+        return tx.get(ref).then(function (d) {
+          if (d.exists && (d.data() || {}).key === k) return false;
+          tx.set(ref, { key: k, at: Date.now() });
+          return true;
+        });
+      });
+    }, key);
+  } catch (e) {
+    log('mail: deduplica su Firestore non riuscita, uso la memoria —', (e && e.message) || e);
+    return null;
+  }
+}
+
+// MODALITÀ "A TEMPO" (motore in cloud): con RUN_FOR_MIN il motore gira per
+// quei minuti e poi ESCE, invece di restare acceso per sempre. È il modo in
+// cui lo lancia GitHub Actions ogni 10 minuti (.github/workflows/motore.yml):
+// a ogni giro muove i bot, manda le mail e chiude i turni scaduti, anche col
+// PC spento. Interrompere un bot a metà turno è sicuro: al giro dopo riprende
+// dalla fase in cui era (beginTurn è idempotente).
+const RUN_FOR_MS = (Number(process.env.RUN_FOR_MIN) || 0) * 60 * 1000;
+
 async function runOnce() {
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -192,6 +228,7 @@ async function runOnce() {
             turnLabel: 'ciclo ' + ciclo + '/decennio ' + passo + ' (anno ' + anno + ')',
             chi: p.name,
             bot: !!p.bot,
+            player: !p.bot && p.controllo === 'player',
             email: p.email || '',
             invite: p.invite || '',
             autoTurno: p.autoTurno || 'niente',
@@ -213,18 +250,25 @@ async function runOnce() {
         // restart. NON seedo `lastAutoTurnKey`: il timeout DEVE poter
         // scattare anche se il driver è ripartito dentro un turno, perché
         // `turnStartedAt` vive nello stato del gioco e sopravvive.
+        // Con la deduplica PERSISTENTE (Firestore, vedi claimMail) il seed non
+        // serve più: la mail del turno in corso non riparte perché il doc dice
+        // già che è stata mandata. Resta solo come ripiego se Firestore non
+        // risponde (claimMail → null).
         if (!seededKeys) {
           seededKeys = true;
-          lastMailedTurn = key;
-          return;
+          if (!PERSISTENT_MAIL_KEY) { lastMailedTurn = key; return; }
         }
 
         // Solo i turni UMANI ci riguardano da qui in giù: le mail non partono
         // per i bot e il timer 6h non scatta (i bot si muovono da soli).
         if (s.bot) return;
+        // E solo i regni affidati a un PLAYER remoto (menu "🔗 Player"): un regno
+        // "🧑 Admin" lo gioca l'admin, niente mail e niente chiusura d'ufficio.
+        if (!s.player) return;
 
         // MAIL — se il turno è cambiato dall'ultima mail mandata.
-        if (mailer && s.email && key !== lastMailedTurn) {
+        if (mailer && s.email && key !== lastMailedTurn
+            && (await claimMail(page, key)) !== false) {
           lastMailedTurn = key;
           var playUrl = PLAY_BASE_URL + (PLAY_BASE_URL.indexOf('?') >= 0 ? '&' : '?') + 'p=' + encodeURIComponent(s.invite);
           mailer.sendTurnMail({
@@ -243,7 +287,16 @@ async function runOnce() {
             lastAutoTurnKey = key;
             log('· 6h scadute per', s.chi, '— chiudo il turno (' + s.autoTurno + ')');
             const res = await page.evaluate(function (id, mode) {
-              try { return window.GameActions.autoPlayTurn(id, mode); }
+              try {
+                const r = window.GameActions.autoPlayTurn(id, mode);
+                // Scrittura FORZATA: il turno è di un umano, e se il suo link è
+                // aperto (presenza) il motore non è lo scrittore autorizzato —
+                // shouldPushState bloccherebbe il push e la chiusura resterebbe
+                // solo qui. Dopo 6h di silenzio nessuno sta scrivendo.
+                if (r && r.ok !== false && window.Risiko && Risiko.engine && Risiko.engine.saveForced)
+                  Risiko.engine.saveForced();
+                return r;
+              }
               catch (e) { return { ok: false, msg: (e && e.message) || String(e) }; }
             }, s.turnoDi, s.autoTurno || 'niente');
             if (res && res.ok === false) log('  auto-turno rifiutato:', res.msg);
@@ -254,7 +307,21 @@ async function runOnce() {
 
     // Riavvio preventivo periodico (memoria) chiudendo il browser: il supervisore
     // lo riapre.
-    if (RELOAD_EVERY_MS > 0) {
+    if (RUN_FOR_MS > 0) {
+      // Fine del tempo: si fermano i bot e si lascia partire l'ultimo push
+      // (debounce di 600 ms in sync.js) prima di chiudere.
+      reloadTimer = setTimeout(async () => {
+        log('Tempo scaduto (' + (RUN_FOR_MS / 60000) + ' min): chiudo.');
+        if (watchdog) { clearInterval(watchdog); watchdog = null; }
+        try {
+          await page.evaluate(function () {
+            try { if (window.Bot && Bot.stop) Bot.stop(); } catch (e) {}
+          });
+        } catch (e) {}
+        await new Promise((r) => setTimeout(r, 3000));
+        browser.close().catch(function () {});
+      }, RUN_FOR_MS);
+    } else if (RELOAD_EVERY_MS > 0) {
       reloadTimer = setTimeout(() => {
         log('Riavvio preventivo periodico del browser…');
         browser.close().catch(function () {});
@@ -281,6 +348,19 @@ function isAuthError(msg) {
 
 (async function supervisor() {
   log('Motore headless dei bot — avvio. Host:', process.platform, 'Node', process.version);
+  if (RUN_FOR_MS > 0) {
+    // Motore a tempo (cloud): un giro solo, poi si esce. Il prossimo lo lancia
+    // il cron. Niente supervisore: un errore si vede nel log del giro e il giro
+    // successivo riprova da capo.
+    try {
+      await runOnce();
+      log('Giro concluso.');
+      process.exit(0);
+    } catch (e) {
+      log('Errore:', (e && e.message) ? e.message : e);
+      process.exit(1);
+    }
+  }
   for (;;) {
     let wait = SHORT_WAIT;
     try {

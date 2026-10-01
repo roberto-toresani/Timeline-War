@@ -27,6 +27,14 @@ try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 
 const templates = require('./mail-templates');
 
+// Indirizzo mascherato nei log: il motore in cloud gira su GitHub Actions di
+// un repo PUBBLICO, e i suoi log li legge chiunque.
+function mask(email) {
+    const s = String(email || '');
+    const at = s.indexOf('@');
+    return at > 0 ? s[0] + '***' + s.slice(at) : '***';
+}
+
 function log() {
     const a = Array.prototype.slice.call(arguments);
     console.log('[' + new Date().toISOString() + '] [mail]', a.join(' '));
@@ -71,10 +79,10 @@ function initMailer(env) {
         const text = tpl.body(ctx);
         try {
             const info = await transporter.sendMail({ from, to, subject, text });
-            log('inviata a', to, '·', regno, '·', turnLabel, '·', info.messageId || '');
+            log('inviata a', mask(to), '·', regno, '·', turnLabel, '·', info.messageId || '');
             return { ok: true, id: info.messageId || null };
         } catch (err) {
-            log('ERRORE invio a', to, '·', (err && err.message) || err);
+            log('ERRORE invio a', mask(to), '·', (err && err.message) || err);
             return { ok: false, reason: (err && err.message) || String(err) };
         }
     }
