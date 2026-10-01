@@ -185,6 +185,91 @@
         notice('Mappa iniziale non disponibile (start-map.js non caricato).');
     }
 
+    // ---- FILE SU DISCO ----
+    // La copia di sicurezza che non dipende né da questo browser (localStorage)
+    // né da Firestore: la partita intera in un .json scaricato. Lo stesso
+    // snapshot dell'archivio, quindi si ricarica con lo stesso loadSnapshot.
+    function downloadJson(obj, fileName) {
+        const blob = new Blob([JSON.stringify(obj)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = doc.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        doc.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+
+    function fileNameFor(turno, tag) {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        return 'risiko-' + (tag || 'partita') + '-turno' + (turno || 0) + '-' +
+            d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
+            pad(d.getHours()) + pad(d.getMinutes()) + '.json';
+    }
+
+    function exportFile() {
+        const r = R();
+        if (!isAdmin() || !r || !r.snapshot) return;
+        const snap = r.snapshot();
+        if (!snap) { notice('La partita non è ancora pronta per essere salvata.'); return; }
+        downloadJson({ risiko: 1, savedAt: new Date().toISOString(), data: snap },
+            fileNameFor(snap.turn, 'partita'));
+        notice('Partita scaricata (turno ' + snap.turn + anno(snap.turn) + ').');
+    }
+
+    // Un backup per turno di Firestore, scaricato come file: "inizio turno X"
+    // è lo stato a fine turno X−1, quello da cui si riparte dopo un danno.
+    function exportBackup(turn) {
+        if (!isAdmin()) return;
+        if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.getBackup) {
+            notice('Backup per turno non disponibili (Firebase non collegato).');
+            return;
+        }
+        MultiplayerSync.getBackup(turn).then(snap => {
+            if (!snap) { notice('Nessun backup per il turno ' + turn + '.'); return; }
+            downloadJson({ risiko: 1, savedAt: new Date().toISOString(), backupTurn: turn, data: snap },
+                fileNameFor(turn, 'backup'));
+            notice('Backup del turno ' + turn + ' scaricato.');
+        });
+    }
+
+    function importFile(file) {
+        const r = R();
+        if (!isAdmin() || !r || !r.loadSnapshot || !file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            let parsed;
+            try { parsed = JSON.parse(reader.result); } catch (e) {
+                notice('File non valido: non è un salvataggio di Risiko.');
+                return;
+            }
+            // Si accetta sia il file di questo pannello ({data}) sia uno
+            // snapshot nudo (autosave copiato a mano).
+            const isSnap = o => !!(o && Array.isArray(o.players) && (o.history || o.provinces || o.pieces));
+            const snap = (parsed && isSnap(parsed.data)) ? parsed.data : parsed;
+            if (!isSnap(snap)) {
+                notice('File non valido: mancano province o regni.');
+                return;
+            }
+            r.confirm({
+                title: 'Caricare «' + file.name + '»?',
+                text: 'La partita in corso viene abbandonata e sostituita da quella del file ' +
+                    '(turno ' + snap.turn + anno(snap.turn) + ', ' + snap.players.length + ' regni). ' +
+                    'Il cambiamento vale anche per gli altri giocatori collegati.',
+                ok: '⬆ Carica',
+                tone: 'danger'
+            }, () => {
+                const ok = r.loadSnapshot(snap);
+                notice(ok
+                    ? 'Partita caricata dal file (turno ' + snap.turn + ').'
+                    : 'Caricamento fallito: la mappa non è pronta.');
+            });
+        };
+        reader.readAsText(file);
+    }
+
     function refreshUI() {
         const sel = doc.getElementById('save-slot-select');
         const info = doc.getElementById('save-slot-info');
@@ -223,11 +308,26 @@
         if (loadBtn) loadBtn.addEventListener('click', load);
         if (delBtn) delBtn.addEventListener('click', remove);
         if (newBtn) newBtn.addEventListener('click', newGame);
+        const expBtn = doc.getElementById('save-file-export-btn');
+        const impBtn = doc.getElementById('save-file-import-btn');
+        const fileIn = doc.getElementById('save-file-input');
+        const bkBtn = doc.getElementById('restore-download-btn');
+        if (expBtn) expBtn.addEventListener('click', exportFile);
+        if (impBtn && fileIn) impBtn.addEventListener('click', () => { if (isAdmin()) fileIn.click(); });
+        if (fileIn) fileIn.addEventListener('change', () => {
+            const f = fileIn.files && fileIn.files[0];
+            fileIn.value = '';          // si può ricaricare lo stesso file
+            importFile(f);
+        });
+        if (bkBtn) bkBtn.addEventListener('click', () => {
+            const sel = doc.getElementById('restore-select');
+            if (sel && sel.value) exportBackup(Number(sel.value));
+        });
         // Invio nel campo nome = salva.
         if (nameInput) nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
         refreshUI();
     });
 
-    root.SaveSlots = { save, load, remove, newGame, list, refreshUI, KEY };
+    root.SaveSlots = { save, load, remove, newGame, list, refreshUI, exportFile, exportBackup, importFile, KEY };
 
 })(typeof window !== 'undefined' ? window : globalThis, document);

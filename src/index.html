@@ -132,6 +132,13 @@
                         <div style="display:flex; gap:5px; margin-top:5px;">
                             <button id="save-slot-new-btn" style="flex:1;">🆕 Nuova partita (mappa iniziale)</button>
                         </div>
+                        <!-- FILE: la partita intera su disco, fuori dal browser e da
+                             Firestore — la copia di sicurezza che sopravvive a tutto. -->
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <button id="save-file-export-btn" style="flex:1;" title="Scarica la partita in corso come file .json">⬇ Scarica file</button>
+                            <button id="save-file-import-btn" style="flex:1;" title="Carica una partita da un file .json scaricato prima">⬆ Carica da file</button>
+                            <input id="save-file-input" type="file" accept=".json,application/json" style="display:none;" />
+                        </div>
                         <div id="save-slot-info" style="font-size:.75rem; opacity:.8; margin-top:4px;"></div>
                     </div>
 
@@ -166,6 +173,7 @@
                                 <select id="restore-select" style="flex:1;"></select>
                                 <button id="restore-refresh-btn" title="Aggiorna l'elenco dei backup">↻</button>
                                 <button id="restore-apply-btn">🕰 Ripristina turno</button>
+                                <button id="restore-download-btn" title="Scarica questo backup come file .json">⬇</button>
                             </div>
                             <div id="restore-info" style="font-size:.75rem; opacity:.8; margin-top:3px;">Backup per turno: —</div>
                         </div>
@@ -311,7 +319,7 @@
     <script src="js/doctrines.js?v=101"></script>
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=100"></script>
-    <script src="js/app.js?v=108"></script>
+    <script src="js/app.js?v=112"></script>
     <script src="js/game-actions.js?v=111"></script>
     <script src="js/bot.js?v=98"></script>
     <script src="js/setup.js?v=85"></script>
@@ -319,7 +327,7 @@
     <!-- Archivio locale di partite intere (salva/carica/nuova): dopo app.js
          (usa Risiko.snapshot/loadSnapshot) e start-map.js (la "Nuova" riusa
          il caricamento della mappa iniziale). -->
-    <script src="js/save-slots.js?v=1"></script>
+    <script src="js/save-slots.js?v=3"></script>
 </body>
 
 </html>

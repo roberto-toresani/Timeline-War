@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Timeline War — Regolamento</title>
+<style>
+  @page { size: A4; margin: 8mm 9mm; }
+  :root { --ink:#2b2118; --red:#8a2b1f; --gold:#a8772a; --rule:#c9b48a; --bg:#fbf6ea; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font: 8.1pt/1.3 "Segoe UI", Calibri, Arial, sans-serif; color:var(--ink); background:#fff; }
+  header { display:flex; align-items:baseline; justify-content:space-between; border-bottom:2px solid var(--red); padding-bottom:2pt; margin-bottom:4pt; }
+  h1 { white-space:nowrap; font: 700 16pt/1 Georgia, "Times New Roman", serif; margin:0; color:var(--red); letter-spacing:.5pt; }
+  header p { margin:0 0 0 8pt; font-style:italic; font-size:7.5pt; text-align:right; }
+  .cols { column-count:3; column-gap:9pt; column-rule:0.5pt solid var(--rule); }
+  section { break-inside:avoid; margin:0 0 4pt; }
+  h2 { font: 700 9pt/1.1 Georgia, serif; color:var(--red); margin:0 0 1.5pt; border-bottom:0.5pt solid var(--rule); padding-bottom:1pt; }
+  p { margin:0 0 2pt; }
+  ul, ol { margin:0 0 2pt; padding-left:10pt; }
+  li { margin:0 0 1pt; }
+  b { color:#000; }
+  table { width:100%; border-collapse:collapse; font-size:7.5pt; margin:1pt 0 2pt; }
+  th, td { text-align:left; padding:0.8pt 2pt; border-bottom:0.4pt solid #e2d5b8; vertical-align:top; }
+  th { background:var(--bg); font-weight:700; }
+  .box { background:var(--bg); border-left:2pt solid var(--gold); padding:2pt 4pt; margin:1pt 0 3pt; }
+  .k { font-family: Consolas, monospace; font-size:7pt; }
+  footer { margin-top:3pt; border-top:0.5pt solid var(--rule); padding-top:2pt; font-size:6.8pt; text-align:center; font-style:italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TIMELINE WAR — Regolamento</h1>
+  <p>Strategia a turni sulla mappa del mondo medievale · dal 1000 d.C. · 1 turno = 1 decennio</p>
+</header>
+
+<div class="cols">
+
+<section>
+<h2>1. Lo scopo</h2>
+<p>Guidi un regno storico (Inghilterra, Francia, Castiglia, Bisanzio…). Conquisti province, costruisci, commerci e stringi patti. <b>Vince chi ha più Punti Prestigio</b> quando si decide di chiudere la partita, oppure chi resta <b>l'ultimo regno</b>. Perdi se perdi tutte le province.</p>
+<p><b>Prestigio:</b> obiettivi del ciclo (+5 / +3 / +2), conquista di una <b>Capitale nemica</b> (+1), rottura di un'<b>alleanza</b> (−1).</p>
+</section>
+
+<section>
+<h2>2. Come si entra</h2>
+<p>L'admin ti manda un <b>link d'invito</b> (<span class="k">play.html?p=CODICE</span>): aprilo e sei nel tuo regno. Quando tocca a te arriva una <b>mail</b>; hai <b>6 ore</b> per giocare, poi il turno si chiude da solo (scegli in alto cosa fare in automatico: niente, schiera ai confini, schiera in Capitale).</p>
+<p><b>Schermo:</b> la mappa è tutto. A destra la <b>colonna del turno</b> (linguetta); in basso il <b>dock</b>: 👑 Corona (popolarità, obiettivi), 🕊 Diplomazia, ⚖ Mercato, 💬 Chat. 📜 apre costi ed effetti in qualsiasi momento.</p>
+</section>
+
+<section>
+<h2>3. Il turno: 4 fasi in ordine</h2>
+<p>Si avanza col bottone in fondo alla colonna; <b>non si torna indietro</b>.</p>
+<ol>
+<li><b>Schiera</b> — piazzi le reclute (vedi §5).</li>
+<li><b>Costruisci</b> — edifici, navi, strade, mercenari, spie.</li>
+<li><b>Attacca</b> — quante volte vuoi: clicca una tua provincia, le mete si accendono (retino), clicca il bersaglio e scegli quanti uomini.</li>
+<li><b>Sposta</b> — <b>un solo</b> spostamento fra due tue province confinanti (o via nave verso una tua costa).</li>
+</ol>
+<p>Poi <b>Fine turno</b>. Quando tutti hanno giocato si chiude il <b>giro</b> e passa un decennio.</p>
+</section>
+
+<section>
+<h2>4. Il primo turno (importante!)</h2>
+<p>Parti con <b>1000 monete</b>, poche province e nessuna Capitale. <b>Senza Capitale non incassi nulla</b> (né monete, né risorse, né reclute).</p>
+<div class="box"><b>Mossa d'apertura:</b> costruisci subito la <b>Capitale</b> (500 monete) in una provincia interna e sicura. Ti regala la prima <b>strada gratuita</b>: usala per collegare una provincia con una risorsa, meglio <b>Pietra</b> (serve per le strade successive).</div>
+</section>
+
+<section>
+<h2>5. Soldati e reclute</h2>
+<ul>
+<li><b>Reclute libere</b> = province ÷ 3 (per difetto) ± Popolarità. Vanno dove vuoi; se non le usi restano per il turno dopo.</li>
+<li><b>Reclute obbligatorie</b>: Capitale +1, Città +1, Fortezza +5 — nascono e restano lì (un pop-up le schiera tutte in un clic).</li>
+<li><b>Presidio minimo:</b> una provincia non resta mai vuota, almeno <b>1 soldato</b> rimane sempre. Attacchi e spostamenti usano solo gli uomini in più.</li>
+<li><b>Mercenari</b> (150 monete): permanenti ma “di ventura”: in battaglia valgono ~0,85 e il loro rendimento oscilla.</li>
+</ul>
+</section>
+
+<section>
+<h2>6. Economia</h2>
+<ul>
+<li><b>Monete</b>: le pagano Capitale e Città ogni turno, secondo la tassa: <b>leggera 50 · normale 100 · dura 150</b> per città.</li>
+<li><b>Risorse</b> (Pietra, Legno, Argilla, Grano, Bestiame): <b>1 per turno</b> da ogni provincia con risorsa <b>collegata alla Capitale da strade</b>. Una provincia non collegata non produce.</li>
+<li><b>Strada</b>: 1 Pietra + 1 soldato, fra due tue province confinanti.</li>
+<li><b>Bottino</b>: <b>+50 monete</b> per ogni provincia conquistata.</li>
+</ul>
+</section>
+
+<section>
+<h2>7. Costruzioni</h2>
+<table>
+<tr><th>Cosa</th><th>Costo</th><th>Effetto</th></tr>
+<tr><td><b>Capitale</b></td><td>500 m</td><td>Una sola; difesa +1, tasse, +1 recluta. Spostabile (500 m) su una tua Città</td></tr>
+<tr><td><b>Città</b></td><td>1000 m, 3 Pi, 2 Ar, 2 Be</td><td>Difesa +1, paga tasse, +1 recluta</td></tr>
+<tr><td><b>Fortezza</b></td><td>2000 m, 6 Pi, 4 Le, 4 Ar, 2 Be, 2 Gr</td><td>Difesa +3, +5 reclute/turno</td></tr>
+<tr><td><b>Mercato</b></td><td>800 m, 4 sold.</td><td>Apre i commerci</td></tr>
+<tr><td><b>Nave</b></td><td>3 Le, 1 sold.</td><td>Su costa; porta 8 uomini, portata breve</td></tr>
+<tr><td><b>Veliero</b></td><td>4000 m, 10 Le, 2 Ar, 4 Be, 4 Gr</td><td>Porta 15; rotte oceaniche</td></tr>
+<tr><td><b>Generale</b></td><td>500 m, 3 Be, 3 Gr, 1 Ar</td><td>Vale 2 soldati; in Capitale +1 Sicurezza</td></tr>
+<tr><td><b>Guarnigione</b></td><td>2 Be, 2 Gr, 1 Ar</td><td>+2 soldati</td></tr>
+<tr><td><b>Spia</b></td><td>300 m</td><td>Vede una zona lontana per 3 turni</td></tr>
+</table>
+<p>Capitale, Città e Fortezza si escludono a vicenda; il Mercato non sta dove c'è un insediamento. <b>Migliorie</b> sulla Capitale (3 di una risorsa ciascuna): <b>Sanità</b> e <b>Felicità</b>, fino a 5 per tipo.</p>
+</section>
+
+<section>
+<h2>8. Popolarità (1–5)</h2>
+<p>Media di tre voci (0–5 ciascuna):</p>
+<ul>
+<li><b>Sicurezza</b>: (5 − province non tue che confinano con la Capitale) e guardia in Capitale (5 soldati = 0, <b>10 soldati = 5</b>).</li>
+<li><b>Benessere</b>: tipi di risorsa collegati, province di cibo (Grano/Bestiame), migliorie di Sanità e Felicità.</li>
+<li><b>Tassa</b>: leggera 5 · normale 3 · dura 1.</li>
+</ul>
+<table>
+<tr><th>Popolarità</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr>
+<tr><td>Reclute e risorse</td><td>−2</td><td>−1</td><td>0</td><td>+1</td><td>+2</td></tr>
+</table>
+<p>I primi 5 turni del regno hanno un piccolo bonus di grazia. <b>Consiglio:</b> tassa leggera + 10 soldati in Capitale + cibo collegato ti tolgono dalla Popolarità 1.</p>
+</section>
+
+<section>
+<h2>9. La battaglia</h2>
+<p>Probabilità dell'attaccante: <b>A<sup>k</sup> / (A<sup>k</sup> + D<sup>k</sup>)</b>, con A = uomini mandati, D = difensori + mura (Città/Capitale +1, Fortezza +3). Il cursore d'ordine ti mostra la percentuale prima di confermare.</p>
+<ul>
+<li><b>Terreno</b> (⛰ sulla mappa): in <b>pianura</b> conta molto il numero (k=2,6); fra <b>monti, foreste, paludi</b> meno (k=1,4). Es.: 3 contro 1 = 95% in pianura, 82% in montagna.</li>
+<li>Vinci: la provincia è tua, con <b>edifici intatti</b>; scegli quanti superstiti restano dentro e quanti tornano indietro.</li>
+<li><b>Sbarchi</b>: con una nave ancorata attacchi coste lontane; tutti gli uomini scendono e le navi restano lì (se perdi, le perdi).</li>
+</ul>
+</section>
+
+<section>
+<h2>10. Terre di nessuno</h2>
+<p>Le province grigie sono presidiate (2 soldati, che crescono col tempo fino a 6). Se confinano con te e hanno <b>fede diversa</b>, possono <b>razziare</b> una tua provincia sguarnita quando ti superano <b>3 a 1</b>. Tieni almeno qualche uomo ai confini.</p>
+</section>
+
+<section>
+<h2>11. Diplomazia e commercio</h2>
+<ul>
+<li><b>Patti</b> (🕊): alleanza, alleanza a tempo (5 turni), non belligeranza, accesso militare (rinforzi), vista condivisa. Un alleato non si attacca salvo suo consenso o <b>tradimento</b> (rompe tutti i patti).</li>
+<li>Con l'accesso militare puoi <b>chiedere</b> e <b>mandare rinforzi</b> a un alleato confinante.</li>
+<li><b>Mercato</b> (⚖, serve l'edificio): con l'estero 2 risorse → 1; con gli altri regni scambi liberi di risorse e oro.</li>
+<li>La stessa <b>religione</b> rende i regni più amichevoli. Chi conquista <b>converte</b> la provincia alla fede della propria Capitale.</li>
+</ul>
+</section>
+
+<section>
+<h2>12. Obiettivi e storia</h2>
+<p>Ogni <b>10 turni</b> (un ciclo = un secolo) ricevi 3 obiettivi ispirati alla storia del tuo regno: <b>Primario 5</b>, <b>Secondario 3</b>, <b>Terziario 2</b> punti. Valgono se li <b>tieni a fine ciclo</b>, danno Prestigio <b>e</b> altrettante <b>reclute</b> per il ciclo dopo. Si leggono in 👑 Corona.</p>
+<p><b>Eventi storici</b> arrivano a date fisse: crociate, invasione mongola, peste nera (si difende con la Sanità), scismi religiosi, nuovi regni che nascono. Le pergamene a inizio turno ti avvisano.</p>
+</section>
+
+<section>
+<h2>13. Nebbia di guerra</h2>
+<p>Vedi solo le tue province e i confinanti; le navi mostrano le coste (bandiere, non truppe). Le <b>spie</b> illuminano zone lontane senza essere viste.</p>
+</section>
+
+<section>
+<h2>14. Consigli veloci</h2>
+<ol>
+<li>Turno 1: Capitale interna → strada verso Pietra o cibo.</li>
+<li>Conquista le province vicine con risorse e <b>collegale</b>.</li>
+<li>Prima il Mercato (procura le risorse che ti mancano), poi la Città (più monete).</li>
+<li>Attacca in pianura con numeri netti, difenditi in montagna.</li>
+<li>Controlla gli obiettivi del ciclo: valgono prestigio e uomini.</li>
+</ol>
+</section>
+
+</div>
+<footer>Abbreviazioni: m = monete · Pi Pietra · Le Legno · Ar Argilla · Gr Grano · Be Bestiame · sold. = soldati — Tutti i dettagli sono nel pop-up 📜 della plancia.</footer>
+</body>
+</html>

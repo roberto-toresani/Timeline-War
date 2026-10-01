@@ -801,6 +801,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   - **Il tetto è localStorage** (~5 MB): lo snapshot include tutta la `TURN_HISTORY`, quindi
     molte partite lunghe possono riempirlo. `writeSlots` intercetta la quota superata e
     **avvisa** (elimina qualche partita e riprova) invece di fallire in silenzio.
+  - **FILE su disco** (`⬇ Scarica file` / `⬆ Carica da file`, e `⬇` accanto a "🕰
+    Ripristina turno" per scaricare un backup per turno di Firestore): la partita intera
+    come `.json` (`{risiko:1, data: snapshot}`), fuori sia da localStorage sia da
+    Firestore — la copia che sopravvive a tutto. Si ricarica con lo stesso
+    `loadSnapshot`. NB: i vecchi `💾 Save / 📂 Load` in cima all'editor (`saveMap`)
+    esportano solo mappa+regni, **senza** turnoDi/ordine/eventi: non sono una partita.
   - **`Risiko.loadSnapshot` è gated `isAdminMode`**: un non-admin non riscrive lo stato
     condiviso (come da `firestore.rules`), quindi caricare da slot ha senso solo per l'admin.
 - **`src/mappe/` è un'altra cosa**: lì sta la copia **congelata** della mappa definitiva
@@ -1211,6 +1217,14 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     `#intervention-banner` (mostra "⏳ in attesa" anche dopo un reload, `updateInterventionUI`
     è chiamata in coda a `applyCloudState`) + bottoni `#intervene-btn` /
     `#intervene-apply-btn` / `#intervene-cancel-btn` (solo admin, solo a partita esistente).
+  - **`beginIntervention` ferma i bot guidati da quel browser** (`Bot.stop` + lease):
+    prima continuavano a muovere sullo schermo congelato e al commit le loro mosse
+    sparivano o finivano nel diff. Ripartono da soli al commit/annullo.
+  - **Chi applica il diff è solo il REGISTA** (`isInterventionApplier`: admin, non
+    plancia, non `?nodrive=1`), e lo applica anche quando il turno passa **dal proprio
+    browser** (hook in `setTurnState`): il proprio push torna come eco e
+    `applyCloudState` lo salta, quindi prima l'intervento aspettava la mossa di un
+    giocatore remoto.
     `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
     `isIntervening`/`hasPendingIntervention`.
 - **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.

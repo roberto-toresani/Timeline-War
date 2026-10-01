@@ -462,6 +462,11 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshMapDisplay();
         renderPlayerTabs();
         updateInterventionUI();   // il bottone "Intervieni" è solo per l'admin
+        // L'auth admin può arrivare DOPO il primo snapshot (ricaricando l'editor
+        // durante il turno di un bot): quel snapshot ha chiamato maybeDriveBots
+        // quando non eravamo ancora admin, e nessun altro snapshot arriverebbe a
+        // risvegliare la catena. Lease-gated: se guida già un altro, non fa nulla.
+        if (admin) setTimeout(maybeDriveBots, 0);
     }
 
     function wireAdminLogin() {
@@ -2407,7 +2412,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Solo l'admin (che guida la partita, come i bot) lo applica: gli altri client
         // ora lo ricevono nello stato ma devono solo trasportarlo, non applicarlo due
         // volte in concorrenza.
-        if (pendingDiff && turnoDi !== pendingBaseTurnoDi && isAdminMode) applyPendingIntervention();
+        if (pendingDiff && turnoDi !== pendingBaseTurnoDi && isInterventionApplier()) applyPendingIntervention();
 
         // Un umano remoto (es. una plancia aperta col codice d'invito) ha chiuso il
         // turno e ora tocca a un BOT: chi pilota i bot è l'admin, e lo scopre solo da
@@ -2614,6 +2619,14 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshMapDisplay();
     }
 
+    // CHI applica l'intervento in attesa: il REGISTA, cioè chi guida la partita —
+    // l'editor admin, o il motore headless (che è un editor). Non la plancia
+    // aperta dall'admin col 👁 e non un editor ?nodrive=1 (lì guida il motore):
+    // due applicatori che scrivono insieme si annullano a vicenda le mosse.
+    function isInterventionApplier() {
+        return isAdminMode && !adminIntervening && !BOARD_MODE && !isNoDrive();
+    }
+
     function applyPendingIntervention() {
         const diff = pendingDiff;
         pendingDiff = null;
@@ -2628,6 +2641,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function beginIntervention() {
         if (adminIntervening) return;
         if (pendingDiff) { showPieceNotice('C\'è già un intervento in attesa del prossimo turno.'); return; }
+        // I bot guidati da QUESTO browser si fermano: le loro mosse finirebbero
+        // sullo schermo congelato e al commit verrebbero buttate (lo schermo torna
+        // a `live`) o, peggio, scambiate per ritocchi dell'admin dentro il diff.
+        // Ripartono da soli al commit/annullo (applyCloudState → maybeDriveBots).
+        if (window.Bot && window.Bot.isRunning && window.Bot.isRunning()) window.Bot.stop();
+        stopBotLease();
         adminIntervening = true;
         bufferedRemote = null;
         interventionBase = buildSnapshotClone();
@@ -3084,7 +3103,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function addPlayer() {
         if (!isAdminMode) return;
         const nextId = PLAYERS.reduce((m, p) => Math.max(m, p.id), 0) + 1;
-        PLAYERS.push(normalizePlayer({ id: nextId, name: 'Giocatore ' + nextId, color: pickNewPlayerColor() }));
+        // `nato`: a partita in corso il regno nasce ADESSO, così ha la sua grazia
+        // dell'insediamento (§8) come i regni d'evento — e non quella del turno 1.
+        PLAYERS.push(normalizePlayer({ id: nextId, name: 'Giocatore ' + nextId, color: pickNewPlayerColor(),
+            nato: ordine.length ? currentTurn : 1 }));
         // A PARTITA IN CORSO il nuovo regno deve entrare nel giro dei turni, o
         // possiederebbe province senza giocare mai (stessa regola di
         // eventSpawnKingdom, §Mongoli). Si accoda in fondo all'`ordine`: gioca dal
@@ -5820,9 +5842,21 @@ document.addEventListener('DOMContentLoaded', () => {
             // altro browser. Un beginTurn che riscrive lo stesso turnoDi non è una
             // transizione e non tocca il flag.
             if (t !== turnoDi) { hasHandoff = true; handoffFrom = turnoDi; turnProgress++; }
+            const cambio = t !== turnoDi;
             turnoDi = t;
             if (o) ordine = o.slice();
             if (typeof primo === 'number') primoDelGiro = primo;
+            // Intervento admin in attesa e il turno passa DA QUESTO browser (bot
+            // guidati qui, o Fine turno dell'admin): il proprio push torna come eco
+            // e applyCloudState lo salta, quindi senza questo l'intervento
+            // aspetterebbe la mossa di un giocatore remoto. Si applica a fine
+            // endTurn (setTimeout 0), non nel mezzo del passaggio di turno.
+            if (cambio && pendingDiff && isInterventionApplier() && t !== pendingBaseTurnoDi) {
+                setTimeout(() => {
+                    if (pendingDiff && isInterventionApplier() && turnoDi !== pendingBaseTurnoDi)
+                        applyPendingIntervention();
+                }, 0);
+            }
         },
         // EVENTI STORICI (js/events.js): lo stato globale del calendario. Lo legge
         // e lo scrive game-actions (applyEvents/tickEvents); qui vive e si salva.
@@ -5884,6 +5918,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return Promise.reject(new Error('Backup non disponibili.'));
             return MultiplayerSync.getBackup(turn).then(snap => {
                 if (!snap) throw new Error('Nessun backup per il turno ' + turn + '.');
+                // Durante un intervento applyCloudState congela lo schermo e il
+                // ripristino finirebbe nel buffer invece che sulla mappa.
+                if (adminIntervening) throw new Error('Chiudi prima l\'intervento in corso.');
+                // Come loadSnapshot: una catena di bot in volo continuerebbe a
+                // muovere sulla linea temporale appena scartata.
+                if (window.Bot) window.Bot.stop();
                 // applyCloudState rimette in piedi mappa, giocatori, turno ed eventi
                 // dallo snapshot, esattamente come un normale aggiornamento cloud.
                 applyCloudState(snap);
