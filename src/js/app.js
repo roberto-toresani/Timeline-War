@@ -109,6 +109,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let bufferedRemote = null;      // ultimo stato remoto arrivato mentre si edita
     let pendingDiff = null;         // diff in attesa del cambio turno
     let pendingBaseTurnoDi = null;  // turnoDi al commit: si applica quando cambia
+    // Online l'intervento viaggia su un canale a sé (sync.js, doc
+    // 'admin-intervention'), non dentro games/main: id del diff in attesa e degli
+    // interventi già applicati da questa sessione (il canale si può ripresentare
+    // prima che la cancellazione arrivi).
+    let pendingId = null;
+    const appliedInterventions = new Set();
     // Comandi della vista mappa (fit/insets), riempiti da wireMapZoom: li usa la plancia.
     // Dichiarato qui in cima perche' initMap gira molto prima del corpo di wireMapZoom.
     let mapView = null;
@@ -867,6 +873,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 applyCloudState(data);
             });
             MultiplayerSync.onPresenceChange(applyPresence);
+            if (MultiplayerSync.onInterventionChange) MultiplayerSync.onInterventionChange(onRemoteIntervention);
             // Una scrittura rifiutata dalla guardia anti-regressione (sync.js) vuol
             // dire che lo stato online è più avanti del nostro: non sovrascriviamo,
             // e lo diciamo. L'ultimo snapshot valido arriva comunque da sé.
@@ -2629,13 +2636,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function applyPendingIntervention() {
         const diff = pendingDiff;
+        if (pendingId) appliedInterventions.add(pendingId);
+        const doneId = pendingId;
         pendingDiff = null;
         pendingBaseTurnoDi = null;
+        pendingId = null;
         applyAdminDiff(diff);
-        saveAutoSave();   // scrive lo stato fuso (l'admin scrive: writes aperte)
+        // Applicato: si svuota il canale, così gli altri editor tolgono il banner.
+        if (doneId && MultiplayerSync.isConfigured && MultiplayerSync.setIntervention)
+            MultiplayerSync.setIntervention(null);
+        // Scrittura FORZATA: si applica proprio al cambio turno, quando il regista
+        // spesso non è lo scrittore del turno (il turno è appena passato a un
+        // umano, o il lease del bot non è ancora preso) e shouldPushState
+        // bloccherebbe il push — l'intervento resterebbe solo su questo schermo.
+        // È l'istante in cui lo stato locale è il più fresco: nessuno ha ancora
+        // mosso nel turno nuovo.
+        forcePushOnce = true;
+        saveAutoSave();
         renderGameControls();
         updateInterventionUI();
         showPieceNotice('Interventi admin applicati (nuovo turno).');
+    }
+
+    // Il canale dell'intervento è cambiato: lo si ADOTTA (tutti gli editor, per il
+    // banner) e il regista lo applica subito se il turno è già passato.
+    function onRemoteIntervention(data) {
+        if (data && data.diff && data.id) {
+            if (appliedInterventions.has(data.id)) return;
+            pendingDiff = data.diff;
+            pendingBaseTurnoDi = (data.base !== undefined) ? data.base : null;
+            pendingId = data.id;
+        } else {
+            pendingDiff = null;
+            pendingBaseTurnoDi = null;
+            pendingId = null;
+        }
+        updateInterventionUI();
+        // Solo a partita caricata: al primo arrivo del canale lo stato può non esserci ancora.
+        if (pendingDiff && turnoDi !== null && turnoDi !== undefined && turnoDi !== pendingBaseTurnoDi && isInterventionApplier()) applyPendingIntervention();
     }
 
     function beginIntervention() {
@@ -2666,6 +2704,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // applyCloudState(live) ADOTTEREBBE il pendingDiff di `live` (spesso null) e
         // cancellerebbe quello appena creato.
         if (live) { live.pendingDiff = pendingDiff; live.pendingBaseTurnoDi = pendingBaseTurnoDi; }
+        // Online: il diff parte sul SUO canale. Un editor ?nodrive=1 non può
+        // scrivere games/main durante il turno di un bot (lo scrive solo il motore,
+        // che tiene il lease): affidato solo allo stato, l'intervento si perdeva.
+        if (MultiplayerSync.isConfigured && MultiplayerSync.setIntervention) {
+            pendingId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+            MultiplayerSync.setIntervention({ id: pendingId, diff: pendingDiff, base: pendingBaseTurnoDi })
+                .then(ok => { if (!ok) showPieceNotice('⚠ Intervento NON inviato al server: riprova.'); });
+        }
         applyCloudState(live);   // ripristina lo schermo sulla partita in corso
         saveAutoSave();          // PERSISTE il diff (localStorage + Firestore): un
                                  // reload prima del cambio turno non lo perde più.
@@ -3856,7 +3902,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // (assente = stato vecchio → si tiene quello in memoria, non lo si cancella).
         // Presente e null = già applicato altrove → si azzera. La APPLICAZIONE resta
         // dell'admin (guardia in applyCloudState); gli altri lo trasportano soltanto.
-        if (data && 'pendingDiff' in data) {
+        // Online il canale autorevole è quello dell'intervento (onRemoteIntervention):
+        // lo stato del motore porta pendingDiff:null e lo cancellerebbe.
+        if (data && 'pendingDiff' in data && !MultiplayerSync.isConfigured) {
             pendingDiff = data.pendingDiff || null;
             pendingBaseTurnoDi = (data.pendingBaseTurnoDi !== undefined) ? data.pendingBaseTurnoDi : null;
         }

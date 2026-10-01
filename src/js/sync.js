@@ -109,6 +109,16 @@ const MultiplayerSync = (function () {
     // motivo per cui, dopo il primo deploy, il lease falliva sempre e i bot non
     // partivano. Un trattino è sicuro e non collide con un codice d'invito.
     const DRIVER_DOC = 'driver-lease';
+    // INTERVENTO ADMIN IN ATTESA: un doc a sé nella stessa collezione aperta, NON
+    // dentro games/main. Un editor ?nodrive=1 non può scrivere games/main durante
+    // il turno di un bot (lo scrive solo chi tiene il lease, cioè il motore), e lo
+    // snapshot successivo del motore — col suo pendingDiff:null — cancellava
+    // l'intervento in silenzio. Qui lo scrive chiunque sia admin e lo applica il
+    // regista (app.js, isInterventionApplier), che poi lo cancella.
+    const INTERVENTION_DOC = 'admin-intervention';
+    let interventionListeners = [];
+    let lastIntervention = null;
+    let hasIntervention = false;
     const DRIVER_TTL = 10000;   // ms: oltre questo un lease non rinfrescato è "morto"
     // Identità di QUESTA sessione (per tab): due tab dello stesso account admin sono
     // due client diversi, ed è proprio fra loro che serve distinguere il driver.
@@ -153,7 +163,20 @@ const MultiplayerSync = (function () {
             const map = {};
             // Il doc del lease del driver vive in questa collezione ma NON è presenza:
             // si salta, o comparirebbe come un finto "regno preso".
-            snap.forEach(d => { if (d.id !== DRIVER_DOC) map[d.id] = d.data(); });
+            let interv = null;
+            snap.forEach(d => {
+                if (d.id === INTERVENTION_DOC) { interv = d.data() || null; return; }
+                if (d.id !== DRIVER_DOC) map[d.id] = d.data();
+            });
+            // Il canale dell'intervento si notifica solo quando CAMBIA: il lease del
+            // driver rinfresca questa collezione ogni pochi secondi.
+            const ivKey = interv && interv.id ? String(interv.id) : null;
+            const prevKey = lastIntervention && lastIntervention.id ? String(lastIntervention.id) : null;
+            if (!hasIntervention || ivKey !== prevKey) {
+                lastIntervention = interv;
+                hasIntervention = true;
+                interventionListeners.forEach(cb => cb(interv));
+            }
             lastPresence = map;
             hasPresence = true;
             presenceListeners.forEach(cb => cb(map));
@@ -209,6 +232,22 @@ const MultiplayerSync = (function () {
         presenceCol.doc(code).set(Object.assign({}, data, {
             at: firebase.firestore.FieldValue.serverTimestamp()
         })).catch(err => console.error('Errore salvataggio presenza:', err));
+    }
+
+    function onInterventionChange(cb) {
+        interventionListeners.push(cb);
+        if (hasIntervention) cb(lastIntervention);
+    }
+
+    // data = { id, diff, base } oppure null (= nessun intervento in attesa).
+    function setIntervention(data) {
+        if (!isConfigured || !presenceCol) return Promise.resolve(false);
+        const ref = presenceCol.doc(INTERVENTION_DOC);
+        const op = data ? ref.set(JSON.parse(JSON.stringify(data))) : ref.delete();
+        return op.then(() => true).catch(err => {
+            console.error('Errore salvataggio intervento:', err);
+            return false;
+        });
     }
 
     function onChatChange(cb) {
@@ -468,6 +507,8 @@ const MultiplayerSync = (function () {
         lastPushedRev: function () { return lastPushedRev; },
         acquireDriver: acquireDriver,
         releaseDriver: releaseDriver,
+        onInterventionChange: onInterventionChange,
+        setIntervention: setIntervention,
         backupTurn: backupTurn,
         listBackups: listBackups,
         getBackup: getBackup,

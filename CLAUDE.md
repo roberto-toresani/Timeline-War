@@ -1225,6 +1225,15 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     browser** (hook in `setTurnState`): il proprio push torna come eco e
     `applyCloudState` lo salta, quindi prima l'intervento aspettava la mossa di un
     giocatore remoto.
+  - **ONLINE il diff viaggia su un CANALE A SÉ** (doc `presence/admin-intervention`,
+    `MultiplayerSync.setIntervention`/`onInterventionChange`), non dentro `games/main`:
+    un editor `?nodrive=1` non può scrivere lo stato durante il turno di un bot (solo
+    chi tiene il lease), e lo snapshot del motore col suo `pendingDiff:null` cancellava
+    l'intervento in silenzio. Online `applyTurnState` NON adotta più `pendingDiff`
+    dallo stato (lo fa solo offline); il regista lo applica con un push **forzato**
+    (al cambio turno spesso non è lo scrittore del turno) e poi svuota il canale.
+    `appliedInterventions` evita di riapplicarlo se il doc ricompare prima della
+    cancellazione (il lease del driver rinfresca la collezione ogni 3 s).
     `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
     `isIntervening`/`hasPendingIntervention`.
 - **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.
