@@ -21,3 +21,6 @@ __pycache__/
 # Pagine di lavoro (diagnostica e dev-drive): non vanno nel deploy pubblico
 src/_dev-*
 src/_diag-*
+
+# Salvataggi turno per turno (scritti da scripts/serve.ps1, rotte /_saves)
+salvataggi/

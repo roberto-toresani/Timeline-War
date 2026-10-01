@@ -41,6 +41,23 @@ $mime = @{
 }
 $rootFull = (Resolve-Path $Root).Path
 
+# CARTELLA SALVATAGGI (rotte /_saves): le partite salvate turno per turno vivono
+# in RISIKO ONLINE\salvataggi\, accanto a src\ e FUORI da cio' che si pubblica.
+# Il nome del file lo propone l'editor, ma qui si accetta solo [A-Za-z0-9._-]
+# con estensione .json e senza "..": nessuna richiesta puo' uscire dalla cartella.
+$savesDir = Join-Path (Split-Path $rootFull -Parent) "salvataggi"
+if (-not (Test-Path $savesDir)) { New-Item -ItemType Directory -Path $savesDir | Out-Null }
+function Test-SaveName([string]$n) {
+    return ($n -match '^[A-Za-z0-9][A-Za-z0-9._-]*\.json$') -and ($n -notmatch '\.\.')
+}
+function Send-Json($res, [string]$text, [int]$code = 200) {
+    $body = [System.Text.Encoding]::UTF8.GetBytes($text)
+    $res.StatusCode = $code
+    $res.ContentType = "application/json; charset=utf-8"
+    $res.ContentLength64 = $body.Length
+    $res.OutputStream.Write($body, 0, $body.Length)
+}
+
 while ($listener.IsListening) {
     try {
         $context = $listener.GetContext()
@@ -59,7 +76,7 @@ while ($listener.IsListening) {
         # MAPPA INIZIALE (POST /_start-map): l'editor manda il JSON della posizione
         # di partenza e lo scriviamo noi in src/data/start_map.json, cosi' il
         # salvataggio e' un click solo e il file nasce gia' dov'e' versionato,
-        # invece che nei Download. E' l'UNICA rotta che scrive su disco, e scrive
+        # invece che nei Download. Scrive
         # sempre e solo quel file: il percorso non arriva mai dalla richiesta.
         if ($req.HttpMethod -eq "POST" -and $path -eq "/_start-map") {
             $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
@@ -74,6 +91,39 @@ while ($listener.IsListening) {
             $res.ContentType = "application/json; charset=utf-8"
             $res.ContentLength64 = $body.Length
             $res.OutputStream.Write($body, 0, $body.Length)
+        } elseif ($path -eq "/_saves" -and $req.HttpMethod -eq "GET") {
+            # Elenco dei salvataggi, dal piu' recente.
+            $items = @(Get-ChildItem -Path $savesDir -Filter *.json -File |
+                Sort-Object LastWriteTime -Descending |
+                ForEach-Object { [ordered]@{ file = $_.Name; size = $_.Length; mtime = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm") } })
+            if ($items.Count -eq 0) { Send-Json $res "[]" }
+            else { Send-Json $res (ConvertTo-Json -InputObject $items -Compress) }
+        } elseif ($path -eq "/_saves" -and $req.HttpMethod -eq "POST") {
+            # Scrive un salvataggio. Un file per turno (turno-014_1130.json):
+            # se c'e' gia', lo SOVRASCRIVE (regola dell'utente).
+            $name = $req.QueryString["file"]
+            if (-not (Test-SaveName $name)) { Send-Json $res '{"ok":false,"error":"nome non valido"}' 400 }
+            else {
+                $target = Join-Path $savesDir $name
+                $reader = New-Object System.IO.StreamReader($req.InputStream, [System.Text.Encoding]::UTF8)
+                $bodyText = $reader.ReadToEnd()
+                $reader.Close()
+                $utf8 = New-Object System.Text.UTF8Encoding($false)
+                [System.IO.File]::WriteAllText($target, $bodyText, $utf8)
+                Write-Host "salvataggio scritto: $target ($($bodyText.Length) caratteri)"
+                Send-Json $res '{"ok":true}'
+            }
+        } elseif ($path.StartsWith("/_saves/") -and $req.HttpMethod -eq "GET") {
+            # Legge un salvataggio per nome.
+            $name = $path.Substring(8)
+            $target = Join-Path $savesDir $name
+            if ((Test-SaveName $name) -and (Test-Path $target -PathType Leaf)) {
+                $bytes = [System.IO.File]::ReadAllBytes($target)
+                $res.StatusCode = 200
+                $res.ContentType = "application/json; charset=utf-8"
+                $res.ContentLength64 = $bytes.Length
+                $res.OutputStream.Write($bytes, 0, $bytes.Length)
+            } else { Send-Json $res '{"ok":false,"error":"non trovato"}' 404 }
         } elseif (Test-Path $filePath -PathType Leaf) {
             $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
             $ct = $mime[$ext]

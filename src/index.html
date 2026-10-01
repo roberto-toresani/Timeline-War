@@ -140,6 +140,19 @@
                             <input id="save-file-input" type="file" accept=".json,application/json" style="display:none;" />
                         </div>
                         <div id="save-slot-info" style="font-size:.75rem; opacity:.8; margin-top:4px;"></div>
+
+                        <!-- CARTELLA SALVATAGGI (RISIKO ONLINE\salvataggi\, rotte /_saves di
+                             scripts/serve.ps1): un solo file per turno, che si sovrascrive. -->
+                        <h3 style="margin:12px 0 8px 0; border:none;">📁 Cartella salvataggi (turno per turno)</h3>
+                        <div style="display:flex; gap:5px;">
+                            <button id="save-folder-btn" style="flex:1;" title="Salva il turno attuale nella cartella salvataggi (sovrascrive il file di quel turno, se c'è)">💾 Salva turno attuale</button>
+                        </div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                            <select id="save-folder-select" style="flex:1; min-width:0;"></select>
+                            <button id="save-folder-load-btn" title="Carica il salvataggio scelto">📂 Carica</button>
+                            <button id="save-folder-refresh-btn" title="Rileggi la cartella">🔄</button>
+                        </div>
+                        <div id="save-folder-info" style="font-size:.75rem; opacity:.8; margin-top:4px;"></div>
                     </div>
 
                     <!-- Comandi partita (admin): avviano il gioco vero e passano i turni.
@@ -327,7 +340,7 @@
     <!-- Archivio locale di partite intere (salva/carica/nuova): dopo app.js
          (usa Risiko.snapshot/loadSnapshot) e start-map.js (la "Nuova" riusa
          il caricamento della mappa iniziale). -->
-    <script src="js/save-slots.js?v=3"></script>
+    <script src="js/save-slots.js?v=6"></script>
 </body>
 
 </html>

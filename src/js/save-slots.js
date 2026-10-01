@@ -270,6 +270,173 @@
         reader.readAsText(file);
     }
 
+    // ---- CARTELLA SALVATAGGI (RISIKO ONLINE\salvataggi\) ----
+    // UN SOLO FILE PER TURNO (regola dell'utente): turno-014_1130.json. Salvare
+    // di nuovo lo stesso turno lo SOVRASCRIVE — così, se al turno 15 c'è un bug,
+    // si ricarica il 14, si rigioca, e il nuovo 15 prende il posto del vecchio.
+    // Scritto dal server locale (scripts/serve.ps1, rotte /_saves). Servito da
+    // GitHub Pages le rotte non ci sono: si ripiega sul download, e il file va
+    // spostato a mano nella cartella.
+    const FOLDER = '/_saves';
+    let folderFiles = [];                       // ultimo elenco letto dalla cartella
+
+    function folderFileName(snap) {
+        const t = String(snap.turn || 0).padStart(3, '0');
+        const yr = (root.Chronicle && root.Chronicle.yearOfTurn) ? root.Chronicle.yearOfTurn(snap.turn) : '';
+        return 'turno-' + t + (yr ? '_' + yr : '') + '.json';
+    }
+
+    // "turno-014_1130.json" → "Turno 14 (1130) · salvato 2026-10-01 15:30".
+    function folderLabel(it) {
+        const m = /^turno-(\d+)(?:_(\d{3,4}))?\.json$/.exec(it.file);
+        if (!m) return it.file + ' · ' + (it.mtime || '');
+        return 'Turno ' + Number(m[1]) + (m[2] ? ' (' + m[2] + ')' : '') + ' · salvato ' + (it.mtime || '');
+    }
+
+    function folderInfo(msg) {
+        const info = doc.getElementById('save-folder-info');
+        if (info) info.textContent = msg;
+    }
+
+    function folderRefresh() {
+        const sel = doc.getElementById('save-folder-select');
+        if (!sel) return Promise.resolve();
+        return fetch(FOLDER, { cache: 'no-store' }).then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        }).then(items => {
+            // In fila per turno, dal più recente (i numeri sono a tre cifre).
+            items.sort((a, b) => b.file.localeCompare(a.file));
+            folderFiles = items.map(it => it.file);
+            const prev = sel.value;
+            sel.innerHTML = '';
+            if (!items.length) {
+                const opt = doc.createElement('option');
+                opt.value = ''; opt.disabled = true;
+                opt.textContent = 'Cartella vuota';
+                sel.appendChild(opt);
+                folderInfo('Cartella «salvataggi»: nessun file ancora.');
+                return;
+            }
+            items.forEach(it => {
+                const opt = doc.createElement('option');
+                opt.value = it.file;
+                opt.textContent = folderLabel(it);
+                opt.title = it.file;
+                sel.appendChild(opt);
+            });
+            if (prev && items.some(it => it.file === prev)) sel.value = prev;
+            folderInfo(items.length + ' turni salvati nella cartella «salvataggi».');
+        }).catch(() => {
+            folderFiles = [];
+            sel.innerHTML = '';
+            const opt = doc.createElement('option');
+            opt.value = ''; opt.disabled = true;
+            opt.textContent = 'Cartella non raggiungibile';
+            sel.appendChild(opt);
+            folderInfo('Cartella disponibile solo col server locale (avvia.bat → localhost:5500).');
+        });
+    }
+
+    // Scrive (o sovrascrive) il file del turno. Promise<boolean>.
+    function writeTurnFile(snap, name) {
+        return fetch(FOLDER + '?file=' + encodeURIComponent(name), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({ risiko: 1, savedAt: new Date().toISOString(), data: snap })
+        }).then(res => res.ok).catch(() => false);
+    }
+
+    function folderSave() {
+        const r = R();
+        if (!isAdmin() || !r || !r.snapshot) return;
+        const snap = r.snapshot();
+        if (!snap) { notice('La partita non è ancora pronta per essere salvata.'); return; }
+        const name = folderFileName(snap);
+        const go = () => writeTurnFile(snap, name).then(ok => {
+            if (ok) {
+                notice('Turno ' + snap.turn + anno(snap.turn) + ' salvato nella cartella (' + name + ').');
+                return folderRefresh().then(() => {
+                    const sel = doc.getElementById('save-folder-select');
+                    if (sel) sel.value = name;
+                });
+            }
+            // Niente server locale: il file si scarica, da spostare in «salvataggi».
+            downloadJson({ risiko: 1, savedAt: new Date().toISOString(), data: snap }, name);
+            notice('Server locale non raggiungibile: file scaricato (' + name + '). ' +
+                'Spostalo nella cartella RISIKO ONLINE\salvataggi.');
+        });
+        if (folderFiles.indexOf(name) >= 0) {
+            r.confirm({
+                title: 'Sovrascrivere il turno ' + snap.turn + '?',
+                text: 'Nella cartella c\'è già un salvataggio del turno ' + snap.turn + anno(snap.turn) +
+                    '. Viene sostituito dalla situazione attuale.',
+                ok: '💾 Sovrascrivi',
+                tone: 'danger'
+            }, go);
+        } else go();
+    }
+
+    // ---- SALVATAGGIO AUTOMATICO A OGNI GIRO (regola dell'utente) ----
+    // Quando tutti i regni hanno giocato, il calendario passa al decennio dopo
+    // (Risiko.turn() cresce): in quel momento l'editor dell'admin scrive da sé
+    // lo stato d'inizio del nuovo turno, sovrascrivendo il file di quel turno se
+    // c'era (una partita rigiocata dopo un ricaricamento prende il posto della
+    // vecchia). Solo verso il server locale — niente ripiego sul download, o
+    // ogni giro aprirebbe un file. Due schede aperte scrivono lo stesso file:
+    // innocuo.
+    let autoSeen = null;
+
+    function autoTick() {
+        const r = R();
+        if (!isAdmin() || !r || !r.turn || !r.snapshot) return;
+        const t = Number(r.turn()) || 0;
+        if (!t) return;
+        // Partita ferma (preparata ma non avviata, o nessuna): niente da salvare.
+        const ordine = r.ordine ? r.ordine() : null;
+        const wasSeen = autoSeen;
+        autoSeen = t;
+        if (!Array.isArray(ordine) || !ordine.length) return;
+        if (wasSeen === null || t <= wasSeen) return;          // solo sul passaggio di turno
+        const snap = r.snapshot();
+        if (!snap) return;
+        const name = folderFileName(snap);
+        writeTurnFile(snap, name).then(ok => {
+            if (!ok) return;                                    // niente server locale
+            folderInfo('Salvato da solo: inizio del turno ' + snap.turn + anno(snap.turn) + '.');
+            folderRefresh();
+        });
+    }
+
+    function folderLoad() {
+        const r = R();
+        if (!isAdmin() || !r || !r.loadSnapshot) return;
+        const sel = doc.getElementById('save-folder-select');
+        const file = sel && sel.value;
+        if (!file) { notice('Scegli prima un salvataggio dall\'elenco della cartella.'); return; }
+        fetch(FOLDER + '/' + encodeURIComponent(file), { cache: 'no-store' }).then(res => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        }).then(parsed => {
+            const isSnap = o => !!(o && Array.isArray(o.players) && (o.history || o.provinces || o.pieces));
+            const snap = (parsed && isSnap(parsed.data)) ? parsed.data : parsed;
+            if (!isSnap(snap)) { notice('File non valido: mancano province o regni.'); return; }
+            r.confirm({
+                title: 'Caricare il turno ' + snap.turn + '?',
+                text: 'La partita in corso viene abbandonata e sostituita da «' + file + '» ' +
+                    '(turno ' + snap.turn + anno(snap.turn) + ', ' + snap.players.length + ' regni). ' +
+                    'Il cambiamento vale anche per gli altri giocatori collegati. ' +
+                    'Se vuoi tenere la situazione attuale, salvala prima.',
+                ok: '📂 Carica',
+                tone: 'danger'
+            }, () => {
+                const ok = r.loadSnapshot(snap);
+                notice(ok ? 'Caricato il turno ' + snap.turn + ' dalla cartella.'
+                    : 'Caricamento fallito: la mappa non è pronta.');
+            });
+        }).catch(() => notice('Impossibile leggere «' + file + '» dalla cartella.'));
+    }
+
     function refreshUI() {
         const sel = doc.getElementById('save-slot-select');
         const info = doc.getElementById('save-slot-info');
@@ -326,8 +493,18 @@
         // Invio nel campo nome = salva.
         if (nameInput) nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
         refreshUI();
+
+        const fSave = doc.getElementById('save-folder-btn');
+        const fLoad = doc.getElementById('save-folder-load-btn');
+        const fRef = doc.getElementById('save-folder-refresh-btn');
+        if (fSave) fSave.addEventListener('click', folderSave);
+        if (fLoad) fLoad.addEventListener('click', folderLoad);
+        if (fRef) fRef.addEventListener('click', folderRefresh);
+        folderRefresh();
+        setInterval(autoTick, 3000);
     });
 
-    root.SaveSlots = { save, load, remove, newGame, list, refreshUI, exportFile, exportBackup, importFile, KEY };
+    root.SaveSlots = { save, load, remove, newGame, list, refreshUI, exportFile, exportBackup, importFile,
+        folderSave, folderLoad, folderRefresh, autoTick, KEY };
 
 })(typeof window !== 'undefined' ? window : globalThis, document);
