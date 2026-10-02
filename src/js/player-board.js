@@ -5329,6 +5329,232 @@ document.addEventListener('DOMContentLoaded', () => {
     // volta per turno.
     let boundDeployedFor = null;
 
+    // ---------- TOUR GUIDATO del primo turno (richiesta dell'utente) ----------
+    // Una manciata di fumetti che indicano i pezzi della plancia, uno per volta,
+    // col resto dello schermo oscurato. Parte da solo al PRIMO turno del regno
+    // (turno di nascita, `player.nato`), una volta per browser — è una comodità
+    // di chi guarda, non stato di partita: localStorage, come suono e velocità.
+    // Il ❓ della barra in alto lo riapre quando si vuole. Non tocca il motore:
+    // apre e chiude soltanto colonna e fogli, cioè cose che fa anche la mano.
+    const TOUR_KEY = 'risiko_tour_v1';
+    let tourEl = null;
+    let tourStep = 0;
+    let tourSteps = [];
+    let tourAskedFor = null;
+    // OBBLIGATORIA al primo turno (regola dell'utente): partita da sola non ha
+    // né "Salta" né "Chiudi", Esc non la chiude, e si segna vista solo
+    // arrivando in fondo. Riaperta col ❓ (dal secondo turno) si chiude quando si vuole.
+    let tourForced = false;
+
+    function tourDone() {
+        try { return localStorage.getItem(TOUR_KEY) === '1'; } catch (e) { return false; }
+    }
+    function markTourDone() {
+        try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) { /* senza storage si rivede: pazienza */ }
+    }
+
+    function buildTourSteps(player) {
+        const steps = [
+            { titolo: 'Benvenuto, ' + player.name,
+              testo: 'La mappa è il tuo tavolo: tutto il resto ci sta sopra. Un minuto per vedere dove sono i comandi?',
+              primo: true },
+            { sel: '#board-end-turn',
+              titolo: 'Il tuo turno',
+              testo: 'Accanto c\'è di chi è il turno. Ogni turno è un decennio: quando hai finito, "Fine turno" passa la mano al regno successivo.' },
+            { sel: '#board-right-tab',
+              titolo: 'La colonna del turno',
+              testo: 'Questa linguetta apre e chiude la colonna con tutto quel che serve ad agire adesso. Quando tocca a te si accende.' },
+            { sel: '#bp-status', apri: true,
+              titolo: 'Il cruscotto',
+              testo: 'Monete (ed entrate), province controllate con i rinforzi del prossimo turno, fede di stato e, sotto, le scorte di risorse. Sono i numeri con cui si decide ogni mossa.' },
+            { sel: '#bp-phases', apri: true,
+              titolo: 'Le quattro fasi',
+              testo: 'Il turno va in quest\'ordine: Schiera → Costruisci → Attacca → Sposta. Non si torna indietro. Cliccare un\'altra cartella serve solo a sbirciarla: i suoi comandi restano spenti.' },
+            { sel: '#bp-recruit-pool', apri: true,
+              titolo: 'Schierare le reclute',
+              testo: 'Qui vedi quante reclute hai. Clicca una tua provincia sulla mappa e usa + e − che compaiono sopra di lei. Quelle obbligatorie (Capitale, Città, Fortezza) vanno al loro posto da sole.' },
+            { sel: '#map-wrapper',
+              titolo: 'Si comanda dalla mappa',
+              testo: 'In Attacca e Sposta seleziona una tua provincia: le mete possibili si accendono a righe diagonali. Cliccane una e sopra compare il cursore: quanti uomini, che probabilità, e via.' },
+            { sel: '#bp-next-phase', apri: true,
+              titolo: 'Avanti',
+              testo: 'Finito con una fase, questo bottone passa alla successiva. Dopo l\'ultima resta solo "Fine turno".' },
+            { sel: '#board-dock',
+              titolo: 'Da consultare',
+              testo: '👑 Corona: Popolarità, obiettivi, il regno in numeri. 🕊 Diplomazia: patti e rapporti. ⚖ Mercato: scambi. 💬 Chat. 📜 Costi: prezzi ed effetti di ogni costruzione, apribile in qualunque momento.' }
+        ];
+        if (!R.getCapitalPathFor(player)) {
+            steps.push({ titolo: 'Primo consiglio: la Capitale',
+                testo: 'Il regno non ha ancora una Capitale. Costruiscila in fase Costruisci (500 monete, nessun soldato): senza, niente Popolarità né fede di stato. Meglio una provincia interna, lontana dai confini — e porta in dono la prima strada.' });
+        }
+        steps.push({ sel: '#board-help',
+            titolo: 'Tutto qui',
+            testo: tourForced
+                ? 'Dal prossimo turno questa guida si riapre col bottone ❓ Guida, in alto a destra. Buon regno!'
+                : 'Questa guida si riapre da qui quando vuoi. Buon regno!', ultimo: true });
+        return steps;
+    }
+
+    function tourVisible(el) {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return (r.width > 2 && r.height > 2) ? r : null;
+    }
+
+    function placeTour() {
+        if (!tourEl) return;
+        const st = tourSteps[tourStep];
+        const hole = tourEl.querySelector('.tour-hole');
+        const card = tourEl.querySelector('.tour-card');
+        const rect = st.sel ? tourVisible(document.querySelector(st.sel)) : null;
+        const vw = window.innerWidth, vh = window.innerHeight, M = 12;
+        tourEl.classList.toggle('centered', !rect);
+        if (!rect) {
+            hole.style.cssText = 'display:none';
+            tourEl.querySelectorAll('.tour-shade').forEach(s => { s.style.cssText = 'display:none'; });
+            card.style.left = Math.max(M, (vw - card.offsetWidth) / 2) + 'px';
+            card.style.top = Math.max(M, (vh - card.offsetHeight) / 2) + 'px';
+            return;
+        }
+        const pad = 6;
+        const L = rect.left - pad, T = rect.top - pad, W = rect.width + pad * 2, H = rect.height + pad * 2;
+        hole.style.cssText = 'display:block;left:' + L + 'px;top:' + T + 'px;width:' + W + 'px;height:' + H + 'px';
+        // Il buio attorno al buco: quattro pannelli, non un'ombra da 9999px —
+        // un'ombra così grande alcuni rasterizzatori la tagliano e il buio sparisce.
+        const shades = tourEl.querySelectorAll('.tour-shade');
+        const box = (el, x, y, w, h) => {
+            el.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + Math.max(0, w) + 'px;height:' + Math.max(0, h) + 'px';
+        };
+        box(shades[0], 0, 0, vw, T);
+        box(shades[1], 0, T + H, vw, vh - T - H);
+        box(shades[2], 0, T, L, H);
+        box(shades[3], L + W, T, vw - L - W, H);
+        const cw = card.offsetWidth, ch = card.offsetHeight, gap = 16;
+        const clampX = x => Math.min(vw - cw - M, Math.max(M, x));
+        const clampY = y => Math.min(vh - ch - M, Math.max(M, y));
+        let x, y;
+        if (rect.bottom + gap + ch <= vh - M) { x = clampX(rect.left + rect.width / 2 - cw / 2); y = rect.bottom + gap; }
+        else if (rect.top - gap - ch >= M) { x = clampX(rect.left + rect.width / 2 - cw / 2); y = rect.top - gap - ch; }
+        else if (rect.left - gap - cw >= M) { x = rect.left - gap - cw; y = clampY(rect.top + rect.height / 2 - ch / 2); }
+        else if (rect.right + gap + cw <= vw - M) { x = rect.right + gap; y = clampY(rect.top + rect.height / 2 - ch / 2); }
+        else { x = clampX(rect.left + rect.width / 2 - cw / 2); y = clampY(rect.top + rect.height / 2 - ch / 2); }
+        card.style.left = x + 'px';
+        card.style.top = y + 'px';
+    }
+
+    function showTourStep(i) {
+        tourStep = Math.max(0, Math.min(tourSteps.length - 1, i));
+        const st = tourSteps[tourStep];
+        if (st.apri && !rightOpen()) setRightOpen(true);
+        const card = tourEl.querySelector('.tour-card');
+        const n = tourSteps.length;
+        card.innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'tour-count';
+        head.textContent = st.primo ? 'Guida della plancia' : (tourStep + ' di ' + (n - 1));
+        const t = document.createElement('div');
+        t.className = 'tour-title';
+        t.textContent = st.titolo;
+        const p = document.createElement('div');
+        p.className = 'tour-text';
+        p.textContent = st.testo;
+        const acts = document.createElement('div');
+        acts.className = 'tour-actions';
+        const btn = (label, cls, fn) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = cls; b.textContent = label;
+            b.addEventListener('click', fn);
+            acts.appendChild(b);
+            return b;
+        };
+        let main;
+        if (st.primo) {
+            if (!tourForced) btn('Salta', 'tour-skip', () => closeTour());
+            main = btn(tourForced ? 'Iniziamo' : 'Fammi vedere', 'tour-next', () => showTourStep(1));
+        } else {
+            if (!tourForced) btn('Chiudi guida', 'tour-skip', () => closeTour());
+            if (tourStep > 1) btn('‹ Indietro', 'tour-back', () => showTourStep(tourStep - 1));
+            main = btn(st.ultimo ? 'Ho capito' : 'Avanti ›', 'tour-next',
+                () => st.ultimo ? closeTour() : showTourStep(tourStep + 1));
+        }
+        card.append(head, t, p, acts);
+        main.focus();
+        placeTour();
+        // La colonna del turno si apre con una transizione: si rimisura quando
+        // si è assestata, se no il riquadro punta dove stava prima.
+        setTimeout(placeTour, 360);
+    }
+
+    function onTourKey(e) {
+        if (!tourEl) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (!tourForced) closeTour(); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); if (tourStep < tourSteps.length - 1) showTourStep(tourStep + 1); }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); if (tourStep > 1) showTourStep(tourStep - 1); }
+    }
+
+    function startTour(player, forced) {
+        if (tourEl || !player) return;
+        tourForced = !!forced;
+        if (openSheet) showSheet(null);
+        if (costsOpen) showCosts(false);
+        tourSteps = buildTourSteps(player);
+        tourEl = document.createElement('div');
+        tourEl.id = 'ui-tour';
+        tourEl.innerHTML = '<div class="tour-shade"></div><div class="tour-shade"></div>' +
+            '<div class="tour-shade"></div><div class="tour-shade"></div>' +
+            '<div class="tour-hole"></div><div class="tour-card" role="dialog" aria-live="polite"></div>';
+        document.body.appendChild(tourEl);
+        window.addEventListener('resize', placeTour);
+        document.addEventListener('keydown', onTourKey, true);
+        showTourStep(0);
+    }
+
+    function closeTour() {
+        if (!tourEl) return;
+        tourEl.remove();
+        tourEl = null;
+        window.removeEventListener('resize', placeTour);
+        document.removeEventListener('keydown', onTourKey, true);
+        tourForced = false;
+        markTourDone();
+        syncHelpBtn(currentPlayer());
+    }
+
+    function firstTurnOf(player) { return R.turn() <= ((player && player.nato) || 1); }
+
+    // Il ❓ si offre dal secondo turno del regno in poi (o dopo che la guida
+    // obbligatoria è stata completata): al primo turno la guida arriva da sé.
+    function syncHelpBtn(player) {
+        const b = $('board-help');
+        if (b) b.style.display = (player && firstTurnOf(player) && !tourDone()) ? 'none' : '';
+    }
+
+    // Parte da sola al primo turno del regno, quando non c'è nient'altro sullo
+    // schermo: cede a pergamene, conferme e alla scelta di conquista, e riprova
+    // al render successivo.
+    function maybeStartTour(player) {
+        syncHelpBtn(player);
+        if (tourEl || tourDone() || spectating) return;
+        if (!isPlaying(player)) return;
+        if (!firstTurnOf(player)) return;
+        const key = player.id + '@' + R.turn();
+        if (tourAskedFor === key) return;
+        const busy = () => document.getElementById('ui-foundation') ||
+            document.getElementById('ui-confirm') || document.getElementById('ui-conquest');
+        if (busy()) return;
+        tourAskedFor = key;
+        setTimeout(() => {
+            const p = currentPlayer();
+            if (!p || p.id !== player.id || busy() || tourDone()) { tourAskedFor = null; return; }
+            startTour(p, true);
+        }, 700);
+    }
+
+    if ($('board-help')) $('board-help').addEventListener('click', () => {
+        const p = currentPlayer();
+        if (p && !spectating) startTour(p, false);
+    });
+
     function autoDeployBound(player) {
         if (!isPlaying(player) || !inPhase(player, 'schiera')) return;
         if (!GA().boundTotal(player)) return;
@@ -5430,6 +5656,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showPendingCronache(player);
         showConquestPrompt(player);
         autoDeployBound(player);
+        maybeStartTour(player);
     }
 
     // ---------- manutenzione delle migliorie civiche (§6.1) ----------

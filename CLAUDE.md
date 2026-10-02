@@ -489,6 +489,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     `syncBorderMarks` in `player-board.js`: di norma solo i regni **non bot** che
     confinano con te; col foglio 🕊 aperto tutte le frontiere in vista; sotto il
     mouse di una scheda, solo quella. Le province in nebbia non entrano mai.
+- **Guida della plancia al primo turno (richiesta dell'utente)**: un tour a fumetti
+  (`startTour`/`maybeStartTour` in `player-board.js`, overlay `#ui-tour`, CSS in `board.css`)
+  che indica uno per volta i pezzi della plancia — Fine turno, linguetta, cruscotto, cartelle
+  delle fasi, reclute, comandi dalla mappa, Avanti, dock — col resto oscurato da quattro
+  pannelli (`.tour-shade`) attorno al riquadro. Parte **da solo** al primo turno del regno
+  (`R.turn() <= player.nato`), solo se è il suo turno e nessuna pergamena/conferma/conquista
+  è aperta; una volta per **browser** (`localStorage` `risiko_tour_v1`, comodità di chi guarda,
+  non stato di partita). È **obbligatoria** al primo turno (niente Salta/Chiudi/Esc, si segna vista solo arrivando in fondo; un ricaricamento la fa ripartire); il bottone **❓ Guida** della barra compare dal secondo turno (o a guida completata) e la riapre, chiudibile quando si vuole. Se il regno non ha
+  Capitale aggiunge il consiglio di costruirla. Chi aggiunge un pezzo importante alla plancia
+  aggiunge un passo in `buildTourSteps` (`sel` = selettore, `apri` = apre la colonna).
 - **Schieramento (§5.1)**: le reclute di inizio turno sono di due tipi. Le **libere**
   (province ÷ 3, più il modificatore di Popolarità) vanno dove vuole il giocatore e si
   possono ritirare/rimettere finché il turno è aperto; le **obbligatorie** (Capitale +1,

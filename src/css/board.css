@@ -169,6 +169,7 @@ body.board {
    — mentre guardi tutta la mappa non stai guardando il tuo regno, e si deve
    vedere a colpo d'occhio. */
 #board-spectate,
+#board-help,
 #board-speed {
     background: transparent;
     border: 1px solid var(--rule-strong);
@@ -183,6 +184,7 @@ body.board {
 }
 
 #board-spectate:hover,
+#board-help:hover,
 #board-speed:hover { border-color: var(--gold-edge); color: var(--gold); }
 
 #board-spectate.on {
@@ -3143,4 +3145,62 @@ svg path.state.spied {
     line-height: 1.2;
     color: #e6a3a3;
     overflow-wrap: anywhere;
+}
+
+/* ---------- guida della plancia (tour del primo turno) ----------
+   Il riquadro .tour-hole è il buco nel buio: i quattro .tour-shade oscurano
+   tutto il resto. Il velo intercetta i clic, così durante la guida non si comanda per
+   sbaglio la mappa sotto. */
+#ui-tour {
+    position: fixed;
+    inset: 0;
+    z-index: 12600;
+}
+#ui-tour.centered { background: rgba(0, 0, 0, .62); }
+#ui-tour .tour-hole {
+    position: fixed;
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px var(--gold-bright) inset, 0 0 18px rgba(255, 233, 168, .35);
+    pointer-events: none;
+}
+#ui-tour .tour-shade {
+    position: fixed;
+    background: rgba(0, 0, 0, .62);
+}
+#ui-tour .tour-card {
+    position: fixed;
+    width: 340px;
+    background: var(--bg-panel-solid);
+    border: 2px solid var(--gold-edge);
+    border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .65);
+    padding: 16px 18px;
+    font-family: 'Cinzel', Georgia, serif;
+    transition: left .25s ease, top .25s ease;
+}
+#ui-tour .tour-count {
+    color: var(--parchment-muted);
+    font-size: .78rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+#ui-tour .tour-title { color: var(--gold); font-size: 1.15rem; margin-bottom: 6px; }
+#ui-tour .tour-text { color: var(--parchment-dim); font-size: .95rem; line-height: 1.5; }
+#ui-tour .tour-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#ui-tour .tour-actions button {
+    font-family: inherit;
+    font-size: .92rem;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--rule-strong);
+    background: transparent;
+    color: var(--parchment-dim);
+}
+#ui-tour .tour-actions .tour-skip { margin-right: auto; border-color: transparent; color: var(--parchment-muted); }
+#ui-tour .tour-actions button:hover { border-color: var(--gold-edge); color: var(--gold); }
+#ui-tour .tour-actions .tour-next { background: var(--btn-face); border-color: var(--gold-edge); color: var(--gold-bright); }
+@media (prefers-reduced-motion: reduce) {
+    #ui-tour .tour-card { transition: none; }
 }
