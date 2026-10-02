@@ -2856,24 +2856,7 @@
         return out;
     }
 
-    // Lo scafo con cui si può sbarcare a `toId` portando `engaged` uomini.
-    // Se il giocatore ne ha scelto uno (`voluto`), è quello e basta: la plancia
-    // fa scegliere la nave PRIMA della destinazione, e il motore non deve
-    // scavalcare quella scelta. Senza preferenza si prende il MENO capiente che
-    // basti, per non sprecare un Veliero dove arriva una Nave (è il caso dei bot).
-    function hullForLanding(from, toId, engaged, voluto) {
-        let pick = null;
-        E().ships(from).forEach(h => {
-            if (voluto && h.tipo !== voluto) return;
-            const r = E().shipRange(h.tipo);
-            if (!(r > 0) || !E().seaReach(from.id, r).has(toId)) return;
-            if (E().shipCapacity(h.tipo) < engaged) return;
-            if (!pick || E().shipCapacity(h.tipo) < E().shipCapacity(pick.tipo)) pick = h;
-        });
-        return pick;
-    }
-
-    // Come `hullForLanding`, ma può armare PIÙ scafi dello stesso tipo per portare
+    // Gli scafi con cui sbarcare (o rinforzare via nave): può armarne PIÙ dello stesso tipo per portare
     // più uomini in un solo assalto (regola dell'utente: si costruiscono due navi
     // proprio per imbarcare di più). Raggruppa gli scafi ancorati per tipo, conta
     // quanti ne arrivano a `toId` (tutti gli scafi di un tipo hanno la stessa
@@ -3812,8 +3795,13 @@
         if (!(n > 0)) return fail('Indica quanti soldati spostare.');
         if (!mobili) return garrisonFail(from);
 
+        // Come nello sbarco, si può partire con PIÙ scafi dello stesso tipo
+        // (regola dell'utente: due navi portano il doppio). `flotta` = {tipo, cap,
+        // num}: salpano solo quelli che servono a portare `n` uomini.
+        let flotta = null;
         if (viaMare) {
-            scafo = hullForLanding(from, toId, n, scafoVoluto);
+            flotta = hullsForLanding(from, toId, n, scafoVoluto);
+            scafo = flotta ? { tipo: flotta.tipo } : null;
             if (!scafo) {
                 const arriva = E().ships(from)
                     .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
@@ -3826,13 +3814,19 @@
                         : R().provinceLabel(to) + ' non confina con ' + R().provinceLabel(from) +
                           ' e nessuna nave ancorata lì la raggiunge.');
                 }
-                const capMax = Math.max.apply(null, arriva.map(h => E().shipCapacity(h.tipo)));
-                return fail('La nave regge al massimo ' + capMax + ' uomini: riduci il carico.');
+                const perTipo = {};
+                arriva.forEach(h => { perTipo[h.tipo] = (perTipo[h.tipo] || 0) + E().shipCapacity(h.tipo); });
+                const capMax = Math.max.apply(null, Object.keys(perTipo).map(k => perTipo[k]));
+                return fail('Le navi reggono al massimo ' + capMax + ' uomini: riduci il carico.');
             }
         }
 
-        // Tetto: il presidio minimo sempre, e via mare anche il carico dello scafo.
-        const tetto = viaMare ? Math.min(mobili, E().shipCapacity(scafo.tipo)) : mobili;
+        // Tetto: il presidio minimo sempre, e via mare anche il carico della flotta
+        // di quel tipo (nº scafi × capienza).
+        const tetto = viaMare
+            ? Math.min(mobili, E().shipCapacity(scafo.tipo) *
+                E().ships(from).filter(h => h.tipo === scafo.tipo).length)
+            : mobili;
         if (n > tetto) {
             return fail(viaMare
                 ? 'La nave porta al massimo ' + tetto + ' uomini da ' + R().provinceLabel(from) + '.'
@@ -3862,9 +3856,11 @@
         // la provincia, quindi basta spostare lo scafo — ed è per questo che in un
         // porto ALLEATO lo scafo non ci resta: ancorarlo là lo regalerebbe. Scarica
         // gli uomini e torna all'ormeggio di partenza.
-        if (viaMare && scafo && !allyTo) {
-            E().removeShip(from, scafo.tipo);
-            E().addShip(to, scafo.tipo, 0);
+        if (viaMare && flotta && !allyTo) {
+            for (let i = 0; i < flotta.num; i++) {
+                E().removeShip(from, flotta.tipo);
+                E().addShip(to, flotta.tipo, 0);
+            }
         }
         E().redrawProvince(from);
         E().redrawProvince(to);
@@ -3875,8 +3871,10 @@
         const testa = allyTo
             ? n + (n === 1 ? ' soldato inviato' : ' soldati inviati') + (viaMare ? ' via nave' : '') +
               ' in rinforzo a ' + allyTo.name + ' (' + R().provinceLabel(to) + '): ora sono suoi.' +
-              (viaMare ? ' La nave rientra a ' + R().provinceLabel(from) + '.' : '')
-            : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') + (viaMare ? ' via nave' : '') +
+              (viaMare ? (flotta && flotta.num > 1 ? ' Le navi rientrano a ' : ' La nave rientra a ') +
+                  R().provinceLabel(from) + '.' : '')
+            : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') +
+              (viaMare ? (flotta && flotta.num > 1 ? ' con ' + flotta.num + ' navi' : ' via nave') : '') +
               ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.';
         return done(testa + ' Lo spostamento del turno è speso.', { fromId, toId });
     }

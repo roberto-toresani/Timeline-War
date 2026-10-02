@@ -314,6 +314,13 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     ~3,6s) per non piombarci sopra; "Decido dopo" la chiude e lascia il pannello
     `#bp-conquest` (`renderConquest`, sempre presente) a farla concludere. Si mostra una
     volta per presa (`conquestPromptFor`, chiave `from>to@turno`).
+    **REGOLA FISSA (utente): dopo ogni conquista con scelta compare SEMPRE in due posti**,
+    la modale centrale E la scheda `#bp-conquest` nella colonna destra — che `renderConquest`
+    **apre da sé** (`revealConquestPanel`, una volta per presa) perché la colonna nasce
+    chiusa; anche "Decido dopo" la porta in vista. Il **Fine turno** della barra in alto
+    (cliccabile anche durante la scena) **non** chiude più la presa d'ufficio: `askEndTurn`
+    riapre la scelta. Niente scelta (e niente pop-up) solo con 1 superstite o dopo uno
+    sbarco (sbarco totale, §9.2).
   - `sposta`: **un solo** spostamento per turno (`player.spostamentoFatto`), fra due
     province proprie **confinanti** (regola dell'utente: un solo confine di terra, non
     più una catena — `GameActions.ownAdjacent`), lasciando almeno 1 soldato alla
@@ -336,7 +343,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     Una testa di ponte senza confinanti proprie presceglie da sé la nave
     (`moveVesselAuto`) invece di mostrare un "via terra" vuoto. `finalMove` va via
     mare se riceve `scafoVoluto` **oppure** se le province non confinano
-    (`areLandAdjacent`), e sceglie lo scafo con `hullForLanding`.
+    (`areLandAdjacent`), e sceglie gli scafi con `hullsForLanding` — **come nello
+    sbarco si parte con PIÙ navi dello stesso tipo** (tetto = nº scafi × carico, ne
+    salpano ⌈n/carico⌉ e restano tutte ancorate all'arrivo; verso un alleato rientrano
+    tutte). La plancia (`orderMax`, `renderMove`, `askMove`) usa lo stesso conto.
     **Verso una provincia tua la nave viaggia con gli uomini** e resta ancorata
     all'arrivo, come nello sbarco; **verso un porto ALLEATO no**: scarica e torna
     all'ormeggio di partenza, perché le navi sono di chi possiede la provincia e
@@ -1861,8 +1871,7 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   basta a caricare gli uomini impegnati e ne fa salpare `num = ⌈engaged/carico⌉` —
   quanti servono, mai più (non parte una nave vuota). Il tetto del carico diventa
   perciò **nº scafi × carico**: la plancia lo calcola con `vesselCount(path, tipo)`
-  in `attackGroup`/`orderMax`, il motore lo impone in `attack`. `hullForLanding`
-  (singolo scafo) resta solo per il rinforzo via nave di `finalMove`.
+  in `attackGroup`/`orderMax`, il motore lo impone in `attack` e in `finalMove`.
   **Lo sbarco è la nave stessa**: gli scafi imbarcati lasciano la provincia di partenza
   e approdano in quella attaccata *comunque vada* — vinta, sono ancorati sulla costa
   presa e la portata successiva si misura da lì; persa, sono già sulla spiaggia del

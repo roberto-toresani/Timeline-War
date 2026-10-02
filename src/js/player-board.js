@@ -963,6 +963,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Conferme in pagina (R.confirm), non window.confirm: il dialogo nativo viene
     // chiuso d'ufficio in certi contesti e l'azione non partiva mai.
     function askEndTurn() {
+        // Una conquista ancora da ripartire NON si chiude d'ufficio dal Fine
+        // turno (regola dell'utente: la scelta degli uomini deve SEMPRE passare
+        // dal giocatore). Il bottone in alto resta cliccabile anche durante la
+        // scena della battaglia: senza questo, un clic lì risolveva la presa
+        // prima che la modale facesse in tempo a comparire. Si riapre la scelta.
+        const pl = currentPlayer();
+        if (pl && GA().conquestPending(pl)) {
+            conquestDismissed = null;
+            revealConquestPanel();
+            ensureConquestModal(pl);
+            showNotice('Prima decidi quanti uomini restano nella provincia conquistata.', false);
+            return;
+        }
         R.confirm({
             title: 'Chiudere il tuo turno?',
             text: 'I rinforzi obbligatori rimasti vengono schierati d\'ufficio e si passa al regno successivo.',
@@ -1005,7 +1018,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Cambiata la fase vera si riparte puliti: cartella chiusa e partenza
         // dello spostamento da riscegliere (entrando in `sposta` la selezione è
         // quella dell'attacco appena chiuso, e non deve comandare).
-        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; moveArmed = false; moveVessel = null; }
+        if (lastPhaseSeen !== cur) { lastPhaseSeen = cur; openFolder = null; moveArmed = false; moveVessel = null; moveVesselProv = null; }
         return (openFolder && GA().PHASES.indexOf(openFolder) >= 0) ? openFolder : cur;
     }
 
@@ -2497,11 +2510,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // porto alleato la nave non ci resta.
     function askMove(player, path, t, n, prima) {
         const navale = t.viaMare;
+        // Quante navi salpano: quelle che servono a portare n uomini (stesso
+        // conto del motore, hullsForLanding), mai una vuota.
+        const cap = navale && t.scafo ? R.engine.shipCapacity(t.scafo) : 0;
+        const nNavi = cap ? Math.max(1, Math.ceil(n / cap)) : 1;
         const testoNave = !navale ? ''
             : t.alleato
-                ? ' La nave ' + (n === 1 ? 'lo' : 'li') + ' sbarca nel porto alleato e rientra a ' + R.provinceLabel(path) +
-                  ': ancorarla là la regalerebbe.'
-                : ' La nave li accompagna e resta ancorata lì.';
+                ? (nNavi > 1 ? ' Le ' + nNavi + ' navi ' : ' La nave ') + (n === 1 ? 'lo' : 'li') +
+                  (nNavi > 1 ? ' sbarcano nel porto alleato e rientrano a ' : ' sbarca nel porto alleato e rientra a ') +
+                  R.provinceLabel(path) + ': ancorarle là le regalerebbe.'
+                : (nNavi > 1 ? ' Le ' + nNavi + ' navi li accompagnano e restano ancorate lì.'
+                             : ' La nave li accompagna e resta ancorata lì.');
         const testoAlleato = t.alleato
             ? (n === 1 ? ' Da adesso quel soldato è di ' : ' Da adesso quei soldati sono di ') +
               (t.owner || 'chi governa lì') + ': un rinforzo si dona, non si presta.'
@@ -2566,12 +2585,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // Passo obbligato dopo una vittoria: finché è aperto game-actions rifiuta
     // qualsiasi altra azione, quindi qui non serve disabilitare nient'altro.
 
+    // La ripartizione compare SEMPRE in due posti (regola dell'utente): la modale
+    // centrale E questa scheda nella colonna di destra. La colonna però nasce
+    // chiusa, quindi una presa nuova la APRE da sé (una volta per presa: se il
+    // giocatore la richiude, non gliela si ributta addosso a ogni render).
+    let conquestPanelFor = null;
+
+    function revealConquestPanel() {
+        if (!rightOpen()) setRightOpen(true);
+        const box = $('bp-conquest');
+        if (box && box.style.display !== 'none') {
+            requestAnimationFrame(() => box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+        }
+    }
+
     function renderConquest(player) {
         const box = $('bp-conquest');
         const c = GA().conquestPending(player);
-        if (!c) { box.style.display = 'none'; return; }
+        if (!c) { box.style.display = 'none'; conquestPanelFor = null; return; }
 
         box.style.display = 'block';
+        const key = c.fromId + '>' + c.toId + '@' + R.turn();
+        if (conquestPanelFor !== key && isPlaying(player)) {
+            conquestPanelFor = key;
+            revealConquestPanel();
+        }
         box.innerHTML = `
             <div class="bc-head">⚑ ${c.toLabel} è tua — quanti restano a occuparla?</div>
             <div class="bc-route">${c.superstiti} superstiti dell'assalto partito da ${c.fromLabel}</div>
@@ -2702,7 +2740,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // RIMANDATA, così il pop-up non ripiomba a ogni render — ma resta il
         // pannello #bp-conquest a farla concludere. Solo una chiusura DELIBERATA
         // (bottone o Esc) sopprime il pop-up; un timer morto non può più farlo.
-        const close = () => { conquestDismissed = key; document.removeEventListener('keydown', onKey); wrap.remove(); };
+        const close = () => {
+            conquestDismissed = key;
+            document.removeEventListener('keydown', onKey);
+            wrap.remove();
+            revealConquestPanel();   // rimandata, ma la scheda a destra resta lì in vista
+        };
         function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
         wrap.querySelector('.uq-later').addEventListener('click', close);
         wrap.querySelector('.uq-go').addEventListener('click', () => {
@@ -2823,7 +2866,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const coste = tutte.filter(t => t.scafi.indexOf(f.tipo) >= 0).length;
                 pick(f.tipo,
                     (f.tipo === 'vascello' ? '🚢 Veliero' : '⛵ Nave') + (f.n > 1 ? ' ×' + f.n : ''),
-                    'porta ' + cap + ' uomini · ' + coste + (coste === 1 ? ' costa' : ' coste') + ' · resta all\'arrivo');
+                    'porta ' + (cap * f.n) + ' uomini · ' + coste + (coste === 1 ? ' costa' : ' coste') + ' · resta all\'arrivo');
             });
             box.appendChild(row);
         }
@@ -2873,7 +2916,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         targets.forEach(t => {
             // Via nave il carico è un secondo tetto oltre al presidio (§9.2).
-            const tetto = t.viaMare ? Math.min(mobili, R.engine.shipCapacity(t.scafo)) : mobili;
+            const tetto = t.viaMare
+                ? Math.min(mobili, R.engine.shipCapacity(t.scafo) * Math.max(1, vesselCount(path, t.scafo)))
+                : mobili;
             const nota = t.troops + ' già lì' + (t.alleato ? ' · 🛡 ' + (t.owner || 'alleato') : '') +
                 (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '');
             const ico = t.viaMare ? '⚓ ' : t.alleato ? '🛡 ' : '→ ';
@@ -3557,10 +3602,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Carico combinato di tutti gli scafi di quel tipo (§9.2): due navi il doppio.
             return Math.min(partenti, R.engine.shipCapacity(attackVessel) * vesselCount(path, attackVessel));
         }
-        // Rinforzo navale (§9.2): il carico della nave che ci arriva è il secondo
-        // tetto. Si usa lo scafo più capiente della meta, che è quello mostrato.
+        // Rinforzo navale (§9.2): il carico della flotta di quel tipo è il
+        // secondo tetto — due navi il doppio, come nell'attacco.
         if (kind === 'sposta' && target.viaMare && target.scafo) {
-            return Math.min(partenti, R.engine.shipCapacity(target.scafo));
+            return Math.min(partenti, R.engine.shipCapacity(target.scafo) * Math.max(1, vesselCount(path, target.scafo)));
         }
         return partenti;
     }
