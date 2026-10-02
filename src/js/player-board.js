@@ -880,7 +880,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else aiLines.push({ colore: player.color, capo: false, n: 1, txt });
 
         while (aiLines.length > AI_LOG_MAX) aiLines.shift();
-        renderAiLog();
+        if (openSheet === 'corona') renderAiLog();
     }
 
     // Le razzie delle terre di nessuno (game-actions.neutralRaids) arrivano nel
@@ -901,7 +901,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (!added) return;
         while (aiLines.length > AI_LOG_MAX) aiLines.shift();
-        renderAiLog();
+        if (openSheet === 'corona') renderAiLog();
     }
 
     function renderAiLog() {
@@ -5585,9 +5585,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const connectedSet = GA().connectedOf(player);
         const pop = capitalPath ? R.computePopularity(player, capitalPath, connectedSet) : null;
 
+        // I fogli del dock si disegnano SOLO quando sono aperti: chiusi non si
+        // vedono, e ridisegnarli a ogni clic e a ogni mossa dei bot costava un
+        // terzo del render (obiettivi, regni in gioco, araldi, commerci).
+        // showSheet rifà il render quando se ne apre uno, quindi non sono mai vecchi.
+        const corona = openSheet === 'corona';
+
         syncEditorLink();
         renderTopbar(player, paths);
-        renderObjectives(player);
+        if (corona) renderObjectives(player);
         renderPopEffect(pop);
         renderPhases(player);
         renderDeployPanel(player);
@@ -5598,9 +5604,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!inPhase(player, 'costruisci')) spyPicking = false;
         spyChoices = spyPicking ? GA().spyTargets(player) : [];
         renderSpies(player);
-        renderTrade(player);
+        if (openSheet === 'mercato') renderTrade(player);
         renderMarketPulse(player);
-        renderDiplomacy(player);
+        if (openSheet === 'diplomazia') renderDiplomacy(player);
         renderRelations(player);
         renderChat(player);
         syncDockBadges(player);
@@ -5609,8 +5615,8 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBattle();
         renderMove(player);
         renderProvinceList(player, paths, connectedSet);
-        renderKingdoms(player);
-        renderAiLog();
+        if (corona) renderKingdoms(player);
+        if (corona) renderAiLog();
         renderMapHud(player);
         // Prima si accendono i bersagli sulla mappa, poi si disegna il cursore
         // d'ordine: renderOrderHud legge `orderTargets` per capire se l'ordine

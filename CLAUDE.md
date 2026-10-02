@@ -2389,6 +2389,15 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   usava ancora il selettore crudo e ridipingeva di sabbia i 628 path dell'alone: si
   vedeva solo togliendo la feColorMatrix del filtro. Se aggiungi un ciclo sulle
   province e l'alone cambia colore, hai trovato lo stesso errore.
+  `provincePaths()` è **memoizzata** (la query costava ~1,5 ms e gira decine di volte
+  per clic) e restituisce una copia: chiamarla spesso non costa più niente.
+- **Lentezza segnalata dai giocatori (2026-10-02), tre rimedi da non perdere**: la cache
+  di `provincePaths()` qui sopra; i **fogli del dock si disegnano solo se aperti** (in
+  `render()` di player-board: obiettivi, regni, registro IA, araldi, commerci — chi
+  aggiunge una sezione a un foglio la mette dietro lo stesso controllo su `openSheet`);
+  e durante zoom/pan `.map-interacting` spegne l'antialiasing dei bordi delle province
+  (`shape-rendering: optimizeSpeed !important`, style.css): il contorno era la voce più
+  cara di ogni frame.
 - **Mai `window.confirm`/`alert`**: nel pannello d'anteprima (e in iframe sandboxati) il
   browser chiude d'ufficio il dialogo nativo e `confirm()` torna sempre `false` — l'azione
   non parte e sembra un bug del gioco. Usa `Risiko.confirm({title, text, ok, tone}, onYes)`

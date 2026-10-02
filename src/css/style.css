@@ -735,6 +735,13 @@ svg path.battle-held { animation: battle-held-flash .55s ease-out 3; }
    uno scatto per ogni tacca di rotella. La classe la mette e la toglie
    `wireMapZoom` in app.js, 140 ms dopo l'ultimo movimento. */
 svg.map-interacting #decor-coast-layer { display: none; }
+/* Il contorno delle province (0,25 su 1,2 MB di tracciato, ogni confine
+   ripassato due volte) era la voce più cara di ogni frame di zoom e pan: con
+   l'antialiasing spento il frame costa circa un terzo (misurato in Chrome
+   headless: 340 → 110 ms per frame). Si spegne solo mentre la mano si muove —
+   a mappa ferma, 140 ms dopo, torna il disegno pieno e i bordi tornano lisci.
+   `!important` perché ogni path porta in linea `shape-rendering: auto`. */
+svg.map-interacting #map-group path.state { shape-rendering: optimizeSpeed !important; }
 
 /* Vignettatura: i bordi della carta si scuriscono verso la cornice di legno,
    così la mappa sembra appoggiata sul tavolo invece che incollata sopra. Sta in

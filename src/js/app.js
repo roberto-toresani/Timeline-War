@@ -946,10 +946,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // ha la stessa classe: senza questo filtro entrava nel grafo delle adiacenze
     // come un unico nodo "" confinante con tutto il mondo (e finiva anche nei
     // presidi neutrali). Unica porta d'accesso all'elenco delle province.
+    // Memoizzata: la geografia non cambia mai, ma questa funzione gira decine di
+    // volte per ogni clic e ogni azione (render, popolarità, capitale…) e la
+    // querySelectorAll sull'SVG intero costava ~1,5 ms a chiamata — metà del tempo
+    // di un'azione. Si rifà solo se l'SVG cambia (initMap) o i path si staccano.
+    // Si restituisce una COPIA: chi la ordina o la filtra non tocca la cache.
+    // `var` e non `let`: initMap gira in cima alla closure e chiama questa funzione
+    // prima che la riga venga raggiunta (zona morta, vedi "Alias di funzione").
+    var provincePathsCache = null, provincePathsRoot = null;
     function provincePaths(svg) {
         const root = svg || document.querySelector('svg');
         if (!root) return [];
-        return Array.from(root.querySelectorAll('path.state')).filter(p => isPlayableProvince(p.id));
+        if (root !== provincePathsRoot || !provincePathsCache ||
+            (provincePathsCache.length && !provincePathsCache[0].isConnected)) {
+            provincePathsCache = Array.from(root.querySelectorAll('path.state')).filter(p => isPlayableProvince(p.id));
+            provincePathsRoot = root;
+        }
+        return provincePathsCache.slice();
     }
 
     function computeNeighborGraph(svg) {
@@ -4320,6 +4333,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let found = null;
         provincePaths(svg).forEach(pp => {
             if (found) return;
+            // Filtro a buon mercato prima del colore: solo una manciata di province
+            // ha una Capitale, e pieceColorOf su tutte e 628 costava a ogni render.
+            if ((pp.getAttribute('data-pieces') || '').indexOf('capitale') < 0) return;
             if (pieceColorOf(pp) === player.color &&
                 piecesOf(pp).some(e => e.type === 'capitale')) found = pp;
         });
