@@ -678,6 +678,9 @@ svg path.battle-held { animation: battle-held-flash .55s ease-out 3; }
     /* Drop shadow */
     background-color: var(--sea);
     border-radius: 4px;
+    /* Pan e pinch col dito li gestisce wireMapZoom (app.js): il browser non
+       deve scorrere né zoomare la pagina al posto della mappa. */
+    touch-action: none;
     overflow: hidden;
     /* Map is scaled to fit the frame, so no scrollbars; zoom clips inside the frame. */
     display: flex;

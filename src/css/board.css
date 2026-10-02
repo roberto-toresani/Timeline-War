@@ -3148,27 +3148,26 @@ svg path.state.spied {
 }
 
 /* ---------- guida della plancia (tour del primo turno) ----------
-   Il riquadro .tour-hole è il buco nel buio: i quattro .tour-shade oscurano
-   tutto il resto. Il velo intercetta i clic, così durante la guida non si comanda per
-   sbaglio la mappa sotto. */
+   NON copre la visuale (regola dell'utente): niente velo scuro, il contenitore
+   lascia passare clic, rotella e dita alla plancia e alla mappa. Si vedono solo
+   il fumetto (.tour-card, l'unico che prende i clic) e un anello d'oro
+   (.tour-hole) attorno al pezzo che si sta spiegando. */
 #ui-tour {
     position: fixed;
     inset: 0;
     z-index: 12600;
+    pointer-events: none;
 }
-#ui-tour.centered { background: rgba(0, 0, 0, .62); }
 #ui-tour .tour-hole {
     position: fixed;
     border-radius: 8px;
     box-shadow: 0 0 0 2px var(--gold-bright) inset, 0 0 18px rgba(255, 233, 168, .35);
     pointer-events: none;
 }
-#ui-tour .tour-shade {
-    position: fixed;
-    background: rgba(0, 0, 0, .62);
-}
 #ui-tour .tour-card {
     position: fixed;
+    pointer-events: auto;
+    max-width: calc(100vw - 24px);
     width: 340px;
     background: var(--bg-panel-solid);
     border: 2px solid var(--gold-edge);

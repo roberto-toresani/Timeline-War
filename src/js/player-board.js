@@ -5408,27 +5408,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = tourEl.querySelector('.tour-card');
         const rect = st.sel ? tourVisible(document.querySelector(st.sel)) : null;
         const vw = window.innerWidth, vh = window.innerHeight, M = 12;
-        tourEl.classList.toggle('centered', !rect);
+        // Senza un pezzo da indicare il fumetto sta in basso al centro, non in
+        // mezzo allo schermo: la guida non deve coprire la mappa (regola dell'utente).
         if (!rect) {
             hole.style.cssText = 'display:none';
-            tourEl.querySelectorAll('.tour-shade').forEach(s => { s.style.cssText = 'display:none'; });
             card.style.left = Math.max(M, (vw - card.offsetWidth) / 2) + 'px';
-            card.style.top = Math.max(M, (vh - card.offsetHeight) / 2) + 'px';
+            card.style.top = Math.max(M, vh - card.offsetHeight - 3 * M) + 'px';
             return;
         }
         const pad = 6;
         const L = rect.left - pad, T = rect.top - pad, W = rect.width + pad * 2, H = rect.height + pad * 2;
         hole.style.cssText = 'display:block;left:' + L + 'px;top:' + T + 'px;width:' + W + 'px;height:' + H + 'px';
-        // Il buio attorno al buco: quattro pannelli, non un'ombra da 9999px —
-        // un'ombra così grande alcuni rasterizzatori la tagliano e il buio sparisce.
-        const shades = tourEl.querySelectorAll('.tour-shade');
-        const box = (el, x, y, w, h) => {
-            el.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + Math.max(0, w) + 'px;height:' + Math.max(0, h) + 'px';
-        };
-        box(shades[0], 0, 0, vw, T);
-        box(shades[1], 0, T + H, vw, vh - T - H);
-        box(shades[2], 0, T, L, H);
-        box(shades[3], L + W, T, vw - L - W, H);
         const cw = card.offsetWidth, ch = card.offsetHeight, gap = 16;
         const clampX = x => Math.min(vw - cw - M, Math.max(M, x));
         const clampY = y => Math.min(vh - ch - M, Math.max(M, y));
@@ -5437,7 +5427,9 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (rect.top - gap - ch >= M) { x = clampX(rect.left + rect.width / 2 - cw / 2); y = rect.top - gap - ch; }
         else if (rect.left - gap - cw >= M) { x = rect.left - gap - cw; y = clampY(rect.top + rect.height / 2 - ch / 2); }
         else if (rect.right + gap + cw <= vw - M) { x = rect.right + gap; y = clampY(rect.top + rect.height / 2 - ch / 2); }
-        else { x = clampX(rect.left + rect.width / 2 - cw / 2); y = clampY(rect.top + rect.height / 2 - ch / 2); }
+        // Il pezzo occupa quasi tutto lo schermo (la mappa): il fumetto va
+        // nell'angolo in basso a sinistra, dentro, non al centro della scena.
+        else { x = clampX(rect.left + 2 * M); y = clampY(rect.bottom - ch - 2 * M); }
         card.style.left = x + 'px';
         card.style.top = y + 'px';
     }
@@ -5470,11 +5462,11 @@ document.addEventListener('DOMContentLoaded', () => {
         let main;
         if (st.primo) {
             if (!tourForced) btn('Salta', 'tour-skip', () => closeTour());
-            main = btn(tourForced ? 'Iniziamo' : 'Fammi vedere', 'tour-next', () => showTourStep(1));
+            main = btn('Continua', 'tour-next', () => showTourStep(1));
         } else {
             if (!tourForced) btn('Chiudi guida', 'tour-skip', () => closeTour());
             if (tourStep > 1) btn('‹ Indietro', 'tour-back', () => showTourStep(tourStep - 1));
-            main = btn(st.ultimo ? 'Ho capito' : 'Avanti ›', 'tour-next',
+            main = btn(st.ultimo ? 'Ho capito' : 'Continua', 'tour-next',
                 () => st.ultimo ? closeTour() : showTourStep(tourStep + 1));
         }
         card.append(head, t, p, acts);
@@ -5487,7 +5479,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function onTourKey(e) {
         if (!tourEl) return;
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (!tourForced) closeTour(); }
+        // Obbligatoria: Esc non la chiude e passa oltre (la plancia resta usabile, i fogli si chiudono).
+        if (e.key === 'Escape') { if (!tourForced) { e.preventDefault(); e.stopPropagation(); closeTour(); } }
         else if (e.key === 'ArrowRight') { e.preventDefault(); if (tourStep < tourSteps.length - 1) showTourStep(tourStep + 1); }
         else if (e.key === 'ArrowLeft') { e.preventDefault(); if (tourStep > 1) showTourStep(tourStep - 1); }
     }
@@ -5500,9 +5493,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tourSteps = buildTourSteps(player);
         tourEl = document.createElement('div');
         tourEl.id = 'ui-tour';
-        tourEl.innerHTML = '<div class="tour-shade"></div><div class="tour-shade"></div>' +
-            '<div class="tour-shade"></div><div class="tour-shade"></div>' +
-            '<div class="tour-hole"></div><div class="tour-card" role="dialog" aria-live="polite"></div>';
+        tourEl.innerHTML = '<div class="tour-hole"></div><div class="tour-card" role="dialog" aria-live="polite"></div>';
         document.body.appendChild(tourEl);
         window.addEventListener('resize', placeTour);
         document.addEventListener('keydown', onTourKey, true);
@@ -5535,7 +5526,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function maybeStartTour(player) {
         syncHelpBtn(player);
         if (tourEl || tourDone() || spectating) return;
-        if (!isPlaying(player)) return;
+        // Al primo turno A PARTITA AVVIATA (regola dell'utente): con la partita
+        // solo preparata (turnoDi null) non parte. Non serve che sia il turno di
+        // questo regno: la guida non copre niente, la si legge anche nell'attesa.
+        if (R.turnoDi() === null || R.turnoDi() === undefined) return;
         if (!firstTurnOf(player)) return;
         const key = player.id + '@' + R.turn();
         if (tourAskedFor === key) return;

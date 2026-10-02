@@ -2284,6 +2284,80 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // TOUCH (telefono, tablet): un dito trascina, due dita pizzicano lo zoom.
+        // Stessa soglia del mouse, così un tocco breve resta la selezione di una
+        // provincia (il browser genera il click da sé solo se il dito non si è
+        // mosso). `touch-action: none` su #map-wrapper (style.css) toglie al
+        // browser lo scroll e lo zoom della pagina.
+        let touchPan = null;     // { x, y, vbx, vby, moved }
+        let pinch = null;        // { dist, w, h }
+
+        function touchMid(t0, t1) {
+            return { clientX: (t0.clientX + t1.clientX) / 2, clientY: (t0.clientY + t1.clientY) / 2 };
+        }
+        function touchDist(t0, t1) {
+            return Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY) || 1;
+        }
+
+        wrapper.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                const t = e.touches[0];
+                touchPan = { x: t.clientX, y: t.clientY, vbx: vb.x, vby: vb.y, moved: false };
+                pinch = null;
+            } else if (e.touches.length === 2) {
+                pinch = { dist: touchDist(e.touches[0], e.touches[1]), w: vb.w, h: vb.h };
+                touchPan = null;
+            }
+        }, { passive: true });
+
+        wrapper.addEventListener('touchmove', (e) => {
+            if (pinch && e.touches.length === 2) {
+                e.preventDefault();
+                const p = cursorUserPoint(touchMid(e.touches[0], e.touches[1]));
+                if (!p) return;
+                const minW = base.w / MAX_ZOOM;
+                const ratio = pinch.dist / touchDist(e.touches[0], e.touches[1]);
+                const newW = Math.max(minW, Math.min(base.w, pinch.w * ratio));
+                const scale = newW / vb.w;
+                vb.x = p.x - (p.x - vb.x) * scale;
+                vb.y = p.y - (p.y - vb.y) * scale;
+                vb.w = newW;
+                vb.h = vb.h * scale;
+                clampPan();
+                applySoon();
+                return;
+            }
+            if (!touchPan || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dx = t.clientX - touchPan.x, dy = t.clientY - touchPan.y;
+            if (!touchPan.moved && Math.hypot(dx, dy) > DRAG_THRESHOLD * 2) touchPan.moved = true;
+            if (!touchPan.moved) return;
+            e.preventDefault();
+            const rect = svg.getBoundingClientRect();
+            vb.x = touchPan.vbx - dx * (vb.w / rect.width);
+            vb.y = touchPan.vby - dy * (vb.h / rect.height);
+            clampPan();
+            applySoon();
+        }, { passive: false });
+
+        wrapper.addEventListener('touchend', (e) => {
+            const wasMoved = (touchPan && touchPan.moved) || pinch;
+            if (e.touches.length === 1) {
+                // Da due dita a uno: il pan riparte da dove si è arrivati.
+                const t = e.touches[0];
+                touchPan = { x: t.clientX, y: t.clientY, vbx: vb.x, vby: vb.y, moved: true };
+                pinch = null;
+                return;
+            }
+            touchPan = null; pinch = null;
+            if (wasMoved) {
+                const suppress = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+                wrapper.addEventListener('click', suppress, { capture: true, once: true });
+                setTimeout(() => wrapper.removeEventListener('click', suppress, { capture: true }), 400);
+            }
+        });
+        wrapper.addEventListener('touchcancel', () => { touchPan = null; pinch = null; });
+
         // Ricomputa la vista intera quando la finestra cambia dimensione.
         let resizeTimer = null;
         window.addEventListener('resize', () => {

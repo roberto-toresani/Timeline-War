@@ -492,11 +492,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - **Guida della plancia al primo turno (richiesta dell'utente)**: un tour a fumetti
   (`startTour`/`maybeStartTour` in `player-board.js`, overlay `#ui-tour`, CSS in `board.css`)
   che indica uno per volta i pezzi della plancia — Fine turno, linguetta, cruscotto, cartelle
-  delle fasi, reclute, comandi dalla mappa, Avanti, dock — col resto oscurato da quattro
-  pannelli (`.tour-shade`) attorno al riquadro. Parte **da solo** al primo turno del regno
-  (`R.turn() <= player.nato`), solo se è il suo turno e nessuna pergamena/conferma/conquista
-  è aperta; una volta per **browser** (`localStorage` `risiko_tour_v1`, comodità di chi guarda,
-  non stato di partita). È **obbligatoria** al primo turno (niente Salta/Chiudi/Esc, si segna vista solo arrivando in fondo; un ricaricamento la fa ripartire); il bottone **❓ Guida** della barra compare dal secondo turno (o a guida completata) e la riapre, chiudibile quando si vuole. Se il regno non ha
+  delle fasi, reclute, comandi dalla mappa, Avanti, dock — con un anello d'oro (`.tour-hole`)
+  attorno al pezzo. **Non copre la visuale** (regola dell'utente): niente velo scuro,
+  `#ui-tour` è `pointer-events:none` e prende i clic solo il fumetto, quindi mappa e plancia
+  restano usabili (zoom, trascinamento, comandi) mentre la guida è aperta; il fumetto senza
+  pezzo da indicare sta in basso al centro, sulla mappa nell'angolo in basso a sinistra. Si
+  avanza col bottone **Continua**. Parte **da solo** al primo turno del regno
+  (`R.turn() <= player.nato`) **a partita avviata** (`turnoDi` non null: con la partita solo
+  preparata non parte; non serve che sia il turno di quel regno) e con nessuna
+  pergamena/conferma/conquista aperta; una volta per **browser** (`localStorage` `risiko_tour_v1`, comodità di chi guarda,
+  non stato di partita). È **obbligatoria** al primo turno (niente Salta/Chiudi, Esc non la chiude ma passa oltre; si segna vista solo arrivando in fondo; un ricaricamento la fa ripartire); il bottone **❓ Guida** della barra compare dal secondo turno (o a guida completata) e la riapre, chiudibile quando si vuole. Se il regno non ha
   Capitale aggiunge il consiglio di costruirla. Chi aggiunge un pezzo importante alla plancia
   aggiunge un passo in `buildTourSteps` (`sel` = selettore, `apri` = apre la colonna).
 - **Schieramento (§5.1)**: le reclute di inizio turno sono di due tipi. Le **libere**
@@ -2317,6 +2322,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
      trovarne i marker (1256 query a refresh). Ora l'indice dei marker si costruisce
      in una passata (`markerIndex`) e il ciclo tocca solo `provincePaths()`. Chi
      aggiunge roba lì dentro non ci metta selettori: si passa dall'indice.
+- **Navigare la mappa: mouse E dito** (regola dell'utente). `wireMapZoom` gestisce rotella +
+  trascinamento col mouse e, su telefono/tablet, **un dito trascina e due dita pizzicano lo
+  zoom** (handler `touchstart/move/end` sul wrapper). `touch-action: none` su `#map-wrapper`
+  (style.css) toglie al browser scroll e zoom della pagina; un tocco senza movimento resta un
+  click (selezione), dopo un pan il click successivo si sopprime come col mouse. Nessun
+  overlay deve stare sopra la mappa con `pointer-events` attivi, o la si congela.
 - **Zoom e pan devono restare fluidi** (`wireMapZoom` in `app.js`). Cambiare `viewBox`
   obbliga il browser a ridisegnare la mappa a una risoluzione nuova: tutto ciò che è
   un **filtro SVG** viene rifatto da capo a ogni tacca di rotella, e ne servono ~29
