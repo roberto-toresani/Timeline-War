@@ -158,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // erano, in data-pieces sui path SVG (nessuna migrazione).
     let turnoDi = null;        // id del giocatore che sta giocando il suo turno
     let ordine = [];           // ordine dei giocatori (id) nel giro
-    let primoDelGiro = 0;      // indice in `ordine` di chi apre il round (ruota, §2.1)
+    let primoDelGiro = 0;      // indice in `ordine` di chi apre il round (fisso: ordine sorteggiato all'avvio, §2.1)
     // PASSAGGIO DI TURNO (regola dell'utente: "le schede non parlano tra loro").
     // Quando QUESTO browser chiude il suo turno, setTurnState avanza turnoDi al
     // giocatore SEGUENTE prima che saveAutoSave scriva. shouldPushState valuterebbe

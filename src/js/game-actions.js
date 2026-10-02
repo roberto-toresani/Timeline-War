@@ -677,7 +677,7 @@
     }
 
     // FASE 3 (§2): scadono i temporanei, passa il turno. Chiuso il giro,
-    // avanza il turno globale (l'anno) e ruota chi apre il round (§2.1).
+    // avanza il turno globale (l'anno) e il giro riparte dallo stesso primo (ordine fisso, §2.1).
     // ---------- OBIETTIVI: la chiusura di un ciclo (§10, js/objectives.js) ----------
     // Il calendario è entrato in un ciclo nuovo. Qui, e SOLO qui, si fanno i
     // conti del ciclo che si chiude: si congela la spunta (una fotografia VERA,
@@ -917,9 +917,10 @@
             // la lista VIVA, così il nuovo regno entra nel giro invece di essere
             // clobberato dalla copia locale catturata a inizio funzione. L'append è
             // in coda, quindi `primo` (indice sul prefisso) resta valido.
+            // L'ordine sorteggiato all'avvio resta FISSO (regola dell'utente): il
+            // primo del giro non ruota, ogni giro riparte da chi ha aperto il primo.
             const ordAfter = R().ordine();
-            const nuovoPrimo = (primo + 1) % ordAfter.length;
-            R().setTurnState(ordAfter[nuovoPrimo], ordAfter, nuovoPrimo);
+            R().setTurnState(ordAfter[primo], ordAfter, primo);
         } else {
             R().setTurnState(ordine[nextIdx], ordine, primo);
         }

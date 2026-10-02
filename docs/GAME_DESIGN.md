@@ -62,8 +62,8 @@ attacco prima di decidere il successivo → è incompatibile con turni **realmen
 
 **Scelta [REGOLA] hotseat: turni SEQUENZIALI.** Un giocatore alla volta gioca il turno
 completo; gli attacchi a catena funzionano naturalmente (reagisci a ogni esito). È anche il
-modello di Risiko/Civilization. Per l'equità si **ruota il primo giocatore** a ogni round
-(niente vantaggio permanente del primo che muove).
+modello di Risiko/Civilization. L'ordine si **sorteggia una volta** all'avvio e poi resta **fisso**
+per tutta la partita (regola dell'utente: il primo giocatore non ruota fra un round e l'altro).
 
 **Se in futuro si vorrà il multiplayer "tutti insieme":** l'unico modo per conservare la
 catena è il modello **a impulsi (WeGo)** — il turno si divide in N impulsi; in ogni impulso

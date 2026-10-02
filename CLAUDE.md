@@ -198,7 +198,7 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   `GameActions.beginMatch()`) e passa i turni (`#end-turn-btn`); ogni giocatore ha anche il
   proprio bottone Fine turno nella plancia. `turnoDi`/`ordine`/`primoDelGiro` vivono in
   `app.js` ed entrano nel documento di stato — un giocatore può agire solo quando
-  `turnoDi` è il suo id (§2.1, rotazione del primo giocatore a ogni giro).
+  `turnoDi` è il suo id (§2.1, ordine sorteggiato all'avvio e poi FISSO, il primo non ruota).
 - **Partita in DUE TEMPI: prepara → invia i link → Avvia (regola dell'utente)**. Scegliere
   il tipo di partita NON fa più partire i turni: prima si **prepara**, la partita resta
   **ferma** finché l'admin non dà il via, così c'è il tempo di distribuire i link d'invito.
