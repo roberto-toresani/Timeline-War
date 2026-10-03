@@ -198,6 +198,237 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dockButtons.forEach(btn => btn.addEventListener('click', () => showSheet(btn.dataset.sheet)));
     if ($('dock-costi')) $('dock-costi').addEventListener('click', () => showCosts(!costsOpen));
+
+    // ---------- VISTA SEMPLICE DA TELEFONO (regola dell'utente) ----------
+    // Su schermo stretto (o touch fino a tablet) la plancia si riduce a un turno
+    // "semplice e veloce": mappa a tutto schermo, barra regno su una riga e la
+    // barra del turno in basso (#lite-bar) con fase, cosa fare, scorciatoie e
+    // Avanti/Fine turno. Schiera, attacca, sposta e — al primo turno — la
+    // Capitale; costruzioni, diplomazia, mercato e spie restano alla versione
+    // completa. Non è un'altra plancia: stesse azioni (game-actions.js), stessi
+    // cursori sulla mappa, cambia solo cosa si vede (body.mobile-lite, board.css).
+    // La scelta manuale (🖥 Versione completa / 📱 Vista semplice) è una
+    // comodità di chi guarda: localStorage, non stato di partita.
+    const LITE_KEY = 'risiko_lite';
+    const liteQuery = window.matchMedia('(max-width: 820px), (pointer: coarse) and (max-width: 1024px)');
+    let liteCapPick = false;   // si sta scegliendo dove fondare la Capitale
+    let liteCapId = null;
+
+    function litePref() {
+        try { return localStorage.getItem(LITE_KEY); } catch (e) { return null; }
+    }
+    function setLitePref(v) {
+        try { if (v) localStorage.setItem(LITE_KEY, v); else localStorage.removeItem(LITE_KEY); } catch (e) { /* privato */ }
+    }
+    function isLite() {
+        const pref = litePref();
+        if (pref === 'on') return true;
+        if (pref === 'off') return false;
+        return liteQuery.matches;
+    }
+
+    function applyLite() {
+        const on = isLite();
+        const was = document.body.classList.contains('mobile-lite');
+        document.body.classList.toggle('mobile-lite', on);
+        // La preferenza del timer delle 6h vive nel menu ⋯ in vista semplice
+        // (la barra in alto non ha posto): si sposta l'elemento, non si copia,
+        // così il suo handler e la sua sincronia restano una cosa sola.
+        const auto = $('board-auto'), slot = $('lm-auto-slot'), endBtn = $('board-end-turn');
+        if (auto && slot && endBtn) {
+            if (on && auto.parentNode !== slot) slot.appendChild(auto);
+            if (!on && auto.parentNode === slot) endBtn.parentNode.insertBefore(auto, endBtn);
+        }
+        const back = $('board-lite-on');
+        if (back) back.style.display = (!on && liteQuery.matches) ? '' : 'none';
+        if (!on) showLiteMenu(false);
+        if (on !== was) {
+            if (on) { showSheet(null); showCosts(false); }
+            requestAnimationFrame(syncViewInsets);
+            if (currentPlayer()) render();
+        }
+    }
+
+    function showLiteMenu(open) {
+        const m = $('lite-menu');
+        if (!m) return;
+        m.style.display = open ? '' : 'none';
+        if (open) {
+            const snd = $('board-sound'), lm = $('lm-sound');
+            if (snd && lm) lm.textContent = snd.textContent;
+        }
+    }
+
+    if (liteQuery.addEventListener) liteQuery.addEventListener('change', applyLite);
+    else if (liteQuery.addListener) liteQuery.addListener(applyLite);
+    if ($('board-lite-menu')) $('board-lite-menu').addEventListener('click', (e) => {
+        e.stopPropagation();
+        showLiteMenu($('lite-menu').style.display === 'none');
+    });
+    document.addEventListener('click', (e) => {
+        const m = $('lite-menu');
+        if (m && m.style.display !== 'none' && !m.contains(e.target)) showLiteMenu(false);
+    });
+    if ($('lm-sound')) $('lm-sound').addEventListener('click', () => {
+        const snd = $('board-sound');
+        if (snd) { snd.click(); $('lm-sound').textContent = snd.textContent; }
+    });
+    if ($('lm-help')) $('lm-help').addEventListener('click', () => {
+        showLiteMenu(false);
+        const p = currentPlayer();
+        if (p && !spectating) startTour(p, false);
+    });
+    if ($('lm-full')) $('lm-full').addEventListener('click', () => { setLitePref('off'); applyLite(); });
+    if ($('board-lite-on')) $('board-lite-on').addEventListener('click', () => {
+        setLitePref(liteQuery.matches ? null : 'on');
+        applyLite();
+    });
+
+    function liteButton(box, label, cls, fn) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = cls || '';
+        b.textContent = label;
+        b.addEventListener('click', fn);
+        box.appendChild(b);
+        return b;
+    }
+
+    // La barra del turno della vista semplice. Gira in coda a render(), DOPO
+    // syncMapOrders: così il retino della Capitale da fondare non viene
+    // cancellato dal giro dei bersagli.
+    function renderLite(player) {
+        if (!document.body.classList.contains('mobile-lite')) return;
+        const acts = $('lb-actions'), next = $('lb-next');
+        if (!acts || !next) return;
+        acts.innerHTML = '';
+        next.classList.remove('end');
+
+        if (!isPlaying(player)) {
+            liteCapPick = false;
+            const t = R.turnoDi();
+            const pronta = R.ordine && R.ordine().length > 0;
+            setText('lb-phase', (t === null || t === undefined)
+                ? (pronta ? 'In attesa dell\'avvio' : 'Partita non avviata')
+                : 'Non è il tuo turno');
+            setText('lb-hint', (t === null || t === undefined)
+                ? 'Quando l\'admin avvia la partita e tocca a te, ti arriva la mail.'
+                : 'Tocca a ' + ((R.players().find(p => p.id === t) || {}).name || '…') + '. Puoi guardare la mappa intanto.');
+            next.style.display = 'none';
+            return;
+        }
+        next.style.display = '';
+
+        if (player.conquista) {
+            setText('lb-phase', 'Conquista');
+            setText('lb-hint', 'Decidi quanti uomini restano nella provincia presa.');
+            liteButton(acts, 'Decidi', 'main', () => {
+                conquestDismissed = null;
+                ensureConquestModal(player);
+            });
+            next.textContent = 'Avanti ›';
+            next.disabled = true;
+            return;
+        }
+
+        const f = phase(player);
+        const idx = GA().phaseIndex(player);
+        const last = idx === GA().PHASES.length - 1;
+        setText('lb-phase', (idx + 1) + '/' + GA().PHASES.length + ' · ' + GA().PHASE_LABEL[f]);
+        next.disabled = false;
+        next.textContent = last ? 'Fine turno' : 'Avanti ›';
+        next.classList.toggle('end', last);
+
+        const noCap = !R.getCapitalPathFor(player);
+        const capPhase = f === 'schiera' || f === 'costruisci';
+        if (liteCapPick && (!noCap || !capPhase)) liteCapPick = false;
+
+        // Scelta del posto della Capitale: la selezione sulla mappa la cambia.
+        if (liteCapPick) {
+            if (selectedProvId && selectedProvId !== liteCapId) {
+                const sp = R.engine.path(selectedProvId);
+                if (sp && R.engine.owner(sp) === player.name) liteCapId = selectedProvId;
+            }
+            const cp = liteCapId && R.engine.path(liteCapId);
+            setText('lb-hint', 'Capitale a ' + (cp ? R.provinceLabel(cp) : '—') +
+                ' (consigliata). Tocca un\'altra tua provincia per cambiarla.');
+            if (liteCapId) R.markTargets(null, [liteCapId], 'sposta');
+            const go = liteButton(acts, '🏛 Fonda qui', 'main', () => foundCapitalLite(player));
+            go.disabled = !cp;
+            liteButton(acts, 'Annulla', '', () => { liteCapPick = false; R.clearTargets(); render(); });
+            return;
+        }
+
+        if (f === 'schiera') {
+            const libere = player.recluteDaSchierare || 0;
+            const bound = GA().boundTotal(player);
+            setText('lb-hint', (libere || bound)
+                ? (libere + (libere === 1 ? ' recluta libera' : ' reclute libere') +
+                    (bound ? ' · ⚑ ' + bound + ' obbligatorie' : '') +
+                    ': tocca una tua provincia e usa + e −, o una scorciatoia.')
+                : 'Reclute schierate. Avanti per attaccare.');
+            if (noCap) liteButton(acts, '🏛 Fonda la Capitale', 'main', () => startCapitalPick(player));
+            if (bound) liteButton(acts, '⚑ Posa le obbligatorie', '', () => run(GA().deployAllBound(player)));
+            if (libere) {
+                liteButton(acts, 'Tutte ai confini', '', () => run(GA().autoDeploy(player, 'confini')));
+                if (!noCap) liteButton(acts, 'Tutte in Capitale', '', () => run(GA().autoDeploy(player, 'capitale')));
+            }
+        } else if (f === 'costruisci') {
+            setText('lb-hint', noCap
+                ? 'Fonda la Capitale (500 monete): senza, niente Popolarità né fede di stato.'
+                : 'Costruzioni, commerci e diplomazia si fanno dalla versione completa. Avanti per attaccare.');
+            if (noCap) liteButton(acts, '🏛 Fonda la Capitale', 'main', () => startCapitalPick(player));
+        } else if (f === 'attacca') {
+            setText('lb-hint', orderTargets.size
+                ? 'Tocca una provincia a righe per attaccarla.'
+                : 'Tocca una tua provincia di confine: i bersagli si accendono a righe.');
+        } else if (f === 'sposta') {
+            if (player.spostamentoFatto) {
+                setText('lb-hint', 'Spostamento fatto. Puoi chiudere il turno.');
+            } else if (moveOriginPath(player)) {
+                setText('lb-hint', 'Ora tocca la meta (a righe d\'oro).');
+                liteButton(acts, '↩ Cambia partenza', '', () => { moveArmed = false; render(); });
+            } else {
+                setText('lb-hint', 'Un solo spostamento: tocca la provincia di partenza (filo verde), o chiudi il turno.');
+            }
+        }
+    }
+
+    function startCapitalPick(player) {
+        const owned = R.ownedPaths(player.name);
+        const sel = selectedProvId && R.engine.path(selectedProvId);
+        liteCapId = (window.Bot && window.Bot.suggestCapital && window.Bot.suggestCapital(player)) ||
+            (sel && R.engine.owner(sel) === player.name ? sel.id : null) ||
+            (owned[0] ? owned[0].id : null);
+        // La selezione corrente non deve scavalcare subito il consiglio.
+        selectedProvId = liteCapId;
+        liteCapPick = true;
+        render();
+    }
+
+    function foundCapitalLite(player) {
+        const path = liteCapId && R.engine.path(liteCapId);
+        if (!path) return;
+        const inSchiera = phase(player) === 'schiera';
+        const libere = player.recluteDaSchierare || 0;
+        R.confirm({
+            title: 'Fondare la Capitale?',
+            text: 'La Capitale sorgerà a ' + R.provinceLabel(path) + ' (500 monete) e porta in dono la prima strada.' +
+                (inSchiera ? ' Si passa alla fase Costruisci' +
+                    (libere ? ': le reclute libere ancora in mano restano per il prossimo turno.' : '.') : ''),
+            ok: '🏛 Fonda'
+        }, () => {
+            if (phase(player) === 'schiera') {
+                const r = GA().nextPhase(player);
+                if (r && r.ok === false) { run(r); return; }
+            }
+            liteCapPick = false;
+            R.clearTargets();
+            run(GA().build(player, path.id, 'capitale'));
+        });
+    }
+
+    if ($('lb-next')) $('lb-next').addEventListener('click', advanceOrEnd);
     if ($('sheet-backdrop')) $('sheet-backdrop').addEventListener('click', () => showSheet(null));
     document.querySelectorAll('#board-sheets .sheet-close')
         .forEach(b => b.addEventListener('click', () => showSheet(null)));
@@ -1096,12 +1327,16 @@ document.addEventListener('DOMContentLoaded', () => {
         next.disabled = !isPlaying(player) || !!player.conquista;
     }
 
-    $('bp-next-phase').addEventListener('click', () => {
+    // Avanti di una fase, o la chiusura del turno dall'ultima: lo usano il
+    // bottone in fondo alla colonna e quello della vista semplice.
+    function advanceOrEnd() {
         const player = currentPlayer();
         if (!player) return;
         if (GA().phaseIndex(player) === GA().PHASES.length - 1) { askEndTurn(); return; }
         run(GA().nextPhase(player));
-    });
+    }
+
+    $('bp-next-phase').addEventListener('click', advanceOrEnd);
 
     // ---------- reclute in attesa (§5.1) ----------
     // Due mucchi: LIBERE (dove vuole) e OBBLIGATORIE (nella provincia dell'edificio
@@ -1211,7 +1446,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderMapHud(player) {
         const path = selectedProvId ? R.engine.path(selectedProvId) : null;
-        const on = path && inPhase(player, 'schiera') && R.engine.owner(path) === player.name;
+        // Mentre si sceglie dove fondare la Capitale (vista semplice) il −/+ coprirebbe
+        // proprio la provincia consigliata.
+        const on = path && inPhase(player, 'schiera') && R.engine.owner(path) === player.name && !liteCapPick;
         if (!on) {
             hud.style.display = 'none';
             if (hudRaf) { cancelAnimationFrame(hudRaf); hudRaf = null; }
@@ -3639,6 +3876,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const mapWrap = $('map-wrapper');
 
     function placeOrderHud() {
+        // Vista semplice: il cursore sta fermo in fondo alla mappa (board.css),
+        // largo quanto lo schermo — sopra la provincia coprirebbe mezzo telefono.
+        if (document.body.classList.contains('mobile-lite')) {
+            orderHud.style.left = ''; orderHud.style.top = '';
+            orderHud.style.visibility = order ? 'visible' : 'hidden';
+            return;
+        }
         const pos = order && R.provinceScreenPos(order.target.id);
         if (!pos || !pos.visible) { orderHud.style.visibility = 'hidden'; return; }
         orderHud.style.visibility = 'visible';
@@ -5354,6 +5598,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function buildTourSteps(player) {
+        if (document.body.classList.contains('mobile-lite')) return buildLiteTourSteps(player);
         const steps = [
             { titolo: 'Benvenuto, ' + player.name,
               testo: 'La mappa è il tuo tavolo: tutto il resto ci sta sopra. Un minuto per vedere dove sono i comandi?',
@@ -5395,6 +5640,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return steps;
     }
 
+    // La guida della vista semplice: indica solo i pezzi che sul telefono si vedono.
+    function buildLiteTourSteps(player) {
+        const steps = [
+            { titolo: 'Benvenuto, ' + player.name,
+              testo: 'Questa è la vista semplice per il telefono: un turno rapido in pochi tocchi. Vediamo dove sono i comandi.',
+              primo: true },
+            { sel: '#board-reinforce',
+              titolo: 'Le reclute',
+              testo: 'Quante reclute hai in mano. Arrivano a inizio turno: le obbligatorie (Capitale, Città, Fortezza) vanno al loro posto da sole.' },
+            { sel: '#lite-bar',
+              titolo: 'La barra del turno',
+              testo: 'Dice in che fase sei (Schiera → Costruisci → Attacca → Sposta) e cosa fare. I bottoni sono le scorciatoie, per esempio "Tutte ai confini".' },
+            { sel: '#map-wrapper',
+              titolo: 'Si comanda dalla mappa',
+              testo: 'Un dito trascina, due dita zoomano. Tocca una tua provincia: in Schiera compaiono + e −; in Attacca e Sposta le mete si accendono a righe, toccane una e scegli quanti uomini.' },
+            { sel: '#lb-next',
+              titolo: 'Avanti e Fine turno',
+              testo: 'Finita una fase, passi alla successiva. All\'ultima il bottone diventa "Fine turno".' }
+        ];
+        if (!R.getCapitalPathFor(player)) {
+            steps.push({ sel: '#lite-bar', titolo: 'Primo consiglio: la Capitale',
+                testo: 'Il regno non ha ancora una Capitale: tocca "🏛 Fonda la Capitale". Ti proponiamo il posto migliore, puoi sceglierne un altro. Costa 500 monete e porta la prima strada.' });
+        }
+        steps.push({ sel: '#board-lite-menu',
+            titolo: 'Tutto qui',
+            testo: 'Nel menu ⋯ trovi il suono, cosa fare se scadono le 6 ore, questa guida e la versione completa (costruzioni, commerci, diplomazia). Buon regno!',
+            ultimo: true });
+        return steps;
+    }
+
     function tourVisible(el) {
         if (!el) return null;
         const r = el.getBoundingClientRect();
@@ -5413,7 +5688,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!rect) {
             hole.style.cssText = 'display:none';
             card.style.left = Math.max(M, (vw - card.offsetWidth) / 2) + 'px';
-            card.style.top = Math.max(M, vh - card.offsetHeight - 3 * M) + 'px';
+            // In vista semplice in fondo c'è la barra del turno: il fumetto va in alto.
+            const topbar = document.body.classList.contains('mobile-lite') && $('board-topbar');
+            card.style.top = (topbar ? topbar.getBoundingClientRect().bottom + M
+                : Math.max(M, vh - card.offsetHeight - 3 * M)) + 'px';
             return;
         }
         const pad = 6;
@@ -5623,6 +5901,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // aperto è ancora valido.
         syncMapOrders(player);
         renderOrderHud(player);
+        renderLite(player);
         // I confini coi regni di giocatori: strato a parte, non c'entra con le
         // fasi e resta acceso anche quando i bersagli si spengono.
         syncBorderMarks(player);
@@ -5863,6 +6142,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (evt.type === 'idle') { render(); }
         };
     }
+
+    applyLite();
 
     function boot(attempt) {
         let player = resolvePlayer();

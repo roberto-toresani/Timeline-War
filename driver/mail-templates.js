@@ -25,6 +25,7 @@ function timbro(ctx) {
         '',
         '• Apri la plancia:',
         '  ' + ctx.playUrl,
+        '  (dal telefono si apre la vista semplice: un turno rapido in pochi tocchi)',
         '',
         '• Non hai tempo? Schiera al confine e passa il turno:',
         '  ' + ctx.playUrl + (ctx.playUrl.indexOf('?') >= 0 ? '&' : '?') + 'autoplay=confini',

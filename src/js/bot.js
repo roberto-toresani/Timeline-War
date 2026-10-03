@@ -2389,6 +2389,13 @@
         // modo sincrono (scripts/_dev-sim.html). Sono riferimenti alle stesse
         // funzioni interne: non cambiano nulla del comportamento.
         turnScript, botOfTurn,
+        // Vista semplice da telefono: il posto consigliato per la PRIMA Capitale di un
+        // regno umano, con lo stesso criterio dei bot (capitalScore via siteFor).
+        // Restituisce l'id della provincia o null.
+        suggestCapital(player) {
+            try { const p = siteFor(player, 'capitale', null, null); return p ? p.id : null; }
+            catch (e) { return null; }
+        },
         isRunning: () => active,
         speed(ms) { if (ms > 0) velocita = ms; return velocita; },
         onEvent: null

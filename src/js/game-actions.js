@@ -4117,45 +4117,70 @@
     // e l'auto-turno può scattare in qualunque fase; (2) può schierare in un
     // punto solo per volta, quindi 'confini' sarebbe N chiamate — qui usiamo
     // `putSoldiers` diretto, che è già l'atto fisico.
+    // Distribuisce le reclute LIBERE secondo `mode` ('confini' | 'capitale'):
+    // il pezzo comune all'auto-turno del motore e alle due scorciatoie della
+    // vista semplice da telefono (`autoDeploy`). Le posate entrano in
+    // `schierateTurno` come ogni schieramento, quindi restano ritirabili finché
+    // il turno è aperto.
+    function distributeFree(player, mode) {
+        const dove = [];
+        let posate = 0;
+        const libere = player.recluteDaSchierare || 0;
+        if (!(libere > 0) || (mode !== 'confini' && mode !== 'capitale')) return { posate, dove };
+        const owned = E().ownedPaths(player.name);
+        let targets = [];
+        if (mode === 'capitale') {
+            const cap = R().getCapitalPathFor(player);
+            if (cap) targets = [cap];
+            else if (owned.length) targets = [owned[0]];   // ripiego: primo feudo
+        } else {
+            const mineIds = new Set(owned.map(p => p.id));
+            const frontiere = owned.filter(p =>
+                (E().landNeighbors(p.id) || []).some(nId => !mineIds.has(nId)));
+            targets = frontiere.length ? frontiere : owned;
+        }
+        let restanti = libere;
+        let i = 0;
+        let cicliVuoti = 0;
+        while (restanti > 0 && targets.length && cicliVuoti < targets.length) {
+            const path = targets[i % targets.length];
+            if (roomFor(path) > 0) {
+                putSoldiers(player, path, 1);
+                placedAt(player, path.id).libere += 1;
+                restanti--; posate++;
+                if (!dove.includes(path.id)) dove.push(path.id);
+                cicliVuoti = 0;
+            } else {
+                cicliVuoti++;
+            }
+            i++;
+        }
+        player.recluteDaSchierare = restanti;
+        return { posate, dove };
+    }
+
+    // Vista semplice da telefono: "Tutte ai confini" / "Tutte in Capitale".
+    // Solo lo schieramento, il turno resta aperto (è il giocatore che va avanti).
+    function autoDeploy(player, mode) {
+        const turnErr = requirePhase(player, 'schiera'); if (turnErr) return turnErr;
+        if (!(player.recluteDaSchierare > 0)) return fail('Non hai reclute libere da schierare.');
+        const { posate, dove } = distributeFree(player, mode);
+        if (!posate) return fail(mode === 'capitale'
+            ? 'La Capitale non regge altri soldati.'
+            : 'Le province di confine non reggono altri soldati.');
+        E().refresh();
+        E().save();
+        return done(posate + (posate === 1 ? ' recluta schierata' : ' reclute schierate') +
+            (mode === 'capitale' ? ' in Capitale' : ' ai confini') +
+            '. Restano ' + player.recluteDaSchierare + ' libere.', { prov: dove[0] || null, provs: dove });
+    }
+
     function autoPlayTurn(playerId, mode) {
         const player = R().players().find(p => p.id === playerId);
         if (!player) return fail('Regno sconosciuto.');
         if (player.id !== R().turnoDi()) return fail('Non è il turno di ' + player.name + '.');
 
-        const dove = [];
-        let posate = 0;
-        const libere = player.recluteDaSchierare || 0;
-
-        if (libere > 0 && (mode === 'confini' || mode === 'capitale')) {
-            const owned = E().ownedPaths(player.name);
-            let targets = [];
-            if (mode === 'capitale') {
-                const cap = R().getCapitalPathFor(player);
-                if (cap) targets = [cap];
-                else if (owned.length) targets = [owned[0]];   // ripiego: primo feudo
-            } else {
-                const mineIds = new Set(owned.map(p => p.id));
-                const frontiere = owned.filter(p =>
-                    (E().landNeighbors(p.id) || []).some(nId => !mineIds.has(nId)));
-                targets = frontiere.length ? frontiere : owned;
-            }
-            let restanti = libere;
-            let i = 0;
-            let cicliVuoti = 0;
-            while (restanti > 0 && targets.length && cicliVuoti < targets.length) {
-                const path = targets[i % targets.length];
-                if (roomFor(path) > 0) {
-                    putSoldiers(player, path, 1);
-                    restanti--; posate++;
-                    if (!dove.includes(path.id)) dove.push(path.id);
-                    cicliVuoti = 0;
-                } else {
-                    cicliVuoti++;
-                }
-                i++;
-            }
-            player.recluteDaSchierare = restanti;
-        }
+        const { posate, dove } = distributeFree(player, mode);
 
         // Salta ogni requirePhase residuo (nessuno lo fa dopo di qui, ma non voglio
         // che un futuro cambio a `endTurn` lo introduca senza preavviso).
@@ -4171,6 +4196,7 @@
     root.GameActions = {
         startGame, prepareGame, beginMatch, beginTurn, endTurn,
         autoPlayTurn,
+        autoDeploy,
         // EVENTI STORICI (js/events.js): il calendario datato. Chiamati da endTurn;
         // esposti anche qui per poterli guidare a mano nei test.
         applyEvents, tickEvents,

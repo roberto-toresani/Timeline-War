@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=96">
-    <link rel="stylesheet" href="css/board.css?v=102">
+    <link rel="stylesheet" href="css/board.css?v=103">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -79,6 +79,12 @@
             <button id="board-help" type="button" title="Rivedi la guida della plancia">❓ Guida</button>
             <button id="board-switch" type="button" title="Scegli un altro regno">Cambia regno</button>
             <a id="board-editor-link" href="index.html" title="Torna all'editor mappa (admin)">🛠 Editor</a>
+            <!-- VISTA SEMPLICE DA TELEFONO (regola dell'utente): su schermo stretto la
+                 plancia si riduce a mappa + barra in basso (#lite-bar). Il primo
+                 bottone torna alla vista semplice da quella completa; il ⋯ apre il
+                 menu della vista semplice. Li mostra player-board.js (applyLite). -->
+            <button id="board-lite-on" type="button" style="display:none" title="Torna alla vista semplice per telefono">📱 Vista semplice</button>
+            <button id="board-lite-menu" type="button" title="Altro: suono, scadenza, guida, versione completa">⋯</button>
         </div>
 
         <!-- ============================================================
@@ -475,6 +481,25 @@
             </div>
 
         </div>
+
+        <!-- ============ VISTA SEMPLICE: la barra del turno in basso ============
+             Solo su telefono (body.mobile-lite). Fase in corso, cosa fare, le
+             scorciatoie della fase e il bottone per andare avanti. Le azioni
+             sono le stesse della plancia completa (game-actions.js). -->
+        <div id="lite-bar">
+            <div class="lb-info">
+                <div class="lb-phase" id="lb-phase">—</div>
+                <div class="lb-hint" id="lb-hint"></div>
+            </div>
+            <button id="lb-next" type="button">Avanti ›</button>
+            <div class="lb-actions" id="lb-actions"></div>
+        </div>
+        <div id="lite-menu" style="display:none;">
+            <button type="button" id="lm-sound">🔊 Suono</button>
+            <button type="button" id="lm-help">❓ Guida</button>
+            <div class="lm-auto" id="lm-auto-slot"></div>
+            <button type="button" id="lm-full">🖥 Versione completa</button>
+        </div>
     </div>
 
     <!-- Firebase (multiplayer sync) -->
@@ -524,9 +549,9 @@
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=100"></script>
     <script src="js/app.js?v=115"></script>
-    <script src="js/game-actions.js?v=111"></script>
-    <script src="js/bot.js?v=98"></script>
-    <script src="js/player-board.js?v=116"></script>
+    <script src="js/game-actions.js?v=112"></script>
+    <script src="js/bot.js?v=99"></script>
+    <script src="js/player-board.js?v=117"></script>
 </body>
 
 </html>

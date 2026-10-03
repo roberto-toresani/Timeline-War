@@ -2322,6 +2322,33 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
      trovarne i marker (1256 query a refresh). Ora l'indice dei marker si costruisce
      in una passata (`markerIndex`) e il ciclo tocca solo `provincePaths()`. Chi
      aggiunge roba lì dentro non ci metta selettori: si passa dall'indice.
+- **VISTA SEMPLICE DA TELEFONO (regola dell'utente: un turno "semplice e veloce" anche dal
+  telefono)**. Non è un'altra pagina: stesso `play.html`, stesso motore, la classe
+  `body.mobile-lite` cambia solo cosa si vede (blocco in coda a `board.css`). La accende
+  `applyLite` in `player-board.js` quando `liteQuery` (`max-width: 820px` oppure touch fino a
+  1024px) combacia; la scelta a mano (menu ⋯ → 🖥 Versione completa, e 📱 Vista semplice
+  nella barra della completa) sta in `localStorage` `risiko_lite` (comodità di chi guarda).
+  - **Cosa si gioca**: Schiera, Attacca, Sposta, Fine turno — più la **Capitale al primo
+    turno**. Costruzioni, diplomazia, mercato, spie, chat e spedizioni restano alla completa
+    (dock, colonna del turno e fogli sono nascosti; la fase Costruisci si attraversa con
+    Avanti). Gli attacchi in lite sono solo via terra (`attackVessel` resta null).
+  - **`#lite-bar`** (in fondo a `#board-shell`): fase, una riga di cosa fare, scorciatoie e
+    `#lb-next` (Avanti / Fine turno, lo stesso `advanceOrEnd` del bottone della colonna). La
+    disegna `renderLite`, chiamata in `render()` DOPO `syncMapOrders` (così il retino
+    della Capitale da fondare non viene cancellato).
+  - **Scorciatoie di schieramento**: `GameActions.autoDeploy(player, 'confini'|'capitale')`,
+    estratto da `autoPlayTurn` (il pezzo comune è `distributeFree`): solo lo schieramento,
+    il turno resta aperto e le reclute restano ritirabili (`placedAt`).
+  - **Capitale**: `Bot.suggestCapital(player)` (wrapper esportato di `siteFor('capitale')`,
+    cioè `capitalScore`) propone il posto; selezionare un'altra provincia propria lo cambia;
+    la conferma porta la fase a Costruisci se serve e chiama `GameActions.build`.
+  - **Cursori**: il −/+ di schieramento resta sulla provincia (bottoni da 46px, nascosto
+    mentre si sceglie la Capitale); il cursore d'ordine sta fermo in fondo alla mappa, largo
+    quanto lo schermo (`placeOrderHud` non lo insegue in lite). La guida del primo turno ha
+    passi propri (`buildLiteTourSteps`) e il fumetto senza bersaglio va in alto, perché in
+    fondo c'è la barra.
+  - Il menu ⋯ (`#lite-menu`) contiene suono, guida, versione completa e la preferenza
+    delle 6h: `#board-auto` vi viene SPOSTATO (non copiato) da `applyLite`.
 - **Navigare la mappa: mouse E dito** (regola dell'utente). `wireMapZoom` gestisce rotella +
   trascinamento col mouse e, su telefono/tablet, **un dito trascina e due dita pizzicano lo
   zoom** (handler `touchstart/move/end` sul wrapper). `touch-action: none` su `#map-wrapper`
@@ -2603,8 +2630,12 @@ d'ordine (`&apri=0` per vedere solo i bersagli accesi). `_dev-play.html` va **ri
 `play.html`** ogni volta che si tocca la plancia, se no fotografa la versione vecchia.
 Lo stato resta nel profilo: prima di ogni scatto si ripassa da `_dev-start.html`, altrimenti
 la partita è dove l'ha lasciata lo scatto precedente e le fasi non tornano indietro.
-**Il gioco è pensato per desktop**: non serve lavoro responsive, sotto ~800px il layout
-sfonda ed è accettato.
+**Desktop + vista semplice da telefono**: la plancia completa è per desktop; sotto ~820px
+(o touch fino a 1024px) si accende da sé la **vista semplice** (`body.mobile-lite`, vedi
+"Vista semplice da telefono" sopra). Per provarla in headless: Puppeteer (`driver/node_modules`)
+con viewport 390×844, `isMobile`/`hasTouch`. Nota per i test: `_dev-start.html` prepara e
+avvia ma il giro dei bot va avviato a mano (`Risiko.driveBots()`), e una plancia col codice
+d'invito non li muove.
 `scripts/serve.ps1` gestisce ogni richiesta in try/catch: un errore su una richiesta non
 deve mai spegnere il server.
 
