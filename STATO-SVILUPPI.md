@@ -300,6 +300,14 @@ e in particolare al momento del commit.
   della leva nel foglio 👑 e nello storico. Vale anche per i bot, che leggono lo stesso
   serbatoio.
 
+- **Mail del turno** (motore `driver/` in cloud su GitHub Actions): quando il turno passa a
+  un giocatore gli arriva una mail personalizzata per regno. Dal 2026-10-04 il motore gira
+  **a catena** (giri da ~3 ore che rilanciano il successivo, cron ogni 20 minuti come rete):
+  il cron ogni 10 minuti veniva saltato da GitHub e chi riceveva il turno nei buchi restava
+  senza mail. Un invio fallito si ritenta ogni 5 minuti. La mail è in HTML con il bottone
+  **"▶ Gioca il turno"** (stesso link da PC e telefono) e, separato, il riquadro **"✋ Non
+  puoi giocare?"** con le due scorciatoie che schierano e passano subito il turno.
+
 ## In lavorazione (WIP)
 
 - Rifinitura pedine e loro editor.

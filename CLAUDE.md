@@ -1014,6 +1014,22 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       Il testo dei 10 regni di partenza sta in `driver/mail-templates.js`;
       chi aggiunge un regno d'evento e vuole un testo su misura lo mette lì
       (per NOME esatto), altrimenti prende `_default`.
+    - **Il motore in cloud gira A CATENA, non a cron** (bug "non tutti ricevono
+      la mail", 2026-10-04): lo schedule `*/10` di GitHub Actions è solo
+      indicativo e sotto carico salta i giri (quel giorno ne partirono 4 in 24
+      ore) — i turni passati nei buchi non avevano mail. Ora
+      `.github/workflows/motore.yml` fa giri da ~3 ore (`RUN_FOR_MIN: 175`) e
+      l'ultimo passo rilancia il successivo con `gh workflow run` (il
+      workflow_dispatch non è strozzato); il cron `*/20` resta come rete se la
+      catena si spezza. In `driver.js` un invio FALLITO restituisce la
+      prenotazione (`releaseMail`) e si ritenta ogni 5' (`MAIL_RETRY_MS`), e a
+      fine giro si aspettano le mail in volo (`pendingMails`).
+    - **Mail in HTML con due blocchi distinti** (regola dell'utente: chiaro quale
+      link aprire): `compose` in `mail-templates.js` aggiunge al testo del regno
+      il bottone grande **"▶ Gioca il turno"** (stesso link per PC e telefono) e,
+      a parte, il riquadro **"✋ Non puoi giocare?"** con le due scorciatoie
+      `autoplay` e l'avvertenza che chiudono subito il turno. C'è sempre anche la
+      versione testo. I `body` dei regni contengono solo il testo di colore.
     - **Chi rileva il cambio turno e il timeout**: il **heartbeat esistente**
       del driver (ogni `HEARTBEAT_MS`, 15s) — legge `Risiko.turnoDi()` e i
       campi del player, dedupla mail e auto-turno per chiave

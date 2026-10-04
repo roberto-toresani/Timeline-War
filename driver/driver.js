@@ -117,6 +117,28 @@ async function claimMail(page, key) {
     return null;
   }
 }
+// Invio FALLITO: si restituisce la prenotazione, così un battito successivo
+// ritenta (prima la chiave restava segnata "mandata" e la mail era persa).
+async function releaseMail(page, key) {
+  try {
+    await page.evaluate(async function (k) {
+      const db = firebase.firestore();
+      const ref = db.collection('presence').doc('driver-mail');
+      return db.runTransaction(function (tx) {
+        return tx.get(ref).then(function (d) {
+          if (d.exists && (d.data() || {}).key === k) tx.set(ref, { key: '', at: Date.now() });
+        });
+      });
+    }, key);
+  } catch (e) { /* al peggio resta in memoria: lastMailedTurn azzerato basta */ }
+}
+// Ritentativo dopo un errore SMTP: non a ogni battito (15 s), ma ogni 5 minuti.
+const MAIL_RETRY_MS = 5 * 60 * 1000;
+let mailRetryAt = 0;
+// Invii in corso: a fine giro (RUN_FOR_MIN) si aspettano prima di chiudere,
+// se no una mail partita negli ultimi secondi moriva col processo — già
+// segnata come mandata.
+const pendingMails = new Set();
 
 // MODALITÀ "A TEMPO" (motore in cloud): con RUN_FOR_MIN il motore gira per
 // quei minuti e poi ESCE, invece di restare acceso per sempre. È il modo in
@@ -280,15 +302,29 @@ async function runOnce() {
         // dopo le 8:30, quando anche il cronometro riprende. Se nel frattempo il
         // giocatore ha già giocato, la chiave è cambiata e la mail non parte più.
         if (mailer && s.email && !s.quiet && key !== lastMailedTurn
+            && Date.now() >= mailRetryAt
             && (await claimMail(page, key)) !== false) {
           lastMailedTurn = key;
           var playUrl = PLAY_BASE_URL + (PLAY_BASE_URL.indexOf('?') >= 0 ? '&' : '?') + 'p=' + encodeURIComponent(s.invite);
-          mailer.sendTurnMail({
+          const sending = mailer.sendTurnMail({
             toEmail: s.email,
             regno: s.chi,
             playUrl: playUrl,
             turnLabel: s.turnLabel
-          }).catch(function (e) { log('mail: eccezione', (e && e.message) || e); });
+          }).catch(function (e) {
+            log('mail: eccezione', (e && e.message) || e);
+            return { ok: false };
+          }).then(async function (r) {
+            if (r && r.ok) return;
+            if (r && r.reason === 'no-address') return;
+            // Fallita: si ritenta fra MAIL_RETRY_MS (se il turno è ancora suo).
+            mailRetryAt = Date.now() + MAIL_RETRY_MS;
+            if (lastMailedTurn === key) lastMailedTurn = null;
+            await releaseMail(page, key);
+            log('mail: ritento fra', MAIL_RETRY_MS / 60000, 'minuti');
+          });
+          pendingMails.add(sending);
+          sending.finally(function () { pendingMails.delete(sending); });
         }
 
         // TIMEOUT 6h — chiude il turno secondo la preferenza salvata. Le ore
@@ -333,6 +369,14 @@ async function runOnce() {
           });
         } catch (e) {}
         await new Promise((r) => setTimeout(r, 3000));
+        // Le mail in volo devono arrivare a destinazione (al massimo 60 s).
+        if (pendingMails.size) {
+          log('Attendo', pendingMails.size, 'mail in invio…');
+          await Promise.race([
+            Promise.allSettled(Array.from(pendingMails)),
+            new Promise((r) => setTimeout(r, 60000))
+          ]);
+        }
         browser.close().catch(function () {});
       }, RUN_FOR_MS);
     } else if (RELOAD_EVERY_MS > 0) {

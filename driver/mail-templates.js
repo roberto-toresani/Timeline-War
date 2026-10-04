@@ -16,29 +16,104 @@
 
 'use strict';
 
-// Timbro comune (fondo di ogni mail): 6h di tempo + le tre scorciatoie.
-// È l'unica parte identica per tutti; il colore lo dà il testo sopra.
-function timbro(ctx) {
+// FONDO COMUNE (identico per tutti; il colore lo dà il testo del regno sopra).
+// Regola dell'utente: deve essere chiaro QUALE link aprire. Due blocchi ben
+// separati: (1) GIOCA — un link solo, lo stesso da PC e da telefono (sul
+// telefono la plancia accende da sé la vista semplice); (2) NON PUOI GIOCARE —
+// le due scorciatoie che chiudono il turno all'istante, con l'avvertenza di non
+// aprirle se si vuole giocare. Esiste in testo semplice e in HTML (bottoni).
+function links(ctx) {
+    const sep = ctx.playUrl.indexOf('?') >= 0 ? '&' : '?';
+    return {
+        gioca: ctx.playUrl,
+        confini: ctx.playUrl + sep + 'autoplay=confini',
+        capitale: ctx.playUrl + sep + 'autoplay=capitale'
+    };
+}
+
+function footerText(ctx) {
+    const l = links(ctx);
     return [
         '',
-        '— Come si gioca il turno —',
         '',
-        '• Apri la plancia:',
-        '  ' + ctx.playUrl,
-        '  (dal telefono si apre la vista semplice: un turno rapido in pochi tocchi)',
+        '==============================================',
+        ' ▶ PER GIOCARE IL TURNO (da PC o da telefono)',
+        '==============================================',
         '',
-        '• Non hai tempo? Schiera al confine e passa il turno:',
-        '  ' + ctx.playUrl + (ctx.playUrl.indexOf('?') >= 0 ? '&' : '?') + 'autoplay=confini',
+        '  ' + l.gioca,
         '',
-        '• Non hai tempo? Schiera in Capitale e passa il turno:',
-        '  ' + ctx.playUrl + (ctx.playUrl.indexOf('?') >= 0 ? '&' : '?') + 'autoplay=capitale',
+        '  È lo stesso link per PC e telefono: sul telefono',
+        '  si apre da sé la vista semplice.',
+        '',
+        '',
+        '----------------------------------------------',
+        ' ✋ NON PUOI GIOCARE? (il turno si chiude subito)',
+        '----------------------------------------------',
+        '',
+        '  ATTENZIONE: questi due link NON servono per giocare.',
+        '  Schierano le reclute al posto tuo e PASSANO IL TURNO.',
+        '  Usane uno solo, e solo se non vuoi giocare.',
+        '',
+        '  • Schiera ai confini e passa il turno:',
+        '    ' + l.confini,
+        '',
+        '  • Schiera in Capitale e passa il turno:',
+        '    ' + l.capitale,
+        '',
         '',
         'Hai 6 ore per giocare (di notte, dalle 23:30 alle 8:30, il tempo non',
-        'scorre). Dopo, il motore chiuderà il turno secondo la preferenza che',
-        'hai scelto sulla plancia (di default: salta senza schierare).',
+        'scorre). Se non fai niente, alla scadenza il motore chiude il turno',
+        'secondo la preferenza scelta sulla plancia (di default: senza schierare).',
         '',
         '— Il consiglio del regno'
     ].join('\n');
+}
+
+function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Il corpo del regno (testo) in paragrafi HTML: le righe a capo del testo sono
+// a misura di mail semplice, in HTML si riuniscono.
+function bodyHtml(text) {
+    return String(text).split(/\n\s*\n/).map(function (par) {
+        return '<p style="margin:0 0 14px;">' + esc(par.replace(/\n/g, ' ')) + '</p>';
+    }).join('');
+}
+
+function footerHtml(ctx) {
+    const l = links(ctx);
+    const btnBig = 'display:inline-block;background:#8a5a12;color:#ffffff;text-decoration:none;'
+        + 'font-weight:bold;font-size:18px;padding:14px 28px;border-radius:8px;';
+    const btnSmall = 'display:inline-block;background:#ffffff;color:#5b4632;text-decoration:none;'
+        + 'font-size:14px;padding:9px 14px;border-radius:6px;border:1px solid #b9a888;margin:4px 0;';
+    return ''
+        + '<div style="margin:22px 0;padding:20px;border:2px solid #8a5a12;border-radius:10px;background:#fbf3df;text-align:center;">'
+        +   '<div style="font-size:13px;letter-spacing:1px;color:#8a5a12;font-weight:bold;margin-bottom:12px;">PER GIOCARE IL TURNO</div>'
+        +   '<a href="' + esc(l.gioca) + '" style="' + btnBig + '">▶ Gioca il turno</a>'
+        +   '<div style="font-size:13px;color:#5b4632;margin-top:12px;">Lo stesso link vale <b>da PC e da telefono</b>: sul telefono si apre da sé la vista semplice.</div>'
+        + '</div>'
+        + '<div style="margin:22px 0;padding:16px;border:1px dashed #b9a888;border-radius:10px;background:#f4f1ea;">'
+        +   '<div style="font-size:13px;letter-spacing:1px;color:#6b6257;font-weight:bold;margin-bottom:6px;">✋ NON PUOI GIOCARE?</div>'
+        +   '<div style="font-size:13px;color:#7a2a1a;margin-bottom:10px;"><b>Attenzione:</b> questi link <b>non servono per giocare</b>. '
+        +     'Schierano le reclute al posto tuo e <b>passano subito il turno</b>. Usane uno solo, e solo se non vuoi giocare.</div>'
+        +   '<a href="' + esc(l.confini) + '" style="' + btnSmall + '">Schiera ai confini e passa il turno</a><br>'
+        +   '<a href="' + esc(l.capitale) + '" style="' + btnSmall + '">Schiera in Capitale e passa il turno</a>'
+        + '</div>'
+        + '<p style="font-size:12px;color:#6b6257;margin:0 0 14px;">Hai 6 ore per giocare (di notte, dalle 23:30 alle 8:30, il tempo non scorre). '
+        +   'Se non fai niente, alla scadenza il motore chiude il turno secondo la preferenza scelta sulla plancia (di default: senza schierare).</p>'
+        + '<p style="margin:0;color:#5b4632;"><i>— Il consiglio del regno</i></p>';
+}
+
+// Mail completa: testo semplice (ripiego) + HTML coi bottoni.
+function compose(tpl, ctx) {
+    const intro = tpl.body(ctx);
+    return {
+        subject: tpl.subject(ctx),
+        text: intro + footerText(ctx),
+        html: '<div style="font-family:Georgia,serif;font-size:15px;line-height:1.5;color:#2b2118;max-width:560px;">'
+            + bodyHtml(intro) + footerHtml(ctx) + '</div>'
+    };
 }
 
 const TEMPLATES = {
@@ -51,7 +126,7 @@ const TEMPLATES = {
 'la nostra insegna oltre il mare. Fino ad allora, si guardino le coste, si tengano\n' +
 'le Marche, si prepari il legname per il Veliero che deve venire.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Regno di Francia': {
@@ -62,7 +137,7 @@ const TEMPLATES = {
 'in ogni direzione: la Normandia guarda al mare, la Guyenna al vino d’Inghilterra,\n' +
 'il Delfinato alle Alpi. Il Papa siede a Roma, e Aleppo attende chi porti la Croce.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Sacro Romano Impero': {
@@ -73,7 +148,7 @@ const TEMPLATES = {
 'Renania mercanteggia, la Baviera prega, la Sassonia mormora. Oltre le Alpi\n' +
 'ci chiama l’Italia; a oriente le marche battono i tamburi contro i pagani.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Regno di Castiglia': {
@@ -84,7 +159,7 @@ const TEMPLATES = {
 'sull’oceano. La Reconquista è un’opera di generazioni, ma comincia adesso,\n' +
 'un feudo per volta. Granada cadrà — quando l’avrete circondata.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Kievan Ru\'s': {
@@ -95,7 +170,7 @@ const TEMPLATES = {
 'Volga, Dnepr, Don: tre fiumi, tre fronti. Fortificate le vie, tenetevi\n' +
 'stretti i boiari, e non guardate mai una sola direzione per troppo tempo.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Ducato di Polonia': {
@@ -107,7 +182,7 @@ const TEMPLATES = {
 'perdona la debolezza: costruite città, tenete i confini, cercate alleati fra\n' +
 'chi ha il vostro stesso nemico.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Ducato di Ungheria': {
@@ -118,7 +193,7 @@ const TEMPLATES = {
 'a occidente, la steppa a oriente. Chi tiene Buda tiene il Danubio, e chi tiene\n' +
 'il Danubio tiene il grano di mezza Europa.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Impero Bizantino': {
@@ -129,7 +204,7 @@ const TEMPLATES = {
 'i turchi, a occidente si muovono i latini; la Tracia è sottile e le mura\n' +
 'sono ciò che ci separa dalla fine. Tenete la Città — il resto si ricostruisce.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Califfato Abbaside': {
@@ -141,7 +216,7 @@ const TEMPLATES = {
 'preparano la loro guerra santa. Che la vostra spada sia salda quanto la\n' +
 'vostra fede.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     'Emirato dei Mori': {
@@ -154,7 +229,7 @@ const TEMPLATES = {
 'premono, e a oriente, verso il Cairo, il Levante prepara la sua tempesta:\n' +
 'pellegrini con la croce sull\'elmo.\n' +
 '\n' +
-'È il vostro turno (' + ctx.turnLabel + ').' + timbro(ctx)
+'È il vostro turno (' + ctx.turnLabel + ').'
     },
 
     // Ripiego generico — regni d'evento (Selgiuchidi, Portogallo, Bulgaria,
@@ -164,7 +239,7 @@ const TEMPLATES = {
         body: (ctx) =>
 'Signore di ' + ctx.regno + ',\n\n' +
 'Il consiglio si è riunito. È il vostro turno (' + ctx.turnLabel + ') — la\n' +
-'mappa vi attende.' + timbro(ctx)
+'mappa vi attende.'
     }
 };
 
@@ -173,4 +248,4 @@ function pick(regno) {
     return TEMPLATES._default;
 }
 
-module.exports = { pick };
+module.exports = { pick, compose };

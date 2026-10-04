@@ -11,15 +11,25 @@
 # NB: GitHub sospende i cron di un repo senza attività da 60 giorni, e nelle ore
 # di punta può ritardare un giro di qualche minuto.
 
+# GIRI LUNGHI E A CATENA (2026-10-04): il cron "ogni 10 minuti" di GitHub è
+# solo indicativo — sotto carico i giri programmati vengono saltati, e il
+# 2026-10-04 ne sono partiti QUATTRO in tutta la giornata: i turni passati nei
+# buchi non hanno ricevuto la mail. Ora ogni giro dura RUN_FOR_MIN (~3 ore) e,
+# finendo, lancia da sé il successivo con workflow_dispatch (che GitHub NON
+# strozza come lo schedule; GITHUB_TOKEN può lanciarlo). Il cron resta come
+# rete di sicurezza se la catena si spezzasse. Il gruppo di concorrenza tiene
+# un solo giro acceso e al più uno in coda.
+
 name: Motore della partita
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write   # per lanciare il giro successivo (catena)
 
 # Un giro alla volta: se il precedente è ancora acceso, il nuovo aspetta.
 concurrency:
@@ -29,7 +39,7 @@ concurrency:
 jobs:
   motore:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 190
     defaults:
       run:
         working-directory: driver
@@ -44,7 +54,7 @@ jobs:
       GAME_URL: https://roberto-toresani.github.io/Timeline-War/index.html
       PLAY_BASE_URL: https://roberto-toresani.github.io/Timeline-War/play.html
       TURN_DEADLINE_HOURS: '6'
-      RUN_FOR_MIN: '9'
+      RUN_FOR_MIN: '175'
     steps:
       - name: Credenziali presenti?
         id: check
@@ -76,3 +86,10 @@ jobs:
       - name: Giro del motore
         if: steps.check.outputs.ok == 'true'
         run: node driver.js
+      - name: Passa il testimone al giro successivo
+        # always(): anche se il giro è fallito o scaduto, la catena non si spezza.
+        if: always() && steps.check.outputs.ok == 'true'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run motore.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}" || echo "Catena non rilanciata, ci pensa il cron."

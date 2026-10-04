@@ -75,10 +75,9 @@ function initMailer(env) {
         const turnLabel = opts.turnLabel || '';
         const tpl = templates.pick(regno);
         const ctx = { regno, playUrl, turnLabel };
-        const subject = tpl.subject(ctx);
-        const text = tpl.body(ctx);
+        const m = templates.compose(tpl, ctx);
         try {
-            const info = await transporter.sendMail({ from, to, subject, text });
+            const info = await transporter.sendMail({ from, to, subject: m.subject, text: m.text, html: m.html });
             log('inviata a', mask(to), '·', regno, '·', turnLabel, '·', info.messageId || '');
             return { ok: true, id: info.messageId || null };
         } catch (err) {
