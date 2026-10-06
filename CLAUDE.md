@@ -2344,10 +2344,22 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   `applyLite` in `player-board.js` quando `liteQuery` (`max-width: 820px` oppure touch fino a
   1024px) combacia; la scelta a mano (menu ⋯ → 🖥 Versione completa, e 📱 Vista semplice
   nella barra della completa) sta in `localStorage` `risiko_lite` (comodità di chi guarda).
-  - **Cosa si gioca**: Schiera, Attacca, Sposta, Fine turno — più la **Capitale al primo
-    turno**. Costruzioni, diplomazia, mercato, spie, chat e spedizioni restano alla completa
-    (dock, colonna del turno e fogli sono nascosti; la fase Costruisci si attraversa con
-    Avanti). Gli attacchi in lite sono solo via terra (`attackVessel` resta null).
+  - **Cosa si gioca**: Schiera, Costruisci, Attacca, Sposta, Fine turno — più la **Capitale
+    al primo turno**. Diplomazia, mercato, spie, chat e spedizioni restano alla completa
+    (dock e fogli 🕊/⚖/💬 non si raggiungono). Gli attacchi in lite sono solo via terra
+    (`attackVessel` resta null).
+  - **Costruzioni = cassetto 🔨** (richiesta dell'utente): in fase Costruisci la barra offre
+    "🔨 Costruzioni" (`toggleLiteBuild`, stato `liteBuild`), che accende `body.lite-build`:
+    il **pannello del turno della completa** (`#board-right`) torna visibile come cassetto
+    in fondo alla mappa (max 66%), ridotto a cruscotto compatto + provincia selezionata +
+    tessere/strade/demolizioni (`renderSelected`). Niente codice di costruzione duplicato:
+    stesse tessere, stesso `GameActions.build`. Aperto senza una provincia propria
+    selezionata parte dalla Capitale; si chiude da solo fuori dalla fase (`liteBuild=false`
+    in `renderLite`). Cartelle delle fasi, spie, elenco province e Avanti del pannello sono
+    nascosti nel cassetto (CSS `body.mobile-lite.lite-build`).
+  - **Popolarità e obiettivi = foglio 👑**: il bottone `#board-lite-crown` della barra in
+    alto apre il foglio Corona (`showSheet('corona')`) a tutta scena, una colonna che
+    scorre. È l'unico foglio del dock raggiungibile da telefono.
   - **`#lite-bar`** (in fondo a `#board-shell`): fase, una riga di cosa fare, scorciatoie e
     `#lb-next` (Avanti / Fine turno, lo stesso `advanceOrEnd` del bottone della colonna). La
     disegna `renderLite`, chiamata in `render()` DOPO `syncMapOrders` (così il retino

@@ -203,9 +203,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Su schermo stretto (o touch fino a tablet) la plancia si riduce a un turno
     // "semplice e veloce": mappa a tutto schermo, barra regno su una riga e la
     // barra del turno in basso (#lite-bar) con fase, cosa fare, scorciatoie e
-    // Avanti/Fine turno. Schiera, attacca, sposta e — al primo turno — la
-    // Capitale; costruzioni, diplomazia, mercato e spie restano alla versione
-    // completa. Non è un'altra plancia: stesse azioni (game-actions.js), stessi
+    // Avanti/Fine turno. Schiera, costruisci (cassetto 🔨), attacca, sposta,
+    // la Capitale al primo turno e il foglio 👑 (Popolarità, obiettivi);
+    // diplomazia, mercato e spie restano alla versione completa. Non è un'altra plancia: stesse azioni (game-actions.js), stessi
     // cursori sulla mappa, cambia solo cosa si vede (body.mobile-lite, board.css).
     // La scelta manuale (🖥 Versione completa / 📱 Vista semplice) è una
     // comodità di chi guarda: localStorage, non stato di partita.
@@ -213,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const liteQuery = window.matchMedia('(max-width: 820px), (pointer: coarse) and (max-width: 1024px)');
     let liteCapPick = false;   // si sta scegliendo dove fondare la Capitale
     let liteCapId = null;
+    let liteBuild = false;     // il cassetto delle costruzioni è aperto
 
     function litePref() {
         try { return localStorage.getItem(LITE_KEY); } catch (e) { return null; }
@@ -278,6 +279,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const p = currentPlayer();
         if (p && !spectating) startTour(p, false);
     });
+    if ($('board-lite-crown')) $('board-lite-crown').addEventListener('click', (e) => {
+        e.stopPropagation();
+        showLiteMenu(false);
+        showSheet('corona');
+    });
     if ($('lm-full')) $('lm-full').addEventListener('click', () => { setLitePref('off'); applyLite(); });
     if ($('board-lite-on')) $('board-lite-on').addEventListener('click', () => {
         setLitePref(liteQuery.matches ? null : 'on');
@@ -303,6 +309,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!acts || !next) return;
         acts.innerHTML = '';
         next.classList.remove('end');
+        // Il cassetto vive solo nella fase Costruisci del proprio turno: ogni
+        // altro ramo qui sotto lo lascia chiuso.
+        document.body.classList.remove('lite-build');
 
         if (!isPlaying(player)) {
             liteCapPick = false;
@@ -332,6 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const f = phase(player);
+        if (f !== 'costruisci') liteBuild = false;   // il turno dopo riparte chiuso
         const idx = GA().phaseIndex(player);
         const last = idx === GA().PHASES.length - 1;
         setText('lb-phase', (idx + 1) + '/' + GA().PHASES.length + ' · ' + GA().PHASE_LABEL[f]);
@@ -374,10 +384,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!noCap) liteButton(acts, 'Tutte in Capitale', '', () => run(GA().autoDeploy(player, 'capitale')));
             }
         } else if (f === 'costruisci') {
-            setText('lb-hint', noCap
-                ? 'Fonda la Capitale (500 monete): senza, niente Popolarità né fede di stato.'
-                : 'Costruzioni, commerci e diplomazia si fanno dalla versione completa. Avanti per attaccare.');
-            if (noCap) liteButton(acts, '🏛 Fonda la Capitale', 'main', () => startCapitalPick(player));
+            // Le COSTRUZIONI da telefono: lo stesso pannello del turno della
+            // versione completa (cruscotto + provincia selezionata + tessere),
+            // aperto come cassetto in fondo alla mappa. La mappa resta sopra e
+            // si tocca per cambiare provincia. Commerci e diplomazia restano
+            // alla versione completa.
+            // A cassetto aperto la Capitale è già una tessera lì dentro.
+            if (noCap && !liteBuild) liteButton(acts, '🏛 Fonda la Capitale', 'main', () => startCapitalPick(player));
+            liteButton(acts, liteBuild ? '✕ Chiudi costruzioni' : '🔨 Costruzioni', noCap ? '' : 'main',
+                () => toggleLiteBuild(player));
+            document.body.classList.toggle('lite-build', liteBuild);
+            setText('lb-hint', liteBuild
+                ? 'Tocca una tua provincia: sotto compaiono le costruzioni possibili lì.'
+                : noCap
+                    ? 'Fonda la Capitale (500 monete): senza, niente Popolarità né fede di stato.'
+                    : 'Costruisci da 🔨, o Avanti per attaccare.');
         } else if (f === 'attacca') {
             setText('lb-hint', orderTargets.size
                 ? 'Tocca una provincia a righe per attaccarla.'
@@ -394,6 +415,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function toggleLiteBuild(player) {
+        liteBuild = !liteBuild;
+        if (liteBuild) {
+            // Aperto senza una provincia propria selezionata, il cassetto
+            // direbbe solo "clicca una provincia": si parte dalla Capitale.
+            const sel = selectedProvId && R.engine.path(selectedProvId);
+            if (!sel || R.engine.owner(sel) !== player.name) {
+                const first = R.getCapitalPathFor(player) || R.ownedPaths(player.name)[0];
+                if (first) selectedProvId = first.id;
+            }
+        }
+        render();
+    }
+
     function startCapitalPick(player) {
         const owned = R.ownedPaths(player.name);
         const sel = selectedProvId && R.engine.path(selectedProvId);
@@ -403,6 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // La selezione corrente non deve scavalcare subito il consiglio.
         selectedProvId = liteCapId;
         liteCapPick = true;
+        liteBuild = false;
         render();
     }
 
@@ -5657,7 +5693,10 @@ document.addEventListener('DOMContentLoaded', () => {
               testo: 'Un dito trascina, due dita zoomano. Tocca una tua provincia: in Schiera compaiono + e −; in Attacca e Sposta le mete si accendono a righe, toccane una e scegli quanti uomini.' },
             { sel: '#lb-next',
               titolo: 'Avanti e Fine turno',
-              testo: 'Finita una fase, passi alla successiva. All\'ultima il bottone diventa "Fine turno".' }
+              testo: 'Finita una fase, passi alla successiva. All\'ultima il bottone diventa "Fine turno".' },
+            { sel: '#board-lite-crown',
+              titolo: 'La corona',
+              testo: 'Popolarità, obiettivi del ciclo e il regno in numeri. In fase Costruisci, il bottone 🔨 della barra apre le costruzioni della provincia che tocchi.' }
         ];
         if (!R.getCapitalPathFor(player)) {
             steps.push({ sel: '#lite-bar', titolo: 'Primo consiglio: la Capitale',
@@ -5665,7 +5704,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         steps.push({ sel: '#board-lite-menu',
             titolo: 'Tutto qui',
-            testo: 'Nel menu ⋯ trovi il suono, cosa fare se scadono le 6 ore, questa guida e la versione completa (costruzioni, commerci, diplomazia). Buon regno!',
+            testo: 'Nel menu ⋯ trovi il suono, cosa fare se scadono le 6 ore, questa guida e la versione completa (commerci, diplomazia, spie). Buon regno!',
             ultimo: true });
         return steps;
     }

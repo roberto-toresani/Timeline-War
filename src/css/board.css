@@ -3210,11 +3210,12 @@ svg path.state.spied {
    Un turno "semplice e veloce": schiera, attacca, sposta, chiudi.
    La accende player-board.js (applyLite) su schermo stretto o touch.
    Mappa a tutto schermo, barra regno su una riga, barra del turno in
-   basso (#lite-bar). Costruzioni, diplomazia, mercato e spie restano
-   alla versione completa (menu ⋯ → 🖥 Versione completa).
+   basso (#lite-bar). Le costruzioni si fanno dal cassetto 🔨 (il pannello
+   del turno ridotto, body.lite-build) e Popolarità/obiettivi dal foglio 👑;
+   diplomazia, mercato e spie restano alla versione completa.
    ============================================================ */
 
-#lite-bar, #board-lite-menu { display: none; }
+#lite-bar, #board-lite-menu, #board-lite-crown { display: none; }
 
 body.board.mobile-lite { font-size: 15px; height: 100dvh; }
 body.mobile-lite #board-shell { height: 100dvh; }
@@ -3244,9 +3245,16 @@ body.mobile-lite #board-help,
 body.mobile-lite #board-switch,
 body.mobile-lite #board-editor-link,
 body.mobile-lite #board-lite-on { display: none !important; }
-body.mobile-lite #board-lite-menu {
+body.mobile-lite #board-lite-crown {
     display: block;
     margin-left: auto;
+    min-width: 44px; min-height: 40px;
+    font-size: 1.2rem; line-height: 1;
+    background: var(--bg-inset); color: var(--gold);
+    border: 1px solid var(--rule-strong); border-radius: 8px;
+}
+body.mobile-lite #board-lite-menu {
+    display: block;
     min-width: 44px; min-height: 40px;
     font-size: 1.3rem; line-height: 1;
     background: var(--bg-inset); color: var(--gold);
@@ -3263,8 +3271,63 @@ body.mobile-lite #board-right,
 body.mobile-lite #board-right-tab,
 body.mobile-lite #board-dock,
 body.mobile-lite #map-border-key,
-body.mobile-lite #board-sheets,
 body.mobile-lite #bp-costs-pop { display: none !important; }
+
+/* --- il foglio 👑 Corona: tutta la scena, una colonna che scorre ---
+   L'unico foglio raggiungibile da telefono (bottone 👑 della barra). */
+body.mobile-lite .sheet { inset: 0; border-width: 0; border-radius: 0; }
+body.mobile-lite .sheet-head { padding: 10px 12px; gap: 8px; }
+body.mobile-lite .sheet-sub { display: none; }
+body.mobile-lite .sheet-close { width: 42px; height: 42px; margin-left: auto; }
+body.mobile-lite .sheet-body { padding: 12px; }
+body.mobile-lite .sheet-body.cols,
+body.mobile-lite .sheet-body.cols:has(.sheet-col.wide),
+body.mobile-lite .sheet-body.cols:has(.sheet-col.wide:last-child) {
+    display: block;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+body.mobile-lite .sheet-col { overflow: visible; margin-bottom: 18px; padding-right: 0; }
+
+/* --- il cassetto delle COSTRUZIONI (body.lite-build) ---
+   È il pannello del turno della versione completa, ridotto a cruscotto +
+   provincia selezionata + tessere, e appoggiato in fondo alla mappa: sopra
+   resta la mappa, che si tocca per cambiare provincia. */
+body.mobile-lite.lite-build #board-right {
+    display: flex !important;
+    position: absolute;
+    left: 0; right: 0; bottom: 0; top: auto;
+    width: auto; height: auto;
+    max-height: 58%;
+    z-index: 650;
+    padding: 8px 0 0;
+    border-width: 2px 0 0;
+    border-radius: 12px 12px 0 0;
+}
+body.mobile-lite.lite-build #board-right { max-height: 66%; }
+/* Il cruscotto su due righe basse: oro e province senza chiose, la fede
+   sparisce (non decide una costruzione), le scorte icona + numero. */
+body.mobile-lite.lite-build #bp-status { padding: 0 10px 6px; }
+body.mobile-lite.lite-build .bps-strip i,
+body.mobile-lite.lite-build #bp-faith-item,
+body.mobile-lite.lite-build .bps-r-g { display: none; }
+body.mobile-lite.lite-build .bps-r {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 3px 2px;
+}
+body.mobile-lite.lite-build .bps-r svg { width: 18px; height: 18px; }
+body.mobile-lite.lite-build #bp-body { padding: 8px 10px 12px; }
+body.mobile-lite.lite-build #bp-phases,
+body.mobile-lite.lite-build #bp-phase-sub,
+body.mobile-lite.lite-build #bp-peek-note,
+body.mobile-lite.lite-build #fase-schiera,
+body.mobile-lite.lite-build #fase-spie,
+body.mobile-lite.lite-build #fase-sposta,
+body.mobile-lite.lite-build #bp-battle-title,
+body.mobile-lite.lite-build #bp-battle,
+body.mobile-lite.lite-build #bp-consult,
+body.mobile-lite.lite-build #bp-next-phase { display: none !important; }
+body.mobile-lite.lite-build .bp-tiles { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
 
 /* --- la barra del turno in basso --- */
 body.mobile-lite #lite-bar {
