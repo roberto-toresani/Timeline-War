@@ -88,6 +88,24 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (`mergePlayerData` non riceveva mai i dati) finché l'admin non toccava qualcosa —
     online era il motivo per cui il link d'invito apriva la schermata vuota invece del
     regno assegnato.
+  - **IL DOCUMENTO CONDIVISO NON PORTA LO STORICO COMPLETO (perf, 2026-10-08)**: i
+    proprietari delle province vivono in `history` (`TURN_HISTORY`, una mappa
+    id→proprietario **per turno**, scritta da `saveCurrentTurnToHistory`), e quello storico
+    **cresce a ogni turno**. `buildSnapshot` lo mette intero nell'autosave locale, nei
+    salvataggi/archivio e nei backup per-turno — ma `saveAutoSave` **snellisce** l'oggetto
+    spedito a `games/main`: `history` ridotto al **solo turno corrente**
+    (`{ [turn]: TURN_HISTORY[turn] }`). Senza, ogni mossa (comprese le decine dei bot)
+    caricava e faceva **riscaricare a OGNI client** un documento che gonfiava fino a
+    ~600 KB a fine partita — la "lentezza che peggiora", peggio da telefono. I proprietari
+    del turno corrente bastano a chi riceve (`loadTurnFromHistory` legge
+    `TURN_HISTORY[currentTurn]`), e **`applyCloudState` FONDE** `data.history` nello storico
+    locale invece di sostituirlo (`Object.assign`), così il documento snello non cancella i
+    turni passati di chi ha già lo storico pieno (reload da localStorage, admin, driver);
+    le voci vecchie restano inerti perché ogni turno è sovrascritto dal suo push prima di
+    essere letto. `applySnapshot` (localStorage/archivio/file, storico pieno) e `loadMap`
+    restano in **sostituzione**. Il restore per-turno legge una **collezione a parte**
+    (`backupTurn`/`getBackup`), non `history`, quindi è indipendente da questo. Chi tocca
+    `saveAutoSave` NON rimetta lo storico intero nel push "per uniformità".
   - **PRESENZA dei giocatori** (collezione Firestore `presence`, un doc per codice
     d'invito): dice quale regno una PERSONA ha "preso" aprendo il suo link, così l'editor
     dell'admin mostra sulla scheda del regno "👤 Preso dal giocatore" invece del default

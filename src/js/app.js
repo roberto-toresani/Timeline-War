@@ -2483,7 +2483,13 @@ document.addEventListener('DOMContentLoaded', () => {
             initPalette();
         }
 
-        if (data.history) TURN_HISTORY = data.history;
+        // Lo stato condiviso porta solo i proprietari del turno corrente (vedi
+        // saveAutoSave): si FONDE nello storico locale invece di sostituirlo, così un
+        // client che riceve il documento snello — o che ricarica dopo aver caricato lo
+        // storico pieno dal localStorage — non perde i turni passati. Le voci di un
+        // eventuale storico vecchio restano inerti: ogni turno viene sovrascritto dal
+        // suo push PRIMA di essere letto da loadTurnFromHistory (riga sotto).
+        if (data.history) TURN_HISTORY = Object.assign(TURN_HISTORY, data.history);
 
         if (data.turn !== undefined) {
             currentTurn = data.turn;
@@ -3911,7 +3917,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // sue modifiche NON devono uscire: restano locali finché non le committa,
         // e verranno applicate al cambio turno sopra lo stato aggiornato.
         // shouldPushState() impedisce a un osservatore di sovrascrivere la partita.
-        if (!adminIntervening && shouldPushState()) MultiplayerSync.pushState(stateSnapshot, { force: forcePushOnce });
+        if (!adminIntervening && shouldPushState()) {
+            // Al documento condiviso (games/main) NON serve lo storico completo:
+            // TURN_HISTORY cresce di una mappa-proprietari a ogni turno
+            // (saveCurrentTurnToHistory), e spedirlo tutto gonfiava la sync a OGNI
+            // mossa — upload per chi guida, download per OGNI client a ogni snapshot,
+            // sempre più pesante col passare della partita e peggio da telefono. I
+            // proprietari del turno CORRENTE bastano a ogni ricevente (loadTurnFromHistory
+            // legge TURN_HISTORY[currentTurn]); lo storico intero resta in locale per
+            // l'autosave, l'archivio e i backup per-turno (collezione Firestore a parte).
+            const curr = stateSnapshot.turn;
+            const forPush = Object.assign({}, stateSnapshot, {
+                history: { [curr]: (TURN_HISTORY[curr] || {}) }
+            });
+            MultiplayerSync.pushState(forPush, { force: forcePushOnce });
+        }
         forcePushOnce = false;
         // La transizione di fine turno (se c'era) è stata valutata: one-shot consumato,
         // così non autorizza per sbaglio un push successivo estraneo al passaggio.
