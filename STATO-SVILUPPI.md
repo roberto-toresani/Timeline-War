@@ -307,6 +307,9 @@ e in particolare al momento del commit.
   senza mail. Un invio fallito si ritenta ogni 5 minuti. La mail è in HTML con il bottone
   **"▶ Gioca il turno"** (stesso link da PC e telefono) e, separato, il riquadro **"✋ Non
   puoi giocare?"** con le due scorciatoie che schierano e passano subito il turno.
+  Dal 2026-10-12 cambiare l'e-mail o la preferenza delle 6 ore dall'editor a partita in
+  corso si salva davvero online (ritocco mirato del solo regno, `MultiplayerSync.patchPlayer`):
+  prima il cambio restava sullo schermo dell'admin e la mail partiva al vecchio indirizzo.
 
 ## In lavorazione (WIP)
 

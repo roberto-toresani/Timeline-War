@@ -1048,6 +1048,15 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       a parte, il riquadro **"✋ Non puoi giocare?"** con le due scorciatoie
       `autoplay` e l'avvertenza che chiudono subito il turno. C'è sempre anche la
       versione testo. I `body` dei regni contengono solo il testo di colore.
+    - **L'e-mail e l'auto-turno si salvano con un RITOCCO MIRATO** (bug 2026-10-12:
+      l'admin cambiò l'indirizzo dei Bizantini e la mail partì al vecchio). Il
+      `change` dei campi `.player-email`/`.player-auto` faceva solo `saveAutoSave`,
+      che online scrive soltanto se l'editor è lo scrittore del turno — quasi mai
+      a partita in corso — e lo snapshot successivo cancellava il cambio.
+      Ora passano anche da `patchPlayerOnline` → `MultiplayerSync.patchPlayer(id,
+      campi)`: transazione sul documento vivo che cambia SOLO quei campi di quel
+      regno (rev+1), senza sovrascrivere la mossa in corso. Un avviso dice se è
+      salvato. Chi aggiunge un altro campo di regia sulla scheda-regno passa di lì.
     - **Chi rileva il cambio turno e il timeout**: il **heartbeat esistente**
       del driver (ogni `HEARTBEAT_MS`, 15s) — legge `Risiko.turnoDi()` e i
       campi del player, dedupla mail e auto-turno per chiave

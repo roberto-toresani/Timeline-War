@@ -375,6 +375,34 @@ const MultiplayerSync = (function () {
             });
     }
 
+    // RITOCCO MIRATO di un regno (bug: l'admin cambiava l'e-mail di un regno durante
+    // il turno di un altro, saveAutoSave non poteva scrivere — non è lo scrittore del
+    // turno — e il cambio restava sullo schermo dell'admin finché lo snapshot
+    // successivo non lo cancellava: la mail partiva al vecchio indirizzo). Qui si
+    // legge il documento VIVO in transazione e si cambiano SOLO i campi dati del
+    // regno `id`: niente sovrascrittura dell'intero stato, quindi la mossa in corso
+    // del giocatore di turno non si perde. Serve ai campi di regia (e-mail,
+    // auto-turno) che non toccano la partita. Torna una Promise<boolean>.
+    function patchPlayer(id, fields) {
+        if (!isConfigured || !docRef) return Promise.resolve(false);
+        return firebase.firestore().runTransaction(tx => tx.get(docRef).then(snap => {
+            if (!snap.exists) return false;
+            const remote = snap.data() || {};
+            const players = Array.isArray(remote.players) ? remote.players.slice() : null;
+            if (!players) return false;
+            const i = players.findIndex(p => p && p.id === id);
+            if (i < 0) return false;
+            players[i] = Object.assign({}, players[i], fields);
+            const remoteRev = (typeof remote.rev === 'number') ? remote.rev : 0;
+            tx.update(docRef, {
+                players: players,
+                rev: remoteRev + 1,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            return true;
+        })).catch(err => { console.error('patchPlayer:', err); return false; });
+    }
+
     function onPushReject(cb) { pushRejectListeners.push(cb); }
 
     // ---- LEASE DEL DRIVER DEI BOT ----
@@ -502,6 +530,7 @@ const MultiplayerSync = (function () {
         sendChat: sendChat,
         clearChat: clearChat,
         pushState: pushState,
+        patchPlayer: patchPlayer,
         onPushReject: onPushReject,
         // Rev dell'ultima scrittura riuscita di questa sessione: app.js scarta gli
         // echo dei propri stessi push (rev ≤ questo) per non arretrare.

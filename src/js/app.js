@@ -3015,6 +3015,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!isAdminMode) return;
                     p.email = (e.target.value || '').trim();
                     saveAutoSave();
+                    patchPlayerOnline(p, { email: p.email }, 'E-mail di ' + p.name);
                 });
             }
 
@@ -3026,6 +3027,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const v = e.target.value;
                     p.autoTurno = (v === 'confini' || v === 'capitale') ? v : 'niente';
                     saveAutoSave();
+                    patchPlayerOnline(p, { autoTurno: p.autoTurno }, 'Preferenza di ' + p.name);
                 });
             }
 
@@ -3870,6 +3872,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // `turn` non cambia, la guardia anti-regressione di sync.js non lo intercetta.
     // Era la causa del reset a "turno 1 senza conquiste". Regola: si scrive solo
     // se questo browser è il legittimo attore del turno corrente.
+    // Campi di REGIA di un regno (e-mail, auto-turno): saveAutoSave li manda online
+    // solo se questo browser è lo scrittore del turno, e l'editor dell'admin di norma
+    // non lo è (gioca un altro). Il ritocco mirato li scrive comunque, senza
+    // sovrascrivere la mossa in corso (MultiplayerSync.patchPlayer). Non durante un
+    // intervento: lì i ritocchi aspettano il commit come tutto il resto.
+    function patchPlayerOnline(p, fields, label) {
+        if (!MultiplayerSync.isConfigured || adminIntervening) return;
+        MultiplayerSync.patchPlayer(p.id, fields).then(ok => {
+            showPieceNotice(label + (ok ? ': salvata online.' : ': NON salvata online, riprova.'));
+        });
+    }
+
     function shouldPushState() {
         if (!MultiplayerSync.isConfigured) return true;   // locale: nessun conflitto
         if (forcePushOnce) return true;                    // reset/intervento voluto
