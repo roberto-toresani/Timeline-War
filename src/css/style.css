@@ -159,6 +159,13 @@ p {
 .player-tab:hover { background: #333; }
 .player-tab.active { background: var(--fog); color: #fff; font-weight: bold; }
 
+/* Stemmi araldici (js/flags.js) di fianco al nome, nell'editor. */
+.player-tab { display: inline-flex; align-items: center; }
+.player-tab .heraldry { height: 18px; width: auto; margin-right: 5px; }
+.player-tab .pt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kingdom-flag { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.kingdom-flag svg.heraldry { height: 18px; width: auto; }
+
 #player-tab-content {
     display: none; /* becomes flex when a tab is active */
     flex-direction: row;

@@ -1356,6 +1356,20 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     `letto` e si salva: uno si legge una volta sola, ma finché non l'ha visto resta in coda
     anche dopo un ricaricamento. Più editti in attesa si leggono in una pergamena sola.
     Il punto è questo: **la mappa non cambia mai di nascosto**.
+  - **I POP-UP LI CONSUMA SOLO IL LEGITTIMO GIOCATORE, non un admin che sbircia** (regola
+    dell'utente, bug 2026-10-13: l'admin entra col 👁 nella plancia di un regno, la
+    pergamena — es. la cronaca "fiere e mercanti" — gli compare e viene segnata
+    letta/salvata, così al giocatore vero non comparirà più). Il guasto è GENERALE: ogni
+    `showPendingXXX` (editti, eventi/scismi, naufragi, commerci, patti+proposte, welfare,
+    leva, cronache) e anche la modale di **conquista** e lo **schieramento d'ufficio**
+    delle obbligatorie segnavano `letto`/`cronacheFatte`/… e facevano `R.save()` nel turno
+    di quel regno **chiunque** stesse guardando la sua board. Ora passano tutti da
+    `ownsBoard(player)` (player-board): consuma solo se **col proprio link**
+    (`invitePinned`) o su un regno che **nessun giocatore ha preso**; se sono un **admin**
+    (`R.isAdmin()`) che sbircia un regno **preso** da un giocatore vero
+    (`R.isTakenByPlayer`, presenza condivisa `presenceMap` + non-IA) la pergamena NON si
+    tocca — resta in coda e compare a LUI al suo turno. Chi aggiunge un pop-up nuovo lo
+    gata con `ownsBoard`, o lo brucerà a chi di dovere.
   - **Lo sbarco è una BATTAGLIA, non un regalo** (regola dell'utente): le truppe mandate in
     crociata — Terra Santa, crociate teutoniche, qualunque spedizione — devono **conquistare**
     la provincia dove scendono. L'editto "truppe" ha due modi: `sbarco` (predefinito) risolve
@@ -1723,9 +1737,14 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     spezzata", 1500-1599), che già dava per scontato — a parole — che la Riforma
     fosse avvenuta per allora: l'errore era solo nel codice dello scisma, non nel
     disegno del binario storico. Uno scisma trasforma le province di una fede
-    in un'altra dentro certe regioni e **srotola la pergamena** da sé (riusa
-    `showFoundation`, tipo `scisma`), così vale sia per il turno umano sia per quelli dei
-    bot. La linea cattolico/ortodosso è diagonale: la fascia meridionale contesa (Balcani,
+    in un'altra dentro certe regioni ed è una **cronaca GLOBALE**: la pergamena
+    (tipo `scisma`) deve apparire a **tutti**, all'apertura del proprio turno, non
+    solo sul browser che chiude il giro (dove `applySchisms` gira). Perciò
+    `applySchisms` la **accoda a `player.eventiAvvisi` di ogni regno**, come gli
+    eventi storici (`showPendingEventi` in player-board, in testa alla catena di
+    pergamene) — NON chiama più `showFoundation` diretto, che la mostrava a un
+    solo client e una volta sola. Il canale viaggia nel salvataggio/snapshot, così
+    ogni client la riceve. La linea cattolico/ortodosso è diagonale: la fascia meridionale contesa (Balcani,
     Grecia, Rus' occidentale) va per **nome**, i rettangoli restano solo dove non ci sono
     cattolici (Anatolia, cuore della Rus'). Chi ritocca i confini di uno scisma **misura i
     centri veri** delle province (come s'è fatto qui), non li indovina.

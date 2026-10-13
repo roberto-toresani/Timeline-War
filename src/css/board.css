@@ -43,10 +43,25 @@ body.board {
 #board-crest {
     width: 46px;
     height: 46px;
-    border-radius: 50%;
+    border-radius: 8px;
     border: 3px solid var(--gold);
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: rgba(0, 0, 0, .12);
+    font-size: 34px;   /* lo stemma è 1em: si scala da qui */
 }
+#board-crest svg.heraldry { display: block; }
+
+/* Stemmi araldici (js/flags.js) di fianco al nome, nei vari pannelli. */
+.bk-flag { flex: 0 0 auto; display: flex; align-items: center; }
+.bk-flag svg.heraldry { height: 19px; width: auto; }
+.rel-flag { flex: 0 0 auto; align-self: center; display: flex; align-items: center; }
+.rel-flag svg.heraldry { height: 21px; width: auto; }
+.chat-chan .chat-chan-flag { flex: 0 0 auto; display: flex; align-items: center; }
+.chat-chan .chat-chan-flag svg.heraldry { height: 16px; width: auto; }
 
 #board-identity { flex: 1 1 auto; min-width: 0; }
 
@@ -3222,7 +3237,7 @@ body.mobile-lite #board-shell { height: 100dvh; }
 
 /* --- barra regno: una riga --- */
 body.mobile-lite #board-topbar { gap: 8px; padding: 6px 8px; border-bottom-width: 2px; }
-body.mobile-lite #board-crest { width: 28px; height: 28px; border-width: 2px; }
+body.mobile-lite #board-crest { width: 28px; height: 28px; border-width: 2px; font-size: 21px; border-radius: 6px; }
 body.mobile-lite #board-kingdom { font-size: 1rem; }
 body.mobile-lite #board-subtitle { display: none; }
 body.mobile-lite #board-turn { padding: 0 8px; }

@@ -13,6 +13,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!R) { console.error('player-board: app.js non ha esposto window.Risiko'); return; }
 
     const $ = id => document.getElementById(id);
+    // Stemma araldico di un regno (js/flags.js), da mettere di fianco al nome.
+    // Tollerante: se il modulo non c'è, torna stringa vuota e niente si rompe.
+    const flagHTML = (name, color, px) =>
+        (typeof Flags !== 'undefined') ? Flags.markup(name, color, px ? { px: px } : undefined) : '';
     const RES_KEYS = (typeof RESOURCES !== 'undefined') ? Object.keys(RESOURCES) : [];
     const GR = () => window.GameRules;
     const GA = () => window.GameActions;
@@ -851,7 +855,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderTopbar(player, owned) {
         const turn = R.turn();
-        $('board-crest').style.background = player.color;
+        const crest = $('board-crest');
+        if (crest) {
+            const f = flagHTML(player.name, player.color);   // dimensione via font-size (board.css)
+            if (f) crest.innerHTML = f; else crest.style.background = player.color;
+        }
         setText('board-kingdom', player.name);
         setText('board-subtitle', owned.length + (owned.length === 1 ? ' provincia' : ' province'));
         // Turni 1-based (js/chronicle.js): il ciclo 1 va dal turno 1 al 10.
@@ -1215,7 +1223,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!province && !mio) return '';
             return '<div class="bk-row' + (p.id === turnoDi ? ' now' : '') +
                 (mio ? ' me' : '') + '">' +
-                '<span class="bk-dot" style="background:' + p.color + '"></span>' +
+                '<span class="bk-flag">' + flagHTML(p.name, p.color) + '</span>' +
                 '<span class="bk-name">' + p.name + '</span>' +
                 '<span class="bk-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
                 '<span class="bk-prov">' + ((mio || contaVisibile) ? province : '—') + '</span>' +
@@ -1262,6 +1270,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function isPlaying(player) {
         const t = R.turnoDi();
         return t !== null && t !== undefined && t === player.id;
+    }
+
+    // Chi CONSUMA i pop-up di un regno (li srotola, li segna letti e SALVA nello
+    // stato condiviso) è solo il suo legittimo giocatore — non un admin che ne
+    // sbircia la plancia col 👁. Se sbircio un regno PRESO da un giocatore vero
+    // (presenza condivisa), le pergamene NON si toccano qui: restano in coda e
+    // compaiono a LUI al suo turno. Era il motivo per cui un pop-up "già visto
+    // dall'admin" (es. una cronaca "fiere e mercanti") non compariva più al
+    // giocatore vero: la mia board ne aveva segnato `letto`/`cronacheFatte` e
+    // salvato. Col PROPRIO link (`invitePinned`) o su un regno che nessun
+    // giocatore ha preso (solitaria, o regno che gioca davvero l'admin) si
+    // consuma come prima. Ogni showPendingXXX passa di qui.
+    function ownsBoard(player) {
+        if (invitePinned) return true;
+        if (R.isAdmin && R.isAdmin() && R.isTakenByPlayer && R.isTakenByPlayer(player)) return false;
+        return true;
     }
 
     // ---------- fasi del turno: quattro cartelle ----------
@@ -2929,6 +2953,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const c = GA().conquestPending(player);
         if (!c) { conquestSeen = null; return; }
         if (!isPlaying(player)) return;
+        // La ripartizione la decide il giocatore vero, non un admin che sbircia il
+        // suo turno: su un regno preso da altri la modale non si apre qui.
+        if (!ownsBoard(player)) return;
         const key = c.fromId + '>' + c.toId + '@' + R.turn();
         if (key === conquestDismissed) return;               // rimandata a mano
         if (document.getElementById('ui-conquest')) return;  // già aperta
@@ -4301,6 +4328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Solo nel proprio turno: mentre si guardano giocare gli altri l'editto
         // interromperebbe la partita di qualcun altro.
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
 
         attesa.forEach(e => { e.letto = true; });
         R.save();
@@ -4334,6 +4362,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attesa = (player.eventiAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
 
         attesa.forEach(a => { a.letto = true; });
         R.save();
@@ -4363,6 +4392,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attesa = (player.spedizioniAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
 
         // Una sola pergamena per volta (#ui-foundation): se un editto dell'admin
         // attende, ha la precedenza e questa aspetta il render dopo — così un
@@ -4407,6 +4437,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attesa = (player.commerciAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
         // Una pergamena per volta (#ui-foundation): editti e avvisi di mare hanno
         // la precedenza, questa aspetta il render dopo.
         if ((player.editti || []).some(e => !e.letto)) return;
@@ -4604,7 +4635,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const head = document.createElement('div');
         head.className = 'rel-head';
         head.innerHTML =
-            '<span class="rel-dot" style="background:' + altro.color + '"></span>' +
+            '<span class="rel-flag">' + flagHTML(altro.name, altro.color) + '</span>' +
             '<span class="rel-name"></span><span class="rel-kind"></span>' +
             '<span class="rel-score">' + (st.score > 0 ? '+' : '') + st.score + '</span>';
         head.querySelector('.rel-name').textContent = altro.name;
@@ -4848,7 +4879,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const n = (c.key !== chatChannel) ? (unreadByChan[c.key] || 0) : 0;
                 return '<button type="button" class="chat-chan' + (c.key === chatChannel ? ' on' : '') +
                     '" data-chan="' + c.key + '">' +
-                    (c.color ? '<span class="chat-chan-dot" style="background:' + c.color + '"></span>' : '') +
+                    (c.color ? '<span class="chat-chan-flag">' + flagHTML(c.label, c.color) + '</span>' : '') +
                     '<span class="chat-chan-lab"></span>' +
                     (n ? '<span class="chat-chan-badge">' + n + '</span>' : '') +
                     '</button>';
@@ -5506,6 +5537,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attesa = (player.pattiAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
         // Una pergamena per volta (#ui-foundation): editti, mare e commerci hanno
         // la precedenza, questa aspetta il render dopo.
         if ((player.editti || []).some(e => !e.letto)) return;
@@ -5578,6 +5610,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pactAnswered = new Set();
     function showPendingPactProposals(player) {
         if (!isPlaying(player) || !R.confirm) return;
+        if (!ownsBoard(player)) return;
         const list = (player.pattiProposte || []).filter(o => o && !pactAnswered.has(o.id));
         if (!list.length) return;
         // Una modale per volta: se una pergamena o un'altra conferma è aperta,
@@ -5868,6 +5901,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function autoDeployBound(player) {
         if (!isPlaying(player) || !inPhase(player, 'schiera')) return;
+        if (!ownsBoard(player)) return;  // non schierare d'ufficio per un regno che sbircio
         if (!GA().boundTotal(player)) return;
         const key = player.id + '@' + R.turn();
         if (boundDeployedFor === key) return;
@@ -5987,6 +6021,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attesa = (player.welfareAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
         if ((player.editti || []).some(e => !e.letto)) return;
         if ((player.spedizioniAvvisi || []).some(a => !a.letto)) return;
         if ((player.commerciAvvisi || []).some(a => !a.letto)) return;
@@ -6034,6 +6069,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const attesa = (player.obiettiviAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
         if ((player.eventiAvvisi || []).some(a => !a.letto)) return;
         if ((player.editti || []).some(e => !e.letto)) return;
         if ((player.spedizioniAvvisi || []).some(a => !a.letto)) return;
@@ -6082,6 +6118,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showPendingCronache(player) {
         if (!R.showFoundation || !window.Chronicles || !window.Chronicles.pick) return;
         if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
         // Cede a ogni altra pergamena in coda: la cronaca è la meno urgente.
         if ((player.eventiAvvisi || []).some(a => !a.letto)) return;
         if ((player.editti || []).some(e => !e.letto)) return;

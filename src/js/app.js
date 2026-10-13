@@ -2941,14 +2941,15 @@ document.addEventListener('DOMContentLoaded', () => {
             ? '<div class="player-claim" title="Un giocatore ha aperto il link di questo regno: lo gioca lui, non l\'admin">👤 Preso dal giocatore</div>'
             : '';
 
+        const flag = (typeof Flags !== 'undefined') ? Flags.markup(p.name, p.color, { px: 32 }) : p.name[0];
         const btn = document.createElement('div');
             btn.className = 'player-card';
             btn.title = p.name;
             btn.dataset.playerId = p.id;
 
             btn.innerHTML = `
-                <div class="player-logo" style="background:${p.color};color:#fff;font-weight:bold;position:relative;">
-                    <span style="display:flex;justify-content:center;align-items:center;height:100%;width:100%;">${p.name[0]}</span>
+                <div class="player-logo" style="background:#efe6cf;color:#fff;font-weight:bold;position:relative;border-radius:6px;">
+                    <span style="display:flex;justify-content:center;align-items:center;height:100%;width:100%;">${flag}</span>
                     <input type="color" value="${p.color}" class="color-picker" style="position:absolute;top:0;left:0;opacity:0;width:100%;height:100%;cursor:pointer;" />
                 </div>
                 <div class="player-info" style="border-bottom: 4px solid ${p.color}">
@@ -3462,7 +3463,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const libere = p.recluteDaSchierare || 0;
             const tot = libere + vincolate;
             return '<div class="reinforce-row' + (p.id === turnoDi ? ' now' : '') + '">' +
-                '<span class="reinforce-dot" style="background:' + p.color + '"></span>' +
+                '<span class="kingdom-flag">' + ((typeof Flags !== 'undefined') ? Flags.markup(p.name, p.color) : '') + '</span>' +
                 '<span class="reinforce-name">' + p.name + '</span>' +
                 '<span class="reinforce-num' + (tot ? ' on' : '') + '">' + libere +
                 (vincolate ? ' <em>+' + vincolate + '</em>' : '') + '</span>' +
@@ -3696,7 +3697,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const p = r.player;
             const bot = window.Bot ? window.Bot.strategyOf(p) : null;
             return '<div class="ng-row' + (umanoIds.has(p.id) ? ' me' : '') + '">' +
-                '<span class="ng-dot" style="background:' + p.color + '"></span>' +
+                '<span class="kingdom-flag">' + ((typeof Flags !== 'undefined') ? Flags.markup(p.name, p.color) : '') + '</span>' +
                 '<span class="ng-name">' + p.name + '</span>' +
                 '<span class="ng-kind">' + (bot ? bot.nome : '👤 tu') + '</span>' +
                 '</div>';
@@ -4297,7 +4298,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const tab = document.createElement('div');
             tab.className = 'player-tab' + (p.id === selectedTabPlayerId ? ' active' : '');
             tab.style.borderBottomColor = p.color;
-            tab.textContent = p.name;
+            tab.innerHTML = ((typeof Flags !== 'undefined') ? Flags.markup(p.name, p.color) : '') + '<span class="pt-name"></span>';
+            tab.querySelector('.pt-name').textContent = p.name;
             tab.title = p.name;
             tab.addEventListener('click', () => {
                 selectedTabPlayerId = p.id;
@@ -5058,10 +5060,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (done.length || synced) refreshMapDisplay();
         if (done.length) {
-            const anno = (typeof Chronicle !== 'undefined') ? Chronicle.yearOfTurn(turn) : 1000;
-            // Uno scisma per turno (SCHISMS ha turni distinti): srotola il primo.
-            const sc = done[0];
-            showFoundation({ tipo: 'scisma', anno, titolo: sc.titolo, testo: sc.testo, nota: sc.nota });
+            // Uno scisma è una cronaca GLOBALE e va mostrato a TUTTI, all'apertura
+            // del proprio turno — non solo sul browser che ha chiuso il giro (dove
+            // applySchisms gira). Perciò si ACCODA a player.eventiAvvisi di ogni
+            // regno, come gli eventi storici (showPendingEventi in player-board, in
+            // testa alla catena di pergamene), invece di chiamare showFoundation qui
+            // — che lo mostrerebbe a un solo client e una volta sola. Il canale
+            // viaggia nel salvataggio e nello snapshot, quindi ogni client lo riceve.
+            done.forEach(sc => {
+                PLAYERS.forEach(p => {
+                    if (!Array.isArray(p.eventiAvvisi)) p.eventiAvvisi = [];
+                    p.eventiAvvisi.push({ letto: false, turno: turn, tipo: 'scisma',
+                        titolo: sc.titolo, testo: sc.testo, nota: sc.nota });
+                });
+            });
         }
         return done;
     }
@@ -5893,6 +5905,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         isBoardMode: () => BOARD_MODE,
         isAdmin: () => isAdminMode,
+        // Un regno è "preso" da un GIOCATORE VERO quando qualcuno ha aperto il suo
+        // link d'invito (presenza condivisa, presenceMap) e non è governato dall'IA.
+        // Serve alla plancia per NON far consumare i pop-up di quel regno a un admin
+        // che ne sbircia la board col 👁: le pergamene restano in coda per il
+        // giocatore vero (vedi ownsBoard in player-board.js).
+        isTakenByPlayer: (p) => !!(p && p.invite && presenceMap[p.invite] && !p.bot),
         // Fa avanzare la catena dei bot passando dal LEASE condiviso (una sola
         // sessione guida — §multi-tab). La plancia la chiama al posto di Bot.run().
         driveBots: () => maybeDriveBots(),

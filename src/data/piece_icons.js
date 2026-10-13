@@ -35,7 +35,7 @@
 //   generale ed edifici (citta, fortezza, mercato, strada) -> una sola.
 // Per rendere impilabile un altro tipo basta alzare il suo "max".
 const PIECES = {
-    soldato:  { nome: 'Soldato',  max: 30 },
+    soldato:  { nome: 'Soldato',  max: Infinity }, // illimitato: nessun tetto di impilamento (regola dell'utente)
     generale: { nome: 'Generale', max: 1  },
     barca:    { nome: 'Barca',    max: 15 },
     vascello: { nome: 'Vascello', max: 15 },
