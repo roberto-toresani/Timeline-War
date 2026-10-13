@@ -34,6 +34,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPlayableProvince = (id) => !!id && !NON_PLAYABLE.has(id);
 
     const container = document.getElementById('svg-container');
+    // La mappa vive SEMPRE dentro #svg-container. Non si usa più
+    // document.querySelector('svg') per trovarla: da quando la plancia mette
+    // lo stemma del regno (js/flags.js → #board-crest, un <svg>) nella barra
+    // in alto — cioè PRIMA della mappa nel DOM — "il primo svg della pagina"
+    // è lo stemma, non la mappa, e ogni render (nebbia compresa) finirebbe a
+    // lavorare sull'svg sbagliato (di fatto un no-op: la mappa congelata).
+    // È `function` (hoistata) perché la chiamano anche helper in cima alla
+    // closure; `container` esiste già al momento della CHIAMATA (init in poi).
+    function mapSvg() {
+        const c = container || document.getElementById('svg-container');
+        return c ? c.querySelector('svg') : null;
+    }
     const nameDisplay = document.getElementById('province-name');
     const gameNameDisplay = document.getElementById('p-name');
     const ownerDisplay = document.getElementById('p-owner');
@@ -92,6 +104,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const BOT_LEASE_BEAT = 3000;   // ms fra un rinnovo e l'altro (< TTL di sync.js)
     const BOT_LEASE_RETRY = 11000; // ms: riprova la presa dopo la scadenza del lease
     let selectedTabPlayerId = null; // null = main view (no focus, no fog)
+    // Sulla PLANCIA la nebbia dipende dal focus del regno, che `boot` stabilisce
+    // solo dopo aver risolto il codice d'invito/lo stato cloud (fino a ~7s). Fino
+    // ad allora `focus` è null, che altrove vuol dire "vista generale, niente
+    // nebbia": senza questa guardia, per quei secondi di caricamento si vedrebbero
+    // TUTTI i regni senza nebbia e la nebbia di guerra perderebbe senso. Resta
+    // false finché `focusPlayer` non viene chiamato almeno una volta — anche con
+    // null, cioè la vista generale 🌍 scelta apposta dal giocatore.
+    let focusEverSet = false;
     // Presenza dei giocatori: mappa {codice invito: dato} da Firestore (vedi
     // sync.js). Dice quale regno una PERSONA ha preso aprendo il suo link; l'editor
     // la mostra sulla scheda del regno, così l'admin vede che non lo giocherà lui.
@@ -955,7 +975,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // prima che la riga venga raggiunta (zona morta, vedi "Alias di funzione").
     var provincePathsCache = null, provincePathsRoot = null;
     function provincePaths(svg) {
-        const root = svg || document.querySelector('svg');
+        const root = svg || mapSvg();
         if (!root) return [];
         if (root !== provincePathsRoot || !provincePathsCache ||
             (provincePathsCache.length && !provincePathsCache[0].isConnected)) {
@@ -1087,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Applica uno snapshot risorse (autoritativo): le province non presenti
     // restano senza risorsa. Usato al caricamento di stato salvato/cloud.
     function applyResourceState(map) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => {
             const k = map[p.id];
@@ -1128,7 +1148,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // tocca (§la fede segue la spada).
     function collectReligions(svg) {
         const out = {};
-        provincePaths(svg || document.querySelector('svg')).forEach(p => {
+        provincePaths(svg || mapSvg()).forEach(p => {
             const k = religionKeyOf(p);
             if (!k) return;
             out[p.id] = p.getAttribute('data-fede-conq') ? k + '*' : k;
@@ -1141,7 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // mappa dei seed iniziali). Il '*' finale ripristina il vincolo di conquista.
     // Poi ridisegna, perché la vista-fede dipende da qui.
     function applyReligionState(map) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => {
             let v = map[p.id];
@@ -1167,7 +1187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // perché la Riforma dalla partita PRECEDENTE era rimasta scritta sulla mappa —
     // e da lì in poi gli scismi del calendario non avevano più niente da spezzare.
     function resetReligions() {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || typeof Religions === 'undefined') return 0;
         let n = 0;
         provincePaths(svg).forEach(p => {
@@ -1706,7 +1726,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyPieceState(map) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !map || typeof map !== 'object') return;
         provincePaths(svg).forEach(p => applyPieceEntry(p, map[p.id]));
         renderPieceMarkers(svg);
@@ -1987,7 +2007,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (svg) renderRoads(svg);
     }
 
@@ -2029,7 +2049,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const color = selectedPlayer ? selectedPlayer.color
                 : (path.getAttribute('data-pc-color') || ownerColorHex(path));
             if (color && PLAYERS.some(p => p.color === color)) {
-                const svg = document.querySelector('svg');
+                const svg = mapSvg();
                 let taken = false;
                 if (svg) {
                     provincePaths(svg).forEach(pp => {
@@ -2674,7 +2694,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function applyAdminDiff(diff) {
         if (!diff) return;
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return;
         (diff.addPlayers || []).forEach(rec => {
             if (!PLAYERS.find(p => p.id === rec.id)) PLAYERS.push(normalizePlayer(Object.assign({}, rec)));
@@ -2860,7 +2880,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveCurrentTurnToHistory() {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return;
         const currentData = {};
         svg.querySelectorAll('path').forEach(p => {
@@ -3178,7 +3198,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateMapColors(playerName, newColor, oldColor) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return;
         svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
             path.style.fill = newColor;
@@ -3207,7 +3227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const oldName = player.name;
         player.name = newName;
 
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (svg) {
             svg.querySelectorAll(`path[data-owner="${oldName}"]`).forEach(p => {
                 p.setAttribute('data-owner', newName);
@@ -3278,7 +3298,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function doRemovePlayer(player) {
         // Libera le province possedute dal giocatore (nella mappa e nello storico turni).
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (svg) svg.querySelectorAll(`path[data-owner="${player.name}"]`).forEach(p => p.removeAttribute('data-owner'));
         for (const turnKey in TURN_HISTORY) {
             const td = TURN_HISTORY[turnKey];
@@ -3535,7 +3555,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // cambia, e sono 628 <option>.
         const list = document.getElementById('decree-provinces');
         if (list && !list.options.length) {
-            const svg = document.querySelector('svg');
+            const svg = mapSvg();
             if (svg) {
                 list.innerHTML = provincePaths(svg)
                     .map(p => '<option value="' + p.id + '">' + provinceLabel(p) + '</option>').join('');
@@ -3725,7 +3745,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function saveMap() {
         if (!isAdminMode) return;
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return;
 
         const saveData = {};
@@ -3802,7 +3822,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // applyCloudState). Estratto da saveAutoSave perché serve anche a catturare la
     // base/l'esito di un intervento admin (vedi beginIntervention/commitIntervention).
     function buildSnapshot() {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return null;
         saveCurrentTurnToHistory();
         return {
@@ -4063,14 +4083,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function refreshMapDisplay() {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return;
 
         const focus = PLAYERS.find(p => p.id === selectedTabPlayerId);
         const seen = focus ? computeVisibleProvinces(focus.name) : null;
+        // BLACKOUT di caricamento (plancia): finché `boot` non ha stabilito il
+        // focus iniziale (vedi focusEverSet), si fa buio invece di rivelare tutta
+        // la mappa — o la nebbia di guerra lascerebbe intravedere tutti i regni
+        // per i secondi d'attesa del codice d'invito/stato cloud.
+        const blackout = BOARD_MODE && !focus && !focusEverSet;
         // `visible` = si vede la provincia (piena o in nebbia leggera).
         // `hazed`   = si vede la provincia ma NON le sue pedine (§9.2).
-        const visible = seen ? new Set([...seen.visible, ...seen.haze]) : null;
+        const visible = seen ? new Set([...seen.visible, ...seen.haze]) : (blackout ? new Set() : null);
         const hazed = seen ? seen.haze : null;
         // Dove stanno i nostri uomini (§9.3): un segno sulla provincia, non un
         // grado di visibilità — quel che la spia mostra è già in `hazed`.
@@ -4162,7 +4187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // `spie` è solo il POSTO dove stanno i nostri uomini: serve a disegnarcelo
     // sopra un segno, non aggiunge visibilità (è già dentro haze).
     function computeVisibleProvinces(playerName) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         const visible = new Set(), haze = new Set(), spie = new Set();
         if (!svg) return { visible, haze, spie };
         svg.querySelectorAll(`path[data-owner="${playerName}"]`).forEach(path => {
@@ -4225,7 +4250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function internalApplyMapData(saveData) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return 0;
 
         svg.querySelectorAll('path').forEach(p => p.removeAttribute('data-owner'));
@@ -4274,7 +4299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Elementi <path> delle province di un giocatore (il nome puo' contenere
     // virgolette, quindi niente selettore costruito a mano).
     function ownedPaths(playerName) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !playerName) return [];
         return provincePaths(svg)
             .filter(p => p.getAttribute('data-owner') === playerName);
@@ -4364,7 +4389,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Provincia-Capitale del giocatore (match sul colore-esercito della pedina).
     function getCapitalPathFor(player) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !player) return null;
         let found = null;
         provincePaths(svg).forEach(pp => {
@@ -5008,7 +5033,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // che hanno davvero cambiato qualcosa (per log/test).
     function applySchisms(turn) {
         if (typeof Religions === 'undefined') return [];
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return [];
         const paths = provincePaths(svg);
         const fired = Religions.schismsAt(turn);
@@ -5162,7 +5187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearBattleFx() {
         battleTimers.forEach(clearTimeout);
         battleTimers = [];
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (svg) {
             svg.querySelectorAll('.battle-fx').forEach(el => el.remove());
             svg.classList.remove('battle-focus');
@@ -5224,7 +5249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // anche CHE COSA succede se si clicca là, non solo dove si può andare.
     function showAttackArrows(fromId, targetIds, kind) {
         clearAttackArrows();
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !fromId || !targetIds || !targetIds.length) return;
         const A = provinceCenter(document.getElementById(fromId));
         if (!A) return;
@@ -5329,7 +5354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const orderPatterns = {};
     function orderHatch(kind) {
         if (orderPatterns[kind]) return orderPatterns[kind];
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         let defs = svg.querySelector('#order-defs');
         if (!defs) {
             defs = document.createElementNS(SVG_NS, 'defs');
@@ -5364,7 +5389,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function orderClip(path) {
         const id = 'order-clip-' + path.id;
         if (orderClips.has(id)) return id;
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         let defs = svg.querySelector('#order-clip-defs');
         if (!defs) {
             defs = document.createElementNS(SVG_NS, 'defs');
@@ -5441,7 +5466,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function markTargets(fromId, ids, kind) {
         clearTargets();
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return;
 
         // SPIE (§9.3): decine di mete, nessuna partenza. Restano un tratto
@@ -5531,7 +5556,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // `list` = [{id, color}]. Restituisce quante ne ha davvero segnate, così la
     // plancia sa se accendere la legenda.
     function markBorders(list) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return 0;
         const layer = borderLayer(svg);
         layer.textContent = '';
@@ -5606,7 +5631,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // si legge "questo è il gruppo" senza sconfinare. Non guarda la nebbia: sono
     // i CONTORNI a illuminarsi, non le guarnigioni — e i contorni sono pubblici.
     function spotlightObjective(ids) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg) return 0;
         const layer = objectiveLayer(svg);
         layer.textContent = '';
@@ -5667,7 +5692,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // info: l'oggetto restituito da GameActions.attack.
     function playBattleFx(info) {
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !info || !info.fromId || !info.toId) return;
         const from = document.getElementById(info.fromId);
         const to = document.getElementById(info.toId);
@@ -5822,7 +5847,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearTradeFx() {
         tradeTimers.forEach(clearTimeout);
         tradeTimers = [];
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (svg) svg.querySelectorAll('.trade-fx').forEach(el => el.remove());
     }
 
@@ -5859,7 +5884,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function playTradeFx(fromId, toId, opts) {
         opts = opts || {};
-        const svg = document.querySelector('svg');
+        const svg = mapSvg();
         if (!svg || !fromId) return;
         const from = document.getElementById(fromId);
         if (!from) return;
@@ -5928,6 +5953,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Popolarita' attivo, nessun pennello da editor.
         focusPlayer(id) {
             selectedTabPlayerId = id;
+            focusEverSet = true;
             selectedPlayer = null;
             selectedResource = null;
             selectedPiece = null;
@@ -6011,7 +6037,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // stato è un'altra, e l'impero deve seguirla nello stesso istante — non
         // al prossimo giro completo, con la mappa che nel frattempo mente.
         syncStateFaiths() {
-            const svg = document.querySelector('svg');
+            const svg = mapSvg();
             if (!svg) return 0;
             const n = syncKingdomFaiths(provincePaths(svg));
             if (n) refreshMapDisplay();
@@ -6182,7 +6208,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Che cosa raggiunge via mare una provincia con quel raggio (§9.2).
             // Vuoto finché la griglia non è pronta: la portata non si inventa.
             seaReach(provId, radius) {
-                const svg = document.querySelector('svg');
+                const svg = mapSvg();
                 if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return new Set();
                 return SeaRoutes.reachCached(svg, provId, radius);
             },
@@ -6196,13 +6222,13 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             // Avanza una spedizione di una portata verso `dir` seguendo l'acqua.
             sail(x, y, dir, radius) {
-                const svg = document.querySelector('svg');
+                const svg = mapSvg();
                 if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return null;
                 return SeaRoutes.sail(svg, x, y, dir, radius);
             },
             // Le coste che una spedizione ferma in (x,y) avvista/raggiunge.
             reachFromPoint(x, y, radius) {
-                const svg = document.querySelector('svg');
+                const svg = mapSvg();
                 if (!svg || typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return new Set();
                 return SeaRoutes.reachFromPointCached(svg, x, y, radius);
             },
@@ -6238,8 +6264,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (existing) ROADS = ROADS.filter(r => r !== existing);
                 return !!existing;
             },
-            redrawProvince(path) { renderPiecesForPath(document.querySelector('svg'), path); },
-            redrawRoads() { renderRoads(document.querySelector('svg')); },
+            redrawProvince(path) { renderPiecesForPath(mapSvg(), path); },
+            redrawRoads() { renderRoads(mapSvg()); },
             refresh: refreshMapDisplay,
             notice: showPieceNotice,
             save: saveAutoSave,
@@ -6267,7 +6293,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // comincia davvero, e così la stessa mappa si rigioca identica.
         scenario: {
             capture() {
-                const svg = document.querySelector('svg');
+                const svg = mapSvg();
                 if (!svg) return null;
                 const provinces = {};
                 provincePaths(svg).forEach(p => {
@@ -6287,7 +6313,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // calendario al turno 1, nessun turno in corso, cronologia buttata.
             // Da qui si preme "⚔️ Gioca con l'IA (mappa attuale)".
             apply(data) {
-                if (!data || !document.querySelector('svg')) return false;
+                if (!data || !mapSvg()) return false;
                 if (window.Bot) window.Bot.stop();
                 if (Array.isArray(data.players) && data.players.length) {
                     mergePlayerData(data.players);
