@@ -51,7 +51,7 @@
         generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
         mercenario:  '+1 soldato che resta per sempre, ma è di ventura: in battaglia vale meno di un suddito e quanto renda si sa solo sul campo (§9).',
         guarnigione: '+2 soldati di rinforzo: restano per sempre, sono truppe normali.',
-        cavaliere:   '+1 cavaliere che resta per sempre: in battaglia vale 1,45 fanti, ma all\'assalto delle mura rende meno di un fante (0,9 contro Città e Capitale, 0,7 contro una Fortezza). In difesa vale 1,45. In terreno chiuso (monti, foreste, paludi) ogni suo valore scende di un quarto. È un reparto a sé: in attacco, conquista e spostamento scegli quanti fanti e quanti cavalieri muovere.',
+        cavaliere:   'Dal ciclo II (turno 11, anno 1100). +1 cavaliere che resta per sempre: in battaglia vale 1,45 fanti, ma all\'assalto delle mura rende meno di un fante (0,9 contro Città e Capitale, 0,7 contro una Fortezza). In difesa vale 1,45. In terreno chiuso (monti, foreste, paludi) ogni suo valore scende di un quarto. È un reparto a sé: in attacco, conquista e spostamento scegli quanti fanti e quanti cavalieri muovere.',
         spia:        'Perlustra un territorio lontano: per 3 turni vedi di chi sono quella provincia e le sue limitrofe — le bandiere, non le guarnigioni (§9.3).'
     };
 
@@ -122,6 +122,21 @@
     // ormai vuoto — nessuna recluta scade più a fine turno — ma resta come elenco
     // perché `expireTemporaries` lo consulta ancora per ripulire i salvataggi vecchi.
     const RECRUITABLE = ['mercenario', 'guarnigione', 'cavaliere'];
+
+    // DA QUANDO si può reclutare (regola dell'utente: i cavalieri dal ciclo II,
+    // turno 11 = 1100). Una voce assente è disponibile dal primo turno. È l'unica
+    // fonte: la usano il motore (recruit rifiuta prima), la plancia (tessera spenta
+    // con "dal ciclo II") e i bot (non pianificano un acquisto che fallirebbe).
+    const UNLOCK_TURN = { cavaliere: 11 };
+    function unlockTurn(type) { return UNLOCK_TURN[type] || 1; }
+    function isUnlocked(type, turn) { return (turn || 1) >= unlockTurn(type); }
+    // "dal ciclo II": il ciclo è di 10 turni, come per gli obiettivi (§10).
+    function unlockLabel(type) {
+        const t = unlockTurn(type);
+        const ciclo = Math.floor((t - 1) / 10) + 1;
+        const ROMANI = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+        return 'dal ciclo ' + (ROMANI[ciclo] || ciclo);
+    }
     const TEMPORARY = [];
 
     // CAVALIERI: un gruppo di soldati si descrive con { n, merc, cav } (quanti in
@@ -673,6 +688,7 @@
         TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime,
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare, troopsLeaving, casualtySplit,
+        UNLOCK_TURN, unlockTurn, isUnlocked, unlockLabel,
         WELFARE, WELFARE_COST, WELFARE_INDEX,
         welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
         NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, CONQUEST_BOUNTY,

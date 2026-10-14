@@ -1619,6 +1619,7 @@
     function knightPlan(player, s, st, og) {
         const quanti = s.cavalieri || 0;
         if (!quanti) return null;
+        if (!GR().isUnlocked('cavaliere', R().turn())) return null;   // dal ciclo II
         const cost = GR().costFor('cavaliere', player);
         const bestie = ((player.scorte || {}).bestiame || 0) - knightReserveBeast(player, s, og);
         const perBestia = cost.bestiame || 0;

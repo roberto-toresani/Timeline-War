@@ -2017,6 +2017,10 @@
     function recruit(player, provId, type) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         if (GR().RECRUITABLE.indexOf(type) < 0) return fail('Non è un\'unità reclutabile.');
+        if (!GR().isUnlocked(type, R().turn())) {
+            return fail((GR().ITEM_LABEL[type] || type) + ': si recluta ' + GR().unlockLabel(type) +
+                ' (dal turno ' + GR().unlockTurn(type) + ').');
+        }
         const path = E().path(provId);
         if (!path) return fail('Provincia sconosciuta.');
         if (E().owner(path) !== player.name) return fail('Puoi reclutare solo nelle tue province.');

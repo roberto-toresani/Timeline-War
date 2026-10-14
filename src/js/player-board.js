@@ -2258,6 +2258,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // tessera (⚔ ventura, ⚑ rinforzo) e il tooltip, che porta già l'effetto.
         GR().RECRUITABLE.forEach(type => {
             const cost = GR().costFor(type, player);   // §Felicità: sconto della Festa, se attiva
+            // Non ancora disponibile (i cavalieri dal ciclo II): tessera spenta,
+            // col perché scritto sopra — non è il prezzo, è il calendario.
+            if (!GR().isUnlocked(type, R.turn())) {
+                const quando = GR().unlockLabel(type);
+                grid.appendChild(buildTile(player, type, cost, quando, [],
+                    () => run(GA().recruit(player, path.id, type)), { nota: quando }));
+                return;
+            }
             const afford = GR().canAfford(player, cost, soldiersHere);
             grid.appendChild(buildTile(player, type, cost,
                 afford.ok ? null : GR().missingText(afford.missing),

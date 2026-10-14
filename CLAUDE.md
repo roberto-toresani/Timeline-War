@@ -1887,7 +1887,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     dell'esito che il giocatore non può dedurre.
 - **Cavalieri (regola dell'utente)**: si comprano in fase `costruisci` come Mercenario e
   Guarnigione (`GameRules.RECRUITABLE`, costo `COSTS.cavaliere` = 50 monete + 1 Bestiame) e
-  si schierano nella provincia d'acquisto; restano per sempre. Come la ventura sono una
+  si schierano nella provincia d'acquisto; restano per sempre. **Disponibili dal ciclo II**
+  (turno 11 = 1100, regola dell'utente): `GameRules.UNLOCK_TURN`/`isUnlocked`/`unlockLabel` è
+  l'unica fonte — `recruit` rifiuta prima, la tessera resta spenta con "dal ciclo II", e
+  `knightPlan` dei bot non pianifica l'acquisto. Come la ventura sono una
   **quota dei soldati** sul path (`data-cav`, snapshot `k`, deposito `engine.cav/setCav/addCav`
   in app.js) — un cavaliere è un soldato dappertutto (presidio §5, costi in soldati, tetto) e
   si distingue **solo nel tiro di battaglia**. Invariante: `merc + cav ≤ soldati`.
