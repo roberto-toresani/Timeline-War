@@ -4,9 +4,9 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-10-14 (mappa: icone −25%, Capitale in tono intenso, risorse sempre dentro la provincia)
-- **Branch corrente:** `feat/partita-giocabile`
-- **Ultimo commit:** vedi `git log` — Pedine scontornate e ancoraggi (niente truppe in mare, navi in acqua aperta)
+- **Ultimo aggiornamento:** 2026-10-14 (nuova unità Cavaliere, reparti fanti/cavalieri, bot che li comprano, bottone 🔄 Aggiorna tutti)
+- **Branch corrente:** `main`
+- **Ultimo commit:** vedi `git log` — Cavaliere: nuova unità, reparti fanti/cavalieri, bot, Aggiorna tutti
 
 ## Sistemi in gioco (stato attuale)
 
@@ -14,6 +14,8 @@ e in particolare al momento del commit.
   selezionabili, colori, nomi ingranditi, scaling del pannello col ridimensionamento.
 - **Giocatori e turni** — gestione giocatori, turni, colori, UI.
 - **Risorse** — sistema risorse per provincia; nebbia via terra.
+- **Cavaliere** — unità acquistabile in fase Costruzioni (50 monete + 1 Bestiame), schierata nella provincia d'acquisto, permanente. In battaglia vale 1,45 fanti (sempre in difesa), 0,9 all'assalto di Città/Capitale, 0,7 di una Fortezza; in terreno chiuso ogni valore ×0,75. Fanti e cavalieri sono reparti distinti: in attacco, sbarco, spedizione, spostamento e ripartizione della conquista si sceglie quanti di ciascuno (sulla nave si scambiano il posto). Pedina propria sulla mappa (scudo senza croce). I bot li comprano col Bestiame in eccesso e mandano prima i fanti contro le mura.
+- **🔄 Aggiorna tutti** — bottone admin nell'editor: dopo un deploy ricarica ogni pagina aperta del gioco (canale presence/app-reload). Vale dalle pagine aperte con questa versione in poi; il motore in cloud va riavviato a parte.
 - **Religione** — ogni provincia ha una fede (`data-religione`), ogni regno ha la
   religione di **stato** = quella della sua Capitale. Al Mille i cristiani sono un
   popolo solo (`cristiani`), l'Islam è già diviso (sunniti/sciiti). Assegnazione di

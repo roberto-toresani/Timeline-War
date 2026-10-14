@@ -1313,6 +1313,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     cancellazione (il lease del driver rinfresca la collezione ogni 3 s).
     `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
     `isIntervening`/`hasPendingIntervention`.
+- **🔄 AGGIORNA TUTTI (regola dell'utente)**: dopo un deploy l'admin preme il bottone
+  `#reload-all-btn` dell'editor (visibile solo admin e online) e ogni pagina aperta del
+  gioco — plance e altri editor — mostra "È uscito un aggiornamento…" e si ricarica dopo
+  5 s col codice nuovo. Il canale è un doc della collezione `presence` (`app-reload`,
+  `{ v: timbro, by: sessione }`, `MultiplayerSync.requestReloadAll/onReloadSignal` in
+  sync.js): nessuna regola Firestore da ripubblicare, ed è filtrato via dalla mappa di
+  presenza come `admin-intervention`. Il **primo** timbro che una pagina vede è la sua base
+  e non la ricarica (se no chi apre adesso ripartirebbe in loop); chi manda la richiesta
+  non ricarica sé stesso. **Il motore headless non si ricarica** (`navigator.webdriver`):
+  il suo stato vive nel processo Node, va riavviato a parte. Limite strutturale: funziona
+  solo sulle pagine che hanno già il codice col canale — una pagina vecchia non lo sente.
+  Le mosse non si perdono: ogni azione salva da sé.
 - **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.
   Tre poteri, oltre all'Editto (a partita in corso passa dagli INTERVENTI qui sopra):
   - **CREARE UN REGNO A PARTITA IN CORSO** (i Maya, i Cinesi a un certo punto): `+
@@ -1873,6 +1885,60 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     resta per il caso senza ventura. Il bersaglio porta `merc` addosso come porta `terreno`.
     Il rapporto di battaglia mostra **quanto hanno reso** (`.bb-merc`): è la sola parte
     dell'esito che il giocatore non può dedurre.
+- **Cavalieri (regola dell'utente)**: si comprano in fase `costruisci` come Mercenario e
+  Guarnigione (`GameRules.RECRUITABLE`, costo `COSTS.cavaliere` = 50 monete + 1 Bestiame) e
+  si schierano nella provincia d'acquisto; restano per sempre. Come la ventura sono una
+  **quota dei soldati** sul path (`data-cav`, snapshot `k`, deposito `engine.cav/setCav/addCav`
+  in app.js) — un cavaliere è un soldato dappertutto (presidio §5, costi in soldati, tetto) e
+  si distingue **solo nel tiro di battaglia**. Invariante: `merc + cav ≤ soldati`.
+  - **Le manopole stanno in `battle.js`**: `KNIGHT_VALUE` 1,45 (in campo aperto e SEMPRE in
+    difesa), all'**assalto** il valore lo decidono le mura del difensore (`knightAttackValue(fort)`):
+    `KNIGHT_VS_CITY` 0,9 contro Città/Capitale, `KNIGHT_VS_FORT` 0,7 contro una Fortezza —
+    meno di un fante. **Il terreno pesa su tutto** (regola dell'utente): in terreno `chiuso`
+    ogni valore del cavaliere — attacco, assalto, difesa — si moltiplica per
+    `KNIGHT_TERRAIN.chiuso` 0,75 (1,45 → 1,09). Nessuna banda (valore certo, a differenza
+    della ventura). `resolveBattle` prende `cavA, cavD, terreno` in coda, `winForecast`
+    `cavA, cavD, fort, terreno`: plancia e bot passano da lì, come per mercenari e terreno.
+  - **FANTI E CAVALIERI SONO REPARTI DISTINTI** (regola dell'utente): in attacco, rinforzo
+    ad alleato, spostamento e spedizione il giocatore sceglie **quanti fanti e quanti
+    cavalieri** muovere, e la percentuale è quella dell'armata mista. Il motore accetta
+    l'ordine come numero (comportamento di prima, i bot) o come `{ n, cav }`
+    (`troopOrder` + `orderFail` in game-actions, `cavWanted` di `troopsLeaving`). Lo stesso
+    nella **conquista**: `resolveConquest(player, {n, cav})` = quanti occupano e quanti di
+    loro a cavallo; gli altri rientrano. In plancia: il cursore d'ordine ha **una riga per
+    reparto** quando la partenza ha cavalieri (`squadRowsHtml`/`setSquad`/`squadCav`,
+    `order.fanti/cav/F/C`), la ripartizione della presa (pannello e modale) un cursore per
+    reparto (`conquestSquads`/`conquestControlsHtml`/`wireConquestControls`). Anche gli
+    ELENCHI del pannello (bersagli, destinazioni dello spostamento, spedizione col Veliero)
+    hanno due campi, uno per reparto (`squadInputs`).
+    - **Una regola sola per i due reparti** (`squadSet`, regola dell'utente): si manda solo
+      l'uno, solo l'altro o entrambi, e su una nave **si scambiano il posto** — alzare un
+      reparto oltre il tetto lo prende all'altro, abbassare i cavalieri con la nave piena
+      ridà i posti ai fanti; la fine di ogni leva è il massimo vero di quel reparto. In
+      partenza può restare **un solo cavaliere e nessun fante**: il cavaliere è un'unità
+      (il presidio §5 conta uomini, non reparti).
+  - **Chi parte e chi cade** (`game-actions.js`, un gruppo `{n, merc, cav}`): senza scelta i
+    cavalieri vanno **per primi** (`GameRules.troopsLeaving`), la ventura in quota sui fanti;
+    nelle perdite la ventura cade per prima, poi fanti e cavalieri **in proporzione**
+    (`GameRules.casualtySplit`). Helper `groupLeaving → takeGroup → putGroup`, `survivorsOf`,
+    `loseFromPath`: chi aggiunge un'azione che muove o uccide soldati passa di lì. Nel rientro
+    della conquista senza scelta (`resolveConquest` con un numero) i cavalieri **restano** sulla terra presa. Un calo
+    generico (`changePiece`) toglie i cavalieri per ultimi.
+  - Sulla mappa: pedina propria `#pc-cavaliere` (data/piece_icons.js, scudo **senza croce** —
+    non tutti i regni sono cristiani) accanto ai fanti, disegnata da `renderPiecesForPath`
+    spezzando il conteggio dei soldati. Non sta in `PIECES`. In plancia "· N🐎" accanto alle
+    truppe e alle schede-bersaglio; `cavNote`/`cavLine` dicono quanto vale la carica (anche
+    "frenata dalle mura").
+  - **I bot li comprano e li usano** (`bot.js`): `knightPlan` (fase costruzioni, dopo i
+    mercenari) converte il Bestiame IN ECCESSO in cavalleria — non tocca quello che chiedono
+    le costruzioni di `s.build` né lo `stockFloor` degli obiettivi (`knightReserveBeast`), né
+    l'oro di `coinReserve`; tetto per profilo `s.cavalieri` (espansione 3, costruttore 2,
+    opportunista 2, predone 4). Li posa sulla base del prossimo attacco se lì la carica rende,
+    altrimenti sul confine più minacciato. In attacco `knightsFor` sceglie i reparti come un
+    giocatore: contro le mura o in terreno chiuso partono prima i fanti e solo i cavalieri
+    che servono a fare il numero (il numero **esatto**: il motore prende alla lettera un
+    ordine per reparti e rifiuta "0 cavalieri" se i fanti non bastano — bug visto in
+    simulazione). `winProb` usa la stessa scelta, così pronostico e attacco coincidono.
 - **Terreno (`js/terrain.js` + `data/province_terrain.js`)**: ogni provincia è `chiuso`
   (monti, gole, foreste, paludi) o `aperto` (pianure, steppe, deserti aperti). Non è un
   bonus difensivo come le mura — quelle sommano difensori virtuali — ma **quanto conta il

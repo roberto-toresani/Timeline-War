@@ -1510,6 +1510,31 @@ svg path.state.spied {
 
 .moh-range { width: 100%; margin: 6px 0 4px; accent-color: var(--gold-bright); }
 
+/* FANTI E CAVALIERI (regola dell'utente): con dei cavalieri alla partenza il
+   cursore d'ordine ha una riga per reparto — etichetta, − N +, cursore. */
+/* Il cursore è largo 216px: l'etichetta prende lo spazio che avanza (e si
+   accorcia se serve), il − N + quello che gli serve, la leva tutta la riga.
+   Una colonna d'etichetta a misura fissa faceva uscire leve e bottoni dal riquadro. */
+.moh-squad { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 6px; }
+.moh-squad .moh-lbl { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--parchment-muted); font-size: .82rem; white-space: nowrap; }
+.moh-squad .moh-ctl { grid-column: 2; gap: 6px; justify-content: flex-end; }
+.moh-squad .moh-range { grid-column: 1 / -1; width: 100%; min-width: 0; box-sizing: border-box; }
+.moh-squad:not(:has(.moh-lbl)) { display: block; }
+.moh-squad .moh-n { font-size: 1.2rem; min-width: 32px; }
+.moh-tot { text-align: center; color: var(--parchment-muted); font-size: .8rem; margin-bottom: 2px; }
+
+/* ...e negli elenchi del pannello: due campi numerici, uno per reparto. */
+.bp-squad-row { flex-wrap: wrap; gap: 6px 10px; }
+.bp-squad { display: inline-flex; align-items: center; gap: 5px; color: var(--parchment-muted); font-size: .85rem; white-space: nowrap; }
+.bp-act-row.bp-squad-row .bp-squad input { width: 4.2em; min-width: 0; flex: none; padding-left: 6px; padding-right: 4px; }
+.bp-act-row.bp-squad-row .bp-squad + .bp-squad { margin-left: 4px; }
+
+/* ...e così la ripartizione della presa: un cursore per reparto. */
+.cq-row { display: grid; grid-template-columns: 6.5em 1fr 3.2em; align-items: center; gap: 8px; margin: 4px 0; }
+.cq-row .cq-lbl { color: var(--parchment-muted); font-size: .85rem; white-space: nowrap; }
+.cq-row .cq-v { text-align: right; color: var(--gold-bright); font-variant-numeric: tabular-nums; }
+.cq-row .cq-r, .cq-r { width: 100%; accent-color: var(--gold-bright); }
+
 .moh-odds {
     text-align: center;
     font-size: .88rem;

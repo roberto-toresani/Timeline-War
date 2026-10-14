@@ -116,6 +116,18 @@ const MultiplayerSync = (function () {
     // l'intervento in silenzio. Qui lo scrive chiunque sia admin e lo applica il
     // regista (app.js, isInterventionApplier), che poi lo cancella.
     const INTERVENTION_DOC = 'admin-intervention';
+    // AGGIORNA TUTTI (regola dell'utente): dopo un deploy l'admin preme un bottone
+    // e ogni pagina aperta si ricarica col codice nuovo. È un doc della collezione
+    // `presence` (aperta a tutti: niente regole da ripubblicare) con { v, by }: `v`
+    // è un timbro che cresce a ogni richiesta, `by` la sessione che l'ha mandata
+    // (che non ricarica sé stessa). Il PRIMO valore che una pagina vede è la sua
+    // base e non fa ricaricare — se no chi apre adesso ripartirebbe in un loop.
+    // Le pagine col codice VECCHIO non conoscono questo canale: vale dal deploy
+    // successivo a quello che l'ha introdotto.
+    const RELOAD_DOC = 'app-reload';
+    let reloadListeners = [];
+    let reloadBase = null;        // il timbro visto al primo snapshot
+    let reloadSeen = false;
     let interventionListeners = [];
     let lastIntervention = null;
     let hasIntervention = false;
@@ -164,8 +176,10 @@ const MultiplayerSync = (function () {
             // Il doc del lease del driver vive in questa collezione ma NON è presenza:
             // si salta, o comparirebbe come un finto "regno preso".
             let interv = null;
+            let reloadSig = null;
             snap.forEach(d => {
                 if (d.id === INTERVENTION_DOC) { interv = d.data() || null; return; }
+                if (d.id === RELOAD_DOC) { reloadSig = d.data() || null; return; }
                 // driver-lease e driver-mail (deduplica mail del motore): non presenza.
                 if (d.id.indexOf('driver-') !== 0) map[d.id] = d.data();
             });
@@ -177,6 +191,13 @@ const MultiplayerSync = (function () {
                 lastIntervention = interv;
                 hasIntervention = true;
                 interventionListeners.forEach(cb => cb(interv));
+            }
+            // Aggiorna tutti: il primo timbro è la base, uno più nuovo è l'ordine.
+            const rv = reloadSig && typeof reloadSig.v === 'number' ? reloadSig.v : 0;
+            if (!reloadSeen) { reloadSeen = true; reloadBase = rv; }
+            else if (rv > (reloadBase || 0)) {
+                reloadBase = rv;
+                if (reloadSig.by !== clientId) reloadListeners.forEach(cb => cb(reloadSig));
             }
             lastPresence = map;
             hasPresence = true;
@@ -249,6 +270,17 @@ const MultiplayerSync = (function () {
             console.error('Errore salvataggio intervento:', err);
             return false;
         });
+    }
+
+    // AGGIORNA TUTTI: chi ascolta riceve { v, by } quando l'admin lo chiede.
+    function onReloadSignal(cb) { reloadListeners.push(cb); }
+    function requestReloadAll() {
+        if (!isConfigured || !presenceCol) return Promise.resolve(false);
+        return presenceCol.doc(RELOAD_DOC).set({ v: Date.now(), by: clientId })
+            .then(() => true).catch(err => {
+                console.error('Errore invio "aggiorna tutti":', err);
+                return false;
+            });
     }
 
     function onChatChange(cb) {
@@ -539,6 +571,8 @@ const MultiplayerSync = (function () {
         releaseDriver: releaseDriver,
         onInterventionChange: onInterventionChange,
         setIntervention: setIntervention,
+        onReloadSignal: onReloadSignal,
+        requestReloadAll: requestReloadAll,
         backupTurn: backupTurn,
         listBackups: listBackups,
         getBackup: getBackup,

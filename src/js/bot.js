@@ -45,6 +45,7 @@
             avanzata: 1,            // quota di superstiti che resta nella provincia presa
             build: ['capitale', 'strada', 'citta', 'mercato'],
             mercenari: 4,           // quanti se ne possono comprare in un turno, se servono a vincere
+            cavalieri: 3,           // quanti cavalieri al massimo per turno (Bestiame permettendo)
             baratto: 1.2,           // quanto deve ricevere per ogni unità che dà (§7)
             tradimento: 0.4,        // §Diplomazia: quanto è disposto a tradire un patto (0-1)
             dispiegamento: 'punta'
@@ -58,6 +59,7 @@
             avanzata: 0.6,
             build: ['capitale', 'strada', 'mercato', 'citta', 'fortezza'],
             mercenari: 1,
+            cavalieri: 2,
             baratto: 0.9,           // le risorse gli servono: tratta volentieri
             tradimento: 0.1,        // quasi mai: la parola data vale
             dispiegamento: 'fronte'
@@ -71,6 +73,7 @@
             avanzata: 0.8,
             build: ['capitale', 'strada', 'mercato', 'citta'],
             mercenari: 3,
+            cavalieri: 2,
             baratto: 1.1,
             tradimento: 0.85,       // colpisce dove è debole, patto o no
             dispiegamento: 'punta'
@@ -84,6 +87,7 @@
             avanzata: 1,
             build: ['capitale', 'strada', 'mercato'],
             mercenari: 4,
+            cavalieri: 4,
             baratto: 2.5,           // prende quello che vuole: quasi non baratta
             tradimento: 1,          // nessuna lealtà: un patto è solo una copertura
             dispiegamento: 'punta'
@@ -136,12 +140,35 @@
     // credendo di essere in pianura, né conta su mercenari come su sudditi.
     // `fromId` serve a sapere quanti dei partenti sono di ventura: senza, il bot
     // comprerebbe mercenari fidandosi di un pronostico che li ignora.
-    function winProbMerc(A, t, mercA) {
+    // I CAVALIERI entrano nello stesso conto: quelli del difensore valgono 1,45,
+    // i propri valgono quel che concedono le mura del bersaglio (RisikoBattle).
+    function winProbMerc(A, t, mercA, cavA) {
         return RisikoBattle.winForecast(A, (t.troops || 0) + (t.fort || 0), t.esponente,
-            mercA || 0, t.merc || 0).p;
+            mercA || 0, t.merc || 0, cavA || 0, t.cav || 0, t.fort || 0, t.terreno).p;
     }
     function winProb(A, t, fromId) {
-        return winProbMerc(A, t, fromId ? GA().mercEngaged(fromId, A) : 0);
+        const voluti = knightsFor(fromId, A, t);
+        return winProbMerc(A, t, fromId ? GA().mercEngagedWith(fromId, A, voluti) : 0,
+            fromId ? GA().cavEngaged(fromId, A, voluti) : 0);
+    }
+
+    // FANTI E CAVALIERI (regola dell'utente): reparti distinti, e il bot sceglie
+    // come un giocatore che sa le regole. Contro le MURA (Città, Capitale,
+    // Fortezza) o in terreno CHIUSO il cavaliere rende meno di quel che vale a
+    // casa (RisikoBattle.knightAttackValue): lì partono prima i fanti, e i
+    // cavalieri solo se i fanti non bastano a fare il numero (0 = "il meno
+    // possibile", troopsLeaving rialza da sé). Altrove undefined: la cavalleria
+    // carica per prima, com'è giusto in campo aperto.
+    function knightsFor(fromId, A, t) {
+        if (!fromId || !t) return undefined;
+        if (!GA().cavOf(fromId)) return undefined;
+        const kv = RisikoBattle.knightAttackValue(t.fort || 0, t.terreno);
+        if (!(kv < RisikoBattle.knightDefenceValue(t.terreno) || kv < 1.2)) return undefined;
+        // Il numero ESATTO di cavalieri: solo quelli che servono quando i fanti non
+        // bastano. Il motore prende alla lettera un ordine per reparti (orderFail):
+        // chiedere 0 cavalieri con 5 fanti per un attacco da 7 viene rifiutato.
+        const cav = GA().cavOf(fromId), fanti = troopsAt(fromId) - cav;
+        return Math.min(cav, Math.max(0, Math.floor(A) - fanti));
     }
 
     // ---------- il presidio contro le razzie delle terre di nessuno ----------
@@ -956,7 +983,8 @@
                 if (altro && D() && D().grantsNonAggression(player, altro)) return;
                 if (altro && DOC().isFriend(doc, t.owner)) return;
                 const p100 = RisikoBattle.winForecast(exp.carico,
-                    (t.troops || 0) + (t.fort || 0), t.esponente, exp.merc || 0, t.merc || 0).p;
+                    (t.troops || 0) + (t.fort || 0), t.esponente, exp.merc || 0, t.merc || 0,
+                    exp.cav || 0, t.cav || 0, t.fort || 0, t.terreno).p;
                 if (p100 < s.soglia) return;
                 const punti = p100 + (altro ? 0 : 0.3);
                 if (!best || punti > best.punti) best = { expId: exp.id, toId: t.id, punti };
@@ -1560,9 +1588,60 @@
             // Quota di ventura della provincia DOPO l'acquisto: i mercenari comprati
             // entrano nel mucchio e partono insieme agli altri, in proporzione.
             const mercA = GR().mercShare(mercOra + n, truppeOra + n, forza);
-            if (winProbMerc(forza, b.target, mercA) >= s.soglia) return { provId: b.fromId, n };
+            if (winProbMerc(forza, b.target, mercA,
+                GA().cavEngaged(b.fromId, forza, knightsFor(b.fromId, forza, b.target))) >= s.soglia) {
+                return { provId: b.fromId, n };
+            }
         }
         return null;
+    }
+
+    // ---------- FASE 2 · cavalieri ----------
+    // Un cavaliere costa poco in oro (50) ma una bestia (1 Bestiame), e vale 1,45
+    // fanti in campo aperto e in difesa: è il modo migliore di trasformare il
+    // Bestiame in eccesso in forza. Due freni, perché il Bestiame serve anche ad
+    // altro: (1) non si tocca quello che chiedono le costruzioni in programma
+    // (Città, Fortezza, Generale…) né quello che un obiettivo vuole in magazzino;
+    // (2) non si tocca l'oro della prossima costruzione (coinReserve), come per i
+    // mercenari. DOVE: sulla provincia da cui partirà il prossimo attacco, se è
+    // in campo aperto e senza mura (lì il cavaliere rende); altrimenti sul
+    // confine più minacciato, dove in difesa vale sempre 1,45.
+    function knightReserveBeast(player, s, og) {
+        let riserva = 0;
+        (s.build || []).forEach(type => {
+            if (type === 'capitale' && R().getCapitalPathFor(player)) return;
+            if (type === 'mercato' && GA().hasMarket(player)) return;
+            riserva = Math.max(riserva, (GR().COSTS[type] || {}).bestiame || 0);
+        });
+        if (og && og.stockFloor && og.stockFloor.bestiame) riserva = Math.max(riserva, og.stockFloor.bestiame);
+        return riserva;
+    }
+    function knightPlan(player, s, st, og) {
+        const quanti = s.cavalieri || 0;
+        if (!quanti) return null;
+        const cost = GR().costFor('cavaliere', player);
+        const bestie = ((player.scorte || {}).bestiame || 0) - knightReserveBeast(player, s, og);
+        const perBestia = cost.bestiame || 0;
+        const perOro = cost.monete || 0;
+        const oro = Math.max(0, (player.monete || 0) - coinReserve(player, s, og));
+        let n = quanti;
+        if (perBestia) n = Math.min(n, Math.floor(Math.max(0, bestie) / perBestia));
+        if (perOro) n = Math.min(n, Math.floor(oro / perOro));
+        if (n < 1) return null;
+
+        // Dove: la base del prossimo attacco, se lì la carica rende.
+        const b = bestAttack(player, s, st, 0, og);
+        if (b && !b.target.viaMare && knightsFor(b.fromId, 1, b.target) === undefined) {
+            return { provId: b.fromId, n: Math.min(n, roomAt(b.fromId)) };
+        }
+        // Altrimenti il confine più scoperto o minacciato (difesa: 1,45 sempre).
+        let dove = null, peggio = -1;
+        survey(player).forEach(p => {
+            const minaccia = (p.scoperta || 0) * 2 + (p.minaccia || 0);
+            if (minaccia > peggio) { peggio = minaccia; dove = p.id; }
+        });
+        if (!dove || peggio <= 0) return null;
+        return { provId: dove, n: Math.min(n, roomAt(dove)) };
     }
 
     // Quante truppe impegnare: il minimo che tiene la probabilità sopra soglia,
@@ -1570,7 +1649,7 @@
     function engagedFor(best, s) {
         const D = best.target.troops + best.target.fort;
         let minimo = 1;
-        while (minimo < best.disponibili && winProb(minimo, best.target) < s.soglia) {
+        while (minimo < best.disponibili && winProb(minimo, best.target, best.fromId) < s.soglia) {
             minimo++;
         }
         const voluto = Math.ceil(best.disponibili * s.impegno);
@@ -2159,6 +2238,13 @@
             for (let k = 0; merc && k < merc.n; k++) {
                 yield GA().recruit(player, merc.provId, 'mercenario');
             }
+            // Cavalieri: Bestiame in eccesso convertito in cavalleria.
+            const cav = knightPlan(player, s, st, og);
+            for (let k = 0; cav && k < cav.n; k++) {
+                const r = GA().recruit(player, cav.provId, 'cavaliere');
+                if (!r || !r.ok) break;
+                yield r;
+            }
         }
         yield* advanceTo(player, 'attacca');
 
@@ -2186,7 +2272,10 @@
             const engaged = engagedFor(best, s);
             // Il 7º argomento è il TRADIMENTO (§Diplomazia): serve solo quando il
             // bersaglio è di un partner senza consenso — bestAttack l'ha già deciso.
-            yield GA().attack(player, best.fromId, best.toId, engaged, undefined, undefined, best.tradimento);
+            const voluti = knightsFor(best.fromId, engaged, best.target);
+            yield GA().attack(player, best.fromId, best.toId,
+                voluti === undefined ? engaged : { n: engaged, cav: voluti },
+                undefined, undefined, best.tradimento);
             // La conquista si chiude SUBITO: finché è aperta il motore blocca
             // qualsiasi altra azione (compreso il passaggio di fase).
             const pend = GA().conquestPending(player);

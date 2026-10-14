@@ -33,6 +33,9 @@
         generale:    { monete: 500, bestiame: 3, grano: 3, argilla: 1 },
         mercenario:  { monete: 150 },
         guarnigione: { bestiame: 2, grano: 2, argilla: 1 },
+        // Il cavallo è Bestiame (regola dell'utente: 1 Bestiame + 50 monete): il
+        // prezzo vero del cavaliere è la bestia, non l'oro.
+        cavaliere:   { monete: 50, bestiame: 1 },
         spia:        { monete: 300 }
     };
 
@@ -48,6 +51,7 @@
         generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
         mercenario:  '+1 soldato che resta per sempre, ma è di ventura: in battaglia vale meno di un suddito e quanto renda si sa solo sul campo (§9).',
         guarnigione: '+2 soldati di rinforzo: restano per sempre, sono truppe normali.',
+        cavaliere:   '+1 cavaliere che resta per sempre: in battaglia vale 1,45 fanti, ma all\'assalto delle mura rende meno di un fante (0,9 contro Città e Capitale, 0,7 contro una Fortezza). In difesa vale 1,45. In terreno chiuso (monti, foreste, paludi) ogni suo valore scende di un quarto. È un reparto a sé: in attacco, conquista e spostamento scegli quanti fanti e quanti cavalieri muovere.',
         spia:        'Perlustra un territorio lontano: per 3 turni vedi di chi sono quella provincia e le sue limitrofe — le bandiere, non le guarnigioni (§9.3).'
     };
 
@@ -117,8 +121,43 @@
     // ventura (§9), la Guarnigione è rinforzo puro (soldati normali). TEMPORARY è
     // ormai vuoto — nessuna recluta scade più a fine turno — ma resta come elenco
     // perché `expireTemporaries` lo consulta ancora per ripulire i salvataggi vecchi.
-    const RECRUITABLE = ['mercenario', 'guarnigione'];
+    const RECRUITABLE = ['mercenario', 'guarnigione', 'cavaliere'];
     const TEMPORARY = [];
+
+    // CAVALIERI: un gruppo di soldati si descrive con { n, merc, cav } (quanti in
+    // tutto, quanti di ventura, quanti a cavallo). Chi PARTE: i cavalieri per
+    // primi (sono l'avanguardia, e chi li compra li compra per mandarli), poi la
+    // ventura in quota proporzionale sui fanti restanti (mercShare, §5.3).
+    // `cavWanted` (regola dell'utente: fanti e cavalieri sono reparti distinti)
+    // è quanti cavalieri ha SCELTO il giocatore; omesso, partono per primi. Mai
+    // meno di quanti ne servono a fare il numero quando i fanti non bastano.
+    function troopsLeaving(troops, merc, cav, leaving, cavWanted) {
+        troops = Math.max(0, Math.floor(troops || 0));
+        cav = Math.max(0, Math.min(Math.floor(cav || 0), troops));
+        merc = Math.max(0, Math.min(Math.floor(merc || 0), troops - cav));
+        leaving = Math.max(0, Math.min(Math.floor(leaving || 0), troops));
+        const voluti = (cavWanted === undefined || cavWanted === null)
+            ? leaving : Math.max(0, Math.floor(cavWanted));
+        const c = Math.min(cav, leaving, Math.max(voluti, leaving - (troops - cav)));
+        return { n: leaving, cav: c, merc: mercShare(merc, troops - cav, leaving - c) };
+    }
+
+    // Chi CADE, di `lost` caduti in un gruppo {n, merc, cav}: la ventura per
+    // prima (§5.3), poi fanti e cavalieri in proporzione. Restituisce quanti di
+    // ventura e quanti a cavallo sono caduti.
+    function casualtySplit(g, lost) {
+        const n = Math.max(0, Math.floor((g && g.n) || 0));
+        const merc = Math.max(0, Math.min(Math.floor((g && g.merc) || 0), n));
+        const cav = Math.max(0, Math.min(Math.floor((g && g.cav) || 0), n - merc));
+        lost = Math.max(0, Math.min(Math.floor(lost || 0), n));
+        const lm = Math.min(merc, lost);
+        const rest = lost - lm, regolari = n - merc;
+        let lc = regolari > 0 ? Math.round(rest * cav / regolari) : 0;
+        // Non più cavalieri di quanti ce n'erano, e non meno di quanti ne restano
+        // da far cadere una volta finiti i fanti.
+        lc = Math.max(rest - (regolari - cav), Math.min(lc, cav, rest));
+        return { merc: lm, cav: lc };
+    }
 
     // MERCENARI (§5.3): quanti dei `partenti` sono di ventura. PROPORZIONALE alla
     // quota della provincia, e non è un dettaglio di comodo: lasciar scegliere
@@ -332,7 +371,7 @@
         strada: 'Strada', barca: 'Nave', capitale: 'Capitale', citta: 'Città',
         fortezza: 'Fortezza', vascello: 'Vascello', mercato: 'Mercato',
         generale: 'Generale', mercenario: 'Mercenario', guarnigione: 'Guarnigione',
-        spia: 'Spia'
+        cavaliere: 'Cavaliere', spia: 'Spia'
     };
 
     // Testo leggibile di un costo: "500 monete + 5 soldati", "1 Pietra + 1 soldato".
@@ -633,7 +672,7 @@
     const api = {
         TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime,
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
-        BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare,
+        BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare, troopsLeaving, casualtySplit,
         WELFARE, WELFARE_COST, WELFARE_INDEX,
         welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
         NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, CONQUEST_BOUNTY,

@@ -36,6 +36,20 @@
 //   Le PERDITE restano sulle truppe reali: la ventura sposta la probabilita', non
 //   fa vittime extra — esattamente come le mura.
 //
+//   CAVALIERI (regola dell'utente): un cavaliere e' un soldato dappertutto TRANNE
+//   nel tiro di battaglia, dove pesa KNIGHT_VALUE = 1,45 fanti. Nessuna banda:
+//   un cavaliere e' giurato e addestrato, il suo valore e' certo. L'eccezione e'
+//   in ATTACCO, e la decidono le MURA del difensore (il `fort` che gia' esiste):
+//   all'assalto di una Citta' o di una Capitale vale KNIGHT_VS_CITY, di una
+//   Fortezza KNIGHT_VS_FORT — meno di un fante, perche' una carica non scala un
+//   muro. In DIFESA vale sempre 1,45, dietro le mura o in campo aperto.
+//   Sopra a tutto pesa il TERRENO della provincia contesa (js/terrain.js): fra
+//   monti, gole, foreste e paludi (terreno chiuso) un cavallo non carica, e ogni
+//   valore del cavaliere — attacco, assalto, difesa — si moltiplica per
+//   KNIGHT_TERRAIN.chiuso (0,75). In terreno aperto resta pieno.
+//     Truppe efficaci  A_eff = (A - mA - cA) + mA*rho_A + cA*kv_A
+//   Le perdite restano sulle truppe reali, come per ventura e mura.
+//
 //   PERDITE — tutto ruota attorno all'EQUILIBRIO I = 4 P_A (1 - P_A) (0 = esito
 //   scontato, 1 = perfetto 50/50): uno scontro serrato e' un bagno di sangue per
 //   TUTTI, uno squilibrato costa poco a chi vince e polverizza chi perde. Ogni
@@ -92,6 +106,33 @@
     const MERC_MIN = MERC_VALUE - MERC_SPREAD;
     const MERC_MAX = MERC_VALUE + MERC_SPREAD;
 
+    // ====================== CAVALIERI ======================
+    // Le tre manopole del cavaliere, tutte qui: plancia e IA leggono da qui.
+    const KNIGHT_VALUE = 1.45;   // in campo aperto e in difesa: +45% su un fante
+    const KNIGHT_VS_CITY = 0.9;  // all'assalto di una Citta' o di una Capitale
+    const KNIGHT_VS_FORT = 0.7;  // all'assalto di una Fortezza
+
+    // Il terreno (regola dell'utente): fra monti e paludi la carica non c'e'.
+    // Chiave = Terrain key della provincia contesa; senza terreno vale 1.
+    const KNIGHT_TERRAIN = { aperto: 1, chiuso: 0.75 };
+    function knightTerrain(terreno) {
+        const t = KNIGHT_TERRAIN[terreno];
+        return t > 0 ? t : 1;
+    }
+
+    // Quanto vale un cavaliere che ATTACCA, dato il bonus mura del difensore
+    // (GameRules.defenceBonus: 0 nessuna, 1 Citta'/Capitale, 3 Fortezza) e il
+    // terreno della provincia attaccata.
+    function knightAttackValue(fort, terreno) {
+        fort = Math.max(0, Math.floor(fort || 0));
+        const base = fort >= 3 ? KNIGHT_VS_FORT : fort >= 1 ? KNIGHT_VS_CITY : KNIGHT_VALUE;
+        return Math.round(base * knightTerrain(terreno) * 100) / 100;
+    }
+    // ...e uno che DIFENDE: niente mura che tengano, conta solo il terreno.
+    function knightDefenceValue(terreno) {
+        return Math.round(KNIGHT_VALUE * knightTerrain(terreno) * 100) / 100;
+    }
+
     // ====================== PERDITE E RITIRATA (§9) ======================
     // Le manopole delle perdite, tutte qui. Tutto ruota attorno all'EQUILIBRIO
     // della battaglia I = 4*P_A*P_D (0 = esito scontato, 1 = perfetto 50/50):
@@ -125,10 +166,14 @@
     // Truppe EFFICACI: i regolari valgono 1, i mercenari `rho`. Funziona anche su
     // Deff (= difensori + mura): si toglie merc*(1-rho), e le mura non sono uomini
     // di ventura, quindi non ne vengono toccate.
-    function effective(n, merc, rho) {
+    // I CAVALIERI (cav, che valgono kv l'uno) si sommano allo stesso modo: sono
+    // uomini fuori dalla ventura, quindi la loro quota si conta su n - merc.
+    function effective(n, merc, rho, cav, kv) {
         n = Math.max(0, n);
         merc = clamp(merc || 0, 0, n);
-        return Math.max(0, n - merc * (1 - rho));
+        cav = clamp(cav || 0, 0, Math.max(0, n - merc));
+        const k = (kv > 0) ? kv : KNIGHT_VALUE;
+        return Math.max(0, n - merc * (1 - rho) + cav * (k - 1));
     }
 
     // Punti di quadratura sulla U(-1,1) (regola del punto medio, 5 celle): serve a
@@ -141,29 +186,35 @@
     // `max` gli estremi (quel che si rischia). Senza mercenari i tre valori
     // coincidono e si torna esattamente a winChance. E' l'unico posto da cui
     // plancia e IA leggono un pronostico: se divergessero, il gioco mentirebbe.
-    function winForecast(A, Deff, k, mercA, mercD) {
+    // CAVALIERI: `cavA`/`cavD` quanti per parte; `fort` (il bonus mura, gia'
+    // sommato in Deff) serve solo a sapere quanto vale un cavaliere che attacca.
+    function winForecast(A, Deff, k, mercA, mercD, cavA, cavD, fort, terreno) {
         A = Math.max(0, A); Deff = Math.max(0, Deff);
         mercA = clamp(Math.floor(mercA || 0), 0, A);
         mercD = clamp(Math.floor(mercD || 0), 0, Deff);
+        cavA = clamp(Math.floor(cavA || 0), 0, A - mercA);
+        cavD = clamp(Math.floor(cavD || 0), 0, Deff - mercD);
+        const kvA = knightAttackValue(fort, terreno), kvD = knightDefenceValue(terreno);
+        const extra = { cavA: cavA, cavD: cavD, kvA: kvA, kvD: kvD };
         if (!mercA && !mercD) {
-            const p = winChance(A, Deff, k);
-            return { p: p, min: p, max: p, banda: 0, mercA: 0, mercD: 0 };
+            const p = winChance(effective(A, 0, 1, cavA, kvA), effective(Deff, 0, 1, cavD, kvD), k);
+            return Object.assign({ p: p, min: p, max: p, banda: 0, mercA: 0, mercD: 0 }, extra);
         }
         let s = 0;
         for (let i = 0; i < QUAD.length; i++) {
-            const ea = effective(A, mercA, mercYield(QUAD[i]));
+            const ea = effective(A, mercA, mercYield(QUAD[i]), cavA, kvA);
             for (let j = 0; j < QUAD.length; j++) {
-                s += winChance(ea, effective(Deff, mercD, mercYield(QUAD[j])), k);
+                s += winChance(ea, effective(Deff, mercD, mercYield(QUAD[j]), cavD, kvD), k);
             }
         }
         // Il caso peggiore e' la mia ventura che si sfalda MENTRE regge la sua.
-        const min = winChance(effective(A, mercA, MERC_MIN), effective(Deff, mercD, MERC_MAX), k);
-        const max = winChance(effective(A, mercA, MERC_MAX), effective(Deff, mercD, MERC_MIN), k);
-        return {
+        const min = winChance(effective(A, mercA, MERC_MIN, cavA, kvA), effective(Deff, mercD, MERC_MAX, cavD, kvD), k);
+        const max = winChance(effective(A, mercA, MERC_MAX, cavA, kvA), effective(Deff, mercD, MERC_MIN, cavD, kvD), k);
+        return Object.assign({
             p: s / (QUAD.length * QUAD.length),
             min: min, max: max, banda: max - min,
             mercA: mercA, mercD: mercD
-        };
+        }, extra);
     }
 
     // Risolve una battaglia. rng() opzionale: deve restituire U(0,1) (default
@@ -172,7 +223,7 @@
     // Restituisce null se non c'e' battaglia possibile (nessuna truppa da
     // entrambe le parti). Tutti i valori casuali e intermedi vengono restituiti
     // per trasparenza/log.
-    function resolveBattle(A, D, fort, rng, esponente, mercA, mercD) {
+    function resolveBattle(A, D, fort, rng, esponente, mercA, mercD, cavA, cavD, terreno) {
         // Retro-compat: se il 3o argomento e' una funzione, e' il rng (nessun bonus).
         if (typeof fort === 'function') { rng = fort; fort = 0; }
         rng = rng || Math.random;
@@ -192,8 +243,13 @@
         mercD = clamp(Math.floor(mercD || 0), 0, D);
         const rhoA = mercA ? mercYield(rng() * 2 - 1) : 1;
         const rhoD = mercD ? mercYield(rng() * 2 - 1) : 1;
-        const Aeff = effective(A, mercA, rhoA);
-        const DeffM = effective(Deff, mercD, rhoD);
+        // CAVALIERI: nessun tiro, il loro valore e' certo. In attacco lo decidono
+        // le mura del difensore, in difesa vale sempre KNIGHT_VALUE.
+        cavA = clamp(Math.floor(cavA || 0), 0, A - mercA);
+        cavD = clamp(Math.floor(cavD || 0), 0, D - mercD);
+        const kvA = knightAttackValue(fort, terreno), kvD = knightDefenceValue(terreno);
+        const Aeff = effective(A, mercA, rhoA, cavA, kvA);
+        const DeffM = effective(Deff, mercD, rhoD, cavD, kvD);
 
         const P_A = winChance(Aeff, DeffM, k);
         const P_D = 1 - P_A;
@@ -250,6 +306,8 @@
             // battaglia li mostra — e' la parte di esito che il giocatore non
             // puo' dedurre da solo.
             mercA: mercA, mercD: mercD, rhoA: rhoA, rhoD: rhoD,
+            // Cavalieri in campo e quanto valeva ciascuno (in attacco dipende dalle mura).
+            cavA: cavA, cavD: cavD, kvA: kvA, kvD: kvD,
             Aeff: Aeff, DeffMerc: DeffM,
             P_A: P_A, P_D: P_D, I: I,
             u: u, z: z, zr: zr,
@@ -260,6 +318,9 @@
     const api = {
         resolveBattle: resolveBattle, winChance: winChance, winForecast: winForecast,
         mercYield: mercYield, effective: effective, clamp: clamp,
+        knightAttackValue: knightAttackValue, knightDefenceValue: knightDefenceValue,
+        KNIGHT_TERRAIN: KNIGHT_TERRAIN,
+        KNIGHT_VALUE: KNIGHT_VALUE, KNIGHT_VS_CITY: KNIGHT_VS_CITY, KNIGHT_VS_FORT: KNIGHT_VS_FORT,
         DEFAULT_EXP: DEFAULT_EXP,
         MERC_VALUE: MERC_VALUE, MERC_SPREAD: MERC_SPREAD, MERC_MIN: MERC_MIN, MERC_MAX: MERC_MAX
     };

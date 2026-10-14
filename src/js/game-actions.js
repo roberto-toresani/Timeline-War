@@ -162,7 +162,75 @@
     // Quanti degli `n` che lasciano questa provincia sono di ventura. Si legge
     // PRIMA di togliere i soldati (dopo, la quota è già cambiata).
     function mercLeaving(path, n) {
-        return GR().mercShare(E().merc(path), E().countPiece(path, 'soldato'), n);
+        return groupLeaving(path, n).merc;
+    }
+
+    // ---------- cavalieri (regola dell'utente) ----------
+    // Come la ventura, il cavaliere è un soldato dappertutto e conta solo nel
+    // tiro di battaglia (RisikoBattle). Qui si decide CHI si muove e CHI cade,
+    // con un gruppo { n, merc, cav }:
+    //   - PARTENZE: i cavalieri per primi (l'avanguardia), poi la ventura in
+    //     quota proporzionale sui fanti (GameRules.troopsLeaving).
+    //   - PERDITE: la ventura per prima, poi fanti e cavalieri in proporzione
+    //     (GameRules.casualtySplit).
+    // Chi aggiunge un'azione che porta soldati da una provincia all'altra passa
+    // da groupLeaving → takeGroup → putGroup, e da loseFromPath per i caduti sul
+    // posto: così ventura e cavalleria viaggiano con gli uomini.
+    function groupLeaving(path, n, cavWanted) {
+        return GR().troopsLeaving(E().countPiece(path, 'soldato'), E().merc(path), E().cav(path), n, cavWanted);
+    }
+
+    // FANTI E CAVALIERI SONO REPARTI DISTINTI (regola dell'utente): un ordine di
+    // truppe è un numero (i cavalieri partono per primi — i bot e le strade
+    // vecchie) oppure { n, cav }: quanti in tutto e quanti di loro a cavallo,
+    // scelti dal giocatore. `cav` resta undefined se non è stato scelto.
+    function troopOrder(x) {
+        if (x && typeof x === 'object') {
+            const cav = (x.cav === undefined || x.cav === null) ? undefined : Math.max(0, Math.floor(x.cav));
+            return { n: Math.floor(x.n || 0), cav };
+        }
+        return { n: Math.floor(x), cav: undefined };
+    }
+    // Un ordine scelto a mano deve stare nei reparti che ci sono davvero.
+    function orderFail(path, ord) {
+        if (ord.cav === undefined) return null;
+        const cav = E().cav(path), fanti = E().countPiece(path, 'soldato') - cav;
+        if (ord.cav > cav) {
+            return fail('In ' + R().provinceLabel(path) + ' hai solo ' + cav +
+                (cav === 1 ? ' cavaliere.' : ' cavalieri.'));
+        }
+        if (ord.cav > ord.n) return fail('I cavalieri sono parte degli uomini che partono.');
+        if (ord.n - ord.cav > fanti) {
+            return fail('In ' + R().provinceLabel(path) + ' hai solo ' + fanti + (fanti === 1 ? ' fante.' : ' fanti.'));
+        }
+        return null;
+    }
+    function takeGroup(path, g) {
+        const mp = E().merc(path), cp = E().cav(path);
+        E().addPiece(path, 'soldato', -g.n);
+        E().setMerc(path, mp - (g.merc || 0));
+        E().setCav(path, cp - (g.cav || 0));
+    }
+    function putGroup(path, g) {
+        if (!g || !(g.n > 0)) return;
+        E().addPiece(path, 'soldato', g.n);
+        if (g.merc) E().addMerc(path, g.merc);
+        if (g.cav) E().addCav(path, g.cav);
+    }
+    // Il gruppo che resta dopo `lost` caduti.
+    function survivorsOf(g, lost) {
+        const c = GR().casualtySplit(g, lost);
+        return { n: Math.max(0, g.n - lost), merc: g.merc - c.merc, cav: g.cav - c.cav };
+    }
+    // Caduti SUL POSTO (difensore che regge, peste, razzia respinta).
+    function loseFromPath(path, lost) {
+        lost = Math.max(0, Math.floor(lost || 0));
+        if (!lost) return;
+        const g = { n: E().countPiece(path, 'soldato'), merc: E().merc(path), cav: E().cav(path) };
+        const c = GR().casualtySplit(g, lost);
+        E().addPiece(path, 'soldato', -lost);
+        E().setMerc(path, g.merc - c.merc);
+        E().setCav(path, g.cav - c.cav);
     }
 
     function garrisonFail(path) {
@@ -268,7 +336,7 @@
             // difende, e pesa anche qui (§5.3).
             const mercDif = E().merc(tp);
             const res = RisikoBattle.resolveBattle(attaccanti, difTruppe, fort, null, terrainExp(tp),
-                0, mercDif);
+                0, mercDif, 0, E().cav(tp), terrainOf(tp));
             if (!res) return;
 
             // Gli attaccanti lasciano comunque la provincia neutrale (resta il
@@ -303,6 +371,7 @@
                 }
                 E().addPiece(tp, 'soldato', res.attackerSurvivors);
                 E().setMerc(tp, 0);           // i contratti sono morti col regno che li pagava
+                E().setCav(tp, 0);            // e i cavalieri sono caduti con lui
                 E().setArmyColor(tp, null);
                 // LA FEDE SEGUE LA SPADA anche per le terre di nessuno (regola
                 // dell'utente): la provincia presa prende la confessione della
@@ -325,8 +394,7 @@
             } else {
                 // Respinta: il difensore perde solo i caduti, tiene la provincia.
                 const caduti = difTruppe - res.defenderSurvivors;
-                E().addPiece(tp, 'soldato', -caduti);
-                E().setMerc(tp, mercDif - caduti);   // cadono per primi i mercenari
+                loseFromPath(tp, caduti);   // cadono per primi i mercenari, poi fanti e cavalieri
                 esito = 'respinta';
             }
             E().redrawProvince(np);
@@ -1074,12 +1142,10 @@
         if (disp < Math.max(1, minimo)) return null;
         const tetto = (typeof o.forza === 'number' && o.forza > 0) ? Math.floor(o.forza) : disp;
         const soldati = Math.min(disp, tetto);
-        const mercPrima = E().merc(daPath);
-        const merc = mercLeaving(daPath, soldati);
-        E().addPiece(daPath, 'soldato', -soldati);
-        E().setMerc(daPath, mercPrima - merc);
+        const g = groupLeaving(daPath, soldati);
+        takeGroup(daPath, g);
         E().redrawProvince(daPath);
-        return { soldati, merc, fromId: daPath.id, fromLabel: R().provinceLabel(daPath) };
+        return { soldati, merc: g.merc, cav: g.cav, fromId: daPath.id, fromLabel: R().provinceLabel(daPath) };
     }
 
     // CROCIATE — l'oste SBARCA e assalta `metaId`: stessa battaglia dello sbarco
@@ -1092,10 +1158,10 @@
         const regno = R().players().find(p => p.name === regnoName);
         const to = E().path(metaId);
         if (!regno || !to || !host || host.soldati <= 0) return null;
-        const mossi = host.soldati, mercMossi = host.merc || 0;
+        const mossi = host.soldati, mercMossi = host.merc || 0, cavMossi = host.cav || 0;
+        const oste = { n: mossi, merc: mercMossi, cav: cavMossi };
         if (E().owner(to) === regnoName) {
-            E().addPiece(to, 'soldato', mossi);
-            if (mercMossi) E().addMerc(to, mercMossi);
+            putGroup(to, oste);
             E().redrawProvince(to);
             return { regno: regnoName, metaId, metaLabel: R().provinceLabel(to),
                 rinforzo: true, vinta: true, superstiti: mossi };
@@ -1104,10 +1170,11 @@
         const fort = GR().defenceBonus(unitsOf([to]));
         const difensore = E().owner(to) || 'Neutrale';
         const mercDif = E().merc(to);
-        const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to), mercMossi, mercDif);
+        const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to), mercMossi, mercDif,
+            cavMossi, E().cav(to), terrainOf(to));
         if (!res) return null;
-        const mercArrivati = res.attackerWins ? Math.max(0, mercMossi - res.losses) : 0;
-        const conversione = applyBattleOutcome(regno, to, res, defTroops, mercArrivati);
+        const arrivati = res.attackerWins ? survivorsOf(oste, res.losses) : null;
+        const conversione = applyBattleOutcome(regno, to, res, defTroops, arrivati);
         E().redrawProvince(to);
         E().redrawRoads();
         return {
@@ -1245,9 +1312,7 @@
             const disp = GR().spendableTroops(E().countPiece(path, 'soldato'));
             const persi = Math.min(want, disp);
             if (persi <= 0) return;
-            const mercPrima = E().merc(path);
-            E().addPiece(path, 'soldato', -persi);
-            E().setMerc(path, mercPrima - persi);   // i mercenari cadono per primi (§5.3)
+            loseFromPath(path, persi);   // i mercenari cadono per primi (§5.3)
             E().redrawProvince(path);
             colpiti.push({ prov: path.id, label: R().provinceLabel(path), persi, capitale: !!isCapital });
         }
@@ -1942,7 +2007,9 @@
             (gratis ? ' (gratuita).' : '.'), { prov: aId, prov2: bId });
     }
 
-    // Reclutamento (§5.3). Due unità, entrambe permanenti:
+    // Reclutamento (§5.3). Tre unità, tutte permanenti:
+    //   Cavaliere   — 1 soldato a cavallo: entra in `data-cav` e in battaglia vale
+    //                 1,45 fanti (meno all'assalto delle mura, RisikoBattle).
     //   Guarnigione — 2 soldati di rinforzo, truppe normali che restano.
     //   Mercenario  — 1 soldato che RESTA per sempre, ma è di ventura: entra in
     //                 `data-merc` e da lì pesa su ogni battaglia della provincia
@@ -1969,12 +2036,21 @@
         // Il Mercenario entra in `data-merc` (ventura, §9); la Guarnigione è
         // rinforzo puro — soldati normali che restano, niente da segnare.
         if (type === 'mercenario') E().addMerc(path, n);
+        // Il Cavaliere entra in `data-cav`: un soldato che in battaglia vale 1,45.
+        if (type === 'cavaliere') E().addCav(path, n);
 
         E().redrawProvince(path);
         E().refresh();
         E().save();
         if (type === 'guarnigione') {
             return done('+' + n + ' soldati di rinforzo in ' + R().provinceLabel(path) + '.',
+                { prov: provId });
+        }
+        if (type === 'cavaliere') {
+            const cav = E().cav(path);
+            return done('+1 cavaliere in ' + R().provinceLabel(path) + ' (' + cav +
+                ' in tutto): in battaglia vale 1,45 fanti, ' +
+                'ma all\'assalto delle mura rende meno di un fante, e in terreno chiuso un quarto in meno. In attacco e negli spostamenti scegli quanti fanti e quanti cavalieri muovere.',
                 { prov: provId });
         }
         // Il mercenario si paga due volte: una in monete, una in affidabilità. La
@@ -2714,8 +2790,10 @@
                 ' non tocca ' + R().provinceLabel(from) + '.');
         }
         const mobili = spare(from);
-        n = Math.floor(n);
+        const ordR = troopOrder(n);
+        n = ordR.n;
         if (!(n > 0)) return fail('Indica quanti soldati mandare.');
+        const ordErrR = orderFail(from, ordR); if (ordErrR) return ordErrR;
         if (!mobili) return garrisonFail(from);
         if (n > mobili) {
             return fail('Da ' + R().provinceLabel(from) + ' possono partire al massimo ' + mobili +
@@ -2724,13 +2802,10 @@
         const room = roomFor(to);
         if (n > room) return fail(R().provinceLabel(to) + ' regge solo altri ' + room + ' soldati.');
 
-        const mercPrima = E().merc(from);
-        const mercMossi = mercLeaving(from, n);
-        E().addPiece(from, 'soldato', -n);
-        E().setMerc(from, mercPrima - mercMossi);
+        const g = groupLeaving(from, n, ordR.cav);
+        takeGroup(from, g);
         consumePlaced(player, fromId, n);
-        E().addPiece(to, 'soldato', n);
-        E().addMerc(to, mercMossi);
+        putGroup(to, g);
         E().redrawProvince(from);
         E().redrawProvince(to);
 
@@ -2805,6 +2880,7 @@
             // bersaglio come il terreno, così plancia e bot pronosticano con lo
             // stesso numero che userà la battaglia.
             merc: E().merc(p),
+            cav: E().cav(p),   // cavalieri del difensore: valgono 1,45 in difesa
             fort: GR().defenceBonus(unitsOf([p])),
             terreno: terrainOf(p),
             esponente: terrainExp(p),
@@ -3007,9 +3083,11 @@
     // `mercIn` = quanti dei superstiti che entrano nella provincia presa sono di
     // ventura (§5.3). La ventura del difensore la si legge qui: se perde tutto
     // sparisce con lui, se regge perde i suoi caduti per primi.
+    // `mercIn` può essere anche il GRUPPO dei superstiti { n, merc, cav }: così
+    // entrano nella provincia presa anche i cavalieri sopravvissuti.
     function applyBattleOutcome(winner, to, res, defTroops, mercIn) {
         const fedeVincitore = imposedFaithOf(winner);
-        const mercDif = E().merc(to);
+        const inGroup = (mercIn && typeof mercIn === 'object') ? mercIn : { merc: mercIn || 0, cav: 0 };
         // CONQUISTA DI UNA CAPITALE NEMICA (§Capitale): si legge PRIMA delle
         // mutazioni, quando `to` è ancora del difensore, se la provincia presa
         // ospita una Capitale e se il vincitore ne ha già una propria altrove.
@@ -3028,7 +3106,9 @@
             E().addPiece(to, 'soldato', res.attackerSurvivors);
             // La ventura della provincia adesso è solo quella arrivata: quella del
             // difensore è caduta con lui, e i suoi contratti non passano di mano.
-            E().setMerc(to, Math.max(0, mercIn || 0));
+            E().setMerc(to, Math.max(0, inGroup.merc || 0));
+            // Idem per la cavalleria: restano solo i cavalieri arrivati vivi.
+            E().setCav(to, Math.max(0, inGroup.cav || 0));
             E().setArmyColor(to, winner.color);
             pruneRoadsTouching(to.id);
             const conv = convertOnConquest(winner, to, fedeVincitore);
@@ -3073,8 +3153,7 @@
             return conv;
         }
         const caduti = defTroops - res.defenderSurvivors;
-        E().addPiece(to, 'soldato', -caduti);
-        E().setMerc(to, mercDif - caduti);   // i mercenari cadono per primi
+        loseFromPath(to, caduti);   // i mercenari cadono per primi, poi fanti e cavalieri
         return null;
     }
 
@@ -3118,8 +3197,10 @@
         // Parte al massimo tutto meno il presidio: la provincia di partenza non
         // resta mai vuota, nemmeno se l'attacco riesce.
         const partenti = spare(from);
-        engaged = Math.floor(engaged);
+        const ordA = troopOrder(engaged);
+        engaged = ordA.n;
         if (!(engaged > 0)) return fail('Indica quante truppe impegnare.');
+        const ordErrA = orderFail(from, ordA); if (ordErrA) return ordErrA;
         if (!partenti) return garrisonFail(from);
         if (engaged > partenti) {
             return fail('Da ' + R().provinceLabel(from) + ' possono partire al massimo ' + partenti +
@@ -3155,11 +3236,12 @@
         const terreno = terrainOf(to);
         // VENTURA (§5.3): parte la quota proporzionale della provincia, e il
         // difensore mette in campo la sua. Si contano PRIMA di muovere i soldati.
-        const mercPrima = E().merc(from);
-        const mercImp = mercLeaving(from, engaged);
-        const mercDif = E().merc(to);
+        // CAVALIERI: partono per primi; quelli del difensore valgono 1,45 in casa.
+        const gruppo = groupLeaving(from, engaged, ordA.cav);
+        const mercImp = gruppo.merc, cavImp = gruppo.cav;
+        const mercDif = E().merc(to), cavDif = E().cav(to);
         const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng, terrainExp(to),
-            mercImp, mercDif);
+            mercImp, mercDif, cavImp, cavDif, terreno);
         if (!res) return fail('Nessuna battaglia possibile.');
 
         // IL PATTO si scioglie QUI, non prima: solo ora l'attacco è certo (tutto
@@ -3181,14 +3263,15 @@
         recordAggression(difRegno, to, player.name, res.attackerWins ? 'presa' : 'respinto');
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
-        E().addPiece(from, 'soldato', -engaged);
-        E().setMerc(from, mercPrima - mercImp);
+        takeGroup(from, gruppo);
         consumePlaced(player, fromId, engaged);
 
         // Chi cade è di ventura per primo: dei mercenari partiti arrivano a
-        // destinazione solo quelli che avanzano dopo le perdite del vincitore.
+        // destinazione solo quelli che avanzano dopo le perdite del vincitore, e
+        // fanti e cavalieri cadono in proporzione (GameRules.casualtySplit).
         // Se l'attacco fallisce non arriva nessuno — sono morti tutti con gli altri.
-        const mercArrivati = res.attackerWins ? Math.max(0, mercImp - res.losses) : 0;
+        const arrivati = res.attackerWins ? survivorsOf(gruppo, res.losses) : null;
+        const mercArrivati = arrivati ? arrivati.merc : 0;
 
         // LO SBARCO È LA NAVE STESSA (§9.2): gli scafi imbarcati lasciano la loro
         // provincia e approdano in quella attaccata, comunque vada. Non si torna
@@ -3211,10 +3294,9 @@
         // perdite hanno colpito prima la ventura). Lo sbarco resta totale (§9.2):
         // chi non conquista la spiaggia è perduto con la nave, niente ritorno.
         const superstitiRitorno = (!res.attackerWins && !viaMare) ? res.attackerSurvivors : 0;
-        const mercRitorno = superstitiRitorno > 0
-            ? Math.max(0, mercImp - (engaged - superstitiRitorno)) : 0;
+        const ritorno = superstitiRitorno > 0 ? survivorsOf(gruppo, engaged - superstitiRitorno) : null;
         if (res.attackerWins) {
-            conversione = applyBattleOutcome(player, to, res, defTroops, mercArrivati);
+            conversione = applyBattleOutcome(player, to, res, defTroops, arrivati);
             // CONQUISTA VIA NAVE (§10, richiesta dell'utente): uno sbarco vinto
             // conta come conquista navale, cumulativa nella partita — la leggono i
             // template `conquisteNavali` (Polonia C3, Mori C5).
@@ -3244,10 +3326,7 @@
                 (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
         } else {
             applyBattleOutcome(player, to, res, defTroops, 0);
-            if (superstitiRitorno > 0) {
-                E().addPiece(from, 'soldato', superstitiRitorno);
-                if (mercRitorno > 0) E().addMerc(from, mercRitorno);
-            }
+            if (ritorno) putGroup(from, ritorno);
             const caduti = engaged - superstitiRitorno;
             msg = superstitiRitorno > 0
                 ? R().provinceLabel(to) + ' ha retto: ' + superstitiRitorno +
@@ -3293,6 +3372,8 @@
             battle: res, engaged, defTroops, fort, terreno,
             // Ventura in campo (§5.3): quanti per parte e quanti ne sono arrivati.
             mercImpegnati: mercImp, mercDifensore: mercDif, mercArrivati,
+            // Cavalleria in campo: quanti per parte e quanti sono arrivati.
+            cavImpegnati: cavImp, cavDifensore: cavDif, cavArrivati: arrivati ? arrivati.cav : 0,
             viaMare, scafo: viaMare && scafo ? scafo.tipo : null,
             scafiUsati: viaMare && scafo ? scafo.num : 0,
             fromId, toId, fromLabel, toLabel,
@@ -3359,9 +3440,11 @@
         if (!ancora) return fail(R().provinceLabel(from) + ' non ha uno sbocco sul mare aperto.');
 
         const cap = E().shipCapacity('vascello');
-        carico = Math.floor(carico);
+        const ordE = troopOrder(carico);
+        carico = ordE.n;
         const partenti = spare(from);            // il presidio minimo resta (§5)
         if (!(carico > 0)) return fail('Indica quanti uomini imbarcare.');
+        const ordErrE = orderFail(from, ordE); if (ordErrE) return ordErrE;
         if (!partenti) return garrisonFail(from);
         const tetto = Math.min(partenti, cap);
         if (carico > tetto) {
@@ -3372,17 +3455,16 @@
 
         // Uomini e nave lasciano la provincia: da ora vivono nella spedizione, in
         // mare aperto. La ventura parte in quota proporzionale, come in un attacco.
-        const mercPrima = E().merc(from);
-        const mercImb = mercLeaving(from, carico);
-        E().addPiece(from, 'soldato', -carico);
-        E().setMerc(from, mercPrima - mercImb);
+        const imb = groupLeaving(from, carico, ordE.cav);
+        const mercImb = imb.merc;
+        takeGroup(from, imb);
         consumePlaced(player, fromId, carico);
         E().removeShip(from, 'vascello');
 
         if (!Array.isArray(player.spedizioni)) player.spedizioni = [];
         const id = 'sp' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
         player.spedizioni.push({
-            id, dir, carico, merc: mercImb,
+            id, dir, carico, merc: mercImb, cav: imb.cav,
             x: ancora.x, y: ancora.y, turno: R().turn()
         });
 
@@ -3411,6 +3493,7 @@
                 owner: E().owner(p) || 'Neutrale',
                 troops: E().countPiece(p, 'soldato'),
                 merc: E().merc(p),
+                cav: E().cav(p),
                 fort: GR().defenceBonus(unitsOf([p])),
                 terreno: terrainOf(p),
                 esponente: terrainExp(p),
@@ -3449,12 +3532,13 @@
         }
         const carico = exp.carico;
         const mercImp = Math.min(exp.merc || 0, carico);
+        const cavImp = Math.min(exp.cav || 0, carico - mercImp);
+        const bordo = { n: carico, merc: mercImp, cav: cavImp };
         const dropExp = () => { player.spedizioni = (player.spedizioni || []).filter(s => s.id !== expId); };
 
         // APPRODO SU COSTA PROPRIA: nessuna battaglia, si sbarca e la nave ancora.
         if (E().owner(to) === player.name) {
-            E().addPiece(to, 'soldato', carico);
-            if (mercImp > 0) E().addMerc(to, mercImp);
+            putGroup(to, bordo);
             E().addShip(to, 'vascello', 0);
             dropExp();
             E().redrawProvince(to); E().refresh(); E().save();
@@ -3471,16 +3555,19 @@
         const toLabel = R().provinceLabel(to);
         const terreno = terrainOf(to);
         const mercDif = E().merc(to);
-        const res = RisikoBattle.resolveBattle(carico, defTroops, fort, rng, terrainExp(to), mercImp, mercDif);
+        const cavDif = E().cav(to);
+        const res = RisikoBattle.resolveBattle(carico, defTroops, fort, rng, terrainExp(to), mercImp, mercDif,
+            cavImp, cavDif, terreno);
         if (!res) return fail('Nessuna battaglia possibile.');
-        const mercArrivati = res.attackerWins ? Math.max(0, mercImp - res.losses) : 0;
+        const arrivati = res.attackerWins ? survivorsOf(bordo, res.losses) : null;
+        const mercArrivati = arrivati ? arrivati.merc : 0;
 
         // La spedizione si consuma comunque: la nave lascia il mare, vinta o persa.
         dropExp();
 
         let msg, conversione = null;
         if (res.attackerWins) {
-            conversione = applyBattleOutcome(player, to, res, defTroops, mercArrivati);
+            conversione = applyBattleOutcome(player, to, res, defTroops, arrivati);
             // Lo sbarco è totale (§9.2): i superstiti restano tutti a terra, niente
             // fase di conquista. La nave ancora sulla costa presa.
             E().addShip(to, 'vascello', 0);
@@ -3510,6 +3597,7 @@
             cronaca: eco, conversione,
             battle: res, engaged: carico, defTroops, fort, terreno,
             mercImpegnati: mercImp, mercDifensore: mercDif, mercArrivati,
+            cavImpegnati: cavImp, cavDifensore: cavDif, cavArrivati: arrivati ? arrivati.cav : 0,
             viaMare: true, scafo: 'vascello', spedizione: true,
             // Niente provincia di partenza: la spedizione veniva dal mare aperto.
             // toId è la costa presa (ora visibile), quindi la nebbia (§3) la mostra.
@@ -3537,8 +3625,11 @@
             exp.turniInMare = (exp.turniInMare || 0) + 1;
             const morti = Math.round((exp.carico || 0) * wreckTollFraction(exp.turniInMare, rng));
             if (morti > 0) {
-                const mercMorti = Math.min(exp.merc || 0, morti);
-                exp.merc = Math.max(0, (exp.merc || 0) - mercMorti);   // la ventura cade per prima
+                // La ventura cade per prima, poi fanti e cavalieri in proporzione.
+                const bordo = { n: exp.carico || 0, merc: exp.merc || 0, cav: exp.cav || 0 };
+                const vivi = survivorsOf(bordo, Math.min(morti, bordo.n));
+                exp.merc = Math.max(0, vivi.merc);
+                exp.cav = Math.max(0, vivi.cav);
                 exp.carico = Math.max(0, exp.carico - morti);
                 if (exp.carico <= 0) {
                     // NAUFRAGIO: nave e ciurma inghiottiti dal mare aperto.
@@ -3595,12 +3686,21 @@
         // Stessa regola di sempre, dall'altra parte del confine: la provincia presa
         // deve restare presidiata, quindi almeno MIN_GARRISON superstiti si fermano
         // lì. La provincia di partenza è già a posto — l'attacco non l'ha svuotata.
-        occupanti = Math.floor(occupanti);
+        // FANTI E CAVALIERI (regola dell'utente): si può dire anche quanti dei
+        // superstiti che OCCUPANO sono a cavallo — { n, cav }.
+        const ordC = troopOrder(occupanti);
+        occupanti = ordC.n;
         if (!(occupanti >= GR().MIN_GARRISON)) {
             return fail('Almeno ' + GR().MIN_GARRISON + ' soldato deve restare a occupare ' + c.toLabel +
                 ': una provincia non si lascia mai sguarnita.');
         }
         if (occupanti > c.superstiti) return fail('Hai solo ' + c.superstiti + ' superstiti.');
+        if (ordC.cav !== undefined) {
+            const presa = E().path(c.toId);
+            const cavQui = E().cav(presa), fantiQui = E().countPiece(presa, 'soldato') - cavQui;
+            if (ordC.cav > cavQui) return fail('Fra i superstiti ci sono solo ' + cavQui + ' cavalieri.');
+            if (occupanti - ordC.cav > fantiQui) return fail('Fra i superstiti ci sono solo ' + fantiQui + ' fanti.');
+        }
 
         const indietro = c.superstiti - occupanti;
         if (indietro) {
@@ -3608,13 +3708,19 @@
             const room = roomFor(from);
             const k = Math.min(indietro, room);
             if (k) {
-                // Chi torna indietro si porta la sua quota di ventura (§5.3).
-                const mercPrima = E().merc(to);
-                const mercTorna = mercLeaving(to, k);
-                E().addPiece(to, 'soldato', -k);
-                E().setMerc(to, mercPrima - mercTorna);
+                // Chi torna indietro si porta la sua quota di ventura (§5.3). I
+                // CAVALIERI no: sono l'avanguardia e restano sulla terra presa,
+                // rientrano solo se non ci sono abbastanza fanti a rientrare.
+                const totTo = E().countPiece(to, 'soldato'), cavTo = E().cav(to);
+                const cavTorna = ordC.cav !== undefined
+                    ? Math.min(k, Math.max(0, cavTo - ordC.cav))
+                    : Math.max(0, k - (totTo - cavTo));
+                const torna = { n: k, cav: cavTorna,
+                    merc: GR().mercShare(E().merc(to), totTo - cavTo, k - cavTorna) };
+                takeGroup(to, torna);
                 putSoldiers(player, from, k);
-                E().addMerc(from, mercTorna);
+                E().addMerc(from, torna.merc);
+                E().addCav(from, torna.cav);
                 E().redrawProvince(to);
             }
             if (k < indietro) {
@@ -3792,8 +3898,10 @@
         let scafo = null;
 
         const mobili = spare(from);
-        n = Math.floor(n);
+        const ordM = troopOrder(n);
+        n = ordM.n;
         if (!(n > 0)) return fail('Indica quanti soldati spostare.');
+        const ordErrM = orderFail(from, ordM); if (ordErrM) return ordErrM;
         if (!mobili) return garrisonFail(from);
 
         // Come nello sbarco, si può partire con PIÙ scafi dello stesso tipo
@@ -3837,20 +3945,19 @@
         const room = roomFor(to);
         if (n > room) return fail(R().provinceLabel(to) + ' regge solo altri ' + room + ' soldati.');
 
-        // La ventura si sposta con la sua quota, come in un attacco (§5.3).
-        const mercPrima = E().merc(from);
-        const mercMossi = mercLeaving(from, n);
-        E().addPiece(from, 'soldato', -n);
-        E().setMerc(from, mercPrima - mercMossi);
+        // La ventura si sposta con la sua quota, come in un attacco (§5.3); i
+        // cavalieri sono quelli scelti (o, senza scelta, partono per primi).
+        const g = groupLeaving(from, n, ordM.cav);
+        takeGroup(from, g);
         consumePlaced(player, fromId, n);
         if (allyTo) {
-            // Rinforzo a un alleato: i soldati (e la loro ventura) diventano SUOI.
-            // Si aggiungono senza toccare proprietario né colore della provincia.
-            E().addPiece(to, 'soldato', n);
-            E().addMerc(to, mercMossi);
+            // Rinforzo a un alleato: i soldati (ventura e cavalieri compresi)
+            // diventano SUOI. Si aggiungono senza toccare proprietario né colore.
+            putGroup(to, g);
         } else {
-            putSoldiers(player, to, n);
-            E().addMerc(to, mercMossi);
+            putGroup(to, g);
+            E().setArmyColor(to, player.color);
+            E().redrawProvince(to);
         }
         // La nave viaggia con gli uomini: lascia la partenza e ancora all'arrivo
         // a carico vuoto, come nello sbarco (§9.2). Le navi sono di chi possiede
@@ -3945,6 +4052,7 @@
             if (!from && !to) return fail('Indica almeno una provincia.');
             let mossi = n;
             let mercMossi = 0;      // ventura prelevata insieme agli uomini (§5.3)
+            let cavMossi = 0;       // e cavalieri (partono per primi)
             if (from) {
                 // Anche un editto rispetta il presidio minimo (§5): una provincia
                 // non resta mai sguarnita, nemmeno per volere del Papa.
@@ -3952,10 +4060,9 @@
                 mossi = Math.min(n, disponibili);
                 if (mossi <= 0) return fail('In ' + R().provinceLabel(from) + ' non ci sono uomini da prelevare (ne resta sempre 1 di presidio).');
                 // Nemmeno il Papa sceglie chi imbarcare: parte la quota che c'è.
-                const mercPrima = E().merc(from);
-                mercMossi = mercLeaving(from, mossi);
-                E().addPiece(from, 'soldato', -mossi);
-                E().setMerc(from, mercPrima - mercMossi);
+                const g = groupLeaving(from, mossi);
+                mercMossi = g.merc; cavMossi = g.cav;
+                takeGroup(from, g);
                 E().redrawProvince(from);
                 tocchi.push(from.id);
             }
@@ -3971,11 +4078,14 @@
                 const fort = GR().defenceBonus(unitsOf([to]));
                 const difensore = E().owner(to) || 'Neutrale';
                 const mercDif = E().merc(to);
+                const cavDif = E().cav(to);
                 const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to),
-                    mercMossi, mercDif);
+                    mercMossi, mercDif, cavMossi, cavDif, terrainOf(to));
                 if (!res) return fail('Nessuna battaglia possibile.');
-                const mercArrivati = res.attackerWins ? Math.max(0, mercMossi - res.losses) : 0;
-                const conversione = applyBattleOutcome(target, to, res, defTroops, mercArrivati);
+                const arrivati = res.attackerWins
+                    ? survivorsOf({ n: mossi, merc: mercMossi, cav: cavMossi }, res.losses) : null;
+                const mercArrivati = arrivati ? arrivati.merc : 0;
+                const conversione = applyBattleOutcome(target, to, res, defTroops, arrivati);
                 E().redrawProvince(to);
                 E().redrawRoads();
                 tocchi.push(to.id);
@@ -3985,6 +4095,7 @@
                 esito = {
                     battle: res, engaged: mossi, defTroops, fort,
                     mercImpegnati: mercMossi, mercDifensore: mercDif, mercArrivati,
+                    cavImpegnati: cavMossi, cavDifensore: cavDif, cavArrivati: arrivati ? arrivati.cav : 0,
                     terreno: terrainOf(to), viaMare: true, scafo: null,
                     fromId: from ? from.id : null, toId: to.id,
                     fromLabel: from ? R().provinceLabel(from) : null,
@@ -4020,6 +4131,7 @@
                 }
                 E().addPiece(to, 'soldato', mossi);
                 E().addMerc(to, mercMossi);   // la ventura arriva con gli uomini (§5.3)
+                E().addCav(to, cavMossi);     // e la cavalleria
                 if (target && E().owner(to) === target.name) E().setArmyColor(to, target.color);
                 E().redrawProvince(to);
                 tocchi.push(to.id);
@@ -4227,7 +4339,11 @@
         // partirebbero mandandone via `n`. Plancia e IA pronosticano da qui, così
         // il numero che si legge prima dell'attacco è quello che poi combatte.
         mercOf: (provId) => { const p = E().path(provId); return p ? E().merc(p) : 0; },
-        mercEngaged: (provId, n) => { const p = E().path(provId); return p ? mercLeaving(p, n) : 0; }
+        mercEngaged: (provId, n) => { const p = E().path(provId); return p ? mercLeaving(p, n) : 0; },
+        // CAVALIERI: quanti ne ha la provincia e quanti partirebbero con n uomini.
+        cavOf: (provId) => { const p = E().path(provId); return p ? E().cav(p) : 0; },
+        cavEngaged: (provId, n, voluti) => { const p = E().path(provId); return p ? groupLeaving(p, n, voluti).cav : 0; },
+        mercEngagedWith: (provId, n, voluti) => { const p = E().path(provId); return p ? groupLeaving(p, n, voluti).merc : 0; }
     };
 
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1948,12 +1948,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // La VENTURA sta accanto alle truppe e non in una tessera a parte: è un
         // pezzo di quel numero, non un'altra proprietà della provincia (§5.3).
         const merc = fogged ? 0 : R.engine.merc(path);
+        // I CAVALIERI, come la ventura, sono un pezzo di quel numero.
+        const cav = fogged ? 0 : R.engine.cav(path);
         const troopsEl = $('bp-province-troops');
-        troopsEl.textContent = fogged ? '?' : '⚔ ' + soldati + (merc ? ' · ' + merc + '⚑' : '');
+        troopsEl.textContent = fogged ? '?' : '⚔ ' + soldati + (cav ? ' · ' + cav + '🐎' : '') +
+            (merc ? ' · ' + merc + '⚑' : '');
         troopsEl.title = fogged ? 'Territorio in nebbia'
-            : (soldati + ' soldati' + (merc ? ', di cui ' + merc + ' di ventura (rendono meno in battaglia)' : '') +
+            : (soldati + ' soldati' +
+               (cav ? ', di cui ' + cav + (cav === 1 ? ' cavaliere' : ' cavalieri') + ' (valgono 1,45 fanti, meno all\'assalto delle mura)' : '') +
+               (merc ? (cav ? ' e ' : ', di cui ') + merc + ' di ventura (rendono meno in battaglia)' : '') +
                (altro.length ? ' · ' + altro.join(', ') : ''));
-        troopsEl.classList.toggle('extra', !fogged && (altro.length > 0 || merc > 0));
+        troopsEl.classList.toggle('extra', !fogged && (altro.length > 0 || merc > 0 || cav > 0));
 
         if (fogged) {
             actions.innerHTML = '<div class="bp-empty-hint">Territorio sconosciuto.</div>';
@@ -2101,7 +2106,8 @@ document.addEventListener('DOMContentLoaded', () => {
         capitale: 'pc-capitale', citta: 'pc-citta', fortezza: 'pc-fortezza',
         mercato: 'pc-mercato', barca: 'pc-barca', vascello: 'pc-vascello',
         generale: 'pc-generale', strada: 'pc-strada',
-        mercenario: 'pc-soldato', guarnigione: 'pc-soldato'
+        mercenario: 'pc-soldato', guarnigione: 'pc-soldato',
+        cavaliere: 'pc-cavaliere'
     };
     const BUILD_BADGE = { mercenario: '⚔', guarnigione: '⚑' };
 
@@ -2462,8 +2468,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const tetto = attackVessel
             ? Math.min(partenti, R.engine.shipCapacity(attackVessel) * nScafi)
             : partenti;
-        const input = document.createElement('input');
-        const engagedFor = () => Math.max(0, Math.min(parseInt(input.value, 10) || 0, tetto));
+        let refreshOdds = () => {};
+        const pick = squadInputs(path, tetto, () => refreshOdds());
+        const engagedFor = () => pick.n();
+        const cavFor = () => pick.cav();
 
         // ---- GLI ALLEATI A TIRO (§Diplomazia) ----
         // Sulla mappa il cursore d'ordine offre già "Marcia in aiuto" quando si
@@ -2487,7 +2495,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alleate.forEach(t => {
                 ab.appendChild(actionButton('🛡 ' + t.label,
                     t.owner + ' · ' + t.troops + ' di presidio', null,
-                    () => askReinforce(player, path, t, engagedFor())));
+                    () => askReinforce(player, path, t, engagedFor(), cavFor())));
             });
             af.appendChild(ab);
             g.appendChild(af);
@@ -2510,16 +2518,10 @@ document.addEventListener('DOMContentLoaded', () => {
         fold.appendChild(body);
         g.appendChild(fold);
 
-        const row = document.createElement('div');
-        row.className = 'bp-act-row';
-        input.type = 'number';
-        input.min = '1';
-        input.max = String(tetto);
-        input.value = String(tetto);
-        input.title = attackVessel
+        const row = pick.el;
+        if (pick.input) pick.input.title = attackVessel
             ? 'Uomini da imbarcare (il resto non ci sta a bordo)'
             : 'Truppe impegnate (ne resta almeno 1 a presidiare)';
-        row.appendChild(input);
         row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">' + (attackVessel
             ? (nScafi > 1
                 ? 'a bordo · le tue ' + nScafi + ' navi portano fino a ' + (R.engine.shipCapacity(attackVessel) * nScafi)
@@ -2542,15 +2544,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const terr = terrainTag(t.terreno);
             // La ventura del difensore si vede come si vedono le sue truppe: è
             // parte di quel che si sa guardando il confine (§5.3).
-            const vent = t.merc ? ' · ' + t.merc + '⚑' : '';
+            const vent = (t.cav ? ' · ' + t.cav + '🐎' : '') + (t.merc ? ' · ' + t.merc + '⚑' : '');
             const btn = actionButton((t.viaMare ? '⚓ ' : '⚔ ') + t.label,
                 t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : ''), null,
-                () => askAttack(player, path, t, engagedFor()));
+                () => askAttack(player, path, t, engagedFor(), cavFor()));
             const chip = document.createElement('span');
             chip.className = 'bp-odds';
             btn.appendChild(chip);
             odds.push(() => {
-                const f = forecast(path, engagedFor(), t);
+                const f = forecast(path, engagedFor(), t, cavFor());
                 chip.textContent = oddsText(f);
                 chip.title = mercNote(f);
                 chip.className = 'bp-odds ' + (f.p >= 60 ? 'good' : f.p >= 40 ? 'even' : 'bad');
@@ -2558,8 +2560,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body.appendChild(btn);
         });
 
-        const refreshOdds = () => odds.forEach(f => f());
-        input.addEventListener('input', refreshOdds);
+        refreshOdds = () => odds.forEach(f => f());
         refreshOdds();
         return g;
     }
@@ -2608,33 +2609,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         body.appendChild(compass(expedDir, d => { expedDir = d; render(); }));
 
-        const row = document.createElement('div');
-        row.className = 'bp-act-row';
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.min = '1'; input.max = String(tetto); input.value = String(tetto);
-        input.title = 'Uomini da imbarcare (il Veliero ne porta ' + cap + ')';
-        row.appendChild(input);
+        // FANTI E CAVALIERI anche a bordo del Veliero (regola dell'utente).
+        const pick = squadInputs(path, tetto);
+        const row = pick.el;
+        if (pick.input) pick.input.title = 'Uomini da imbarcare (il Veliero ne porta ' + cap + ')';
         row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">a bordo · la nave porta ' +
             cap + ', in provincia possono partire ' + partenti + '</span>');
         body.appendChild(row);
 
-        const cargoFor = () => Math.max(0, Math.min(parseInt(input.value, 10) || 0, tetto));
+        const cargoFor = () => pick.n();
         const go = actionButton(
             expedDir ? '⛵ Salpa verso ' + GA().EXPED_DIR_LABEL[expedDir] : '⛵ Scegli prima una rotta',
             'spedizione', expedDir ? null : 'Scegli una direzione sulla bussola',
             () => {
-                const n = cargoFor();
+                const n = cargoFor(), cav = pick.cav();
                 const dir = expedDir;
                 if (!dir || !n) return;
                 R.confirm({
                     title: 'Salpare verso ' + GA().EXPED_DIR_LABEL[dir] + '?',
-                    text: n + (n === 1 ? ' uomo salpa' : ' uomini salpano') + ' da ' + R.provinceLabel(path) +
+                    text: squadText(n, cav, ' uomo', ' uomini') + (n === 1 ? ' salpa' : ' salpano') + ' da ' + R.provinceLabel(path) +
                         ' con il Veliero. La spedizione navigherà per più turni: uomini e nave restano in ' +
                         'mare aperto finché non approdi su una costa avvistata. Non si può richiamare a metà, ' +
                         'e più a lungo resta in mare più rischia naufragi e morìa dell\'equipaggio.',
                     ok: '⛵ Salpa', tone: 'war'
-                }, () => { expedDir = null; run(GA().launchExpedition(player, path.id, dir, n)); });
+                }, () => { expedDir = null; run(GA().launchExpedition(player, path.id, dir, troopArg(n, cav))); });
             });
         body.appendChild(go);
         return fold;
@@ -2685,7 +2683,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
                     const f = RisikoBattle.winForecast(exp.carico, (t.troops || 0) + (t.fort || 0),
-                        t.esponente, mercA, t.merc || 0);
+                        t.esponente, mercA, t.merc || 0, exp.cav || 0, t.cav || 0, t.fort || 0, t.terreno);
                     const p = Math.round(100 * f.p), banda = Math.round(100 * f.banda);
                     const bonus = t.fort ? ' +' + t.fort : '';
                     const vent = t.merc ? ' · ' + t.merc + '⚑' : '';
@@ -2726,8 +2724,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // La conferma dell'attacco (o dello sbarco) sta QUI e non dentro l'elenco:
     // la chiamano sia i bottoni del pannello sia il cursore d'ordine sulla
     // mappa, e il giocatore deve leggere le stesse parole comunque ci arrivi.
-    function askAttack(player, path, t, n) {
-        const f = forecast(path, n, t);
+    // "6 truppe (2 cavalieri e 4 fanti)": quando i reparti sono scelti, la
+    // conferma li dice per nome.
+    function squadText(n, cav, una, tante) {
+        const base = n + (n === 1 ? una : tante);
+        if (!cav) return base;
+        const fanti = n - cav;
+        return base + ' (' + cav + (cav === 1 ? ' cavaliere' : ' cavalieri') +
+            (fanti ? ' e ' + fanti + (fanti === 1 ? ' fante' : ' fanti') : '') + ')';
+    }
+    function troopArg(n, cav) { return cav === undefined ? n : { n, cav }; }
+
+    function askAttack(player, path, t, n, cav) {
+        const f = forecast(path, n, t, cav);
         // Il terreno è la cosa che il giocatore rischia di non vedere: va detta
         // prima della carica, non nel rapporto dopo.
         const nota = (typeof Terrain !== 'undefined' && Terrain.exists(t.terreno))
@@ -2772,7 +2781,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : (t.consenso ? ' ' + t.owner + ' ti ha concesso questa provincia: l\'attacco non rompe il patto.' : '');
         R.confirm({
             title: (tradisce ? 'Tradire ' + t.owner + ' a ' : t.viaMare ? 'Sbarcare a ' : 'Attaccare ') + t.label + '?',
-            text: n + (n === 1 ? ' truppa imbarcata' : ' truppe') + ' contro ' +
+            text: squadText(n, f.cavA, ' truppa imbarcata', ' truppe') + ' contro ' +
                 t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
                 ' · probabilità di vittoria ' + (f.banda ? 'intorno al ' : '') + f.p + '%.' +
                 testoVentura + nota + testoSbarco + testoPatto,
@@ -2780,7 +2789,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tone: tradisce ? 'danger' : 'war'
         }, () => {
             closeOrder();
-            run(GA().attack(player, path.id, t.id, n, undefined, attackVessel, tradisce));
+            run(GA().attack(player, path.id, t.id, troopArg(n, cav), undefined, attackVessel, tradisce));
         });
     }
 
@@ -2789,15 +2798,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // sta qui perché ci si arriva da due strade (il cursore sulla mappa e
     // l'elenco degli alleati nel pannello) e devono dire le stesse parole, come
     // askAttack.
-    function askReinforce(player, path, t, n) {
+    function askReinforce(player, path, t, n, cav) {
         R.confirm({
             title: 'Mandare rinforzi a ' + t.label + '?',
-            text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
+            text: squadText(n, cav, ' soldato', ' soldati') + (n === 1 ? ' lascia ' : ' lasciano ') + R.provinceLabel(path) +
                 ' e passano sotto le insegne di ' + t.owner + ': da quel momento sono SUOI, ' +
                 'e non tornano indietro. La provincia resta sua — è un aiuto, non una conquista. ' +
                 'Non consuma lo spostamento di fine turno.',
             ok: '🛡 Marcia in aiuto'
-        }, () => { closeOrder(); run(GA().sendReinforcements(player, path.id, t.id, n)); });
+        }, () => { closeOrder(); run(GA().sendReinforcements(player, path.id, t.id, troopArg(n, cav))); });
     }
 
     // La conferma dello SPOSTAMENTO, gemella di askAttack: la chiamano sia i
@@ -2805,7 +2814,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // leggere le stesse parole comunque ci arrivi. Le due cose che non può dedurre
     // stanno qui: che i soldati mandati a un ALLEATO diventano suoi, e che in un
     // porto alleato la nave non ci resta.
-    function askMove(player, path, t, n, prima) {
+    function askMove(player, path, t, n, prima, cav) {
         const navale = t.viaMare;
         // Quante navi salpano: quelle che servono a portare n uomini (stesso
         // conto del motore, hullsForLanding), mai una vuota.
@@ -2825,12 +2834,12 @@ document.addEventListener('DOMContentLoaded', () => {
         R.confirm({
             title: (t.alleato ? 'Mandare rinforzi a ' : navale ? 'Rinforzare via nave ' : 'Spostare a ') +
                 t.label + '?',
-            text: n + (n === 1 ? ' soldato lascia ' : ' soldati lasciano ') + R.provinceLabel(path) +
+            text: squadText(n, cav, ' soldato', ' soldati') + (n === 1 ? ' lascia ' : ' lasciano ') + R.provinceLabel(path) +
                 (navale ? (n === 1 ? ' e s\'imbarca' : ' e s\'imbarcano') : '') +
                 ' per ' + t.label + '.' + testoAlleato + testoNave +
                 ' È l\'unico spostamento del turno: dopo non se ne fanno altri.',
             ok: navale ? '⚓ Imbarca' : t.alleato ? '🛡 Invia' : '➜ Sposta'
-        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, n, navale ? t.scafo : undefined)); });
+        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, troopArg(n, cav), navale ? t.scafo : undefined)); });
     }
 
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
@@ -2841,15 +2850,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // banda: `p` è la media, `min`/`max` gli estremi. La plancia mostra la media e
     // dice la banda — promettere una precisione che la battaglia non ha sarebbe
     // esattamente la bugia che questa funzione esiste per evitare.
-    function forecast(from, n, target) {
+    // `cav` = quanti cavalieri ha SCELTO il giocatore (fanti e cavalieri sono
+    // reparti distinti, regola dell'utente); omesso, partono per primi. La
+    // percentuale è quella dell'armata mista: il motore pesa ogni reparto.
+    function forecast(from, n, target, cav) {
         const a = Math.max(0, Math.floor(n || 0));
-        if (!a) return { p: 0, min: 0, max: 0, banda: 0, mercA: 0, mercD: 0 };
-        const mercA = from ? GA().mercEngaged(from.id, a) : 0;
+        if (!a) return { p: 0, min: 0, max: 0, banda: 0, mercA: 0, mercD: 0, cavA: 0, cavD: 0 };
+        const mercA = from ? GA().mercEngagedWith(from.id, a, cav) : 0;
+        const cavA = from ? GA().cavEngaged(from.id, a, cav) : 0;
         const f = RisikoBattle.winForecast(a, (target.troops || 0) + (target.fort || 0),
-            target.esponente, mercA, target.merc || 0);
+            target.esponente, mercA, target.merc || 0, cavA, target.cav || 0, target.fort || 0,
+            target.terreno);
         return {
             p: Math.round(100 * f.p), min: Math.round(100 * f.min), max: Math.round(100 * f.max),
-            banda: Math.round(100 * f.banda), mercA, mercD: target.merc || 0
+            banda: Math.round(100 * f.banda), mercA, mercD: target.merc || 0,
+            cavA: f.cavA, cavD: f.cavD, kvA: f.kvA, kvD: f.kvD, terreno: target.terreno
         };
     }
 
@@ -2859,12 +2874,36 @@ document.addEventListener('DOMContentLoaded', () => {
     // Che cosa c'è dietro quel numero, in una riga: serve al `title` del chip e al
     // testo della conferma. Vuoto quando non ci sono mercenari.
     function mercNote(f) {
-        if (!f.banda) return '';
-        const chi = [];
-        if (f.mercA) chi.push(f.mercA + ' dei tuoi');
-        if (f.mercD) chi.push(f.mercD + ' dei suoi');
-        return 'Ventura in campo (' + chi.join(', ') + '): la battaglia sta fra ' +
-            f.min + '% e ' + f.max + '%.';
+        const out = [];
+        const cav = cavNote(f);
+        if (cav) out.push(cav);
+        if (f.banda) {
+            const chi = [];
+            if (f.mercA) chi.push(f.mercA + ' dei tuoi');
+            if (f.mercD) chi.push(f.mercD + ' dei suoi');
+            out.push('Ventura in campo (' + chi.join(', ') + '): la battaglia sta fra ' +
+                f.min + '% e ' + f.max + '%.');
+        }
+        return out.join(' ');
+    }
+
+    // CAVALIERI in campo: quanti per parte e quanto vale ciascuno dei tuoi —
+    // all'assalto delle mura la carica rende meno di un fante, ed è proprio la
+    // cosa che il giocatore deve sapere PRIMA di attaccare una Città.
+    function cavNote(f) {
+        if (!f || (!f.cavA && !f.cavD)) return '';
+        const v = (x) => String(x).replace('.', ',');
+        const parti = [];
+        const chiuso = f.terreno === 'chiuso';
+        if (f.cavA) {
+            const kv = f.kvA || RisikoBattle.KNIGHT_VALUE;
+            parti.push(f.cavA + (f.cavA === 1 ? ' tuo cavaliere vale ' : ' tuoi cavalieri valgono ') + v(kv) +
+                (kv < 1 ? ' fanti l\'uno: contro le mura la carica non sfonda' : ' fanti l\'uno'));
+        }
+        if (f.cavD) parti.push(f.cavD + (f.cavD === 1 ? ' cavaliere' : ' cavalieri') + ' a difesa (' +
+            v(f.kvD || RisikoBattle.KNIGHT_VALUE) + ' l\'uno)');
+        return '🐎 ' + parti.join(' · ') + '.' +
+            (chiuso ? ' Terreno chiuso: la cavalleria rende un quarto in meno.' : '');
     }
 
     // Etichetta del terreno di un bersaglio: '⛰ chiuso' / '≈ aperto'.
@@ -2907,6 +2946,7 @@ document.addEventListener('DOMContentLoaded', () => {
             conquestPanelFor = key;
             revealConquestPanel();
         }
+        const sq = conquestSquads(c);
         box.innerHTML = `
             <div class="bc-head">⚑ ${c.toLabel} è tua — quanti restano a occuparla?</div>
             <div class="bc-route">${c.superstiti} superstiti dell'assalto partito da ${c.fromLabel}</div>
@@ -2914,20 +2954,62 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="bc-cell win"><span class="n" id="bc-occup">0</span><span class="l">occupano ${c.toLabel}</span></div>
                 <div class="bc-cell back"><span class="n" id="bc-back">0</span><span class="l">rientrano in ${c.fromLabel}</span></div>
             </div>
-            <input type="range" id="bc-range" min="1" max="${c.superstiti}" value="${c.superstiti}">
+            ${conquestControlsHtml(c, sq)}
             <div class="bc-note">Almeno 1 deve restare, se no la provincia resta sguarnita.</div>
             <button type="button" class="bp-act bc-go"><span class="bp-act-name">Conferma l'occupazione</span></button>`;
 
-        const range = box.querySelector('#bc-range');
-        const sync = () => {
-            const n = parseInt(range.value, 10);
-            setText('bc-occup', n);
-            setText('bc-back', c.superstiti - n);
-        };
-        range.addEventListener('input', sync);
-        sync();
+        const leggi = wireConquestControls(box, c, sq, (txtOcc, txtBack) => {
+            setText('bc-occup', txtOcc);
+            setText('bc-back', txtBack);
+        });
         box.querySelector('.bc-go').addEventListener('click',
-            () => run(GA().resolveConquest(player, parseInt(range.value, 10))));
+            () => run(GA().resolveConquest(player, leggi())));
+    }
+
+    // FANTI E CAVALIERI NELLA PRESA (regola dell'utente): sono reparti distinti,
+    // quindi si sceglie PER REPARTO quanti occupano la provincia presa; chi non
+    // occupa rientra in quella di partenza. Senza cavalieri resta il cursore
+    // unico di sempre. Lo usano il pannello e la modale centrale.
+    function conquestSquads(c) {
+        const presa = R.engine.path(c.toId);
+        const C = presa ? Math.min(R.engine.cav(presa), c.superstiti) : 0;
+        return { F: c.superstiti - C, C };
+    }
+    function conquestControlsHtml(c, sq) {
+        if (!sq.C) {
+            return '<input type="range" class="cq-r" data-r="f" min="1" max="' + c.superstiti +
+                '" value="' + c.superstiti + '">';
+        }
+        const riga = (r, lbl, max) => '<div class="cq-row"><span class="cq-lbl">' + lbl + '</span>' +
+            '<input type="range" class="cq-r" data-r="' + r + '" min="0" max="' + max + '" value="' + max + '">' +
+            '<span class="cq-v" data-v="' + r + '"></span></div>';
+        return (sq.F ? riga('f', '🗡 Fanti', sq.F) : '') + riga('c', '🐎 Cavalieri', sq.C);
+    }
+    // Collega i cursori; `onSync(occupano, rientrano)` riceve i due testi. Restituisce
+    // la funzione che legge l'ordine per resolveConquest (numero, o {n, cav}).
+    function wireConquestControls(root, c, sq, onSync) {
+        const rf = root.querySelector('.cq-r[data-r="f"]'), rc = root.querySelector('.cq-r[data-r="c"]');
+        const val = (r) => r ? (parseInt(r.value, 10) || 0) : 0;
+        const sync = (src) => {
+            let f = val(rf), k = val(rc);
+            // Almeno uno resta: si rialza il cursore appena toccato (o l'altro).
+            if (f + k < 1) {
+                if (src === rc || !rf) { k = 1; rc.value = '1'; } else { f = 1; rf.value = '1'; }
+            }
+            if (!sq.C) { onSync(String(f), String(c.superstiti - f)); return; }
+            root.querySelectorAll('.cq-v').forEach(el => {
+                el.textContent = el.dataset.v === 'f' ? f + '/' + sq.F : k + '/' + sq.C;
+            });
+            const desc = (fa, ca) => (fa + ca) + (ca ? ' (' + ca + '🐎)' : '');
+            onSync(desc(f, k), desc(sq.F - f, sq.C - k));
+        };
+        if (rf) rf.addEventListener('input', () => sync(rf));
+        if (rc) rc.addEventListener('input', () => sync(rc));
+        sync();
+        return () => {
+            const f = val(rf), k = val(rc);
+            return sq.C ? { n: Math.max(1, f + k), cav: k } : Math.max(1, f);
+        };
     }
 
     // ---------- avviso di conquista sulla MAPPA (richiesta dell'utente) ----------
@@ -3010,6 +3092,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (old) old.remove();
         const key = c.fromId + '>' + c.toId + '@' + R.turn();
 
+        const sq = conquestSquads(c);
         const wrap = document.createElement('div');
         wrap.id = 'ui-conquest';
         wrap.innerHTML =
@@ -3020,21 +3103,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<div class="bc-cell win"><span class="n" id="uq-occup">0</span><span class="l">occupano ' + c.toLabel + '</span></div>' +
                 '<div class="bc-cell back"><span class="n" id="uq-back">0</span><span class="l">rientrano in ' + c.fromLabel + '</span></div>' +
             '</div>' +
-            '<input type="range" id="uq-range" min="1" max="' + c.superstiti + '" value="' + c.superstiti + '">' +
+            conquestControlsHtml(c, sq) +
             '<div class="bc-note">Almeno 1 resta a occuparla, se no la provincia torna sguarnita.</div>' +
             '<div class="uc-actions">' +
                 '<button type="button" class="uc-no uq-later">Decido dopo</button>' +
                 '<button type="button" class="uc-yes uq-go">Conferma</button>' +
             '</div></div>';
 
-        const range = wrap.querySelector('#uq-range');
-        const sync = () => {
-            const n = parseInt(range.value, 10);
-            wrap.querySelector('#uq-occup').textContent = n;
-            wrap.querySelector('#uq-back').textContent = c.superstiti - n;
-        };
-        range.addEventListener('input', sync);
-        sync();
+        const leggi = wireConquestControls(wrap, c, sq, (txtOcc, txtBack) => {
+            wrap.querySelector('#uq-occup').textContent = txtOcc;
+            wrap.querySelector('#uq-back').textContent = txtBack;
+        });
 
         // Chiudere senza confermare è "Decido dopo": si segna la presa come
         // RIMANDATA, così il pop-up non ripiomba a ogni render — ma resta il
@@ -3051,7 +3130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         wrap.querySelector('.uq-go').addEventListener('click', () => {
             document.removeEventListener('keydown', onKey);
             wrap.remove();
-            run(GA().resolveConquest(player, parseInt(range.value, 10)));
+            run(GA().resolveConquest(player, leggi()));
         });
         // NIENTE chiusura al clic-fuori (a differenza delle altre modali): la
         // ripartizione è una decisione obbligata; cliccare la mappa non la chiude.
@@ -3202,15 +3281,9 @@ document.addEventListener('DOMContentLoaded', () => {
         fold.appendChild(body);
         box.appendChild(fold);
 
-        const row = document.createElement('div');
-        row.className = 'bp-act-row';
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.min = '1';
-        input.max = String(mobili);
-        input.value = String(mobili);
-        input.title = 'Soldati da spostare (ne resta almeno 1)';
-        row.appendChild(input);
+        const pick = squadInputs(path, mobili);
+        const row = pick.el;
+        if (pick.input) pick.input.title = 'Soldati da spostare (ne resta almeno 1)';
         row.insertAdjacentHTML('beforeend', '<span class="bp-act-cost">di ' + mobili + '</span>');
         body.appendChild(row);
 
@@ -3223,7 +3296,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '');
             const ico = t.viaMare ? '⚓ ' : t.alleato ? '🛡 ' : '→ ';
             body.appendChild(actionButton(ico + t.label, nota, null, () => {
-                askMove(player, path, t, Math.min(parseInt(input.value, 10) || 0, tetto));
+                const s = pick.fit(tetto);
+                askMove(player, path, t, s.n, null, s.cav);
             }));
         });
     }
@@ -3927,7 +4001,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 'un soldato resta sempre a presidiare.', false);
             return;
         }
-        order = { kind, fromId: path.id, target, max, n: max };
+        // FANTI E CAVALIERI (regola dell'utente): due reparti, due cursori. Si
+        // parte proponendo tutto quel che può partire, cavalieri compresi.
+        const C = R.engine.cav(path), F = R.countPiece(path, 'soldato') - C;
+        const cav = Math.min(C, max);
+        order = { kind, fromId: path.id, target, max, F, C, cav, fanti: max - cav, n: max };
         render();
     }
 
@@ -3978,10 +4056,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const path = R.engine.path(order.fromId);
         order.target = orderTargets.get(order.target.id);      // dati freschi
         order.max = orderMax(order.kind, path, order.target);
-        order.n = Math.max(1, Math.min(order.n, order.max));
+        order.C = R.engine.cav(path);
+        order.F = R.countPiece(path, 'soldato') - order.C;
+        order.cav = Math.max(0, Math.min(order.cav || 0, order.C, order.max));
+        order.fanti = Math.max(0, Math.min(order.fanti || 0, order.F, order.max - order.cav));
+        if (order.fanti + order.cav < 1) {
+            if (order.F > 0) order.fanti = 1; else order.cav = Math.min(1, order.C);
+        }
+        order.n = order.fanti + order.cav;
 
         const t = order.target;
-        const chiave = [order.kind, order.fromId, t.id, order.max, attackVessel, moveVessel].join('|');
+        const chiave = [order.kind, order.fromId, t.id, order.max, order.F, order.C,
+            attackVessel, moveVessel].join('|');
         if (chiave !== orderKey) { buildOrderHud(player, path); orderKey = chiave; }
         syncOrderHud();
 
@@ -4013,12 +4099,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 (sbarco || navale ? '⚓' : attacco ? '⚔' : dono ? '🛡' : '➜') + '</span>' +
                 '<span class="moh-name"></span></div>' +
             '<div class="moh-sub"></div>' +
-            '<div class="moh-ctl">' +
-                '<button type="button" class="moh-btn" data-d="-1">−</button>' +
-                '<span class="moh-n"></span>' +
-                '<button type="button" class="moh-btn" data-d="1">+</button>' +
-            '</div>' +
-            '<input type="range" class="moh-range" min="1" max="' + order.max + '" value="' + order.n + '">' +
+            squadRowsHtml() +
             (attacco ? '<div class="moh-odds"></div>' : '') +
             '<div class="moh-acts">' +
                 (aiuto ? '<button type="button" class="moh-help">🛡 Marcia in aiuto</button>' : '') +
@@ -4035,34 +4116,161 @@ document.addEventListener('DOMContentLoaded', () => {
         orderHud.querySelector('.moh-sub').textContent = attacco
             ? t.owner + ' · ' + t.troops + (aiuto ? ' di presidio' : ' a difesa') +
               (t.fort ? ' +' + t.fort + ' mura' : '') +
+              (t.cav ? ' · ' + t.cav + '🐎' : '') +
               (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '') +
               (aiuto ? ' · alleato' : t.consenso ? ' · consenso concesso' : tradisce ? ' · patto in essere' : '')
             : t.troops + ' già lì · da ' + R.provinceLabel(path) + (navale ? ' · via nave' : '') +
               (dono ? ' · in aiuto di ' + (t.owner || 'un alleato') : '');
 
-        const range = orderHud.querySelector('.moh-range');
-        range.addEventListener('input', () => {
-            order.n = Math.max(1, Math.min(parseInt(range.value, 10) || 1, order.max));
-            syncOrderHud();
-        });
-        orderHud.querySelectorAll('.moh-btn').forEach(b => {
-            b.addEventListener('click', () => {
-                order.n = Math.max(1, Math.min(order.n + parseInt(b.dataset.d, 10), order.max));
+        orderHud.querySelectorAll('.moh-squad').forEach(row => {
+            const r = row.dataset.r;
+            const cur = () => r === 'c' ? order.cav : order.fanti;
+            row.querySelector('.moh-range').addEventListener('input', (e) => {
+                setSquad(r, parseInt(e.target.value, 10) || 0);
                 syncOrderHud();
+            });
+            row.querySelectorAll('.moh-btn').forEach(b => {
+                b.addEventListener('click', () => {
+                    setSquad(r, cur() + parseInt(b.dataset.d, 10));
+                    syncOrderHud();
+                });
             });
         });
         orderHud.querySelector('.moh-no').addEventListener('click', () => { closeOrder(); render(); });
         orderHud.querySelector('.moh-go').addEventListener('click', () => confirmOrder(player, path));
         const help = orderHud.querySelector('.moh-help');
-        if (help) help.addEventListener('click', () => askReinforce(player, path, order.target, order.n));
+        if (help) help.addEventListener('click', () => askReinforce(player, path, order.target, order.n, squadCav()));
     }
+
+    // I cursori dei reparti. Senza cavalieri alla partenza resta il cursore
+    // unico di sempre (fanti, minimo 1); con i cavalieri due righe, una per
+    // reparto, che insieme non superano il tetto dell'ordine (presidio, carico).
+    function squadRowsHtml() {
+        const due = order.C > 0;
+        const riga = (r, lbl, max, min) => '<div class="moh-squad" data-r="' + r + '">' +
+            (due ? '<span class="moh-lbl">' + lbl + '</span>' : '') +
+            '<div class="moh-ctl">' +
+                '<button type="button" class="moh-btn" data-d="-1">−</button>' +
+                '<span class="moh-n"></span>' +
+                '<button type="button" class="moh-btn" data-d="1">+</button>' +
+            '</div>' +
+            '<input type="range" class="moh-range" min="' + min + '" max="' + max + '" value="0">' +
+            '</div>';
+        if (!due) return riga('f', '', order.max, 1);
+        return (order.F > 0 ? riga('f', '🗡 Fanti', Math.min(order.F, order.max), 0) : '') +
+            riga('c', '🐎 Cavalieri', Math.min(order.C, order.max), 0) +
+            '<div class="moh-tot"></div>';
+    }
+    function setSquad(r, v) { squadSet(order, r, v); }
+
+    // LA REGOLA DEI DUE REPARTI, una sola per cursore d'ordine ed elenchi del
+    // pannello. `s` = { fanti, cav, F, C, max }: F/C quanti ce ne sono alla
+    // partenza, max il tetto dell'ordine (presidio §5, carico della nave §9.2).
+    // Regola dell'utente: si può mandare solo l'uno, solo l'altro o entrambi, e
+    // sulla nave si scambiano il posto — alzare un reparto oltre il tetto lo
+    // PRENDE all'altro invece di bloccarsi; abbassare i cavalieri con la nave
+    // piena ridà i posti liberati ai fanti. Abbassare i fanti cala il totale.
+    // In partenza può restare un solo cavaliere e nessun fante: il cavaliere è
+    // un'unità come un'altra (il motore conta solo il presidio di 1 uomo).
+    function squadSet(s, r, v) {
+        v = Math.max(0, Math.floor(v || 0));
+        const pieno = s.fanti + s.cav >= s.max;
+        if (r === 'c') {
+            const prima = s.cav;
+            s.cav = Math.min(v, s.C, s.max);
+            if (s.fanti + s.cav > s.max) s.fanti = s.max - s.cav;
+            else if (pieno && s.cav < prima) s.fanti = Math.min(s.F, s.max - s.cav);
+        } else {
+            s.fanti = Math.min(v, s.F, s.max);
+            if (s.fanti + s.cav > s.max) s.cav = s.max - s.fanti;
+        }
+        if (s.fanti + s.cav < 1) {
+            if (r === 'c' && s.C > 0) s.cav = 1;
+            else if (s.F > 0) s.fanti = 1;
+            else s.cav = Math.min(1, s.C);
+        }
+        s.n = s.fanti + s.cav;
+        return s;
+    }
+    // Lo stesso gruppo stretto in un tetto più basso (una nave che porta meno
+    // di quanti se ne sono scelti): si tolgono prima i fanti, poi i cavalieri.
+    function squadFit(s, tetto) {
+        const out = { fanti: s.fanti, cav: s.cav };
+        let over = out.fanti + out.cav - tetto;
+        if (over > 0) { const f = Math.min(out.fanti, over); out.fanti -= f; over -= f; }
+        if (over > 0) out.cav = Math.max(0, out.cav - over);
+        out.n = out.fanti + out.cav;
+        return out;
+    }
+
+    // I due reparti negli ELENCHI del pannello (bersagli, destinazioni,
+    // spedizione col Veliero): due campi numerici, o il campo unico di sempre
+    // se alla partenza non ci sono cavalieri. `onChange` si chiama a ogni modifica.
+    // Restituisce { el, n(), cav(), fit(tetto) }: `cav()` è undefined senza
+    // cavalieri (nessuna scelta da passare al motore).
+    function squadInputs(path, tetto, onChange) {
+        const C = R.engine.cav(path), F = R.countPiece(path, 'soldato') - C;
+        const el = document.createElement('div');
+        el.className = 'bp-act-row bp-squad-row';
+        if (!C) {
+            const input = document.createElement('input');
+            input.type = 'number'; input.min = '1'; input.max = String(tetto); input.value = String(tetto);
+            el.appendChild(input);
+            input.addEventListener('input', () => { if (onChange) onChange(); });
+            const n = () => Math.max(0, Math.min(parseInt(input.value, 10) || 0, tetto));
+            return { el, n, cav: () => undefined, input,
+                fit: (t) => ({ n: Math.min(n(), t), cav: undefined }) };
+        }
+        const s = { F, C, max: tetto, cav: Math.min(C, tetto) };
+        s.fanti = Math.min(F, tetto - s.cav); s.n = s.fanti + s.cav;
+        const mk = (r, lbl, max) => {
+            const w = document.createElement('label');
+            w.className = 'bp-squad';
+            w.innerHTML = '<span>' + lbl + '</span>';
+            const i = document.createElement('input');
+            i.type = 'number'; i.min = '0'; i.max = String(max); i.dataset.r = r;
+            w.appendChild(i);
+            i.addEventListener('input', () => {
+                squadSet(s, r, parseInt(i.value, 10) || 0);
+                sync();
+                if (onChange) onChange();
+            });
+            el.appendChild(w);
+            return i;
+        };
+        const iF = mk('f', '🗡 Fanti', Math.min(F, tetto));
+        const iC = mk('c', '🐎 Cavalieri', Math.min(C, tetto));
+        const sync = () => {
+            if (iF.value !== String(s.fanti)) iF.value = String(s.fanti);
+            if (iC.value !== String(s.cav)) iC.value = String(s.cav);
+        };
+        sync();
+        return { el, n: () => s.n, cav: () => s.cav, fit: (t) => squadFit(s, t) };
+    }
+    // Quanti cavalieri sono stati scelti: undefined se non c'era niente da scegliere.
+    function squadCav() { return order && order.C > 0 ? order.cav : undefined; }
 
     // Solo i numeri: si chiama a ogni tacca del cursore, non deve ricostruire nulla.
     function syncOrderHud() {
         const t = order.target;
-        orderHud.querySelector('.moh-n').textContent = order.n;
-        const range = orderHud.querySelector('.moh-range');
-        if (range.value !== String(order.n)) range.value = String(order.n);
+        orderHud.querySelectorAll('.moh-squad').forEach(row => {
+            const v = row.dataset.r === 'c' ? order.cav : order.fanti;
+            row.querySelector('.moh-n').textContent = v;
+            const range = row.querySelector('.moh-range');
+            // La fine della carreggiata è il massimo VERO di quel reparto (regola
+            // dell'utente): quanti ce ne sono, entro il tetto dell'ordine. Ci si
+            // arriva sempre, perché alzando un reparto i posti si prendono
+            // all'altro (squadSet) — una leva ferma a metà mentirebbe.
+            if (order.C > 0) {
+                const top = row.dataset.r === 'c'
+                    ? Math.min(order.C, order.max)
+                    : Math.min(order.F, order.max);
+                if (range.max !== String(top)) range.max = String(top);
+            }
+            if (range.value !== String(v)) range.value = String(v);
+        });
+        const tot = orderHud.querySelector('.moh-tot');
+        if (tot) tot.textContent = order.n + (order.n === 1 ? ' uomo' : ' uomini') + ' in tutto';
         const odds = orderHud.querySelector('.moh-odds');
         if (!odds) return;
         if (t.rinforzabile) {
@@ -4073,7 +4281,7 @@ document.addEventListener('DOMContentLoaded', () => {
             odds.className = 'moh-odds even';
             return;
         }
-        const f = forecast(R.engine.path(order.fromId), order.n, t);
+        const f = forecast(R.engine.path(order.fromId), order.n, t, squadCav());
         // Con la ventura in campo il cursore mostra la banda: è lì che il
         // giocatore decide quanti uomini mandare, ed è lì che deve vedere che
         // quel numero è meno saldo del solito (§5.3).
@@ -4089,12 +4297,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // strada per arrivarci sono due.
     function confirmOrder(player, path) {
         const t = order.target;
-        const n = order.n;
+        const n = order.n, cav = squadCav();
         if (order.kind === 'sposta') {
-            askMove(player, path, t, n, closeOrder);
+            askMove(player, path, t, n, closeOrder, cav);
             return;
         }
-        askAttack(player, path, t, n);
+        askAttack(player, path, t, n, cav);
     }
 
     // Bersagli della fase in corso: accende le province sulla mappa, disegna le
@@ -4186,6 +4394,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return '<div class="bb-merc">⚑ Ventura in campo: ' + voci.join(' · ') + '.</div>';
     }
 
+    // CAVALLERIA IN CAMPO: quanti per parte e quanto valeva ciascuno. In attacco
+    // il valore dipende dalle mura del difensore, ed è la ragione per cui una
+    // carica che spazza un campo aperto si infrange su una Città.
+    function cavLine(L) {
+        const b = L.battle;
+        if (!b || (!b.cavA && !b.cavD)) return '';
+        const v = (x) => String(x).replace('.', ',');
+        const voci = [];
+        if (b.cavA) voci.push(b.cavA + ' all\'attacco (' + v(b.kvA) + ' fanti l\'uno' +
+            (b.kvA < 1 ? ', frenati dalle mura' : '') + ')');
+        if (b.cavD) voci.push(b.cavD + ' in difesa (' + v(b.kvD) + ' l\'uno)');
+        return '<div class="bb-merc">🐎 Cavalleria: ' + voci.join(' · ') + '.</div>';
+    }
+
     // Rapporto di battaglia: i due schieramenti a confronto, con quanti sono
     // partiti, quanti sono caduti e quanti sono rimasti in piedi. È il posto dove
     // il giocatore torna a leggere con calma quello che sulla mappa è durato 3".
@@ -4247,6 +4469,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}${terreno}</div>
             </div>
             ${mercLine(L)}
+            ${cavLine(L)}
             ${L.bottino ? '<div class="bb-loot">🪙 Bottino di conquista: +' + L.bottino + ' monete</div>' : ''}
             ${L.conversione ? '<div class="bb-faith">☩ La provincia si converte: ora è ' +
                 L.conversione.label + '</div>' : ''}`;

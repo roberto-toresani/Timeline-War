@@ -907,6 +907,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             MultiplayerSync.onPresenceChange(applyPresence);
             if (MultiplayerSync.onInterventionChange) MultiplayerSync.onInterventionChange(onRemoteIntervention);
+            if (MultiplayerSync.onReloadSignal) MultiplayerSync.onReloadSignal(onReloadSignal);
             // Una scrittura rifiutata dalla guardia anti-regressione (sync.js) vuol
             // dire che lo stato online è più avanti del nostro: non sovrascriviamo,
             // e lo diciamo. L'ultimo snapshot valido arriva comunque da sé.
@@ -1476,6 +1477,29 @@ document.addEventListener('DOMContentLoaded', () => {
         else path.removeAttribute('data-merc');
     }
 
+    // ====================== CAVALIERI (regola dell'utente) ======================
+    // Quanti dei soldati di una provincia sono CAVALIERI: data-cav="2". Stessa
+    // scelta dei mercenari: il cavaliere è un soldato dappertutto (presidio,
+    // spostamenti, costi in soldati) e si distingue solo nel tiro di battaglia
+    // (RisikoBattle: vale 1,45 contro i fanti, meno sotto le mura). Vive sul PATH
+    // perché le truppe sono di chi possiede la provincia.
+    // INVARIANTE: mercenari + cavalieri <= soldati. Un uomo è o di ventura o a
+    // cavallo, mai tutte e due: la impone `setCav`, e `changePiece` la riapplica
+    // quando i soldati calano — in un calo generico (spese in soldati, pennello)
+    // i cavalieri si tolgono per ULTIMI; chi decide che partono o cadono loro lo
+    // fa esplicitamente in game-actions.js.
+    function cavOf(path) {
+        const n = parseInt(path.getAttribute('data-cav'), 10);
+        return n > 0 ? n : 0;
+    }
+
+    function setCav(path, n) {
+        const room = countPiece(path, 'soldato') - mercOf(path);
+        const v = Math.max(0, Math.min(Math.floor(n || 0), room));
+        if (v > 0) path.setAttribute('data-cav', String(v));
+        else path.removeAttribute('data-cav');
+    }
+
     // MIGLIORIE CIVICHE (§6.1): Sanità e Felicità vivono in data-welfare, una voce
     // per edificio nel formato `chiave:turnoCostruzione(:d se dormiente)`, es.
     // "acquedotto:4,teatro:6:d". Stanno sul PATH, non sul record del regno: sono
@@ -1573,6 +1597,7 @@ document.addEventListener('DOMContentLoaded', () => {
             path.removeAttribute('data-ships');
             path.removeAttribute('data-pc-color');
             path.removeAttribute('data-merc');
+            path.removeAttribute('data-cav');
             return;
         }
         if (typeof PIECES === 'undefined' || !PIECES[type]) return;
@@ -1590,7 +1615,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // ventura non puo' restare piu' numerosa di loro. Chi vuole decidere QUALI
         // uomini se ne vanno (partenze proporzionali, perdite alla ventura per
         // prima) lo fa esplicitamente in game-actions.js: qui si tappa e basta.
-        if (type === 'soldato' && delta < 0) setMerc(path, mercOf(path));
+        // Stesso discorso per i cavalieri: in un calo generico restano finché ci
+        // sono fanti da togliere (prima cedono i fanti, poi la ventura, per
+        // ultimi i cavalieri).
+        if (type === 'soldato' && delta < 0) {
+            const tot = countPiece(path, 'soldato');
+            const cav = Math.min(cavOf(path), tot);
+            setMerc(path, Math.min(mercOf(path), tot - cav));
+            setCav(path, cav);
+        }
     }
 
     function ownerColorHex(path) {
@@ -1621,7 +1654,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const fogged = path.classList.contains('fog');
         const sizeBase = Math.max(PIECE_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * PIECE_FIT, PIECE_SIZE));
 
-        const land = arr.filter(e => SHIP_TYPES.indexOf(e.type) < 0 && e.type !== 'strada');
+        let land = arr.filter(e => SHIP_TYPES.indexOf(e.type) < 0 && e.type !== 'strada');
+        // I CAVALIERI sono una quota dei soldati (data-cav), non una voce di
+        // data-pieces: sulla mappa però si vedono a parte, con la loro sagoma e il
+        // loro numero accanto ai fanti — "8 uomini" diventa "6 fanti e 2 cavalieri".
+        const cav = cavOf(path);
+        if (cav > 0) {
+            const out = [];
+            land.forEach(e => {
+                if (e.type !== 'soldato') { out.push(e); return; }
+                if (e.count - cav > 0) out.push({ type: 'soldato', count: e.count - cav });
+                out.push({ type: 'cavaliere', count: Math.min(cav, e.count) });
+            });
+            land = out;
+        }
         // Una pedina PER SCAFO, non una pedina col numero di navi: ognuna mostra il
         // proprio carico di uomini (§9.2). È la ragione per cui gli scafi non si
         // impilano — quel numero serve a chi le guarda, non solo a chi le muove.
@@ -1781,6 +1827,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (w) entry.w = w;
             const m = p.getAttribute('data-merc');   // mercenari, §5.3
             if (m) entry.m = m;
+            const k = p.getAttribute('data-cav');    // cavalieri
+            if (k) entry.k = k;
             const c = p.getAttribute('data-pc-color');
             if (c) entry.c = c;
             out[p.id] = entry;
@@ -1795,10 +1843,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // applyAdminDiff, che tocca solo le province cambiate senza spogliare le altre.
     // v null/undefined/vuoto = provincia sgombra.
     function applyPieceEntry(p, v) {
-        let str = '', ships = '', color = '', merc = 0, welfare = '';
+        let str = '', ships = '', color = '', merc = 0, cav = 0, welfare = '';
         if (v && typeof v === 'object' && !Array.isArray(v)) {
             str = v.t || ''; ships = v.s || ''; color = v.c || '';
             merc = parseInt(v.m, 10) || 0;
+            cav = parseInt(v.k, 10) || 0;
             welfare = v.w || '';
         }
         else if (typeof v === 'string') str = v;
@@ -1828,6 +1877,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setShips(p, hulls);
         setWelfare(p, welfare ? welfare.split(',') : []);   // migliorie civiche, §6.1
         setMerc(p, merc);   // si clampa da sé sui soldati appena applicati (§5.3)
+        setCav(p, cav);     // ...e i cavalieri su quel che avanza dopo la ventura
         if ((land || hulls.length) && color) p.setAttribute('data-pc-color', color);
         else p.removeAttribute('data-pc-color');
     }
@@ -2962,6 +3012,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (beginBtn) beginBtn.style.display = (isAdminMode && gameLive && !adminIntervening && !pendingDiff) ? '' : 'none';
         if (commitBtn) commitBtn.style.display = adminIntervening ? '' : 'none';
         if (cancelBtn) cancelBtn.style.display = adminIntervening ? '' : 'none';
+        // Aggiorna tutti: per l'admin, solo online (in locale non c'è nessuno).
+        const reloadBtn = document.getElementById('reload-all-btn');
+        if (reloadBtn) reloadBtn.style.display = (isAdminMode && typeof MultiplayerSync !== 'undefined' &&
+            MultiplayerSync.isConfigured) ? '' : 'none';
         // Pannello di ripristino: visibile a partita viva se admin e online (i
         // backup vivono su Firestore). Si popola alla prima comparsa.
         const restore = document.getElementById('restore-controls');
@@ -3514,6 +3568,63 @@ document.addEventListener('DOMContentLoaded', () => {
         info.className = 'active';
         if (p) info.style.borderLeftColor = p.color;
     }
+
+    // ---------- AGGIORNA TUTTI (regola dell'utente) ----------
+    // Dopo un deploy l'admin preme "🔄 Aggiorna tutti" e ogni pagina aperta —
+    // plance dei giocatori, altri editor — si ricarica col codice nuovo, dopo un
+    // avviso di qualche secondo. Le mosse sono già salvate (ogni azione salva da
+    // sé), quindi ricaricare non perde niente. Il MOTORE headless (driver/, un
+    // Chrome guidato da Puppeteer: navigator.webdriver) non si ricarica da sé —
+    // il suo stato vive nel processo Node: va riavviato a parte.
+    const RELOAD_DELAY_MS = 5000;
+    let reloadPending = false;
+    function onReloadSignal() {
+        if (reloadPending) return;
+        if (typeof navigator !== 'undefined' && navigator.webdriver) return;
+        reloadPending = true;
+        let bar = document.getElementById('reload-all-bar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'reload-all-bar';
+            bar.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;' +
+                'background:#2a1f12;color:#ffe6b0;border:1px solid #c9a24a;border-radius:8px;' +
+                'padding:10px 16px;font:600 .95rem/1.3 sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.45);' +
+                'max-width:calc(100vw - 32px);text-align:center;';
+            document.body.appendChild(bar);
+        }
+        let left = Math.round(RELOAD_DELAY_MS / 1000);
+        const tick = () => {
+            bar.textContent = '🔄 È uscito un aggiornamento del gioco: la pagina si ricarica fra ' + left + ' s…';
+            if (left <= 0) { location.reload(); return; }
+            left--;
+            setTimeout(tick, 1000);
+        };
+        tick();
+    }
+    (function wireReloadAll() {
+        const b = document.getElementById('reload-all-btn');
+        if (!b) return;
+        b.addEventListener('click', () => {
+            if (!isAdminMode) return;
+            if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.isConfigured) {
+                showPieceNotice('Aggiorna tutti funziona solo online: in locale non c\'è nessuno da ricaricare.');
+                return;
+            }
+            askConfirm({
+                title: 'Ricaricare la pagina a tutti?',
+                text: 'Ogni pagina aperta del gioco (plance dei giocatori e altri editor) si ricarica fra ' +
+                    Math.round(RELOAD_DELAY_MS / 1000) + ' secondi e prende il codice nuovo. Le mosse sono già ' +
+                    'salvate. Funziona sulle pagine aperte DOPO il deploy che ha introdotto questo bottone; ' +
+                    'il motore in cloud va riavviato a parte.',
+                ok: '🔄 Aggiorna tutti', tone: 'calm'
+            }, () => {
+                MultiplayerSync.requestReloadAll().then(ok => {
+                    showPieceNotice(ok ? 'Richiesta inviata: le pagine aperte si stanno ricaricando.'
+                        : 'Invio non riuscito: controlla la connessione e riprova.');
+                });
+            });
+        });
+    })();
 
     // Aggancio dei tre bottoni d'intervento (l'HTML sta in index.html).
     (function wireInterventionButtons() {
@@ -6343,6 +6454,10 @@ document.addEventListener('DOMContentLoaded', () => {
             merc: mercOf,
             setMerc,
             addMerc(path, n) { setMerc(path, mercOf(path) + Math.floor(n || 0)); },
+            // CAVALIERI: quanti dei soldati sono a cavallo. Deposito, come la ventura.
+            cav: cavOf,
+            setCav,
+            addCav(path, n) { setCav(path, cavOf(path) + Math.floor(n || 0)); },
             // MIGLIORIE CIVICHE (§6.1): Sanità/Felicità della città-capitale.
             // Voci {key,turn,dormant} sul path; chi le muta è game-actions.
             welfare: welfareOf,

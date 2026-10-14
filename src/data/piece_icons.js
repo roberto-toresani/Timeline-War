@@ -93,6 +93,44 @@ const PIECE_SYMBOLS = `
   <use href="#sh-soldato" xlink:href="#sh-soldato"/>
 </symbol>
 
+<!-- CAVALIERE: cavallo al passo verso destra, cavaliere con elmo e pennacchio,
+     scudo a mandorla (senza croce: non tutti i regni sono cristiani) e lancia in resta con la banderuola. Non sta in PIECES: è
+     una QUOTA dei soldati (data-cav), la sagoma la disegna renderPiecesForPath. -->
+<g id="sh-cavaliere" fill="currentColor" stroke-linejoin="round" stroke-linecap="round">
+  <ellipse cx="49" cy="89" rx="27" ry="3.8" fill="#000" opacity="0.20" stroke="none"/>
+  <ellipse cx="49" cy="83" rx="27" ry="5"/>
+  <path d="M22 83 A27 5 0 0 0 76 83 L76 80 A27 5 0 0 1 22 80 Z" fill="#000" opacity="0.22" stroke="none"/>
+  <ellipse cx="49" cy="80" rx="27" ry="5"/>
+  <path d="M29 66 L29 79 L35 79 L35 66 Z"/>
+  <path d="M39 66 L39 79 L45 79 L45 66 Z"/>
+  <path d="M56 66 L56 79 L62 79 L62 66 Z"/>
+  <path d="M65 66 L67 79 L73 79 L71 66 Z"/>
+  <path d="M25 50 C16 52 13 62 16 69 C19 63 22 59 27 57 Z"/>
+  <path d="M57 47 C59 38 63 31 69 27 L74 26 C78 29 83 34 85 39 C85 42 82 43 79 41 L74 39 C72 43 71 47 70 52 Z"/>
+  <path d="M69 27 L69.5 20 L73.5 26 Z"/>
+  <path d="M24 52 C24 45 33 43 45 43 L62 43 C67 43 70 46 71 51 L73 69 Q69 72 65.5 69 Q62 72 58.5 69 Q55 72 51.5 69 Q48 72 44.5 69 Q41 72 37.5 69 Q34 72 30.5 69 Q27 72 24 69 Z"/>
+  <path d="M24 61 L73 61" fill="none" stroke="#fff" stroke-opacity="0.4" stroke-width="1.6"/>
+  <path d="M24 52 C24 45 33 43 45 43 L45 69 Q41 72 37.5 69 Q34 72 30.5 69 Q27 72 24 69 Z" fill="#fff" opacity="0.12" stroke="none"/>
+  <path d="M58 43 L62 43 C67 43 70 46 71 51 L73 69 Q69 72 65.5 69 Q62 72 58.5 69 Z" fill="#000" opacity="0.16" stroke="none"/>
+  <path d="M41 45 L41 33 C41 28 44 26 48 26 C52 26 55 28 55 33 L55 45 Z"/>
+  <path d="M41.5 26 C41.5 18 44.5 14 48 14 C51.5 14 54.5 18 54.5 26 Z"/>
+  <rect x="44" y="20" width="10.5" height="1.8" fill="#000" opacity="0.45" stroke="none"/>
+  <path d="M48 14.5 C46 8 50 4 56 5 C52 7 51 10 50.5 14.5 Z"/>
+  <ellipse cx="45" cy="19" rx="2" ry="3" fill="#fff" opacity="0.35" stroke="none"/>
+  <path d="M48 26 C52 26 55 28 55 33 L55 45 L48 45 Z" fill="#000" opacity="0.14" stroke="none"/>
+  <path d="M32 32 L45 32 L45 41 C45 47 38.5 51 38.5 51 C38.5 51 32 47 32 41 Z"/>
+  <path d="M32 32 L38.5 32 L38.5 51 C38.5 51 32 47 32 41 Z" fill="#fff" opacity="0.15" stroke="none"/>
+  <circle cx="38.5" cy="40" r="2.6" fill="#fff" opacity="0.55" stroke="none"/>
+  <path d="M34 35.5 L43 35.5" fill="none" stroke="#000" stroke-opacity="0.18" stroke-width="1.2"/>
+  <path d="M46 42.5 L93 25 L94 27.6 L47 45.1 Z" stroke-width="3"/>
+  <circle cx="51" cy="42" r="3.2"/>
+  <path d="M84 28.5 L97 23 L95.5 33 Z" stroke-width="3"/>
+</g>
+<symbol id="pc-cavaliere" viewBox="0 0 100 100">
+  <use href="#sh-cavaliere" xlink:href="#sh-cavaliere" stroke="${PC_INK}" stroke-width="${PC_OUT}"/>
+  <use href="#sh-cavaliere" xlink:href="#sh-cavaliere"/>
+</symbol>
+
 <g id="sh-generale" fill="currentColor" stroke-linejoin="round" stroke-linecap="round"><path d="M22 82 C22 58 28 50 33 50 C39 50 45 58 45 82 Z"/><circle cx="33" cy="40" r="6"/><path d="M27 40 a6 6 0 0 1 12 0 z"/><path d="M33 34 C31 27 36 25 38 25 C35 29 35 32 35 34 Z"/><path d="M43 16 C60 14 68 24 84 20 L84 42 C68 46 60 36 43 42 Z"/><path d="M60 24 h4 v5 h5 v4 h-5 v6 h-4 v-6 h-5 v-4 h5 z" fill="#fff" stroke="none"/><rect x="40" y="12" width="3" height="70" rx="1.5"/><path d="M41.5 8 l3.5 8 h-7 z"/></g>
 <symbol id="pc-generale" viewBox="0 0 100 100">
   <use href="#sh-generale" xlink:href="#sh-generale" stroke="${PC_INK}" stroke-width="${PC_OUT}"/>
