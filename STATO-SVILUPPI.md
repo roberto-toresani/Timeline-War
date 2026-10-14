@@ -4,7 +4,7 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-08-14 (mappa definitiva in cassaforte: `src/mappe/`)
+- **Ultimo aggiornamento:** 2026-10-14 (mappa: icone −25%, Capitale in tono intenso, risorse sempre dentro la provincia)
 - **Branch corrente:** `feat/partita-giocabile`
 - **Ultimo commit:** vedi `git log` — Pedine scontornate e ancoraggi (niente truppe in mare, navi in acqua aperta)
 
@@ -37,6 +37,11 @@ e in particolare al momento del commit.
   `startGame`), invece di ereditare la Riforma di quella precedente.
 - **Popolarità e Prestigio** — Popolarità operativa (§8); Prestigio come contatore permanente
   a tre fonti (obiettivi, +1 Capitale nemica presa, −1 alleanza rotta).
+- **Ritocco grafico della mappa (2026-10-14)** — pedine e icone-risorsa **ridotte del
+  25%** (tetto, pavimento e fattore proporzionale, `PIECE_*`/`RES_*` in app.js) con il
+  pallino del numero un po' più largo (`BADGE_R`) perché resti leggibile; la provincia
+  della **Capitale** ha un tono più intenso del colore del regno (`capitalTone`, solo
+  vista per proprietario e mai in nebbia leggera). Le icone-risorsa si posano più verso il centro, sempre tutte dentro la loro provincia e, dove c'è spazio, accanto alle pedine e non sotto (`resourceSpot`).
 - **Figure di gioco (pedine)** — aggiunte con editor sulla mappa (WIP). Ogni pedina è
   **scontornata di nero** (strato di contorno in `data/piece_icons.js`, costanti `PC_INK`
   / `PC_OUT` / `PC_LINE`): si legge anche de-zoomando e anche quando la provincia ha lo

@@ -87,10 +87,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // massimo) e un PAVIMENTO sotto cui non si scende mai: la proporzione
     // resta solo come freno dove la provincia è davvero troppo stretta, e il
     // divario si è ridotto da 4,6× a 1,3×.
-    // Il fattore è alto apposta (0,45 e 0,5): serve a far toccare il tetto
-    // alla grande maggioranza delle province, non a graduarle una per una.
-    const PIECE_SIZE = 5.6, PIECE_SIZE_MIN = 4.2;   // pedine (soldati, città, navi…)
-    const RES_SIZE = 6.4, RES_SIZE_MIN = 5;         // icone-risorsa
+    // Il fattore è alto apposta: serve a far toccare il tetto alla grande
+    // maggioranza delle province, non a graduarle una per una.
+    // RIDOTTE DEL 25% (regola dell'utente, 2026-10-14: pedine e simboli si
+    // sovrapponevano). Il taglio vale per TUTTE E TRE le leve — tetto,
+    // pavimento E fattore proporzionale: nelle province piccole (quasi tutta
+    // l'Europa) la misura la decide il fattore, e tagliando solo i tetti le
+    // icone calavano appena del 5%. Erano 5,6/4,2/0,45 e 6,4/5/0,5.
+    const PIECE_SIZE = 4.2, PIECE_SIZE_MIN = 3.15, PIECE_FIT = 0.3375; // pedine (soldati, città, navi…)
+    const RES_SIZE = 4.8, RES_SIZE_MIN = 3.75, RES_FIT = 0.375;        // icone-risorsa
+    // Il pallino col numero (truppe impilate, carico di uno scafo) in proporzione
+    // alla pedina: più largo di prima (era 0,26) perché, rimpicciolite le
+    // pedine, il numero restasse leggibile quasi come prima.
+    const BADGE_R = 0.32;
+    // Fin dove si può rimpicciolire un'icona-risorsa pur di non coprire le pedine
+    // (vedi resourceSpot). Sta qui in cima e non accanto alla funzione: initMap
+    // disegna le risorse prima che una const più in basso esca dalla zona morta.
+    const RES_SHRINK = [1, 0.85, 0.72, 0.62];
     let ROADS = [];          // strade tra province: [{a, b, c}] (a,b = id province adiacenti, c = colore)
     let pendingRoad = null;  // id della prima provincia scelta col pennello strada (attesa della seconda)
     let isAdminMode = false;
@@ -1026,18 +1039,112 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function pointInPath(path, x, y) { return MapAnchors.pointInPath(path, x, y); }
 
-    // Ancora dell'icona-risorsa: individua il CORPO PRINCIPALE della provincia
-    // (ignora isole lontane usando la mediana dei punti del perimetro), poi sceglie
-    // un angolo di quel corpo e garantisce che il centro dell'icona cada dentro il
-    // poligono (isPointInFill). Cosi' l'icona non sfora in mare o in un'altra provincia.
+    // Il CORPO PRINCIPALE della provincia (ignora isole lontane usando la mediana
+    // dei punti del perimetro): è il riquadro in cui si cercano le ancore.
     function mainBodyBBox(path) { return MapAnchors.mainBodyBBox(path); }
 
+    // POSA DELL'ICONA-RISORSA (regola dell'utente, 2026-10-14: "sposta la risorsa
+    // leggermente più al centro" e non sotto le pedine — in Lancashire l'angolo
+    // scelto cadeva proprio sul punto delle truppe). Prima si prendeva un ANGOLO
+    // del riquadro senza sapere dove stessero le pedine. Ora si cerca, su una
+    // griglia dentro il corpo principale, il punto più vicino al centro la cui
+    // icona sta TUTTA nella provincia e non tocca la ZONA DELLE PEDINE: il
+    // rettangolo di una fila attorno all'ancora di terra (MapAnchors.landAnchor),
+    // pallino del numero compreso. Le pedine non si spostano mai da lì, quindi
+    // la zona è fissa e la risorsa non salta di posto a ogni mossa — e le strade,
+    // che schivano le risorse, restano ferme anche loro.
+    // Due zone: quella di UNA pedina va evitata a ogni costo; quella di una fila
+    // da DUE (truppe + un edificio) si evita se la provincia ha spazio. Dove non
+    // c'è spazio per niente (province minuscole) vince il minimo di sovrapposizione.
+    // Memoizzato sul path per misura: la geografia non cambia mai.
     function markerAnchor(path) {
         const bb = mainBodyBBox(path);
         if (!bb) return null;
-        const mx = bb.x, my = bb.y, mw = bb.w, mh = bb.h;
+        const size = Math.max(RES_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * RES_FIT, RES_SIZE));
+        const memo = path.__resAnchor;
+        if (memo && memo.key === size) return memo.out;
+        const out = resourceSpot(path, bb, size) || cornerAnchor(path, bb, size);
+        path.__resAnchor = { key: size, out };
+        return out;
+    }
 
-        const size = Math.max(RES_SIZE_MIN, Math.min(Math.min(mw, mh) * 0.5, RES_SIZE));
+    // LA RISORSA STA SEMPRE TUTTA DENTRO LA SUA PROVINCIA (regola dell'utente:
+    // un'icona che sborda sembra della provincia accanto — il grano di Hail
+    // pareva in Siria). È il vincolo che viene PRIMA di tutto; poi, in ordine:
+    //   1. non toccare le pedine, anche a costo di rimpicciolire un po' l'icona
+    //      (fino a RES_SHRINK della sua misura);
+    //   2. se nemmeno piccola trova un posto libero, la misura piena accanto
+    //      alle pedine col minimo di sovrapposizione — ma dentro i confini;
+    //   3. ultima spiaggia (isolotti): sul punto più profondo, grande quanto il
+    //      raggio libero che ha attorno.
+    function resourceSpot(path, bb, size) {
+        const la = MapAnchors.landAnchor(path);
+        if (!la) return null;
+        const ps = Math.max(PIECE_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * PIECE_FIT, PIECE_SIZE));
+        // Rettangoli [x0,y0,x1,y1] delle pedine: la fila è centrata sull'ancora,
+        // il pallino sporge in alto a destra (vedi drawPieceRow).
+        const zone = (n) => {
+            const w = n * ps + (n - 1) * ps * 0.12;
+            return [la.x - w / 2, la.y - ps * 0.68, la.x + w / 2 + ps * 0.18, la.y + ps / 2];
+        };
+        const z1 = zone(1), z2 = zone(2);
+        const overlap = (z, x, y, h) => {
+            const ox = Math.min(z[2], x + h) - Math.max(z[0], x - h);
+            const oy = Math.min(z[3], y + h) - Math.max(z[1], y - h);
+            return (ox > 0 && oy > 0) ? ox * oy : 0;
+        };
+        const ccx = bb.x + bb.w / 2, ccy = bb.y + bb.h / 2;
+        // L'icona è un tondo: è dentro se lo sono il centro e sedici punti appena
+        // sotto il suo bordo (il contorno bianco sottile può sfiorare il confine).
+        // Otto non bastavano: fra un raggio e l'altro una punta di costa passava.
+        const inside = (x, y, h) => {
+            if (!pointInPath(path, x, y)) return false;
+            const k = h * 0.95;
+            for (let a = 0; a < 16; a++) {
+                const t = a * Math.PI / 8;
+                if (!pointInPath(path, x + Math.cos(t) * k, y + Math.sin(t) * k)) return false;
+            }
+            return true;
+        };
+        // Candidati per una misura, dal migliore: lontano dalle pedine, poi vicino al centro.
+        const candidates = (s) => {
+            const h = s / 2, N = 14, out = [];
+            for (let i = 0; i <= N; i++) {
+                for (let j = 0; j <= N; j++) {
+                    const x = bb.x + h + Math.max(0, bb.w - s) * i / N;
+                    const y = bb.y + h + Math.max(0, bb.h - s) * j / N;
+                    const o1 = overlap(z1, x, y, h);
+                    out.push({ x, y, h, o1, score: o1 * 1000 + overlap(z2, x, y, h) * 40 + Math.hypot(x - ccx, y - ccy) });
+                }
+            }
+            return out.sort((a, b) => a.score - b.score);
+        };
+        const spot = (c) => ({ x: c.x - c.h, y: c.y - c.h, size: c.h * 2 });
+        const lists = RES_SHRINK.map(f => candidates(size * f));
+        // 1. Tutta dentro e lontana dalle pedine, alla misura più grande possibile.
+        for (const list of lists) {
+            for (const c of list) {
+                if (c.o1 > 0) break;               // ordinati: da qui toccano tutti
+                if (inside(c.x, c.y, c.h)) return spot(c);
+            }
+        }
+        // 2. Tutta dentro, alla misura più grande possibile, toccando le pedine
+        //    il meno possibile.
+        for (const list of lists) {
+            for (const c of list) if (inside(c.x, c.y, c.h)) return spot(c);
+        }
+        // 3. Isolotti e province filiformi: il punto più profondo, e l'icona si
+        //    stringe finché non ci sta davvero (il raggio di landAnchor è misurato
+        //    su un bordo sfoltito e da solo non garantisce niente).
+        let s = Math.min(size * RES_SHRINK[RES_SHRINK.length - 1], la.r * 2);
+        while (s > 1.2 && !inside(la.x, la.y, s / 2)) s *= 0.85;
+        s = Math.max(s, 1.2);
+        return { x: la.x - s / 2, y: la.y - s / 2, size: s };
+    }
+
+    // Ripiego di sempre: un angolo del corpo principale, scivolando verso il centro.
+    function cornerAnchor(path, bb, size) {
+        const mx = bb.x, my = bb.y, mw = bb.w, mh = bb.h;
         const inset = size * 0.6;
         const ccx = mx + mw / 2, ccy = my + mh / 2; // centro del corpo principale
         const corners = [
@@ -1061,8 +1168,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Disegna (o ridisegna) l'icona-risorsa ancorata al corpo principale di UNA
-    // provincia. Piccola e in un angolo, cosi' lascia il centro libero per
-    // soldati/citta'/mercati/strade. Nascosta se la provincia e' in nebbia.
+    // provincia, accanto alla zona delle pedine (vedi markerAnchor). Nascosta se
+    // la provincia e' in nebbia.
     function renderMarkerForPath(svg, path) {
         svg.querySelectorAll(`.resource-marker[data-prov="${CSS.escape(path.id)}"]`).forEach(m => m.remove());
         const key = resourceKeyOf(path);
@@ -1512,7 +1619,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!bb) return;
         const color = pieceColorOf(path);
         const fogged = path.classList.contains('fog');
-        const sizeBase = Math.max(PIECE_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * 0.45, PIECE_SIZE));
+        const sizeBase = Math.max(PIECE_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * PIECE_FIT, PIECE_SIZE));
 
         const land = arr.filter(e => SHIP_TYPES.indexOf(e.type) < 0 && e.type !== 'strada');
         // Una pedina PER SCAFO, non una pedina col numero di navi: ognuna mostra il
@@ -1575,7 +1682,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // altrimenti si mostra la quantità, e solo se vale la pena.
             const badge = (e.badge !== undefined) ? e.badge : (e.count > 1 ? e.count : null);
             if (badge !== null) {
-                const bx = x + size * 0.84, by = y + size * 0.16, br = size * 0.26;
+                const bx = x + size * 0.84, by = y + size * 0.16, br = size * BADGE_R;
                 const c = document.createElementNS(SVG_NS, 'circle');
                 c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
                 c.setAttribute('fill', '#fff');
@@ -1629,7 +1736,7 @@ document.addEventListener('DOMContentLoaded', () => {
         use.setAttribute('width', size); use.setAttribute('height', size);
         add(use);
         // Il carico a bordo, nel pallino, come su ogni scafo (§9.2).
-        const bx = x + size * 0.84, by = y + size * 0.16, br = size * 0.26;
+        const bx = x + size * 0.84, by = y + size * 0.16, br = size * BADGE_R;
         const c = document.createElementNS(SVG_NS, 'circle');
         c.setAttribute('cx', bx); c.setAttribute('cy', by); c.setAttribute('r', br);
         c.setAttribute('fill', '#fff');
@@ -4082,6 +4189,53 @@ document.addEventListener('DOMContentLoaded', () => {
         return { res, pieces };
     }
 
+    // LA CAPITALE SI VEDE DAL COLORE (regola dell'utente, 2026-10-14): la sua
+    // provincia prende un tono più INTENSO dello stesso colore del regno — più
+    // saturo e un po' più scuro (HSL: saturazione ×1,2 +5%, luce ×0,84). Non si
+    // mescola col nero: il giallo diventerebbe oliva e il verde smorto.
+    // Solo nella vista per proprietario e solo dove le pedine si vedono: in
+    // nebbia leggera (§9.2) la Capitale è nascosta, e il tono la svelerebbe.
+    // Memoizzato per colore (refreshMapDisplay gira dopo ogni azione), sulla
+    // funzione stessa e non in una const: initMap ridisegna prima che una const
+    // dichiarata qui sotto esca dalla zona morta (vedi CLAUDE.md, alias di funzione).
+    function capitalTone(hex) {
+        const cache = capitalTone.cache || (capitalTone.cache = new Map());
+        let out = cache.get(hex);
+        if (out) return out;
+        out = hex;
+        const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+        if (m) {
+            const n = parseInt(m[1], 16);
+            const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+            const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+            let h = 0, s = 0, l = (mx + mn) / 2;
+            if (mx !== mn) {
+                const d = mx - mn;
+                s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+                h = (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) / 6;
+            }
+            s = Math.min(1, s * 1.2 + 0.05);
+            l = l * 0.84;
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+            const ch = t => {
+                t = (t + 1) % 1;
+                const v = t < 1 / 6 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p;
+                return Math.round(v * 255).toString(16).padStart(2, '0');
+            };
+            out = '#' + ch(h + 1 / 3) + ch(h) + ch(h - 1 / 3);
+        }
+        cache.set(hex, out);
+        return out;
+    }
+
+    // La provincia ospita la Capitale DEL SUO PROPRIETARIO (una Capitale nemica
+    // appena presa e non ancora declassata non conta: stesso criterio per colore
+    // di getCapitalPathFor). Il filtro sulla stringa evita piecesOf su 628 path.
+    function isCapitalOf(path, ownerColor) {
+        if ((path.getAttribute('data-pieces') || '').indexOf('capitale') < 0) return false;
+        return pieceColorOf(path) === ownerColor;
+    }
+
     function refreshMapDisplay() {
         const svg = mapSvg();
         if (!svg) return;
@@ -4118,21 +4272,26 @@ document.addEventListener('DOMContentLoaded', () => {
             // Vista per fede: la provincia prende la tinta della sua religione;
             // le terre senza fede assegnata e quelle in nebbia restano al neutro.
             // Vista per terreno: la tinta dice se lì il numero conta o no (§9).
+            // Nebbia leggera: la provincia si vede (colore del proprietario), le
+            // sue pedine no — dal mare si riconosce la bandiera, non la guarnigione.
+            const isHazed = !!(hazed && hazed.has(path.id));
+            const ownerColor = colorOf.get(owner);
             const color = !isVisible
                 ? FOG_FILL
                 : (terrainView
                     ? Terrain.color(terrainKeyOf(path))
                     : faithView
                     ? (religionKeyOf(path) ? Religions.color(religionKeyOf(path)) : NEUTRAL_FILL)
-                    : (colorOf.get(owner) || NEUTRAL_FILL));
+                    : !ownerColor
+                    ? NEUTRAL_FILL
+                    : (!isHazed && isCapitalOf(path, ownerColor))
+                    ? capitalTone(ownerColor)
+                    : ownerColor);
             // Path SVG "fill=" attribute takes precedence over CSS in some browsers,
             // so we drive both the attribute and the inline style to stay consistent.
             path.setAttribute('fill', color);
             path.style.fill = color;
             path.classList.toggle('fog', !isVisible);
-            // Nebbia leggera: la provincia si vede (colore del proprietario), le
-            // sue pedine no — dal mare si riconosce la bandiera, non la guarnigione.
-            const isHazed = !!(hazed && hazed.has(path.id));
             path.classList.toggle('haze', isHazed);
             path.classList.toggle('spied', !!(spied && spied.has(path.id)));
 

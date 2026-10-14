@@ -2574,6 +2574,27 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   Chi aggiunge una riga usa lo stesso metro: nel dubbio non si aggiunge. Attenzione: la
   chiave è il **nome** della provincia, non l'id SVG (`Northern_Serbia` → "Serbia",
   `Estremadura` → "Portugal").
+- **Misura delle icone e tono della Capitale (regola dell'utente, 2026-10-14)**: pedine e
+  icone-risorsa sono state ridotte del 25% per non sovrapporsi. La misura ha **tre leve**
+  (`PIECE_SIZE`/`_MIN`/`_FIT`, `RES_SIZE`/`_MIN`/`_FIT` in app.js): nelle province piccole
+  decide il fattore `_FIT`, quindi chi ritocca le misure le scala **tutte e tre**, o
+  in Europa non cambia quasi niente. Il pallino del numero sta in `BADGE_R`. La provincia
+  della **Capitale** prende `capitalTone(colore)` in `refreshMapDisplay` — stessa tinta,
+  più satura e un po' più scura in HSL (non mescolata col nero: il giallo diventerebbe
+  oliva) — solo nella vista per proprietario e **non in nebbia leggera**, dove le pedine
+  sono nascoste e il tono svelerebbe il seggio.
+  **Dove si posa l'icona-risorsa** (`markerAnchor` → `resourceSpot`): non più in un
+  angolo del riquadro, ma nel punto più vicino al centro del corpo principale che non
+  tocca la **zona delle pedine** (la fila attorno a `MapAnchors.landAnchor`, pallino
+  compreso; evitata a ogni costo per una pedina, se c'è spazio per due). **Il vincolo
+  che viene prima di tutto è che l'icona stia TUTTA nella sua provincia** (regola
+  dell'utente: un'icona che sborda sembra della vicina — il grano di Hail pareva in
+  Siria), controllato su 16 punti del bordo. Poi, nell'ordine: non toccare le pedine
+  anche rimpicciolendo l'icona (`RES_SHRINK`, fino al 62%); se non basta, toccarle il
+  meno possibile restando dentro; negli isolotti, il punto più profondo con l'icona
+  stretta finché ci sta. La zona è fissa —
+  le pedine non si spostano dall'ancora — quindi la risorsa (e le strade che la
+  schivano) non salta di posto a ogni mossa. Memoizzato su `path.__resAnchor`.
 - **Aspetto della mappa**: `js/map-decor.js` veste l'SVG appena caricato (chiamato da
   `initMap` in `app.js`). Agisce **solo su elementi statici** — il `rect#svg-background`
   (mare) e una copia congelata di `#map-group` che fa da alone costiero — perché
