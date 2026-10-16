@@ -5055,20 +5055,40 @@ document.addEventListener('DOMContentLoaded', () => {
         diploKingdomsVisibili(me).forEach(p => {
             chans.push({ key: 'priv:' + p.name, label: p.name, color: p.color });
         });
-        if (chatChannel !== 'all' && !chans.some(c => c.key === chatChannel)) {
-            const k = channelKingdom(chatChannel);
-            if (k) chans.push({ key: chatChannel, label: k.name, color: k.color });
-        }
+        // Un filo che ha già messaggi resta raggiungibile anche se quel regno è
+        // fuori vista: se no un privato arrivato da lontano non si leggerebbe mai.
+        const keys = new Set([chatChannel]);
+        chatMessages.forEach(m => { if (m.to && chatVisibleTo(m, me)) keys.add(chatChannelOf(m, me)); });
+        keys.forEach(key => {
+            if (key === 'all' || chans.some(c => c.key === key)) return;
+            const k = channelKingdom(key);
+            if (k && k.id !== me.id) chans.push({ key, label: k.name, color: k.color });
+        });
         return chans;
+    }
+
+    // Il "letto" è PER REGNO (chi gioca più regni dallo stesso browser non li
+    // confonde) e per canale; 'dock' è l'ultima volta che il foglio chat è stato
+    // aperto. Le chiavi vecchie senza regno valgono da ripiego, così dopo
+    // l'aggiornamento non si riaccende tutto lo storico.
+    function seenAt(me, key) {
+        const k = me.id + '|' + key;
+        return (k in chatSeen) ? chatSeen[k] : (chatSeen[key] || 0);
     }
 
     function chatUnread(me) {
         const map = {};
         let total = 0;
+        const dockSeen = seenAt(me, 'dock');
         chatMessages.forEach(m => {
             if (!chatVisibleTo(m, me) || m.regno === me.name) return;   // i miei non contano
             const key = chatChannelOf(m, me);
-            if ((m.ts || 0) > (chatSeen[key] || 0)) { map[key] = (map[key] || 0) + 1; total++; }
+            const ts = m.ts || 0;
+            if (ts > seenAt(me, key)) map[key] = (map[key] || 0) + 1;
+            // Il pallino del dock conta il nuovo da quando la chat è stata APERTA,
+            // non il non letto di ogni canale: aperta la chat, il richiamo ha fatto
+            // il suo lavoro e i pallini dei canali dicono dove guardare.
+            if (ts > Math.max(dockSeen, seenAt(me, key))) total++;
         });
         return { map, total };
     }
@@ -5081,13 +5101,24 @@ document.addEventListener('DOMContentLoaded', () => {
         badge.style.display = total ? '' : 'none';
     }
 
+    // Segna letto solo il LEGITTIMO giocatore (regola dell'utente): un admin che
+    // sbircia col 👁 un regno preso da un giocatore lascia i pallini come stanno.
     function markChatSeen(channel, me) {
-        let latest = 0;
+        if (!ownsBoard(me)) return;
+        let latest = 0, latestAll = 0;
         chatMessages.forEach(m => {
-            if (chatVisibleTo(m, me) && chatChannelOf(m, me) === channel) latest = Math.max(latest, m.ts || 0);
+            if (!chatVisibleTo(m, me)) return;
+            const ts = m.ts || 0;
+            latestAll = Math.max(latestAll, ts);
+            if (chatChannelOf(m, me) === channel) latest = Math.max(latest, ts);
         });
-        if (latest > (chatSeen[channel] || 0)) {
-            chatSeen[channel] = latest;
+        let changed = false;
+        const bump = (key, ts) => {
+            if (ts > seenAt(me, key)) { chatSeen[me.id + '|' + key] = ts; changed = true; }
+        };
+        bump(channel, latest);
+        bump('dock', latestAll);
+        if (changed) {
             try { localStorage.setItem('risiko_chat_seen', JSON.stringify(chatSeen)); } catch (e) { /* privato */ }
         }
     }

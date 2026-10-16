@@ -144,7 +144,13 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       dell'utente): coi regni umani è una chat vera, coi regni-bot è un canale su cui
       ribattono in personalità (`maybeBotReplyPrivate`, sullo stesso filo). Pallino di
       non-letti sul dock
-      (`chatSeen` per canale in `localStorage`, comodità di chi guarda) e per canale.
+      (`chatSeen` in `localStorage`, chiave `idRegno|canale`, comodità di chi guarda) e per canale.
+      **Il pallino del dock si spegne APRENDO la chat** (chiave `idRegno|dock`), non
+      leggendo ogni canale: i pallini dei canali dicono poi dove guardare. Lo segna
+      letto solo il **legittimo giocatore** (`ownsBoard` in `markChatSeen`): un admin che
+      sbircia col 👁 un regno preso lo lascia acceso (regola dell'utente). Un filo
+      privato che ha già messaggi compare fra i canali anche se quel regno è fuori
+      vista — prima un privato da lontano non si poteva leggere e il pallino restava.
       Scorciatoia "💬 Messaggio privato" sulla scheda di un regno umano nel foglio 🕊
       (`relationCard` → `openChatWith`). L'instradamento è per **nome** di regno: il
       filo fra me e X sono i messaggi in cui uno è `regno` e l'altro `to`.
