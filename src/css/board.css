@@ -705,6 +705,16 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 /* le battute dell'IA: colore, non conversazione — pergamena appena diversa */
 .chat-msg.bot .chat-bubble { font-style: italic; opacity: .92; }
 
+/* IL PAPA: non è un regno, è una voce — il suo filo e le sue lettere in bianco e oro */
+.chat-chan.papa { border-color: var(--gold-bright); color: var(--gold-bright); }
+.chat-chan.papa.on { color: var(--bg-panel-solid); }
+.chat-msg.papa .chat-who { color: var(--gold-bright); }
+.chat-msg.papa .chat-bubble {
+    background: rgba(240, 228, 190, .14);
+    border-color: var(--gold-bright);
+    font-family: 'Cinzel', serif;
+}
+
 .chat-empty { color: var(--parchment-muted); font-size: .85rem; padding: 10px 4px; }
 
 .chat-form { flex: 0 0 auto; display: flex; gap: 8px; }

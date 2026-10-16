@@ -5022,6 +5022,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // messaggi in cui uno dei due è `regno` e l'altro `to`.
     // ============================================================
 
+    // IL PAPA (regola dell'utente): non è un regno — è solo una voce in chat, che
+    // l'admin presta dall'editor (js/pope-chat.js). Scrive in privato a OGNI regno,
+    // confini o no, quindi il suo filo è sempre in elenco e ogni regno può
+    // rispondergli lì. Il nome fa da chiave del filo come per i regni (`regno`/`to`),
+    // e `papa:true` marca entrambi i versi: i bot non gli rispondono.
+    const PAPA = 'Il Papa';
+    const PAPA_CHAN = 'priv:' + PAPA;
+
     function chatVisibleTo(m, me) {
         // Un messaggio globale (senza `to`) lo vedono tutti; un privato solo i due
         // capi del filo.
@@ -5048,7 +5056,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // aperto resta in elenco anche se il regno è uscito di vista, per rileggerne
     // lo storico.
     function chatChannels(me) {
-        const chans = [{ key: 'all', label: '🌍 Tutti', color: null }];
+        const chans = [{ key: 'all', label: '🌍 Tutti', color: null },
+                       { key: PAPA_CHAN, label: '✝ ' + PAPA, color: null, papa: true }];
         // Un filo privato per OGNI regno visibile, esattamente come la diplomazia
         // (regola dell'utente): coi regni umani è una chat vera, coi regni-bot è
         // un canale su cui rispondono in personalità (vedi maybeBotReplyPrivate).
@@ -5139,7 +5148,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cbox) {
             cbox.innerHTML = chans.map(c => {
                 const n = (c.key !== chatChannel) ? (unreadByChan[c.key] || 0) : 0;
-                return '<button type="button" class="chat-chan' + (c.key === chatChannel ? ' on' : '') +
+                return '<button type="button" class="chat-chan' + (c.key === chatChannel ? ' on' : '') + (c.papa ? ' papa' : '') +
                     '" data-chan="' + c.key + '">' +
                     (c.color ? '<span class="chat-chan-flag">' + flagHTML(c.label, c.color) + '</span>' : '') +
                     '<span class="chat-chan-lab"></span>' +
@@ -5158,10 +5167,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 log.innerHTML = '<div class="chat-empty">' +
                     (chatChannel === 'all'
                         ? 'Ancora nessun messaggio. Rompi il ghiaccio: gli altri regni ti leggono.'
-                        : 'Nessun messaggio privato con questo regno.') + '</div>';
+                        : chatChannel === PAPA_CHAN
+                            ? 'Il Santo Padre non ti ha ancora scritto. Puoi rivolgergli tu una supplica: la leggerà in privato.'
+                            : 'Nessun messaggio privato con questo regno.') + '</div>';
             } else {
                 log.innerHTML = msgs.map(m => {
-                    const cls = 'chat-msg' + (m.regno === me.name ? ' mine' : '') + (m.bot ? ' bot' : '');
+                    const cls = 'chat-msg' + (m.regno === me.name ? ' mine' : '') + (m.bot ? ' bot' : '') +
+                        (m.regno === PAPA ? ' papa' : '');
                     const priv = m.to ? '<span class="chat-priv">🔒</span>' : '';
                     return '<div class="' + cls + '">' +
                         '<div class="chat-meta">' +
@@ -5190,7 +5202,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const k = channelKingdom(chatChannel);
             inp.placeholder = chatChannel === 'all'
                 ? 'Scrivi a tutti…'
-                : ('Messaggio privato a ' + (k ? k.name : '—') + '…');
+                : chatChannel === PAPA_CHAN
+                    ? 'Messaggio privato al Papa…'
+                    : ('Messaggio privato a ' + (k ? k.name : '—') + '…');
         }
         if (send) send.disabled = !canWrite;
 
@@ -5211,7 +5225,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         const msg = { testo: text.slice(0, 500), regno: me.name, colore: me.color, aid: me.id, turno: R.turn() };
-        if (chatChannel !== 'all') {
+        if (chatChannel === PAPA_CHAN) {
+            msg.to = PAPA; msg.papa = true;
+        } else if (chatChannel !== 'all') {
             const k = channelKingdom(chatChannel);
             if (k) { msg.to = k.name; msg.toId = k.id; }
         }
@@ -5454,6 +5470,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!m || m.id == null || chatAnswered.has(m.id)) continue;
             chatAnswered.add(m.id);
             if (m.bot) continue;       // non si risponde a un altro bot
+            if (m.papa) continue;      // il Papa e chi gli scrive: li gestisce l'admin
             if (m.to) maybeBotReplyPrivate(m);   // filo privato con un regno-bot
             else maybeBotReply(m);               // chat pubblica: chi viene nominato
         }

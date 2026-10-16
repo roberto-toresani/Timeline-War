@@ -37,6 +37,7 @@ src/                     l'app di gioco (tutto ciò che viene servito/deployato)
 │  ├─ setup.js           "Nuova partita": sorteggio feudi, Capitali, umano vs bot
 │  ├─ start-map.js       MAPPA INIZIALE: salva/ricarica la posizione di partenza
 │  ├─ save-slots.js      ARCHIVIO DI PARTITE: salva/carica/nuova, slot locali con nome — solo admin
+│  ├─ pope-chat.js       ✝ IL PAPA: console dell'editor per scrivere in chat come il Papa — solo admin
 │  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
 │  ├─ chronicle.js       calendario (1 turno = 1 decennio) e fondazione delle città — puro
 │  ├─ map-anchors.js     DOVE si posano le cose: ancora di terra e approdo — puro
@@ -154,6 +155,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       Scorciatoia "💬 Messaggio privato" sulla scheda di un regno umano nel foglio 🕊
       (`relationCard` → `openChatWith`). L'instradamento è per **nome** di regno: il
       filo fra me e X sono i messaggi in cui uno è `regno` e l'altro `to`.
+    - **✝ IL PAPA (regola dell'utente)**: NON è un regno (niente province, turno,
+      record in `PLAYERS`) — è solo una firma in chat che l'admin presta dal pannello
+      `#pope-controls` dell'editor (`js/pope-chat.js`). Scrive in **privato a
+      qualunque regno**, confini o nebbia non contano, oppure un'**enciclica** sul
+      canale pubblico. Nella plancia ogni regno ha **sempre** il filo "✝ Il Papa"
+      (`PAPA_CHAN` in `chatChannels`, subito dopo "Tutti") e gli risponde lì. Sullo
+      stesso trasporto della chat: un messaggio del Papa è `{regno:'Il Papa',
+      papa:true, to?, toId?}`, uno al Papa `{regno:<regno>, to:'Il Papa', papa:true}`
+      — il filo si instrada per nome come quelli fra regni. `papa:true` fa saltare
+      `handleIncomingChat`: i bot **non** rispondono al Papa né a chi gli scrive.
+      La console mostra i non letti per regno (`risiko_papa_seen` in localStorage,
+      comodità dell'admin). Nessuna regola Firestore nuova: è la collezione `chat`.
     - **`MultiplayerSync` è un `const`, NON sta su `window`** (trappola vera, costata un
       bug): `sync.js` dichiara `const MultiplayerSync`, e un `const` a livello di script
       non diventa una proprietà di `window` — il resto del codice lo referenzia infatti
