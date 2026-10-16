@@ -1425,6 +1425,9 @@
             const want = Math.max(0, Math.floor(spot.soldati || 0));
             if (want !== cur) E().addPiece(path, 'soldato', want - cur);
             if (spot.merc) E().setMerc(path, Math.min(want, Math.floor(spot.merc)));
+            // `cav` è la quota a cavallo DENTRO `soldati` (come la ventura): setCav
+            // la stringe da sé a soldati − mercenari.
+            if (spot.cav) E().setCav(path, Math.floor(spot.cav));
             if (spot.capitale && E().countPiece(path, 'capitale') === 0) E().addPiece(path, 'capitale', 1);
             E().redrawProvince(path);
         });

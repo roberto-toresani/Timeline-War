@@ -87,10 +87,10 @@
     // regno d'evento (regola dell'utente: l'Orda deve arrivare, ma non è il
     // giocatore a doverla manovrare). La strategia è `predone`: razzia, colpisce
     // il debole e non ha scrupoli a tradire — il profilo dell'Orda.
-    // 25 armate per stato (75 in tutto, regola dell'utente): il corridoio di
-    // neutrali fino all'Europa è lungo un continente ed è presidiato
-    // (neutralGarrison cresce col turno): a 15 per stato l'Orda ci si scioglieva
-    // dentro prima di vedere il Volga.
+    // 35 uomini per stato, 20 a CAVALLO e 15 a piedi (105 in tutto, regola
+    // dell'utente): l'Orda è un popolo di cavalieri, e il corridoio di neutrali
+    // fino all'Europa è lungo un continente ed è presidiato (neutralGarrison
+    // cresce col turno). `soldati` è il totale, `cav` la quota a cavallo dentro.
     // DOVE va, e con che passo, sta in due posti soli: il BINARIO (Uralsk →
     // Rostov → cuore dell'Europa centrale, più l'ala di Persia) è la marcia della
     // sua dottrina (js/doctrines.js), le ONDATE sono qui sotto in `rinforzo`.
@@ -104,11 +104,11 @@
         color: '#6b2b2b',   // rosso-bruno di steppa, distinto dai 10 regni
         bot: 'predone',
         province: [
-            { id: 'Urga', soldati: 25 },       // il cuore dell'Orda
-            { id: 'Uliastai', soldati: 25 },
-            { id: 'Buryatia', soldati: 25 }
+            { id: 'Urga', soldati: 35, cav: 20 },       // il cuore dell'Orda
+            { id: 'Uliastai', soldati: 35, cav: 20 },
+            { id: 'Buryatia', soldati: 35, cav: 20 }
         ],
-        // LE ONDATE (regola dell'utente): le 75 armate di partenza non bastano ad
+        // LE ONDATE (regola dell'utente): le armate di partenza non bastano ad
         // arrivare in Europa e in Medio Oriente, quindi OGNI 5 turni, fino al 1350,
         // l'Orda riceve un bonus in DUE parti:
         //   reclute      10 truppe LIBERE che l'IA schiera dove serve (§5.1: reclute

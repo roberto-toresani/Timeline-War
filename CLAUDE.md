@@ -1514,8 +1514,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     giocatore non deve doverla manovrare in prima persona — prima nasceva `bot:null`,
     cioè in mano all'admin). `onStart` chiama `ctx.spawnKingdom(...)` con la
     Mongolia storica — **Urga** (Ulaanbaatar), **Uliastai**, **Buryatia**, tutte neutrali e
-    lontanissime a est — **25 armate per stato** (75 in tutto: bastano ad attraversare il
-    corridoio di neutrali fino all'Europa senza sciogliersi). Colore `#6b2b2b` (rosso-bruno di
+    lontanissime a est — **35 uomini per stato, 20 cavalieri e 15 fanti** (105 in tutto:
+    bastano ad attraversare il corridoio di neutrali fino all'Europa senza sciogliersi).
+    La spec di `spawnKingdom` accetta `cav` accanto a `soldati`/`merc`: è la quota a
+    cavallo DENTRO il totale, posata con `setCav`. Colore `#6b2b2b` (rosso-bruno di
     steppa, distinto dai 10 regni). **Nessuna pergamena globale**: la nebbia lo
     tiene segreto finché non arriva ai confini di qualcuno — il corridoio Mongolia→steppe
     kazake→Volga→Kievan Rus'→Polonia/Ungheria è tutto terra di nessuno, e i vicini si
