@@ -2486,6 +2486,9 @@
             try { const p = siteFor(player, 'capitale', null, null); return p ? p.id : null; }
             catch (e) { return null; }
         },
+        // La famiglia di fede di un regno (Capitale → dottrina → maggioranza delle
+        // province): la stessa che pesa sui patti, riusata dalla chat del Papa.
+        faithFamilyOf,
         isRunning: () => active,
         speed(ms) { if (ms > 0) velocita = ms; return velocita; },
         onEvent: null

@@ -165,6 +165,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       papa:true, to?, toId?}`, uno al Papa `{regno:<regno>, to:'Il Papa', papa:true}`
       — il filo si instrada per nome come quelli fra regni. `papa:true` fa saltare
       `handleIncomingChat`: i bot **non** rispondono al Papa né a chi gli scrive.
+      **I regni MUSULMANI non si rivolgono al Papa da soli** (regola dell'utente:
+      Mori, Abbasidi, Selgiuchidi): per loro il filo compare **solo dopo** che il
+      Papa ha scritto a quel regno, e da lì possono rispondere (`papaReachable`).
+      La fede è `Bot.faithFamilyOf` (Capitale → dottrina → maggioranza delle
+      province), la stessa dei patti, quindi vale anche prima della Capitale e
+      segue un regno che cambia fede.
       La console mostra i non letti per regno (`risiko_papa_seen` in localStorage,
       comodità dell'admin). Nessuna regola Firestore nuova: è la collezione `chat`.
     - **`MultiplayerSync` è un `const`, NON sta su `window`** (trappola vera, costata un

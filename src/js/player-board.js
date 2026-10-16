@@ -5030,6 +5030,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const PAPA = 'Il Papa';
     const PAPA_CHAN = 'priv:' + PAPA;
 
+    // Un regno MUSULMANO non si rivolge al Papa di sua iniziativa (regola
+    // dell'utente: Mori, Abbasidi, Selgiuchidi): il filo gli compare solo quando
+    // il Papa gli ha scritto, e da lì può rispondere. La fede è quella che pesa
+    // sui patti (Bot.faithFamilyOf), così vale anche prima della Capitale.
+    function papaReachable(me) {
+        const fam = (window.Bot && Bot.faithFamilyOf) ? Bot.faithFamilyOf(me) : null;
+        if (fam !== 'musulmani') return true;
+        return chatMessages.some(m => m.regno === PAPA && m.to === me.name);
+    }
+
     function chatVisibleTo(m, me) {
         // Un messaggio globale (senza `to`) lo vedono tutti; un privato solo i due
         // capi del filo.
@@ -5056,8 +5066,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // aperto resta in elenco anche se il regno è uscito di vista, per rileggerne
     // lo storico.
     function chatChannels(me) {
-        const chans = [{ key: 'all', label: '🌍 Tutti', color: null },
-                       { key: PAPA_CHAN, label: '✝ ' + PAPA, color: null, papa: true }];
+        const chans = [{ key: 'all', label: '🌍 Tutti', color: null }];
+        if (papaReachable(me)) chans.push({ key: PAPA_CHAN, label: '✝ ' + PAPA, color: null, papa: true });
         // Un filo privato per OGNI regno visibile, esattamente come la diplomazia
         // (regola dell'utente): coi regni umani è una chat vera, coi regni-bot è
         // un canale su cui rispondono in personalità (vedi maybeBotReplyPrivate).
@@ -5226,6 +5236,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const msg = { testo: text.slice(0, 500), regno: me.name, colore: me.color, aid: me.id, turno: R.turn() };
         if (chatChannel === PAPA_CHAN) {
+            if (!papaReachable(me)) return;
             msg.to = PAPA; msg.papa = true;
         } else if (chatChannel !== 'all') {
             const k = channelKingdom(chatChannel);
