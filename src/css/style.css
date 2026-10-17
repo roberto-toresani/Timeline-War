@@ -1796,3 +1796,27 @@ svg.map-interacting #map-group path.state { shape-rendering: optimizeSpeed !impo
 }
 .pope-msg.mine .pope-bubble { border-color: var(--gold-bright); background: rgba(240, 228, 190, .12); }
 .pope-empty { font-size: .8rem; color: var(--parchment-muted); }
+/* casella di posta del Papa: le conversazioni in corso, dalla più recente */
+.pope-sub { font-size: .75rem; color: var(--parchment-muted); margin-bottom: 4px; }
+.pope-threads {
+    max-height: 210px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 3px;
+}
+.pope-thread {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    padding: 5px 7px; border-radius: 6px;
+    border: 1px solid transparent; background: rgba(23, 18, 12, .5);
+    color: var(--parchment); font: inherit;
+}
+.pope-thread:hover { border-color: var(--gold-edge); }
+.pope-thread.on { border-color: var(--gold-bright); background: rgba(240, 228, 190, .1); }
+.pope-thread-top { display: flex; align-items: center; gap: 5px; font-size: .8rem; }
+.pope-thread-name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pope-thread-when { flex: 0 0 auto; font-size: .7rem; color: var(--parchment-muted); }
+.pope-thread-prev {
+    font-size: .74rem; color: var(--parchment-muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pope-thread-prev.new { color: var(--parchment); font-weight: 600; }
+.pope-thread .pope-unread { margin-left: 0; }
+.pope-thread-head { font-size: .8rem; color: var(--gold-bright); margin: 2px 0 4px; }

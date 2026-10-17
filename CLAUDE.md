@@ -171,8 +171,11 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       La fede è `Bot.faithFamilyOf` (Capitale → dottrina → maggioranza delle
       province), la stessa dei patti, quindi vale anche prima della Capitale e
       segue un regno che cambia fede.
-      La console mostra i non letti per regno (`risiko_papa_seen` in localStorage,
-      comodità dell'admin). Nessuna regola Firestore nuova: è la collezione `chat`.
+      La console è una **casella di posta** (regola dell'utente): in alto TUTTE le
+      conversazioni in corso (`conversations()`, encicliche comprese), dalla più
+      recente, con ultima riga, ora e non letti; un clic apre il filo sotto, e
+      "✉ Nuova lettera a…" apre quello con un regno non ancora scritto. I non letti
+      stanno in `risiko_papa_seen` in localStorage (comodità dell'admin). Nessuna regola Firestore nuova: è la collezione `chat`.
     - **`MultiplayerSync` è un `const`, NON sta su `window`** (trappola vera, costata un
       bug): `sync.js` dichiara `const MultiplayerSync`, e un `const` a livello di script
       non diventa una proprietà di `window` — il resto del codice lo referenzia infatti

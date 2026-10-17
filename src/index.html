@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=83">
-    <link rel="stylesheet" href="css/style.css?v=98">
+    <link rel="stylesheet" href="css/style.css?v=99">
 </head>
 
 <body>
@@ -271,7 +271,11 @@
                     <div id="pope-controls" style="display:none;">
                         <h3 style="margin:0 0 8px 0; border:none;">✝ Il Papa
                             <span id="pope-unread" class="pope-unread" style="display:none;"></span></h3>
-                        <select id="pope-target" style="width:100%; margin-bottom:5px;"></select>
+                        <!-- Le conversazioni in corso, dalla più recente: un clic apre il filo. -->
+                        <div class="pope-sub">Conversazioni in corso</div>
+                        <div id="pope-threads" class="pope-threads"></div>
+                        <select id="pope-target" style="width:100%; margin:5px 0;"></select>
+                        <div id="pope-thread-head" class="pope-thread-head"></div>
                         <div id="pope-log" class="pope-log"></div>
                         <textarea id="pope-text" rows="2" maxlength="500"
                                   style="width:100%; margin:5px 0;"></textarea>
@@ -360,7 +364,7 @@
          il caricamento della mappa iniziale). -->
     <script src="js/save-slots.js?v=6"></script>
     <!-- La voce del Papa in chat: usa MultiplayerSync (chat) e Risiko.players(). -->
-    <script src="js/pope-chat.js?v=1"></script>
+    <script src="js/pope-chat.js?v=2"></script>
 </body>
 
 </html>
