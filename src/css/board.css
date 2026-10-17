@@ -1525,12 +1525,13 @@ svg path.state.spied {
 /* Il cursore è largo 216px: l'etichetta prende lo spazio che avanza (e si
    accorcia se serve), il − N + quello che gli serve, la leva tutta la riga.
    Una colonna d'etichetta a misura fissa faceva uscire leve e bottoni dal riquadro. */
-.moh-squad { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 6px; }
-.moh-squad .moh-lbl { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--parchment-muted); font-size: .82rem; white-space: nowrap; }
-.moh-squad .moh-ctl { grid-column: 2; gap: 6px; justify-content: flex-end; }
-.moh-squad .moh-range { grid-column: 1 / -1; width: 100%; min-width: 0; box-sizing: border-box; }
-.moh-squad:not(:has(.moh-lbl)) { display: block; }
-.moh-squad .moh-n { font-size: 1.2rem; min-width: 32px; }
+/* Ogni reparto è il cursore di sempre (regola dell'utente): − N + centrato col
+   numero grande e la leva sotto; coi cavalieri ce ne sono due uno sopra l'altro,
+   ognuno col nome del reparto in piccolo sopra. */
+.moh-squad { display: block; }
+.moh-squad .moh-lbl { display: block; text-align: center; color: var(--parchment-muted); font-size: .78rem; line-height: 1.2; margin-bottom: 3px; }
+.moh-squad + .moh-squad { margin-top: 4px; padding-top: 6px; border-top: 1px solid rgba(201, 162, 39, .18); }
+.moh-squad .moh-range { box-sizing: border-box; }
 .moh-tot { text-align: center; color: var(--parchment-muted); font-size: .8rem; margin-bottom: 2px; }
 
 /* ...e negli elenchi del pannello: due campi numerici, uno per reparto. */
