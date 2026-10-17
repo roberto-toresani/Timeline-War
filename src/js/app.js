@@ -1016,7 +1016,51 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        return { full: graphFromCells(cellsFull, ids), land: graphFromCells(cellsLand, ids) };
+        const land = graphFromCells(cellsLand, ids);
+        landNotAdjacent().forEach(([a, b]) => {
+            if (land[a]) land[a].delete(b);
+            if (land[b]) land[b].delete(a);
+        });
+        return { full: graphFromCells(cellsFull, ids), land };
+    }
+
+    // CONFINI CHE LA GRIGLIA VEDE MA NON CI SONO (regola dell'utente). La griglia
+    // fine accetta contatti fino a ~0,8 unità, quindi due province le cui PUNTE
+    // si sfiorano in un incrocio a quattro risultano confinanti anche se fra
+    // loro passano le altre due. Si correggono a mano, coppia per coppia, dopo
+    // averle guardate sulla mappa: un criterio automatico sulla lunghezza del
+    // contatto toccherebbe anche gli stretti (Messina, Gibilterra…), che sono
+    // un'altra questione e restano confini di terra.
+    // Due difetti diversi, entrambi controllati a occhio una coppia per volta:
+    //   - PUNTE che si sfiorano in un incrocio (es. Posen–Mazovia: 0,49 unità
+    //     dove si incontrano West Prussia e Greater Poland; i Four Corners
+    //     americani);
+    //   - BRICIOLE di Tabriz: il suo path ha sotto-tracciati di area zero sparsi
+    //     dentro Urmia, Diyarbakir, Mosul ed Erzurum — punti di bordo senza
+    //     provincia attorno, che la griglia scambia per un confine.
+    // Chi ne trova un'altra la guarda prima sulla mappa (riempimenti veri, non
+    // vertici) e la aggiunge qui. Sicurezza, Benessere, nebbia, attacchi e bot
+    // leggono tutti NEIGHBORS_LAND: si ricalcolano da soli.
+    // `function` e non `const`: vedi la nota sugli alias di MapAnchors.
+    function landNotAdjacent() {
+        return [
+            // punte che si sfiorano — Europa
+            ['Posen', 'Mazovia'], ['Riga', 'Vilnius'], ['Smolensk', 'Vitebsk'],
+            ['Courland', 'Vitebsk'], ['Minsk', 'Volhynia'], ['Kiev', 'Moldavia'],
+            ['Bessarabia', 'Wallachia'], ['Anhalt', 'Mecklenburg'], ['Gelre', 'Hannover'],
+            ['Flanders', 'Ruhr'], ['Picardy', 'Wallonia'], ['Baden', 'West_Switzerland'],
+            ['Franche_Comte', 'Savoy'], ['Aquitaine', 'Catalonia'], ['Lombardy', 'Romagna'],
+            ['South_Tyrol', 'Styria'], ['Skopia', 'Western_Thrace'],
+            // punte che si sfiorano — Asia, Africa, Americhe
+            ['Armenia', 'Erzurum'], ['Hedjaz', 'Palestine'], ['Aktobe', 'Ufa'],
+            ['Aktobe', 'Khiva'], ['Dzungaria', 'Fergana'], ['Fergana', 'Pashtunistan'],
+            ['Bornu', 'North_Cameroon'], ['Botswana', 'South_Angola'],
+            ['Antioquia', 'Guaviare'], ['Bahia', 'Maranhao'],
+            ['New_Mexico', 'Utah'], ['Arizona', 'Colorado'],
+            // briciole di Tabriz
+            ['Tabriz', 'Diyarbakir'], ['Tabriz', 'Greater_Caucasus'],
+            ['Tabriz', 'Mosul'], ['Tabriz', 'Erzurum'],
+        ];
     }
 
     // Inietta una sola volta i <symbol> delle risorse nei <defs> del root SVG.

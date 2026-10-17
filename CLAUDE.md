@@ -2591,6 +2591,21 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   province e l'alone cambia colore, hai trovato lo stesso errore.
   `provincePaths()` è **memoizzata** (la query costava ~1,5 ms e gira decine di volte
   per clic) e restituisce una copia: chiamarla spesso non costa più niente.
+- **I confini di terra sono geometrici, con un elenco di ECCEZIONI** (regola
+  dell'utente, 2026-10-17: "Posen e Mazovia non confinano"). `computeNeighborGraph`
+  dichiara confinanti due province se i loro vertici di bordo cadono in celle vicine
+  di una griglia da 0,32 — cioè fino a ~0,8 unità di distanza. Così passavano per
+  confini due difetti: le **punte** che si sfiorano in un incrocio a quattro (Posen–
+  Mazovia, i Four Corners americani…) e le **briciole** di Tabriz (sotto-tracciati di
+  area zero sparsi dentro Urmia, Diyarbakir, Mosul, Erzurum). `landNotAdjacent()` in
+  app.js le toglie da `NEIGHBORS_LAND` (33 coppie, ognuna guardata sulla mappa), e
+  da lì Sicurezza (§8, nemiche al confine della Capitale), nebbia, attacchi,
+  spostamenti, strade e bot si ricalcolano da soli. **Gli stretti** (Gibilterra,
+  Messina, Bosforo, Kerch, Corsica–Sardegna, Øresund…) restano confini di terra: sono
+  una scelta di gioco ancora da fare, non un errore di disegno. Come si trova un caso
+  nuovo: non basta la distanza fra vertici (le briciole sono a 0,04) — si controlla
+  che entrambe le province siano davvero **riempite** (`isPointInFill`) attorno ai
+  punti di contatto, poi si guarda a occhio.
 - **Lentezza segnalata dai giocatori (2026-10-02), tre rimedi da non perdere**: la cache
   di `provincePaths()` qui sopra; i **fogli del dock si disegnano solo se aperti** (in
   `render()` di player-board: obiettivi, regni, registro IA, araldi, commerci — chi
