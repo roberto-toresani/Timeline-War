@@ -978,7 +978,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const paint = () => {
-            const started = player.turnStartedAt || 0;
+            const started = (window.GameRules && GameRules.turnClockStart)
+                ? GameRules.turnClockStart(player) : (player.turnStartedAt || 0);
             if (!started) { timeEl.textContent = 'timer non partito'; return; }
             const now = Date.now();
             const left = (window.GameRules && GameRules.turnTimeLeft)

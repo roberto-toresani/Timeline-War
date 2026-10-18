@@ -683,9 +683,19 @@
     function turnTimeLeft(start, now) {
         return Math.max(0, TURN_DEADLINE_MS - turnActiveMs(start, now));
     }
+    // Da quando corre il cronometro del GIOCATORE: non dall'apertura del turno
+    // (`turnStartedAt`) ma da quando il motore gliel'ha consegnato (`turnClockAt`,
+    // il timbro che scrive al primo battito in cui vede il turno in mano a un
+    // 🔗 Player). Se il regno passa a Player a turno già aperto da ore, le 6h
+    // partono da lì: prima il motore mandava la mail e chiudeva il turno nello
+    // stesso battito (bug dei Mori, 2026-10-18).
+    function turnClockStart(p) {
+        if (!p) return 0;
+        return Math.max(p.turnStartedAt || 0, p.turnClockAt || 0);
+    }
 
     const api = {
-        TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime,
+        TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime, turnClockStart,
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare, troopsLeaving, casualtySplit,
         UNLOCK_TURN, unlockTurn, isUnlocked, unlockLabel,

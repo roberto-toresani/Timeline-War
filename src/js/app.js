@@ -251,6 +251,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof p.email !== 'string') p.email = '';
         if (p.autoTurno !== 'confini' && p.autoTurno !== 'capitale' && p.autoTurno !== 'niente') p.autoTurno = 'niente';
         if (typeof p.turnStartedAt !== 'number') p.turnStartedAt = 0;
+        // Da quando il motore ha consegnato il turno al 🔗 Player: le 6h partono
+        // dal più recente dei due timbri (GameRules.turnClockStart).
+        if (typeof p.turnClockAt !== 'number') p.turnClockAt = 0;
         // Reclute in attesa: le LIBERE in un contatore, le OBBLIGATORIE per
         // provincia (nascono da Capitale/Città/Fortezza e restano lì, §5.1).
         if (typeof p.recluteDaSchierare !== 'number') p.recluteDaSchierare = 0;

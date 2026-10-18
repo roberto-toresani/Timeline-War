@@ -1092,6 +1092,17 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
       memoria di sessione), seed al primo giro dopo un (ri)avvio per non
       duplicare la notifica del turno in corso. Nessun timer separato: un
       solo battito che fa tutto.
+    - **Le 6h partono dalla CONSEGNA, non dall'apertura del turno** (bug dei Mori,
+      2026-10-18): il regno era su 🧑 Admin dalla sera prima (il motore salta mail e
+      timeout per chi non è 🔗 Player), l'admin lo passò a Player alle 15:00 e il
+      motore, nello STESSO battito, mandò la mail e chiuse il turno d'ufficio
+      (`confini`) perché `turnStartedAt` era vecchio di 8 ore attive: il giocatore
+      cliccava il link e trovava il turno dei Selgiuchidi. Ora al primo battito che
+      vede il turno in mano a un Player il motore timbra `player.turnClockAt`
+      (`normalizePlayer`; ritocco mirato con `MultiplayerSync.patchPlayer`) e in quel
+      battito il timeout **non** scatta. Il cronometro parte da
+      `GameRules.turnClockStart(p)` = il più recente fra `turnStartedAt` e
+      `turnClockAt` — lo usano motore e plancia, quindi non divergono.
     - **Anti-corsa admin**: `autoPlayTurn` non ha un gate esplicito ma è
       chiamato solo (a) dal driver, che è admin, o (b) dal player col link
       `?autoplay=`, cioè da chi ha il pin di quel regno — il push allo stato

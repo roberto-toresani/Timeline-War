@@ -256,12 +256,20 @@ async function runOnce() {
             invite: p.invite || '',
             autoTurno: p.autoTurno || 'niente',
             turnStartedAt: p.turnStartedAt || 0,
+            // Il turno è già stato CONSEGNATO al player (timbro turnClockAt
+            // posteriore all'apertura)? Se no, questo battito lo consegna.
+            consegnato: !!(p.turnClockAt && p.turnClockAt >= (p.turnStartedAt || 0)),
             // Tempo che CONTA (notti 23:30-8:30 escluse), dalla stessa funzione
-            // della plancia: GameRules.turnActiveMs. Calcolato nella pagina,
-            // col fuso Europe/Rome fissato lì dentro.
-            turnActiveMs: (p.turnStartedAt && window.GameRules && GameRules.turnActiveMs)
-              ? GameRules.turnActiveMs(p.turnStartedAt, Date.now())
-              : (p.turnStartedAt ? Date.now() - p.turnStartedAt : 0),
+            // della plancia: GameRules.turnActiveMs, a partire da
+            // GameRules.turnClockStart (il più recente fra apertura e consegna).
+            // Calcolato nella pagina, col fuso Europe/Rome fissato lì dentro.
+            turnActiveMs: (function () {
+              var start = (window.GameRules && GameRules.turnClockStart)
+                ? GameRules.turnClockStart(p) : (p.turnStartedAt || 0);
+              if (!start) return 0;
+              return (window.GameRules && GameRules.turnActiveMs)
+                ? GameRules.turnActiveMs(start, Date.now()) : Date.now() - start;
+            })(),
             // Pausa notturna (23:30-8:30, ora italiana): la mail aspetta le 8:30.
             quiet: !!(window.GameRules && GameRules.isTurnQuietTime && GameRules.isTurnQuietTime(Date.now()))
           };
@@ -296,6 +304,26 @@ async function runOnce() {
         // E solo i regni affidati a un PLAYER remoto (menu "🔗 Player"): un regno
         // "🧑 Admin" lo gioca l'admin, niente mail e niente chiusura d'ufficio.
         if (!s.player) return;
+
+        // CONSEGNA DEL TURNO (bug dei Mori, 2026-10-18): il cronometro delle 6h
+        // parte da quando il turno è in mano a un 🔗 Player, non dall'apertura.
+        // Un regno passato a Player a turno già aperto da ore riceveva la mail e,
+        // NELLO STESSO battito, la chiusura d'ufficio: il giocatore cliccava il
+        // link e trovava già il turno del regno dopo. Al primo battito che vede
+        // il turno consegnato si timbra `turnClockAt` (ritocco mirato del solo
+        // campo, come e-mail/auto-turno) e il timeout di questo battito salta.
+        var appenaConsegnato = false;
+        if (!s.consegnato) {
+          appenaConsegnato = true;
+          await page.evaluate(function (id) {
+            var now = Date.now();
+            var p = window.Risiko && Risiko.players().find(function (x) { return x.id === id; });
+            if (p) p.turnClockAt = now;
+            if (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.patchPlayer)
+              return MultiplayerSync.patchPlayer(id, { turnClockAt: now });
+          }, s.turnoDi);
+          log('· turno consegnato a', s.chi, '— le 6h partono adesso');
+        }
 
         // MAIL — se il turno è cambiato dall'ultima mail mandata. Di notte
         // (23:30-8:30) NON parte: resta in sospeso e la manda il primo battito
@@ -332,7 +360,7 @@ async function runOnce() {
         // notte è fermo (s.turnActiveMs le ha già tolte).
         // Se il player ha rimesso mano al motore in mezzo (autoTurno cambiato)
         // rispetta la sua ultima scelta.
-        if (s.turnStartedAt && s.turnActiveMs > TURN_DEADLINE_MS) {
+        if (!appenaConsegnato && s.turnStartedAt && s.turnActiveMs > TURN_DEADLINE_MS) {
           if (key !== lastAutoTurnKey) {
             lastAutoTurnKey = key;
             log('· 6h scadute per', s.chi, '— chiudo il turno (' + s.autoTurno + ')');
