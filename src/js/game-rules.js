@@ -684,18 +684,27 @@
         return Math.max(0, TURN_DEADLINE_MS - turnActiveMs(start, now));
     }
     // Da quando corre il cronometro del GIOCATORE: non dall'apertura del turno
-    // (`turnStartedAt`) ma da quando il motore gliel'ha consegnato (`turnClockAt`,
-    // il timbro che scrive al primo battito in cui vede il turno in mano a un
-    // 🔗 Player). Se il regno passa a Player a turno già aperto da ore, le 6h
-    // partono da lì: prima il motore mandava la mail e chiudeva il turno nello
-    // stesso battito (bug dei Mori, 2026-10-18).
+    // (`turnStartedAt`) ma da quando il motore gliel'ha CONSEGNATO (`turnClockAt`,
+    // timbrato dall'orologio del MOTORE al primo battito in cui vede il turno in
+    // mano a un 🔗 Player, e legato al turno globale con `turnClockFor`).
+    // `turnStartedAt` lo scrive `beginTurn` con l'orologio di CHI chiude il turno
+    // precedente — un telefono con l'ora sbagliata lo sposta di ore. Bug dei Mori
+    // (2026-10-18): il dispositivo del giocatore francese era 16 ore e mezza
+    // indietro, il turno dei Mori nacque "alle 00:29", e il motore, credendolo
+    // scaduto, mandò la mail e lo chiuse nello stesso battito. Il timbro di
+    // consegna vale solo per il turno a cui appartiene (`turnClockFor ===
+    // beginStamp`); prima della consegna resta il ripiego su `turnStartedAt`.
     function turnClockStart(p) {
         if (!p) return 0;
-        return Math.max(p.turnStartedAt || 0, p.turnClockAt || 0);
+        if (p.turnClockAt && p.turnClockFor === p.beginStamp) return p.turnClockAt;
+        return p.turnStartedAt || 0;
+    }
+    function turnDelivered(p) {
+        return !!(p && p.turnClockAt && p.turnClockFor === p.beginStamp);
     }
 
     const api = {
-        TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime, turnClockStart,
+        TURN_DEADLINE_MS, TURN_TZ, turnActiveMs, turnTimeLeft, isTurnQuietTime, turnClockStart, turnDelivered,
         RES, RES_LABEL, ITEM_LABEL, COSTS, EFFECTS, TAX_INCOME,
         BUILDABLE_ON_PROVINCE, RECRUITABLE, TEMPORARY, MIN_GARRISON, mercShare, troopsLeaving, casualtySplit,
         UNLOCK_TURN, unlockTurn, isUnlocked, unlockLabel,

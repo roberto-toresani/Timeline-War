@@ -257,8 +257,10 @@ async function runOnce() {
             autoTurno: p.autoTurno || 'niente',
             turnStartedAt: p.turnStartedAt || 0,
             // Il turno è già stato CONSEGNATO al player (timbro turnClockAt
-            // posteriore all'apertura)? Se no, questo battito lo consegna.
-            consegnato: !!(p.turnClockAt && p.turnClockAt >= (p.turnStartedAt || 0)),
+            // di QUESTO turno globale)? Se no, questo battito lo consegna.
+            consegnato: (window.GameRules && GameRules.turnDelivered)
+              ? GameRules.turnDelivered(p) : true,
+            beginStamp: p.beginStamp || 0,
             // Tempo che CONTA (notti 23:30-8:30 escluse), dalla stessa funzione
             // della plancia: GameRules.turnActiveMs, a partire da
             // GameRules.turnClockStart (il più recente fra apertura e consegna).
@@ -306,22 +308,24 @@ async function runOnce() {
         if (!s.player) return;
 
         // CONSEGNA DEL TURNO (bug dei Mori, 2026-10-18): il cronometro delle 6h
-        // parte da quando il turno è in mano a un 🔗 Player, non dall'apertura.
-        // Un regno passato a Player a turno già aperto da ore riceveva la mail e,
-        // NELLO STESSO battito, la chiusura d'ufficio: il giocatore cliccava il
-        // link e trovava già il turno del regno dopo. Al primo battito che vede
-        // il turno consegnato si timbra `turnClockAt` (ritocco mirato del solo
-        // campo, come e-mail/auto-turno) e il timeout di questo battito salta.
+        // parte da quando il turno è in mano a un 🔗 Player, misurato con
+        // l'orologio del MOTORE. `turnStartedAt` lo scrive il dispositivo di chi
+        // chiude il turno prima: quello del giocatore francese era 16 ore e mezza
+        // indietro, il turno dei Mori risultò scaduto alla nascita e il motore
+        // mandò la mail e lo chiuse NELLO STESSO battito. Al primo battito si
+        // timbra `turnClockAt` + `turnClockFor` (il turno globale, beginStamp) —
+        // ritocco mirato dei soli campi, come e-mail/auto-turno — e il timeout di
+        // questo battito salta.
         var appenaConsegnato = false;
         if (!s.consegnato) {
           appenaConsegnato = true;
-          await page.evaluate(function (id) {
+          await page.evaluate(function (id, stamp) {
             var now = Date.now();
             var p = window.Risiko && Risiko.players().find(function (x) { return x.id === id; });
-            if (p) p.turnClockAt = now;
+            if (p) { p.turnClockAt = now; p.turnClockFor = stamp; }
             if (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.patchPlayer)
-              return MultiplayerSync.patchPlayer(id, { turnClockAt: now });
-          }, s.turnoDi);
+              return MultiplayerSync.patchPlayer(id, { turnClockAt: now, turnClockFor: stamp });
+          }, s.turnoDi, s.beginStamp);
           log('· turno consegnato a', s.chi, '— le 6h partono adesso');
         }
 
