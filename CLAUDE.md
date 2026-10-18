@@ -970,9 +970,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     tornava `null`, `resolvePlayer` ripiegava sul `sessionStorage` — che teneva il regno
     di un test precedente — e `boot` entrava lì e **ritornava senza ritentare**. Ora, se
     c'è un `?p=`, `resolvePlayer` **non guarda mai il sessionStorage**: torna `null`
-    finché il codice non risolve, e `boot` ritenta (fino a 60 volte, ~7 s, per reggere il
-    caricamento online) senza mai toccare il fallback `followEnabled()`. Il sessionStorage
-    resta solo per il caso **senza** codice (solitaria/mista, ricaricamento).
+    finché il codice non risolve, e `boot` ritenta senza mai toccare il fallback
+    `followEnabled()`. Il sessionStorage resta solo per il caso **senza** codice
+    (solitaria/mista, ricaricamento).
+  - **Col codice non ci si arrende a tempo** (bug di David/Mori, 2026-10-18): prima si
+    ritentava 60 × 120 ms = 7,2 s e poi compariva la scelta del regno con l'elenco di
+    **default** ("Giocatore 1…10") — da telefono, subito dopo un deploy che obbliga a
+    riscaricare codice e mappa, la partita arriva più tardi. Ora, finché lo stato non
+    c'è (nessun regno ha ancora un `invite`), `showInviteWait` mostra "Sto caricando il
+    tuo regno…" e si ritenta ogni 250 ms senza limite; arrivato lo stato, se il codice
+    non risolve dopo ~10 s il link è sbagliato e lo si dice, con la scelta a mano sotto.
 - **Sorteggio della mappa (solo `mantieniMappa:false`)**: `js/setup.js` —
   sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) — i regni
   nascono tutti in **Europa, Nord Africa e Arabia**

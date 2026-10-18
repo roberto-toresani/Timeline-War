@@ -720,10 +720,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
-    function showPicker() {
+    // `keepText`: il titolo l'ha già scritto showInviteWait (link sbagliato).
+    function showPicker(keepText) {
         const box = $('board-picker');
         const list = $('board-picker-list');
         if (!box || !list) return;
+        if (keepText !== true) {
+            const h = box.querySelector('h2'), p = box.querySelector('p');
+            if (h) h.textContent = 'Quale regno stai giocando?';
+            if (p) p.textContent = 'Il link d\'invito porta direttamente al tuo regno. Per ora scegline uno.';
+        }
         list.innerHTML = '';
         R.players().forEach(p => {
             const b = document.createElement('button');
@@ -6581,10 +6587,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? tp
                 : humanPlayers()[0] || null;
         }
-        // Col codice d'invito si ritenta più a lungo: i codici arrivano con
-        // l'autosave (in locale subito, online via Firebase anche dopo un secondo)
-        // e non si deve mai ripiegare su un altro regno mentre si aspetta.
-        const maxAttempts = hasCode ? 60 : 12;
+        const maxAttempts = 12;
         if (player) {
             enterKingdom(player);
             syncSpectateBtn();
@@ -6620,8 +6623,43 @@ document.addEventListener('DOMContentLoaded', () => {
             if (R.driveBots) R.driveBots(); else if (window.Bot) window.Bot.run();
             return;
         }
+        // Col codice d'invito NON ci si arrende a tempo (bug di David, Mori,
+        // 2026-10-18): si aspettavano 60 × 120 ms = 7,2 s e poi compariva la scelta
+        // del regno con l'elenco di DEFAULT ("Giocatore 1…10"), perché la partita
+        // non era ancora arrivata. Da telefono, dopo un aggiornamento che obbliga a
+        // riscaricare codice e mappa, 7 secondi non bastano. Finché lo stato non
+        // c'è si mostra "sto caricando" e si ritenta; arrivato lo stato, se il
+        // codice ancora non risolve dopo qualche secondo, il link è sbagliato e lo
+        // si dice (con la scelta a mano come ultima risorsa).
+        if (hasCode) {
+            const loaded = R.players().some(p => p.invite);
+            if (!loaded) { showInviteWait(false); setTimeout(() => boot(0), 250); return; }
+            if (attempt < 40) { setTimeout(() => boot(attempt + 1), 250); return; }
+            showInviteWait(true);
+            return;
+        }
         if (attempt < maxAttempts) { setTimeout(() => boot(attempt + 1), 120); return; }
         showPicker();
+    }
+
+    // Attesa del link d'invito: il riquadro della scelta del regno fa da
+    // cartello. `sbagliato` = la partita è arrivata ma il codice non è di
+    // nessun regno: si dice e, sotto, si lascia la scelta a mano.
+    function showInviteWait(sbagliato) {
+        const box = $('board-picker');
+        if (!box) return;
+        const h = box.querySelector('h2'), p = box.querySelector('p');
+        if (sbagliato) {
+            if (h) h.textContent = 'Questo link non porta a nessun regno';
+            if (p) p.textContent = 'Il codice del link non corrisponde a un regno della partita in corso: chiedi all\'admin il link aggiornato.';
+            showPicker(true);
+            return;
+        }
+        if (h) h.textContent = 'Sto caricando il tuo regno…';
+        if (p) p.textContent = 'La partita sta arrivando: da telefono può volerci qualche secondo.';
+        const list = $('board-picker-list');
+        if (list) list.innerHTML = '';
+        box.style.display = 'flex';
     }
     boot(0);
 });
