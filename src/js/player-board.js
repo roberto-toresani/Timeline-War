@@ -19,7 +19,36 @@ document.addEventListener('DOMContentLoaded', () => {
         (typeof Flags !== 'undefined') ? Flags.markup(name, color, px ? { px: px } : undefined) : '';
     const RES_KEYS = (typeof RESOURCES !== 'undefined') ? Object.keys(RESOURCES) : [];
     const GR = () => window.GameRules;
-    const GA = () => window.GameActions;
+    // OSSERVAZIONE (regola dell'utente): un admin che entra nella plancia di un
+    // regno affidato a un giocatore guarda e basta — non decide al suo posto.
+    // Oltre a spegnere i comandi (isPlaying → false), GA() gli consegna una
+    // versione in cui ogni MUTATORE rifiuta: è la rete sotto a qualunque bottone
+    // dimenticato. Le letture (bersagli, fasi, inbox) restano quelle vere.
+    const GA_MUTATORS = new Set([
+        'deploy', 'undeploy', 'deployBound', 'deployAllBound', 'autoDeploy', 'autoPlayTurn',
+        'nextPhase', 'endTurn', 'build', 'buildRoad', 'buildWelfare', 'moveCapital', 'recruit',
+        'destroyMarket', 'destroyShip', 'attack', 'sendReinforcements', 'finalMove',
+        'resolveConquest', 'resolveCapital', 'launchExpedition', 'expeditionLand',
+        'steerExpedition', 'sendSpy', 'setTax', 'tradeWithBank', 'proposeTrade', 'acceptTrade',
+        'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact',
+        'grantAttack', 'askReinforcements', 'cancelHelp'
+    ]);
+    const SPECTATE_MSG = '👁 Stai osservando: le decisioni di questo regno spettano al suo giocatore (per giocarlo tu, mettilo su 🧑 Admin dall’editor).';
+    let gaGuarded = null, gaGuardedFor = null;
+    const GA = () => {
+        const ga = window.GameActions;
+        if (!ga || !observing(currentPlayer())) return ga;
+        if (gaGuardedFor !== ga) {
+            gaGuardedFor = ga;
+            gaGuarded = new Proxy(ga, {
+                get(t, k) {
+                    if (GA_MUTATORS.has(k)) return () => ({ ok: false, msg: SPECTATE_MSG });
+                    return t[k];
+                }
+            });
+        }
+        return gaGuarded;
+    };
 
     let currentPlayerId = null;
     // Arrivati col codice d'invito (?p=CODICE): quel link comanda UN regno solo.
@@ -321,10 +350,11 @@ document.addEventListener('DOMContentLoaded', () => {
             liteCapPick = false;
             const t = R.turnoDi();
             const pronta = R.ordine && R.ordine().length > 0;
+            const oss = observing(player);
             setText('lb-phase', (t === null || t === undefined)
                 ? (pronta ? 'In attesa dell\'avvio' : 'Partita non avviata')
-                : 'Non è il tuo turno');
-            setText('lb-hint', (t === null || t === undefined)
+                : oss ? '👁 Osservi' : 'Non è il tuo turno');
+            setText('lb-hint', oss ? SPECTATE_MSG : (t === null || t === undefined)
                 ? 'Quando l\'admin avvia la partita e tocca a te, ti arriva la mail.'
                 : 'Tocca a ' + ((R.players().find(p => p.id === t) || {}).name || '…') + '. Puoi guardare la mappa intanto.');
             next.style.display = 'none';
@@ -878,6 +908,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 : 'Partita non avviata';
             state.className = 'turn-wait';
             endBtn.disabled = true;
+        } else if (turnoDi === player.id && observing(player)) {
+            state.textContent = '👁 Osservi — gioca il suo giocatore';
+            state.className = 'turn-wait';
+            endBtn.disabled = true;
         } else if (turnoDi === player.id) {
             state.textContent = 'Tocca a te';
             state.className = 'turn-mine';
@@ -931,11 +965,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // La preferenza vive sul record del regno (game-actions.normalizePlayer).
         // Il salvataggio va SEMPRE a saveAutoSave (canWriteForTurn: è il TUO turno).
         if (autoEl.value !== (player.autoTurno || 'niente')) autoEl.value = player.autoTurno || 'niente';
+        // La preferenza è del giocatore: chi osserva la vede, non la cambia.
+        autoEl.disabled = observing(player);
         if (!autoEl.dataset.wired) {
             autoEl.dataset.wired = '1';
             autoEl.addEventListener('change', () => {
                 const cur = currentPlayer();
-                if (!cur) return;
+                if (!cur || observing(cur)) return;
                 cur.autoTurno = (autoEl.value === 'confini' || autoEl.value === 'capitale') ? autoEl.value : 'niente';
                 if (R.save) R.save();
             });
@@ -1268,6 +1304,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Il giocatore può agire solo nel proprio turno, e solo a partita avviata.
     function isPlaying(player) {
+        if (observing(player)) return false;
         const t = R.turnoDi();
         return t !== null && t !== undefined && t === player.id;
     }
@@ -1282,11 +1319,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // salvato. Col PROPRIO link (`invitePinned`) o su un regno che nessun
     // giocatore ha preso (solitaria, o regno che gioca davvero l'admin) si
     // consuma come prima. Ogni showPendingXXX passa di qui.
+    // Il regno è di un giocatore se l'admin l'ha affidato a lui (🔗 Player,
+    // `controllo`) — vale da subito, anche prima che il giocatore apra il link —
+    // oppure se la presenza dice che qualcuno l'ha preso.
     function ownsBoard(player) {
         if (invitePinned) return true;
-        if (R.isAdmin && R.isAdmin() && R.isTakenByPlayer && R.isTakenByPlayer(player)) return false;
+        if (!player || player.bot || !R.isAdmin || !R.isAdmin()) return true;
+        if (player.controllo === 'player') return false;
+        if (R.isTakenByPlayer && R.isTakenByPlayer(player)) return false;
         return true;
     }
+
+    // L'admin sta OSSERVANDO questo regno: vede tutto, non consuma pop-up e non
+    // agisce. isPlaying lo legge, quindi ogni comando della plancia si spegne
+    // come fuori turno; GA() blocca i mutatori come rete di sicurezza.
+    function observing(player) { return !!player && !ownsBoard(player); }
+    R.boardObserving = () => observing(currentPlayer());
 
     // ---------- fasi del turno: quattro cartelle ----------
     // L'elenco delle fasi e la loro sequenza stanno in game-actions.js: qui si
@@ -1355,7 +1403,9 @@ document.addEventListener('DOMContentLoaded', () => {
             note.style.display = 'none';
         } else {
             note.style.display = '';
-            note.textContent = !isPlaying(player)
+            note.textContent = observing(player)
+                ? SPECTATE_MSG
+                : !isPlaying(player)
                 ? 'Non è il tuo turno: la plancia si legge, non si tocca.'
                 : GA().PHASES.indexOf(view) < cur
                     ? 'Fase già chiusa: la stai rileggendo. Ora sei in "' + GA().PHASE_LABEL[GA().PHASES[cur]] + '".'
@@ -5206,11 +5256,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- riga d'invio ---
         const inp = $('chat-input');
         const send = $('chat-send');
-        const canWrite = typeof MultiplayerSync !== 'undefined' && !!MultiplayerSync.sendChat;
+        // Chi osserva legge la chat del regno ma non scrive a suo nome.
+        const canWrite = typeof MultiplayerSync !== 'undefined' && !!MultiplayerSync.sendChat && !observing(me);
         if (inp) {
             inp.disabled = !canWrite;
             const k = channelKingdom(chatChannel);
-            inp.placeholder = chatChannel === 'all'
+            inp.placeholder = observing(me) ? '👁 Stai osservando: qui scrive il giocatore del regno'
+                : chatChannel === 'all'
                 ? 'Scrivi a tutti…'
                 : chatChannel === PAPA_CHAN
                     ? 'Messaggio privato al Papa…'
@@ -5228,6 +5280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const inp = $('chat-input');
         const me = currentPlayer();
         if (!inp || !me) return;
+        if (observing(me)) { showNotice(SPECTATE_MSG, false); return; }
         const text = (inp.value || '').trim();
         if (!text) return;
         if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) {

@@ -5093,6 +5093,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return blocks + status;
     }
 
+    // L'admin osserva la plancia di un regno affidato a un giocatore: la
+    // plancia (player-board.js) lo sa e lo espone su Risiko.boardObserving.
+    const SPECTATE_NOTE = '👁 Stai osservando: le decisioni di questo regno spettano al suo giocatore (per giocarlo tu, mettilo su 🧑 Admin dall’editor).';
+    function boardObserving() {
+        return !!(BOARD_MODE && window.Risiko && window.Risiko.boardObserving && window.Risiko.boardObserving());
+    }
+
     function renderPopularityPanel() {
         const panel = document.getElementById('popularity-panel');
         if (!panel) return;
@@ -5187,6 +5194,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (!isAdminMode && !BOARD_MODE) return;
+                if (boardObserving()) { showPieceNotice(SPECTATE_NOTE); return; }
                 const res = GameActions.buildWelfare(player, btn.getAttribute('data-welfare-key'));
                 if (!res.ok) { showPieceNotice(res.msg); return; }
                 renderPopularityPanel();
@@ -5194,12 +5202,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Selettore di tassazione (solo admin): cambia lo stato del regno e ricalcola.
+        // Selettore di tassazione: cambia lo stato del regno e ricalcola.
         body.querySelectorAll('.pop-tax-opt').forEach(opt => {
             opt.addEventListener('click', (e) => {
                 e.stopPropagation();
                 // Nella plancia e' il giocatore stesso a decidere la propria tassazione.
                 if (!isAdminMode && !BOARD_MODE) return;
+                if (boardObserving()) { showPieceNotice(SPECTATE_NOTE); return; }
                 // Passa da GameActions come ogni altra mutazione di stato: da lì
                 // arrivano il salvataggio e il rifiuto fuori turno.
                 const res = GameActions.setTax(player, opt.getAttribute('data-tax'));

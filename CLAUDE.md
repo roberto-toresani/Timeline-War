@@ -1410,6 +1410,26 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     (`R.isTakenByPlayer`, presenza condivisa `presenceMap` + non-IA) la pergamena NON si
     tocca — resta in coda e compare a LUI al suo turno. Chi aggiunge un pop-up nuovo lo
     gata con `ownsBoard`, o lo brucerà a chi di dovere.
+  - **L'admin che OSSERVA non decide, nemmeno coi BOTTONI** (regola dell'utente,
+    2026-10-18: l'admin entrava nella plancia, poteva accettare un'alleanza o leggere la
+    chat al posto del giocatore). La struttura resta una sola — l'admin apre la plancia di
+    chiunque col 👁 — ma `ownsBoard` ora considera del giocatore anche un regno affidato a
+    lui dall'editor (**`controllo === 'player'`**, vale da subito, prima ancora che apra il
+    link), non solo uno "preso" via presenza. Su un regno così l'admin è in
+    **osservazione** (`observing(player)` in player-board, esposto come
+    `Risiko.boardObserving()`): (1) `isPlaying` torna **false**, quindi ogni comando della
+    plancia si spegne come fuori turno — reclute, costruzioni, attacchi, araldi
+    (Accetta/Rifiuta), commerci, Fine turno, preferenza delle 6h; le cartelle e i fogli
+    restano navigabili; (2) **`GA()` consegna un Proxy** che fa rifiutare ogni mutatore
+    elencato in `GA_MUTATORS` col messaggio `SPECTATE_MSG` — è la rete sotto a qualunque
+    bottone dimenticato (verificato riattivando a forza un bottone spento: lo stato non
+    cambia); (3) la chat si legge ma l'invio è spento e i non-letti non si spengono
+    (`markChatSeen` passa già da `ownsBoard`); (4) i bottoni Popolarità di app.js
+    (migliorie, tassazione) chiedono `boardObserving()`. Barra in alto: "👁 Osservi —
+    gioca il suo giocatore". Per giocarlo davvero l'admin lo rimette su 🧑 Admin dal menu
+    `.player-bot` dell'editor. Chi aggiunge un mutatore a game-actions usato dalla plancia
+    lo aggiunge a `GA_MUTATORS`. NB: il nome `spectating` in player-board è GIÀ il flag
+    della 🌍 vista generale — non riusarlo.
   - **Lo sbarco è una BATTAGLIA, non un regalo** (regola dell'utente): le truppe mandate in
     crociata — Terra Santa, crociate teutoniche, qualunque spedizione — devono **conquistare**
     la provincia dove scendono. L'editto "truppe" ha due modi: `sbarco` (predefinito) risolve
