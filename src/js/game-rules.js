@@ -471,7 +471,14 @@
     // raccoglie questo turno — oggi solo la PESTE (js/events.js): dove sono
     // caduti uomini, il raccolto salta, ma la provincia resta collegata (non è
     // un taglio della rete, `collegate` la conta lo stesso).
-    function turnProduction(provinces, connectedSet, units, tax, popularity, blockedIds) {
+    // `pol` (facoltativo) è la POLITICA DEL REGNO (js/politics.js):
+    //   { grado, turno, effetti }  con `effetti` = Politics.activeEffects(...)
+    // La Popolarità decide quanto si raccoglie, la politica come si divide fra
+    // reclute e risorse; i decreti di durata tolgono o aggiungono il raccolto di
+    // una provincia e esentano una Città dalle tasse. Senza `pol` tutto si
+    // comporta come prima — ed è così che il gioco gira finché nessuno sceglie
+    // una politica.
+    function turnProduction(provinces, connectedSet, units, tax, popularity, blockedIds, pol) {
         const hasCapital = units.capitale > 0;
         const zero = {
             monete: 0, risorse: emptyScorte(), reclute: 0, vincolate: {}, recluteTotali: 0,
@@ -481,24 +488,50 @@
         // risorse, niente reclute. Il regno resta fermo finché non la costruisce.
         if (!hasCapital) return zero;
 
-        const popMod = popularity ? popEffectOf(popularity) : { soldati: 0, risorse: 0 };
+        const P = root.Politics;
+        const grado = (pol && pol.grado) || 0;
+        const eff = (pol && pol.effetti) || { bloccate: {}, extra: {}, esenti: {} };
 
-        // Monete: solo le Città pagano, la Capitale conta come Città (§7).
+        // Monete: solo le Città pagano, la Capitale conta come Città (§7). Una
+        // Città in CARTA DI FRANCHIGIA (decreto verso il popolo) non versa
+        // nulla finché dura. Si conta per provincia perché l'esenzione è di una
+        // Città precisa, non di un numero.
         const rate = TAX_INCOME[tax] || TAX_INCOME.normale;
-        const monete = (units.citta + units.capitale) * rate;
+        let cittaPaganti = units.citta + units.capitale;
+        Object.keys(eff.esenti || {}).forEach(id => {
+            const p = (provinces || []).find(x => x.id === id);
+            if (!p) return;
+            const u = KingdomStats.countUnits([p]);
+            cittaPaganti -= (u.citta + u.capitale);
+        });
+        const monete = Math.max(0, cittaPaganti) * rate +
+            (P && grado ? P.perks(grado, pol.turno).monete : 0);
 
-        // Risorse: 1 per provincia collegata che ha una risorsa (§4).
+        // Risorse: 1 per provincia collegata che ha una risorsa (§4). Un FEUDO
+        // o una CORVÉE la ferma per il ciclo, un'AFFRANCATURA la fa rendere di
+        // più: sono decreti, non un taglio della rete, quindi la provincia resta
+        // collegata e conta fra le `collegate` come fa la peste.
         const risorse = emptyScorte();
         let collegate = 0;
+        let baseRisorse = 0;
         (provinces || []).forEach(p => {
             if (!connectedSet.has(p.id)) return;
             collegate++;
             if (blockedIds && blockedIds.has(p.id)) return;   // peste: niente raccolto qui, quest'anno
-            if (p.resource && risorse[p.resource] !== undefined) risorse[p.resource] += 1;
+            if (eff.bloccate && eff.bloccate[p.id]) return;   // feudo o corvée
+            if (!p.resource || risorse[p.resource] === undefined) return;
+            const n = 1 + ((eff.extra && eff.extra[p.id]) || 0);
+            risorse[p.resource] += n;
+            baseRisorse += n;
         });
 
         // Modificatore Popolarità: ±N unità TOTALI sulla raccolta, distribuite
-        // partendo dal tipo più abbondante (in negativo) o più scarso (in positivo).
+        // partendo dal tipo più abbondante (in negativo) o più scarso (in
+        // positivo). Con una politica in corso il ± è già stato spostato fra i
+        // due canali, e `baseRisorse` serve al traboccamento.
+        const popMod = popularity
+            ? popEffectOf(popularity, grado, { militare: Math.floor((provinces || []).length / 3), produzione: baseRisorse })
+            : { soldati: 0, risorse: 0 };
         applyResourceModifier(risorse, popMod.risorse);
 
         // Reclute (§5.1): il calcolo col dettaglio vive in kingdom-stats.js, che è
@@ -506,13 +539,16 @@
         // `reclute` sono le LIBERE (il giocatore le mette dove vuole), `vincolate`
         // dice quante ne nascono in ciascuna provincia con Capitale/Città/Fortezza:
         // quelle lì devono restare.
-        const plan = KingdomStats.reinforcementPlan(provinces || [], popularity);
+        const plan = KingdomStats.reinforcementPlan(provinces || [], popularity, grado, baseRisorse);
 
         return {
             monete, risorse,
             reclute: plan.libere,
             vincolate: plan.perProvincia,
             recluteTotali: plan.total,
+            // Il privilegio del grado estremo verso la nobiltà: un cavaliere
+            // ogni tot turni, che `beginTurn` versa nel suo serbatoio.
+            cavalieri: (P && grado ? P.perks(grado, pol.turno).cavaliere : 0),
             collegate, hasCapital: true
         };
     }
@@ -536,7 +572,15 @@
     // Effetti per livello di Popolarità (§8). La Popolarità NON dà più prestigio
     // (regola dell'utente: il prestigio arriva solo dalla presa di una Capitale
     // nemica, dagli obiettivi §10 e dalla rottura di un'alleanza).
-    function popEffectOf(level) {
+    // POLITICA DEL REGNO (js/politics.js): `grado` da −2 (nobiltà) a +2
+    // (popolo) non cambia il TOTALE ma lo sposta fra i due canali; `base` serve
+    // al traboccamento. Senza grado, o senza il modulo, è la tabella di sempre:
+    // è questa la via che percorre un regno in Equilibrio.
+    function popEffectOf(level, grado, base) {
+        if (grado && root.Politics) {
+            const e = root.Politics.effect(level, grado, base);
+            return { soldati: e.militare, risorse: e.produzione };
+        }
         const t = {
             1: { soldati: -2, risorse: -2 },
             2: { soldati: -1, risorse: -1 },

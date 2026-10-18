@@ -33,7 +33,19 @@
         return (x - f > 0.8) ? f + 1 : f;
     }
 
-    function popEffect(level) {
+    // POLITICA DEL REGNO (js/politics.js): la Popolarità decide QUANTO, la
+    // politica COME si divide fra reclute e raccolto. Senza il modulo, o in
+    // Equilibrio, resta la tabella di sempre — così ogni chiamante che non sa
+    // nulla di politica continua a funzionare.
+    //
+    // `base` serve al traboccamento (Politics.spill): quel che un canale non
+    // può pagare lo paga l'altro. Chi ce l'ha lo passa, chi no ottiene i numeri
+    // nominali, che per la UI di sola lettura bastano.
+    function popEffect(level, grado, base) {
+        if (grado && root.Politics) {
+            const e = root.Politics.effect(level, grado, base);
+            return { soldati: e.militare, risorse: e.produzione };
+        }
         return POP_EFFECT[level] || { soldati: 0, risorse: 0 };
     }
 
@@ -79,16 +91,25 @@
     //    Fortezza +5). Nascono nella provincia dell'edificio e lì devono restare.
     // Il modificatore di Popolarità morde solo il mucchio libero (che non scende
     // sotto zero): non può cancellare la guarnigione di una Fortezza.
-    function reinforcements(provinceCount, units, popularity) {
+    function reinforcements(provinceCount, units, popularity, grado, baseRisorse) {
         const cities = units.citta + units.capitale;
         const fromProvinces = Math.floor(provinceCount / 3);
         const fromCities = cities;
         const fromForts = units.fortezza * 5;
-        const fromPop = popularity ? popEffect(popularity).soldati : 0;
+        // Il traboccamento guarda i DUE canali, quindi serve anche il raccolto
+        // di base: chi lo conosce (turnProduction) lo passa.
+        const base = { militare: fromProvinces, produzione: baseRisorse || 0 };
+        const fromPop = popularity ? popEffect(popularity, grado, base).soldati : 0;
         const breakdown = [
             { label: provinceCount + ' province ÷ 3', value: fromProvinces, vincolata: false }
         ];
-        if (popularity) breakdown.push({ label: 'Popolarità ' + popularity, value: fromPop, vincolata: false });
+        if (popularity) {
+            const g = grado && root.Politics ? root.Politics.grade(grado) : null;
+            breakdown.push({
+                label: 'Popolarità ' + popularity + (g && g.v ? ' · ' + g.label : ''),
+                value: fromPop, vincolata: false
+            });
+        }
         breakdown.push(
             { label: cities + ' città (Capitale inclusa)', value: fromCities, vincolata: true },
             { label: units.fortezza + (units.fortezza === 1 ? ' fortezza' : ' fortezze'), value: fromForts, vincolata: true }
@@ -101,9 +122,9 @@
     // Come `reinforcements`, ma dice anche DOVE vanno le vincolate: serve al motore
     // per riempire il serbatoio di inizio turno e alla plancia per mostrarlo.
     // Ritorna in più `perProvincia = { idProvincia: n }`.
-    function reinforcementPlan(provinces, popularity) {
+    function reinforcementPlan(provinces, popularity, grado, baseRisorse) {
         const list = provinces || [];
-        const plan = reinforcements(list.length, countUnits(list), popularity);
+        const plan = reinforcements(list.length, countUnits(list), popularity, grado, baseRisorse);
         const perProvincia = {};
         list.forEach(p => {
             const u = countUnits([p]);

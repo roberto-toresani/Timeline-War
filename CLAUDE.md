@@ -2260,6 +2260,104 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     le migliorie del §6.1 e valgono la baseline neutra `WELFARE_PENDING = 3`.
     La rete di province collegate è quella di `GameActions.connectedOf`: chi ce l'ha già
     la passa come terzo argomento, così non si rifà la BFS due volte per render.
+- **POLITICA DEL REGNO (`js/politics.js`, §8-bis — regola dell'utente)**: chi sostiene
+  la corona fra la **nobiltà** (che dà appoggio militare) e i **lavoratori** (che danno
+  appoggio alla produzione). La Popolarità **non cambia e resta il motore**: decide
+  **QUANTO** il regno riceve. La politica decide soltanto **COME si divide** fra reclute
+  e raccolto. Modulo **puro** come popularity.js e objectives.js; muta solo
+  game-actions.js; disegna solo player-board.js.
+  - **Le due cose sono indipendenti, ed è il punto.** In una prima versione la politica
+    era una *fetta del bonus* di Popolarità: a Popolarità 3 il bonus è zero, non c'era
+    niente da affettare e tutti e cinque i gradi davano lo stesso risultato — la leva si
+    spegneva da sola al livello più comune della partita, e faceva confondere
+    "Popolarità 3" (regno tiepido) con "Equilibrio" (corona che non favorisce nessuno).
+    Ora lo **spostamento è sempre di uno** (`Politics.SHIFT`), qualunque sia la
+    Popolarità e qualunque sia l'intensità. La riga dell'**Equilibrio è il gioco di
+    oggi**, invariata: un salvataggio vecchio si apre a grado 0 e non si accorge di nulla.
+  - **I 5 gradi** (`player.politica`, da −2 a +2): Nobiltà forte · Pro-nobiltà ·
+    Equilibrio · Pro-popolo · Popolo forte. I simboli sono la **spada** dei signori e il
+    **martello** dei lavoratori, disegnati in SVG nella UI (`POL_GLIFI` in
+    player-board.js; il modulo porta solo il nome del glifo, come le pedine portano
+    quello del loro `<symbol>`). Il martello è **inclinato di 20°**: dritto sembra una T
+    maiuscola. L'Equilibrio è i due simboli **affiancati**, che si spiega da sé meglio di
+    una bilancia. Una falce era stata disegnata e scartata ("sembrava una scimitarra").
+  - **Il privilegio dei gradi estremi non è un numero più grande ma una cosa di natura
+    diversa** (`Politics.perks`): dai signori gli uomini vengono **a cavallo** (1
+    cavaliere ogni 2 turni, nel serbatoio `cavalieriDaSchierare`, solo dal ciclo II), dal
+    popolo arrivano **monete** (+100 a turno, i mercati fioriscono). Senza questo la terra
+    di un regno amatissimo avrebbe reso il **doppio di sé stessa** — era l'obiezione
+    dell'utente, ed è giusta. Il privilegio si **perde a ogni inizio ciclo**, perché il
+    ritorno fa scendere l'estremo a moderato: chi tiene una posizione radicale paga ogni
+    ciclo il buco fra l'inizio e il decreto che ce lo rimette. Non è una regola in più, è
+    una conseguenza del ritorno.
+  - **IL MALUS CHE UN CANALE NON PUÒ PAGARE TRABOCCA SULL'ALTRO** (`Politics.spill`): né
+    le reclute né il raccolto scendono sotto zero, quindi un regno da sei province (2
+    reclute) pagava "−5 reclute" e "−2 reclute" allo stesso modo, cioè tutto quel che
+    aveva. Senza il traboccamento la politica estrema era **gratis** proprio a Popolarità
+    1-2, cioè quando doveva costare. Verificato: con un regno da 2 reclute e 4 risorse di
+    base il totale ricevuto è **identico per tutti e cinque i gradi**, a ogni livello.
+    Chi applica l'effetto passa `base` a `Politics.effect`; chi vuole la tabella astratta
+    (la legenda del pannello) lo omette.
+  - **IL CONSIGLIO DELLA CORONA siede DUE volte per ciclo** (regola dell'utente), e ogni
+    seduta vale **un decreto solo**: l'**apertura** ai turni 1-3 stabilisce l'orientamento
+    del ciclo, la **straordinaria** al turno 7 si convoca per correggere la rotta. A ogni
+    inizio ciclo il grado **torna di un passo** verso l'Equilibrio (`drift`): i favori si
+    dimenticano, quindi i decreti servono anche solo a MANTENERE la politica che si ha.
+    Conseguenza voluta: tenere l'estremo consuma l'apertura e lascia la straordinaria
+    senza nulla da fare, quindi **il prezzo della posizione radicale non è in monete ma
+    nella libertà di reagire a metà ciclo**; chi sta al moderato al turno 7 ha ancora una
+    mossa. L'apertura vale anche nei **primi 3 turni di vita** di un regno nato per evento
+    (§Eventi), come la grazia dell'insediamento.
+  - **I DECRETI** (`Politics.DECREES`, 7): verso la nobiltà *Bandisci un torneo* (200
+    monete + 2 Bestiame), *Corvée per i signori* (+2 Pietra subito, ma una provincia non
+    raccoglie per il ciclo), *Concedi un feudo* (una provincia non raccoglie per il
+    ciclo); verso il popolo *Esenta dalle decime* (300 monete), *Apri i granai* (3 Grano),
+    *Affranca i servi* (−2 uomini, quella provincia rende +1 per il ciclo), *Carta di
+    franchigia* (una Città non paga tasse per 3 turni). Gli effetti di durata vivono in
+    `player.decretiAttivi = [{id, prov, fino}]` e li traduce `Politics.activeEffects` in
+    quel che `turnProduction` deve sapere (`bloccate`/`extra`/`esenti`), in una lettura
+    sola. **La Corvée non era gratis per caso**: nella prima versione era l'unico decreto
+    senza costo *e* che per giunta rendeva, e la simulazione mostrava la corona
+    pro-nobiltà spendere 200 monete in 50 turni contro le 900 di quella pro-popolo.
+  - **L'ASIMMETRIA FRA I DUE LATI È VOLUTA** (regola dell'utente): la strada verso i
+    signori costa **raccolto** (la risorsa scarsa), quella verso il popolo **monete** che
+    il regno rigenera — *"il popolo è la spina dorsale di ogni regno, e supportandolo alla
+    fine i costi rientrano e tutto migliora"*. La strada dei signori si ripaga in
+    **conquista**, non in economia: più uomini e cavalieri, e le province prese producono
+    per sempre. Chi ritrova questa asimmetria nei numeri **non la pareggi**: è il disegno.
+  - **Dove vive**: `setLaw` non esiste — l'unico mutatore è
+    **`GameActions.issueDecree(player, id, provId)`**, che non consuma la fase (come
+    `setTax`: un decreto si emana in qualunque momento del proprio turno). `beginTurn`
+    chiama in quest'ordine `politicsDrift` (idempotente per ciclo via `politicaTimbro`,
+    come `beginStamp` lo è per la produzione), `prunePolicyDecrees` (spegne gli scaduti e
+    quelli su province non più nostre) e poi `policyContext`, che passa tutto a
+    `turnProduction`. **`prepareGame` azzera la politica**, come azzera le fedi: è sul
+    calendario, quindi una partita che riparte dal turno 1 riparte dall'Equilibrio.
+  - **I cavalieri della nobiltà si schierano a parte**: `GameActions.deployKnight`,
+    gemello di `deploy` (stessa fase, stesso tetto d'impilamento, stesso ripensamento),
+    ma li posa come **cavalieri** (§Cavalieri) e non come fanti.
+  - **I bot** (`policyPlan` in bot.js, dentro la fase costruzioni): il grado voluto viene
+    dal **carattere**, non dal conto del turno — predone −2, espansione −1, opportunista
+    0, costruttore +1 — e l'estremo si cerca **solo con un regno contento** (Popolarità ≥
+    4), perché sotto non dà niente di più del moderato e costa un decreto in più ogni
+    ciclo. Poi si emana il primo decreto del verso giusto che si può pagare senza
+    intaccare `coinReserve`. **Va DOPO le costruzioni, non prima**: al turno 1 un regno la
+    Capitale non ce l'ha ancora quando comincia la fase (la costruisce lì), e senza
+    Capitale il Consiglio non siede — messo in testa alla fase il decreto non partiva mai
+    al primo ciclo.
+  - **La UI sta nel foglio 👑 Corona**, sotto la Popolarità (`renderPolitics`, disegnata
+    solo se il foglio è aperto, come gli obiettivi): un **asse** spada↔martello col segno
+    di dove sei (non sono bottoni: la posizione la spostano i decreti), i **numeri veri**
+    di quest'anno, e tre carte "se il Consiglio spostasse la corona" coi gradi vicini. Le
+    tessere dei decreti riusano la veste delle costruzioni (`.bp-tile`/`.bt-cost`, acceso
+    = fattibile, gettone rosso = quel che manca) e chi chiede una provincia usa quella
+    **selezionata**, come le strade. Il clic si prende per **delega** su `#bp-politics`,
+    perché il pannello si ridisegna in blocco con innerHTML.
+  - **Come si tara senza giocare cento turni**: `node scripts/politics-sim.js` stampa la
+    tabella degli effetti, controlla che il netto sia invariato, mostra la finestra del
+    Consiglio e mette a confronto quattro corone per cinque cicli. Il **prototipo
+    cliccabile** del pannello è `src/_diag-politica.html` (pagina di lavoro, git-ignorata
+    come le altre `_diag-*`), con stato d'avvio da URL: `?pop=5&turno=12&grado=-1`.
 - **Obiettivi di prestigio: il BINARIO STORICO (`js/objectives.js`, §10)**. Gli obiettivi
   non sono tre righe fisse per (regno, ciclo): ogni regno ha un **binario**, la sequenza
   dei capitoli della sua storia, e il binario **non è indicizzato per ciclo** ma per dove

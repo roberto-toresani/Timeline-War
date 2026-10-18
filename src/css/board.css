@@ -3467,3 +3467,152 @@ body.mobile-lite #ui-conquest .uc-actions { flex-wrap: wrap; }
 body.mobile-lite #ui-confirm .uc-actions button,
 body.mobile-lite #ui-conquest .uc-actions button { min-height: 44px; flex: 1 1 auto; }
 body.mobile-lite #ui-foundation .uf-sheet { max-height: 72dvh; overflow-y: auto; }
+
+/* ---------- POLITICA DEL REGNO (§8-bis, js/politics.js) ----------
+   Chi sostiene la corona fra nobiltà e lavoratori. La Popolarità decide quanto
+   il regno riceve, questa scala come si divide. Sta nel foglio 👑 Corona,
+   sotto la Popolarità, perché è la stessa domanda vista dall'altro lato. */
+
+.pol-ico { display: block; fill: currentColor; }
+
+/* L'ASSE: spada a un capo, martello all'altro, un segno dove sei. Non sono
+   bottoni — la posizione la spostano i DECRETI, non un clic qui sopra. */
+.pol-axis {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0 10px;
+}
+
+.pol-end { color: var(--parchment-muted); flex: 0 0 auto; }
+.pol-end.on { color: var(--gold-bright); }
+
+.pol-track {
+    position: relative;
+    flex: 1 1 0;
+    height: 22px;
+}
+
+.pol-track::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 3px;
+    margin-top: -1.5px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(192, 160, 98, .45), var(--rule), rgba(157, 190, 59, .45));
+}
+
+.pol-tick {
+    position: absolute;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    margin: -3.5px 0 0 -3.5px;
+    border-radius: 50%;
+    background: var(--rule-strong);
+}
+
+.pol-tick.on {
+    width: 15px;
+    height: 15px;
+    margin: -7.5px 0 0 -7.5px;
+    background: var(--gold-bright);
+    box-shadow: 0 0 0 4px rgba(192, 160, 98, .22);
+}
+
+.pol-mark {
+    position: absolute;
+    top: -9px;
+    width: 0; height: 0;
+    margin-left: -5px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid var(--gold-bright);
+}
+
+.pol-now {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--gold-bright);
+    font-size: 1.1rem;
+}
+.pol-now .pol-ico { color: var(--gold-bright); }
+.pol-now b { font-weight: 400; }
+
+.pol-note {
+    font-size: .88rem;
+    color: var(--parchment-muted);
+    line-height: 1.45;
+    margin: 3px 0 10px;
+}
+
+.pol-sub {
+    font-size: .8rem;
+    color: var(--parchment-muted);
+    margin: 10px 0 5px;
+}
+
+/* «Se il Consiglio spostasse la corona»: i gradi vicini coi numeri VERI. È la
+   domanda che si fa il giocatore, e una tabella di cinque righe astratte non
+   la rispondeva. */
+.pol-cards { display: flex; gap: 6px; }
+
+.pol-card {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 9px 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--rule);
+    background: rgba(0, 0, 0, .18);
+}
+
+.pol-card.on {
+    border-color: var(--gold-bright);
+    background: rgba(192, 160, 98, .14);
+}
+
+.pol-card-t {
+    font-size: .72rem;
+    color: var(--parchment-muted);
+    min-height: 2.4em;
+    line-height: 1.2;
+}
+
+.pol-card-n { font-size: 1.15rem; color: var(--parchment-dim); }
+.pol-card.on .pol-card-n { color: var(--gold-bright); }
+
+.pol-card-p {
+    font-size: .68rem;
+    line-height: 1.25;
+    min-height: 2.4em;
+    color: var(--ok-soft);
+}
+
+.pol-foot {
+    font-size: .76rem;
+    color: var(--parchment-muted);
+    line-height: 1.4;
+    margin: 7px 0 0;
+}
+
+.pol-head { display: flex; align-items: center; gap: 8px; }
+.pol-head .pol-ico { color: var(--gold); }
+
+/* la sagoma del decreto è un'emoji, non un <symbol> come le costruzioni */
+.pol-ico-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.9rem;
+}
+
+.pol-active {
+    display: flex;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: .95rem;
+    color: var(--parchment-dim);
+}
+.pol-active-n { flex: 1 1 0; }

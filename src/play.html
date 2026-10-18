@@ -346,6 +346,16 @@
                                 </div>
                                 <div class="bp-effect flat" id="bp-pop-effect">Costruisci una Capitale per attivare la Popolarità.</div>
 
+                                <!-- POLITICA DEL REGNO (§8-bis, js/politics.js): chi
+                                     sostiene la corona fra nobiltà e lavoratori. La
+                                     Popolarità decide quanto il regno riceve, questa
+                                     scala come si divide. Iniettato da renderPolitics
+                                     in player-board.js. -->
+                                <div class="bp-title">⚖ Politica del regno
+                                    <span class="bp-title-hint">chi sostiene la corona decide in che forma
+                                        arriva il favore del popolo</span></div>
+                                <div id="bp-politics"></div>
+
                                 <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del
                                      regno, con spunta AUTOMATICA dal vivo e storico sempre
                                      disponibile. Iniettato da renderObjectives in player-board.js.
@@ -537,6 +547,7 @@
     <!-- Voce della battaglia: urla, acciaio, tamburo — sintetizzati con
          WebAudio, nessun file audio. Puro effetto, letto da app.js. -->
     <script src="js/audio.js?v=90"></script>
+    <script src="js/politics.js?v=1"></script>
     <script src="js/kingdom-stats.js?v=90"></script>
     <script src="js/game-rules.js?v=132"></script>
     <!-- PRIMA di app.js: vedi la nota in index.html. -->

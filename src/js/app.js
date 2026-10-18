@@ -320,6 +320,22 @@ document.addEventListener('DOMContentLoaded', () => {
         // raccoglie. `beginTurn` la legge e la svuota alla prossima produzione
         // di questo regno, quindi non deve mai sopravvivere a un salvataggio.
         if (!Array.isArray(p.pesteBlocco)) p.pesteBlocco = [];
+        // POLITICA DEL REGNO (js/politics.js): chi sostiene la corona, da −2
+        // (nobiltà) a +2 (popolo). Zero = Equilibrio, cioè il gioco di sempre:
+        // un salvataggio vecchio si apre così e non si accorge di niente.
+        //   decretiCiclo  quel che ogni SEDUTA del Consiglio ha già emanato,
+        //                 per ciclo: { ciclo, sedute: { apertura:[], straordinaria:[] } }
+        //   decretiAttivi i decreti di durata ancora in corso: [{id, prov, fino}]
+        //   politicaTimbro l'ultimo ciclo in cui è scattato il ritorno verso
+        //                 l'Equilibrio, perché valga una volta sola anche se
+        //                 beginTurn rimbalza
+        //   cavalieriDaSchierare il serbatoio del privilegio «Nobiltà forte»
+        if (typeof p.politica !== 'number') p.politica = 0;
+        if (typeof p.cavalieriDaSchierare !== 'number') p.cavalieriDaSchierare = 0;
+        if (!p.decretiCiclo || typeof p.decretiCiclo !== 'object') p.decretiCiclo = { ciclo: 0, sedute: {} };
+        if (!p.decretiCiclo.sedute) p.decretiCiclo.sedute = {};
+        if (!Array.isArray(p.decretiAttivi)) p.decretiAttivi = [];
+        if (typeof p.politicaTimbro !== 'number') p.politicaTimbro = 0;
         // FELICITÀ (§6.1, "Festa"): il privilegio di QUESTO turno —
         // `festaRisorse` (1-2 tipi di risorsa scontati sulle costruzioni,
         // GameRules.costFor) e `festaCostruzioneBonus` (monete restituite a ogni

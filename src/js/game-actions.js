@@ -576,6 +576,21 @@
         // spezzare (e i vincoli di conquista di regni che non esistono più).
         if (R().resetReligions) R().resetReligions();
 
+        // ...e con lui la POLITICA DEL REGNO (§8-bis). È sul calendario come
+        // tutto il resto — le sedute del Consiglio e il ritorno all'Equilibrio
+        // si contano per ciclo — quindi una partita che riparte dal turno 1
+        // riparte dall'Equilibrio. Senza, il grado e i decreti della partita
+        // precedente restavano addosso ai regni: si rivedeva un «Nobiltà forte»
+        // al 1000 senza che nessun Consiglio l'avesse deciso, e un feudo con
+        // una scadenza di tre decenni prima.
+        R().players().forEach(p => {
+            p.politica = 0;
+            p.cavalieriDaSchierare = 0;
+            p.decretiCiclo = { ciclo: 0, sedute: {} };
+            p.decretiAttivi = [];
+            p.politicaTimbro = 0;
+        });
+
         // La chat fra i giocatori (js/sync.js) si azzera con la partita nuova
         // (regola dell'utente): non è stato di gioco, ma appartiene alla partita
         // che si chiude. startGame è il choke point di ogni nuova partita (bottone
@@ -675,8 +690,18 @@
         // svuotato qui, così vale una volta sola, per QUESTA produzione.
         const bloccoPeste = new Set(player.pesteBlocco || []);
         player.pesteBlocco = [];
+
+        // POLITICA DEL REGNO (js/politics.js). Due cose vanno fatte PRIMA della
+        // produzione, in quest'ordine: il ritorno di un passo verso
+        // l'Equilibrio all'inizio del ciclo (i favori si dimenticano), e la
+        // potatura dei decreti scaduti — se no un feudo finito terrebbe ferma
+        // la provincia per un altro turno.
+        politicsDrift(player, turnoGlobale);
+        prunePolicyDecrees(player, turnoGlobale);
+        const pol = policyContext(player, turnoGlobale);
+
         const prod = GR().turnProduction(snapshotOf(player), collegate, units,
-            player.tassazione, pop, bloccoPeste);
+            player.tassazione, pop, bloccoPeste, pol);
 
         // FELICITÀ (§6.1, "Festa" — regola dell'utente, simmetrica alla Peste ma
         // di segno opposto): quante migliorie di Felicità il regno ha sulla
@@ -700,6 +725,13 @@
         // entrano nel serbatoio della loro provincia. Lo storico di cosa è stato
         // posato riparte da zero: si ritira solo dentro il proprio turno.
         player.recluteDaSchierare += prod.reclute;
+        // Il cavaliere della «Nobiltà forte»: va nel SUO serbatoio, non in
+        // quello delle reclute, perché è un reparto a sé (§Cavalieri) e il
+        // giocatore sceglie dove posarlo come per le libere. Prima del ciclo II
+        // i cavalieri non esistono ancora, quindi non ne arriva nessuno.
+        if (prod.cavalieri && GR().isUnlocked('cavaliere', turnoGlobale)) {
+            player.cavalieriDaSchierare = (player.cavalieriDaSchierare || 0) + prod.cavalieri;
+        }
         const bound = boundPool(player);
         Object.keys(prod.vincolate || {}).forEach(id => {
             bound[id] = (bound[id] || 0) + prod.vincolate[id];
@@ -2176,6 +2208,196 @@
         return done('Tassazione ' + (L ? L[livello].label.toLowerCase() : livello) +
             ': ' + rate + ' monete per città a turno.',
             { prov: cap ? cap.id : null, tassazione: livello });
+    }
+
+    // ---------- POLITICA DEL REGNO (§8-bis, js/politics.js) ----------
+    // La Popolarità decide QUANTO il regno riceve, la politica COME si divide
+    // fra reclute e raccolto. Il grado non si sceglie da un cursore: si sposta
+    // con i DECRETI del Consiglio della Corona, che siede due volte per ciclo e
+    // vale un decreto per seduta. Tutto quel che MUTA sta qui, come per la
+    // tassazione; le regole pure stanno in politics.js.
+    function POL() { return (typeof Politics !== 'undefined') ? Politics : null; }
+
+    // Quel che la produzione deve sapere, in un oggetto solo.
+    function policyContext(player, turno) {
+        const P = POL();
+        if (!P) return null;
+        return {
+            grado: player.politica || 0,
+            turno: turno,
+            effetti: P.activeEffects(player.decretiAttivi, turno)
+        };
+    }
+
+    // IL RITORNO ALL'EQUILIBRIO, un passo per ciclo. Il timbro (`politicaTimbro`)
+    // lo rende idempotente come `beginStamp` fa con la produzione: beginTurn può
+    // rimbalzare, e un ritorno contato due volte azzererebbe in un colpo la
+    // politica di un regno.
+    function politicsDrift(player, turno) {
+        const P = POL();
+        if (!P || !P.cycleStart(turno) || turno <= 1) return;
+        const ciclo = P.cycleOf(turno);
+        if (player.politicaTimbro === ciclo) return;
+        player.politicaTimbro = ciclo;
+
+        // La seduta del ciclo nuovo riparte da zero decreti.
+        player.decretiCiclo = { ciclo: ciclo, sedute: {} };
+
+        const prima = player.politica || 0;
+        player.politica = P.drift(prima);
+        if (prima === player.politica) return;
+        player.eventiAvvisi.push({
+            tipo: 'politica',
+            titolo: 'Il Consiglio della Corona si riunisce',
+            testo: 'I favori concessi si dimenticano: la corona scivola da ' +
+                P.grade(prima).label + ' a ' + P.grade(player.politica).label +
+                '. Il Consiglio siede: un decreto per rimettere la rotta.',
+            turno: turno, letto: false
+        });
+    }
+
+    // I decreti di durata che sono scaduti si spengono da sé, e così quelli su
+    // una provincia che non è più nostra: un feudo concesso a un barone di una
+    // terra perduta non vincola più niente.
+    function prunePolicyDecrees(player, turno) {
+        if (!Array.isArray(player.decretiAttivi) || !player.decretiAttivi.length) return;
+        player.decretiAttivi = player.decretiAttivi.filter(a => {
+            if (!a || (a.fino != null && turno > a.fino)) return false;
+            const path = E().path(a.prov);
+            return !!path && E().owner(path) === player.name;
+        });
+    }
+
+    // Quel che la seduta IN CORSO ha già emanato. Le due sedute del ciclo
+    // tengono liste separate, così non si rubano il decreto a vicenda.
+    function councilIssued(player, turno) {
+        const P = POL();
+        const slot = P && P.councilSlot(turno, player.nato || 1);
+        if (!slot) return [];
+        const rec = player.decretiCiclo || {};
+        const ciclo = P.cycleOf(turno);
+        if (rec.ciclo !== ciclo) return [];
+        return (rec.sedute && rec.sedute[slot]) || [];
+    }
+
+    // EMANA UN DECRETO. Il grado si sposta di un passo nel verso del decreto, e
+    // il decreto si paga: in monete, in risorse, o in un prezzo scritto sulla
+    // mappa (una provincia che non raccoglie, una Città che non versa, due
+    // uomini che tornano ai campi).
+    //
+    // Non consuma la fase, come `setTax`: un decreto si emana in qualunque
+    // momento del proprio turno, purché il Consiglio sieda.
+    function issueDecree(player, id, provId) {
+        const P = POL();
+        if (!P) return fail('La politica del regno non è disponibile.');
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+
+        const d = P.decree(id);
+        if (!d) return fail('Decreto sconosciuto.');
+        const cap = R().getCapitalPathFor(player);
+        const turno = R().turn();
+
+        // Prima i controlli PURI (finestra, seduta già spesa, limite della
+        // scala), poi quelli che hanno bisogno della mappa.
+        const v = P.canIssue(id, {
+            turno: turno, nato: player.nato || 1, grado: player.politica || 0,
+            emanati: councilIssued(player, turno), haCapitale: !!cap
+        });
+        if (!v.ok) return fail(v.motivo);
+
+        // La provincia, quando il decreto ne chiede una.
+        let path = null;
+        if (d.prov) {
+            path = E().path(provId);
+            if (!path) return fail('Scegli una provincia.');
+            if (E().owner(path) !== player.name) return fail('Puoi emanarlo solo su una tua provincia.');
+            const u = unitsOf([path]);
+            const nome = R().provinceLabel(path);
+            if (d.prov.noCapitale && u.capitale) return fail('Non sulla Capitale.');
+            if (d.prov.noCitta && u.citta) return fail('Non dove sorge una Città.');
+            if (d.prov.tipo === 'risorsa' && !R().resourceKeyOf(path)) {
+                return fail(nome + ' non ha una risorsa da concedere.');
+            }
+            if (d.prov.tipo === 'citta' && !u.citta) return fail('Serve una tua Città.');
+            if (d.prov.soldati && spare(path) < d.prov.soldati) {
+                return fail('Servono ' + d.prov.soldati + ' uomini oltre al presidio (§5) in ' + nome + '.');
+            }
+            if ((player.decretiAttivi || []).some(a => a.prov === provId)) {
+                return fail('In ' + nome + ' c\'è già un decreto in corso.');
+            }
+        }
+
+        // Il prezzo in magazzino. `pay` dice da sé cosa manca.
+        const costo = Object.assign({}, d.costo.scorte || {});
+        if (d.costo.monete) costo.monete = d.costo.monete;
+        const payErr = pay(player, costo, 'Per ' + d.nome.toLowerCase()); if (payErr) return payErr;
+
+        // Da qui in poi si muta. Il dono immediato, se c'è.
+        const dettagli = [];
+        const dono = d.dono || {};
+        Object.keys(dono.scorte || {}).forEach(k => {
+            player.scorte[k] = (player.scorte[k] || 0) + dono.scorte[k];
+            dettagli.push('+' + dono.scorte[k] + ' ' + (GR().RES_LABEL[k] || k));
+        });
+
+        // Il prezzo sulla mappa, e la voce di durata.
+        if (path) {
+            if (d.prov.soldati) {
+                loseFromPath(path, d.prov.soldati);
+                dettagli.push('−' + d.prov.soldati + ' uomini da ' + R().provinceLabel(path));
+            }
+            if (d.durata) {
+                player.decretiAttivi.push({
+                    id: d.id, prov: provId, fino: P.expiryOf(d, turno)
+                });
+            }
+            E().redrawProvince(path);
+        }
+
+        // Il passo politico, e la seduta che si segna spesa.
+        const prima = player.politica || 0;
+        player.politica = P.clamp(prima + d.verso);
+        const ciclo = P.cycleOf(turno);
+        const slot = v.slot;
+        if (!player.decretiCiclo || player.decretiCiclo.ciclo !== ciclo) {
+            player.decretiCiclo = { ciclo: ciclo, sedute: {} };
+        }
+        const sed = player.decretiCiclo.sedute;
+        (sed[slot] = sed[slot] || []).push(d.id);
+
+        E().refresh();
+        E().save();
+        return done('📜 ' + d.nome + ': la corona passa a ' + P.grade(player.politica).label + '.' +
+            (dettagli.length ? ' ' + dettagli.join(', ') + '.' : ''),
+            { prov: provId || (cap ? cap.id : null), politica: player.politica, decreto: d.id });
+    }
+
+    // Schiera N cavalieri del serbatoio della nobiltà (il privilegio del grado
+    // estremo). Gemello di `deploy`: stessa fase, stesso tetto d'impilamento,
+    // stesso ripensamento finché il turno è aperto — solo che questi vanno
+    // posati come CAVALIERI (§Cavalieri), non come fanti.
+    function deployKnight(player, provId, n) {
+        const { path, err } = deployablePath(player, provId); if (err) return err;
+
+        n = (n === undefined || n === null) ? (player.cavalieriDaSchierare || 0) : Math.floor(n);
+        if (!(n > 0)) return fail('Indica quanti cavalieri schierare.');
+        const pool = player.cavalieriDaSchierare || 0;
+        if (!pool) return fail('Non hai cavalieri della nobiltà da schierare.');
+        if (n > pool) return fail('Hai solo ' + pool + ' cavalieri da schierare.');
+        const room = roomFor(path);
+        if (n > room) {
+            return fail(R().provinceLabel(path) + ' non regge altri ' + n + ' soldati: c\'è posto per ' + room + '.');
+        }
+
+        putSoldiers(player, path, n);
+        E().addCav(path, n);
+        player.cavalieriDaSchierare = pool - n;
+        placedAt(player, provId).cavalieri = (placedAt(player, provId).cavalieri || 0) + n;
+
+        E().refresh();
+        E().save();
+        return done(n + (n === 1 ? ' cavaliere schierato' : ' cavalieri schierati') + ' in ' +
+            R().provinceLabel(path) + '.', { prov: provId });
     }
 
     // ---------- COMMERCI (§7) ----------
@@ -4320,13 +4542,13 @@
         // esposti anche qui per poterli guidare a mano nei test.
         applyEvents, tickEvents,
         decree,
-        deploy, deployBound, deployAllBound, undeploy,
+        deploy, deployBound, deployAllBound, undeploy, deployKnight,
         build, buildWelfare, maintainWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
         destroyMarket, destroyShip,
         launchExpedition, expeditionTargets, expeditionLand, steerExpedition, advanceExpeditions,
         EXPED_DIRS, EXPED_DIR_LABEL,
         sendSpy, spyTargets, spiesOf,
-        hasMarket, marketPath, tradeWithBank, setTax,
+        hasMarket, marketPath, tradeWithBank, setTax, issueDecree, councilIssued,
         proposeTrade, acceptTrade, refuseTrade, cancelTrade,
         tradeInbox, tradeOutbox, expireTrades, tradeHistory,
         // DIPLOMAZIA (§Diplomazia): proporre, accettare, rifiutare, rompere i

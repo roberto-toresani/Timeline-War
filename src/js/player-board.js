@@ -230,6 +230,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     dockButtons.forEach(btn => btn.addEventListener('click', () => showSheet(btn.dataset.sheet)));
+
+    // POLITICA DEL REGNO: le tessere dei decreti si ridisegnano in blocco con
+    // innerHTML a ogni render, quindi il clic si prende per DELEGA sul
+    // contenitore — un listener solo, montato una volta, invece di riagganciare
+    // sette bottoni a ogni refresh.
+    if ($('bp-politics')) {
+        $('bp-politics').addEventListener('click', (e) => {
+            const t = e.target.closest('[data-decree]');
+            if (!t || t.disabled) return;
+            const player = currentPlayer();
+            if (!player) return;
+            polAskDecree(player, t.dataset.decree, t.dataset.decreeProv || null);
+        });
+    }
     if ($('dock-costi')) $('dock-costi').addEventListener('click', () => showCosts(!costsOpen));
 
     // ---------- VISTA SEMPLICE DA TELEFONO (regola dell'utente) ----------
@@ -1727,18 +1741,292 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div class="bp-fold-body">' + cicli + '</div></details>';
     }
 
-    function renderPopEffect(pop) {
+    // ---------- POLITICA DEL REGNO (§8-bis, js/politics.js) ----------
+    // La Popolarità decide QUANTO il regno riceve, la politica COME si divide
+    // fra reclute e raccolto. Il grado non si sceglie da un cursore: si sposta
+    // con i DECRETI del Consiglio della Corona. Qui si disegna; le regole pure
+    // stanno in politics.js e le mutazioni in game-actions.js.
+
+    // Le sagome: la SPADA dei signori e il MARTELLO dei lavoratori. Il martello
+    // è inclinato di 20° perché dritto sembra una T maiuscola; l'Equilibrio è i
+    // due simboli affiancati, che si spiega da sé meglio di una bilancia.
+    // (Una falce era stata provata e scartata: sembrava una scimitarra.)
+    const POL_SPADA = '<path d="M12 0.8 14.1 5.2V14H9.9V5.2Z"/>' +
+        '<rect x="4.8" y="14" width="14.4" height="2.4" rx="1.2"/>' +
+        '<rect x="10.8" y="16.4" width="2.4" height="4.2" rx="1.1"/>' +
+        '<circle cx="12" cy="21.4" r="1.9"/>';
+    const POL_MARTELLO = '<g transform="rotate(-20 12 12)">' +
+        '<rect x="3" y="3.2" width="18" height="6.4" rx="1.9"/>' +
+        '<rect x="10.4" y="9.2" width="3.2" height="12.4" rx="1.6"/></g>';
+    const POL_GLIFI = {
+        spada: POL_SPADA,
+        martello: POL_MARTELLO,
+        bilancia: '<g transform="translate(0.4,3.2) scale(0.44)">' + POL_SPADA + '</g>' +
+                  '<g transform="translate(12,3.2) scale(0.44)">' + POL_MARTELLO + '</g>'
+    };
+
+    function polGlifo(nome, px) {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true" class="pol-ico" style="width:' + px +
+            'px;height:' + px + 'px">' + (POL_GLIFI[nome] || '') + '</svg>';
+    }
+
+    function POL() { return (typeof Politics !== 'undefined') ? Politics : null; }
+
+    // Quel che il regno raccoglierebbe SENZA la politica: serve al
+    // traboccamento (Politics.spill), cioè a dire i numeri veri e non quelli
+    // nominali. Stessa lettura di turnProduction, dalla mappa.
+    function polBase(player, paths, connectedSet) {
+        const P = POL();
+        const eff = P ? P.activeEffects(player.decretiAttivi, R.turn()) : { bloccate: {}, extra: {} };
+        let risorse = 0;
+        (paths || []).forEach(path => {
+            if (!connectedSet.has(path.id)) return;
+            if (eff.bloccate[path.id]) return;
+            if (!R.resourceKeyOf(path)) return;
+            risorse += 1 + (eff.extra[path.id] || 0);
+        });
+        return { militare: Math.floor((paths || []).length / 3), produzione: risorse };
+    }
+
+    // La resa di un grado, coi numeri veri: quel che la terra dà più quel che
+    // la Popolarità aggiunge, spostato dalla politica.
+    function polResa(player, grado, pop, base) {
+        const P = POL();
+        const e = P.effect(pop, grado, base);
+        const pk = P.perks(grado, R.turn());
+        const cavOk = GR().isUnlocked('cavaliere', R.turn());
+        return {
+            uomini: Math.max(0, base.militare + e.militare),
+            risorse: Math.max(0, base.produzione + e.produzione),
+            perk: (pk.cavaliere || (grado === -2)) && !cavOk ? '' : pk.testo
+        };
+    }
+
+    function renderPolitics(player, pop, paths, connectedSet) {
+        const el = $('bp-politics');
+        const P = POL();
+        if (!el || !P) return;
+        if (!pop) {
+            el.innerHTML = '<div class="bp-effect flat">Senza Capitale il Consiglio non siede: ' +
+                'il regno non ha una politica.</div>';
+            return;
+        }
+
+        const grado = player.politica || 0;
+        const g = P.grade(grado);
+        const base = polBase(player, paths, connectedSet);
+        const mia = polResa(player, grado, pop.totale, base);
+
+        // L'ASSE: la spada a un capo, il martello all'altro, il segno di dove
+        // sei. Cinque riquadri uno accanto all'altro sembravano bottoni da
+        // premere e non dicevano che è una scala con due estremi.
+        const perc = ((grado - P.MIN) / (P.MAX - P.MIN)) * 100;
+        const tacche = P.GRADES.map(x => {
+            const on = x.v === grado;
+            const left = ((x.v - P.MIN) / (P.MAX - P.MIN)) * 100;
+            return '<i class="pol-tick' + (on ? ' on' : '') + '" style="left:' + left + '%"' +
+                ' title="' + x.label + ' — ' + x.nota + '"></i>';
+        }).join('');
+
+        // «Se il Consiglio spostasse la corona»: i gradi vicini coi loro numeri
+        // veri. È la domanda che si fa il giocatore, e un elenco di cinque
+        // righe astratte non le rispondeva.
+        const vicini = [grado - 1, grado, grado + 1].filter(v => v >= P.MIN && v <= P.MAX);
+        const carte = vicini.map(v => {
+            const r = polResa(player, v, pop.totale, base);
+            return '<div class="pol-card' + (v === grado ? ' on' : '') + '">' +
+                '<div class="pol-card-t">' + P.grade(v).label + '</div>' +
+                '<div class="pol-card-n">' + r.uomini + '⚔ · ' + r.risorse + '🌾</div>' +
+                '<div class="pol-card-p">' + (r.perk || '') + '</div></div>';
+        }).join('');
+
+        // Lo stato del Consiglio, e i decreti.
+        const slot = P.councilSlot(R.turn(), player.nato || 1);
+        let testa;
+        if (!slot) {
+            const t = P.nextCouncilTurn(R.turn());
+            testa = '<div class="bp-effect flat">Il Consiglio è chiuso. Torna a riunirsi nel ' +
+                Chronicle.yearOfTurn(t) + '.</div>';
+        } else {
+            const fatti = GA().councilIssued(player, R.turn()) || [];
+            const speso = fatti.length >= P.MAX_DECREES;
+            const left = P.councilTurnsLeft(R.turn(), player.nato || 1);
+            testa = '<div class="bp-effect' + (speso ? ' flat' : '') + '">' + P.SLOT_LABEL[slot] +
+                (speso ? ': il decreto è già stato emanato.'
+                       : ': ancora ' + left + (left === 1 ? ' turno' : ' turni') + ' per un decreto.') +
+                '</div>';
+        }
+
+        el.innerHTML =
+            '<div class="pol-axis">' +
+                '<span class="pol-end' + (grado < 0 ? ' on' : '') + '">' + polGlifo('spada', 24) + '</span>' +
+                '<span class="pol-track">' + tacche +
+                    '<i class="pol-mark" style="left:' + perc + '%"></i></span>' +
+                '<span class="pol-end' + (grado > 0 ? ' on' : '') + '">' + polGlifo('martello', 24) + '</span>' +
+            '</div>' +
+            '<div class="pol-now">' + polGlifo(g.glifo, 18) + (g.doppio ? polGlifo(g.glifo, 18) : '') +
+                '<b>' + g.label + '</b></div>' +
+            '<div class="pol-note">' + g.nota + '</div>' +
+            '<div class="bp-effect' + (pop.totale >= 4 ? '' : pop.totale <= 2 ? ' bad' : ' flat') + '">' +
+                'Con Popolarità ' + pop.totale + '/5 il regno riceve <b>' + mia.uomini +
+                (mia.uomini === 1 ? ' uomo' : ' uomini') + '</b> e <b>' + mia.risorse +
+                (mia.risorse === 1 ? ' risorsa' : ' risorse') + '</b> quest\'anno.' +
+                (mia.perk ? ' In più: ' + mia.perk + '.' : '') + '</div>' +
+            '<div class="pol-sub">Se il Consiglio spostasse la corona:</div>' +
+            '<div class="pol-cards">' + carte + '</div>' +
+            '<div class="pol-foot">Il totale non cambia mai: la politica sposta il favore da un ' +
+                'ceto all\'altro.</div>' +
+            testa +
+            polDecreesHtml(player, -1) +
+            polDecreesHtml(player, 1) +
+            polActiveHtml(player);
+    }
+
+    // Le tessere dei decreti, con la stessa veste delle costruzioni
+    // (buildTile/costChips): acceso = si può fare adesso, gettone rosso = quel
+    // che manca. Chi chiede una provincia usa quella SELEZIONATA, come le
+    // strade e gli ordini.
+    function polDecreesHtml(player, verso) {
+        const P = POL();
+        const titolo = verso < 0 ? 'Decreti verso la nobiltà' : 'Decreti verso il popolo';
+        const tiles = P.decreesFor(verso).map(d => polDecreeTile(player, d)).join('');
+        return '<div class="bp-title pol-head">' + polGlifo(verso < 0 ? 'spada' : 'martello', 14) +
+            '<span>' + titolo + '</span></div><div class="bp-tiles">' + tiles + '</div>';
+    }
+
+    function polDecreeTile(player, d) {
+        const P = POL();
+        const cap = R.getCapitalPathFor(player);
+        const v = P.canIssue(d.id, {
+            turno: R.turn(), nato: player.nato || 1, grado: player.politica || 0,
+            emanati: GA().councilIssued(player, R.turn()) || [], haCapitale: !!cap
+        });
+        const manca = polMissing(player, d);
+        let nota = v.ok ? '' : v.motivo;
+        let can = v.ok && !Object.keys(manca).length;
+
+        // La provincia: il decreto si emana su quella selezionata adesso.
+        let provId = null;
+        if (d.prov && can) {
+            const check = polProvCheck(player, d);
+            provId = check.id;
+            if (!check.ok) { can = false; nota = check.motivo; }
+        }
+
+        const chips = [];
+        if (d.costo.monete) {
+            chips.push('<span class="bt-cost' + (manca.monete ? ' short' : '') + '">' +
+                '<span class="bt-glyph">🪙</span><b>' + d.costo.monete + '</b></span>');
+        }
+        Object.keys(d.costo.scorte || {}).forEach(k => {
+            chips.push('<span class="bt-cost' + (manca[k] ? ' short' : '') + '">' +
+                '<svg viewBox="0 0 100 100"><use href="#res-' + k + '"></use></svg><b>' +
+                d.costo.scorte[k] + '</b></span>');
+        });
+        if (d.prov && d.prov.soldati) {
+            chips.push('<span class="bt-cost"><span class="bt-glyph">⚔</span><b>' +
+                d.prov.soldati + '</b></span>');
+        }
+        if (!chips.length) chips.push('<span class="bt-cost"><b>nessun costo</b></span>');
+
+        return '<button type="button" class="bp-tile ' + (can ? 'can' : 'no') +
+            '" data-decree="' + d.id + '" data-decree-prov="' + (provId || '') + '"' +
+            (can ? '' : ' disabled') +
+            ' title="' + d.testo + ' — ' + d.effetto + '">' +
+            '<span class="bt-ico pol-ico-wrap">' + d.ico +
+                '<i class="bt-badge">' + polGlifo(d.verso < 0 ? 'spada' : 'martello', 10) + '</i></span>' +
+            '<span class="bt-name">' + d.nome + '</span>' +
+            '<div class="bt-costs">' + chips.join('') + '</div>' +
+            (nota ? '<span class="bt-why">' + tileNote(nota) + '</span>' : '') +
+            '</button>';
+    }
+
+    function polMissing(player, d) {
+        const m = {};
+        if ((d.costo.monete || 0) > (player.monete || 0)) m.monete = 1;
+        Object.keys(d.costo.scorte || {}).forEach(k => {
+            if (d.costo.scorte[k] > ((player.scorte && player.scorte[k]) || 0)) m[k] = 1;
+        });
+        return m;
+    }
+
+    // Stessi controlli di `issueDecree`, letti dalla mappa: così la tessera
+    // accesa e quella accettata non divergono.
+    function polProvCheck(player, d) {
+        const path = selectedProvId && R.engine.path(selectedProvId);
+        if (!path) return { ok: false, motivo: 'Seleziona una provincia.' };
+        if (R.engine.owner(path) !== player.name) return { ok: false, motivo: 'Una tua provincia.' };
+        const haCitta = R.countPiece(path, 'citta') > 0;
+        const haCap = R.countPiece(path, 'capitale') > 0;
+        if (d.prov.noCapitale && haCap) return { ok: false, motivo: 'Non sulla Capitale.' };
+        if (d.prov.noCitta && haCitta) return { ok: false, motivo: 'Non dove c\'è una Città.' };
+        if (d.prov.tipo === 'risorsa' && !R.resourceKeyOf(path)) {
+            return { ok: false, motivo: 'Serve una provincia con risorsa.' };
+        }
+        if (d.prov.tipo === 'citta' && !haCitta) return { ok: false, motivo: 'Serve una tua Città.' };
+        if (d.prov.soldati && spareOf(path) < d.prov.soldati) {
+            return { ok: false, motivo: 'Servono ' + d.prov.soldati + ' uomini oltre al presidio.' };
+        }
+        if ((player.decretiAttivi || []).some(a => a.prov === path.id)) {
+            return { ok: false, motivo: 'Qui c\'è già un decreto.' };
+        }
+        return { ok: true, id: path.id };
+    }
+
+    // La conferma di un decreto: dice il passo politico e quel che costa, con
+    // una riga sola per il prezzo che non sta in magazzino (una provincia che
+    // smette di raccogliere, una Città che smette di versare) — è la parte che
+    // il giocatore non può dedurre dai gettoni.
+    function polAskDecree(player, id, provId) {
+        const P = POL();
+        const d = P && P.decree(id);
+        if (!d) return;
+        const dopo = P.grade(P.clamp((player.politica || 0) + d.verso));
+        const path = provId && R.engine.path(provId);
+        const dove = path ? ' in ' + R.provinceLabel(path) : '';
+
+        R.confirm({
+            title: d.nome,
+            text: d.testo + '<br><br>La corona passa a <b>' + dopo.label + '</b>.<br>' +
+                d.effetto + dove + '.',
+            ok: 'Emana il decreto'
+        }, () => run(GA().issueDecree(player, id, provId)));
+    }
+
+    function polActiveHtml(player) {
+        const P = POL();
+        const attivi = player.decretiAttivi || [];
+        if (!attivi.length) return '';
+        const righe = attivi.map(a => {
+            const d = P.decree(a.id);
+            const path = R.engine.path(a.prov);
+            return '<div class="pol-active"><span>' + (d ? d.ico : '') + '</span>' +
+                '<span class="pol-active-n">' + (d ? d.nome : a.id) + ' — ' +
+                (path ? R.provinceLabel(path) : a.prov) + '</span>' +
+                '<span>fino al ' + Chronicle.yearOfTurn(a.fino) + '</span></div>';
+        }).join('');
+        return '<div class="bp-title pol-head"><span>Decreti in corso</span></div>' + righe;
+    }
+
+    function renderPopEffect(pop, player) {
         const el = $('bp-pop-effect');
         if (!pop) {
             el.className = 'bp-effect flat';
             el.textContent = 'Costruisci una Capitale per attivare la Popolarità.';
             return;
         }
-        const e = GR().popEffectOf(pop.totale);
+        // Il PRESTIGIO non viene più dalla Popolarità (regola dell'utente,
+        // 2026-09-21: arriva solo dagli obiettivi, dalla presa di una Capitale
+        // nemica e dalla rottura di un'alleanza). `popEffectOf` non ha più quel
+        // campo, quindi questa riga scriveva "undefined prestigio per turno".
+        //
+        // Il grado di politica entra nel conto, se no questa riga e il pannello
+        // qui sotto direbbero due cose diverse della stessa produzione.
+        const grado = (player && player.politica) || 0;
+        const e = GR().popEffectOf(pop.totale, grado);
         el.className = 'bp-effect ' + (pop.totale >= 4 ? '' : pop.totale <= 2 ? 'bad' : 'flat');
         el.textContent = 'Popolarità ' + pop.totale + '/5 → ' +
-            [signed(e.soldati) + ' soldati', signed(e.risorse) + ' risorse', signed(e.prestigio) + ' prestigio'].join(' · ') +
-            ' per turno';
+            signed(e.soldati) + ' soldati · ' + signed(e.risorse) + ' risorse per turno';
     }
 
     // ---------- cruscotto sempre visibile ----------
@@ -6295,7 +6583,8 @@ document.addEventListener('DOMContentLoaded', () => {
         syncEditorLink();
         renderTopbar(player, paths);
         if (corona) renderObjectives(player);
-        renderPopEffect(pop);
+        if (corona) renderPolitics(player, pop, paths, connectedSet);
+        renderPopEffect(pop, player);
         renderPhases(player);
         renderDeployPanel(player);
         renderSelected(player, connectedSet);

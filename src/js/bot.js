@@ -1116,6 +1116,92 @@
     // che si vuole costruire, mentre l'Argilla a 1 può bloccare una Città da mille
     // monete. Si tiene sempre un margine su ciò che si dà via: svuotare una scorta
     // per riempirne un'altra sposta soltanto il problema.
+    // ---------- POLITICA DEL REGNO (§8-bis, js/politics.js) ----------
+    // Un bot sceglie da che parte stare secondo il suo CARATTERE, non secondo
+    // il conto del turno: chi fa la guerra vuole uomini, chi costruisce vuole
+    // raccolto. Poi emana il decreto più conveniente in quella direzione fra
+    // quelli che può permettersi, una seduta per volta come il giocatore.
+    const POLICY_BY_PROFILE = { espansione: -1, predone: -2, opportunista: 0, costruttore: 1 };
+
+    function POL() { return (typeof Politics !== 'undefined') ? Politics : null; }
+
+    function policyPlan(player, s, st, og) {
+        const P = POL();
+        if (!P) return null;
+        const turno = R().turn();
+        const cap = R().getCapitalPathFor(player);
+        if (!cap) return null;                       // senza Capitale il Consiglio non siede
+        if (!P.councilSlot(turno, player.nato || 1)) return null;
+        if ((GA().councilIssued(player, turno) || []).length >= P.MAX_DECREES) return null;
+
+        // Dove si vuole arrivare. Il grado estremo si cerca solo con un regno
+        // contento: a Popolarità bassa non dà niente di più del moderato e in
+        // compenso costa un decreto in più ogni ciclo.
+        const pop = (st && st.piano && st.piano.totale) || null;
+        let voluto = POLICY_BY_PROFILE[player.bot] !== undefined ? POLICY_BY_PROFILE[player.bot] : 0;
+        if (Math.abs(voluto) === 2 && (!pop || pop < 4)) voluto = voluto > 0 ? 1 : -1;
+
+        // Un regno senza risorse collegate non ha un raccolto da favorire: per
+        // lui la via del popolo non vale niente, e tanto vale armare i baroni.
+        if (voluto > 0 && st && st.tipiCollegati !== undefined && st.tipiCollegati === 0) voluto = 0;
+
+        const grado = player.politica || 0;
+        if (grado === voluto) return null;
+        const verso = voluto > grado ? 1 : -1;
+
+        // Il decreto: il primo del verso giusto che si può pagare senza
+        // intaccare la riserva per la prossima costruzione (coinReserve) né le
+        // risorse che quella costruzione chiede.
+        const riserva = coinReserve(player, s, og) || 0;
+        for (const d of P.decreesFor(verso)) {
+            const v = P.canIssue(d.id, {
+                turno: turno, nato: player.nato || 1, grado: grado,
+                emanati: GA().councilIssued(player, turno) || [], haCapitale: true
+            });
+            if (!v.ok) continue;
+            if ((d.costo.monete || 0) > Math.max(0, (player.monete || 0) - riserva)) continue;
+            const scorteOk = Object.keys(d.costo.scorte || {}).every(k =>
+                (player.scorte[k] || 0) >= d.costo.scorte[k]);
+            if (!scorteOk) continue;
+
+            if (!d.prov) return { id: d.id, provId: null };
+            const provId = policyProvince(player, d);
+            if (provId) return { id: d.id, provId: provId };
+        }
+        return null;
+    }
+
+    // Dove posare un decreto che chiede una provincia. Il criterio è "quella
+    // che costa meno": un feudo o una corvée vanno su una risorsa NON collegata
+    // (che non rendeva comunque, §4), un'affrancatura su una collegata con
+    // uomini da cedere, una franchigia sulla Città che non è la Capitale.
+    function policyProvince(player, d) {
+        const mie = E().ownedPaths(player.name);
+        const collegate = GA().connectedOf(player);
+        const occupate = new Set((player.decretiAttivi || []).map(a => a.prov));
+        const cand = [];
+
+        mie.forEach(path => {
+            if (occupate.has(path.id)) return;
+            const cap = E().countPiece(path, 'capitale') > 0;
+            const citta = E().countPiece(path, 'citta') > 0;
+            if (d.prov.noCapitale && cap) return;
+            if (d.prov.noCitta && citta) return;
+            if (d.prov.tipo === 'risorsa' && !R().resourceKeyOf(path)) return;
+            if (d.prov.tipo === 'citta' && !citta) return;
+            if (d.prov.soldati && GR().spendableTroops(E().countPiece(path, 'soldato')) < d.prov.soldati) return;
+
+            // Più basso è il punteggio, meno costa cederla.
+            const dentro = collegate.has(path.id);
+            let costo = dentro ? 2 : 0;
+            if (d.id === 'affranca') costo = dentro ? 0 : 3;   // qui serve il contrario
+            cand.push({ id: path.id, costo: costo });
+        });
+
+        cand.sort((a, b) => a.costo - b.costo);
+        return cand.length ? cand[0].id : null;
+    }
+
     function bankPlan(player, s, st, og) {
         if (!GA().hasMarket(player)) return null;
         const scorte = player.scorte || {};
@@ -2181,6 +2267,21 @@
             for (const key of welfarePlan(player, s, st)) {
                 yield GA().buildWelfare(player, key);
                 st = popState(player, s, og);   // ogni miglioria cambia il Benessere
+            }
+        }
+
+        // POLITICA DEL REGNO (§8-bis): il decreto del Consiglio si emana DOPO
+        // le costruzioni, non prima. Al turno 1 un regno la Capitale non ce
+        // l'ha ancora quando comincia la fase — la costruisce qui sotto — e
+        // senza Capitale il Consiglio non siede: messo in testa alla fase, il
+        // decreto non partiva mai al primo ciclo. Dopo gli edifici veri il
+        // seggio c'è, e quel che resta in cassa è spesa discrezionale, che è
+        // esattamente con cui un decreto deve competere.
+        {
+            const dec = policyPlan(player, s, st, og);
+            if (dec) {
+                yield GA().issueDecree(player, dec.id, dec.provId || null);
+                st = popState(player, s, og);
             }
         }
 
