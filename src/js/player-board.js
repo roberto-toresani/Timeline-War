@@ -213,7 +213,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // board.css. Gli altri fogli restano a tutta visuale.
             // Diplomazia e chat non coprono la mappa: la prima parla con la mappa,
             // la seconda si legge guardando i bot giocare durante l'attesa.
-            sheetsEl.classList.toggle('peek', openSheet === 'diplomazia' || openSheet === 'chat');
+            // La CORONA si aggiunge ai fogli in peek (regola dell'utente): i
+            // decreti della politica si applicano a una PROVINCIA, e quella si
+            // sceglie cliccandola sulla mappa — coprirla rendeva muto il gesto.
+            sheetsEl.classList.toggle('peek', openSheet === 'diplomazia' ||
+                openSheet === 'chat' || openSheet === 'corona');
         }
         syncDock();
         // Un foglio che si apre non deve mostrare i numeri di dieci turni fa:
@@ -321,6 +325,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const snd = $('board-sound');
         if (snd) { snd.click(); $('lm-sound').textContent = snd.textContent; }
     });
+    // Da telefono il dock non si raggiunge: il foglio 👑 ha il suo bottone in
+    // barra, e gli OBIETTIVI — che ora sono un foglio a sé — stanno nel menù ⋯,
+    // o sarebbero l'unica cosa della plancia completa irraggiungibile in lite.
+    if ($('lm-goals')) $('lm-goals').addEventListener('click', () => {
+        showLiteMenu(false);
+        showSheet('obiettivi');
+    });
+
     if ($('lm-help')) $('lm-help').addEventListener('click', () => {
         showLiteMenu(false);
         const p = currentPlayer();
@@ -1870,7 +1882,7 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div class="bp-effect' + (pop.totale >= 4 ? '' : pop.totale <= 2 ? ' bad' : ' flat') + '">' +
                 'Con Popolarità ' + pop.totale + '/5 il regno riceve <b>' + mia.uomini +
                 (mia.uomini === 1 ? ' uomo' : ' uomini') + '</b> e <b>' + mia.risorse +
-                (mia.risorse === 1 ? ' risorsa' : ' risorse') + '</b> quest\'anno.' +
+                (mia.risorse === 1 ? ' risorsa' : ' risorse') + '</b> in questo turno.' +
                 (mia.perk ? ' In più: ' + mia.perk + '.' : '') + '</div>' +
             '<div class="pol-sub">Se il Consiglio spostasse la corona:</div>' +
             '<div class="pol-cards">' + carte + '</div>' +
@@ -6579,10 +6591,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // terzo del render (obiettivi, regni in gioco, araldi, commerci).
         // showSheet rifà il render quando se ne apre uno, quindi non sono mai vecchi.
         const corona = openSheet === 'corona';
+        const obiettivi = openSheet === 'obiettivi';
 
         syncEditorLink();
         renderTopbar(player, paths);
-        if (corona) renderObjectives(player);
+        if (obiettivi) renderObjectives(player);
         if (corona) renderPolitics(player, pop, paths, connectedSet);
         renderPopEffect(pop, player);
         renderPhases(player);
@@ -6605,7 +6618,6 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBattle();
         renderMove(player);
         renderProvinceList(player, paths, connectedSet);
-        if (corona) renderKingdoms(player);
         if (corona) renderAiLog();
         renderMapHud(player);
         // Prima si accendono i bersagli sulla mappa, poi si disegna il cursore

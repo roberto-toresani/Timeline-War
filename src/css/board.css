@@ -613,6 +613,12 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
        guardando la partita. È una colonna stretta a sinistra. */
     .sheet-chat { right: 55%; }
 
+    /* La CORONA nemmeno (regola dell'utente): i decreti della politica si
+       applicano a una PROVINCIA, e quella si sceglie cliccandola sulla mappa.
+       Coprirla tutta rendeva muto il gesto, esattamente come sarebbe per la
+       diplomazia. Una colonna sola, quindi può stare stretta. */
+    .sheet-corona { right: 55%; }
+
     /* col foglio della diplomazia (o della chat) aperto lo strato non intercetta
        i clic: li prende la mappa sotto, tranne dove c'è il foglio. */
     #board-sheets.peek { pointer-events: none; }

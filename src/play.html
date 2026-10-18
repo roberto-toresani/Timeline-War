@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=97">
-    <link rel="stylesheet" href="css/board.css?v=133">
+    <link rel="stylesheet" href="css/board.css?v=134">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -114,6 +114,10 @@
                     <button class="dock-btn" type="button" data-sheet="corona"
                             title="Popolarità, obiettivi, il tuo regno, i regni in gioco, cosa fa l'IA">
                         <span class="dock-ico">👑</span><span class="dock-lab">Corona</span>
+                    </button>
+                    <button class="dock-btn" type="button" data-sheet="obiettivi"
+                            title="Obiettivi del ciclo e prestigio">
+                        <span class="dock-ico">🎯</span><span class="dock-lab">Obiettivi</span>
                     </button>
                     <button class="dock-btn" type="button" data-sheet="diplomazia"
                             title="Patti, rapporti fra i regni, araldi in viaggio">
@@ -325,17 +329,24 @@
                 <div id="sheet-backdrop"></div>
 
                 <!-- ---------- 👑 CORONA ---------- -->
-                <section class="sheet" data-sheet="corona" style="display:none;">
+                <!-- ---------- 👑 CORONA ----------
+                     (regola dell'utente) NON copre la mappa, come la Diplomazia:
+                     i decreti della politica si applicano a una provincia, e quella
+                     provincia si sceglie cliccandola sulla mappa. Un foglio a tutta
+                     visuale rendeva muto quel gesto. Per lo stesso motivo è stata
+                     tolta la colonna di destra ("Il tuo regno", "Regni in gioco"):
+                     quei numeri stanno già nel cruscotto sempre visibile, e lo spazio
+                     serve alla mappa. Gli OBIETTIVI hanno un foglio tutto loro. -->
+                <section class="sheet sheet-corona" data-sheet="corona" style="display:none;">
                     <header class="sheet-head">
                         <span class="sheet-ico">👑</span>
                         <h2 class="sheet-title">La corona</h2>
-                        <span class="sheet-sub">come sta il regno, cosa promette il ciclo, chi altro gioca</span>
+                        <span class="sheet-sub">come sta il regno e chi sostiene la corona</span>
                         <button type="button" class="sheet-close" title="Chiudi (Esc)">✕</button>
                     </header>
-                    <div class="sheet-body cols">
+                    <div class="sheet-body">
 
-                        <!-- colonna 1: popolarità e obiettivi.
-                             Tiene l'id #board-left perché è lì che app.js inietta
+                        <!-- Tiene l'id #board-left perché è lì che app.js inietta
                              il pannello Popolarità e da lì pendono le sue misure. -->
                         <div id="board-left" class="sheet-col">
                             <div class="bp-crown">
@@ -356,35 +367,53 @@
                                         arriva il favore del popolo</span></div>
                                 <div id="bp-politics"></div>
 
-                                <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del
-                                     regno, con spunta AUTOMATICA dal vivo e storico sempre
-                                     disponibile. Iniettato da renderObjectives in player-board.js.
-                                     Il totale di `puntiPrestigio` è mostrato in cima a questo
-                                     blocco: è l'unico cruscotto del prestigio (il vecchio
-                                     #bp-prestige-block a "punti d'oro" è stato tolto — non c'è
-                                     più il ciclo a 10 con conversione). -->
-                                <div id="bp-objectives" class="bp-objectives"></div>
+                                <!-- Il registro dell'IA resta, ma in una cartellina
+                                     chiusa: è l'unico modo di sapere cosa hanno fatto i
+                                     bot sotto nebbia, e non vale la colonna che occupava. -->
+                                <details class="bp-fold">
+                                    <summary>Cosa fa l'IA <span class="bp-fold-hint">solo ciò che vedi</span></summary>
+                                    <div class="bp-fold-body"><div id="bp-ailog"></div></div>
+                                </details>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- colonna 2: il regno in numeri, chi gioca, cosa fa l'IA -->
+                    <!-- Gli id della vecchia colonna di destra restano QUI, nascosti:
+                         player-board.js ci scrive a ogni render senza controllare che
+                         esistano (`$('bp-reinf-detail').innerHTML`), ed è la stessa
+                         ragione per cui sopravvivono `p-owner` e `p-resource`. I
+                         numeri che contavano — province e rinforzi del prossimo turno —
+                         stanno già nel cruscotto, sempre sotto gli occhi. -->
+                    <div hidden>
+                        <span id="bp-prov-owned">0</span><span id="bp-prov-connected">0</span>
+                        <span id="bp-units">0 · 0 · 0</span><span id="bp-buildings">0 · 0 · 0</span>
+                        <span id="bp-reinf">0</span><div id="bp-reinf-detail"></div>
+                        <div id="bp-kingdoms"></div>
+                    </div>
+                </section>
+
+                <!-- ---------- 🎯 OBIETTIVI ----------
+                     (regola dell'utente) Il binario storico del regno e il prestigio
+                     hanno un foglio tutto loro: sono una LETTURA, si guardano con calma
+                     e meritano tutta la larghezza, mentre la Corona serve ad agire e
+                     deve lasciare scoperta la mappa. -->
+                <section class="sheet" data-sheet="obiettivi" style="display:none;">
+                    <header class="sheet-head">
+                        <span class="sheet-ico">🎯</span>
+                        <h2 class="sheet-title">Obiettivi</h2>
+                        <span class="sheet-sub">cosa promette il ciclo, e quanto prestigio hai messo da parte</span>
+                        <button type="button" class="sheet-close" title="Chiudi (Esc)">✕</button>
+                    </header>
+                    <div class="sheet-body">
                         <div class="sheet-col">
-                            <div class="bp-title">Il tuo regno</div>
-                            <div class="bp-row"><span class="k">Province controllate</span><span class="v" id="bp-prov-owned">0</span></div>
-                            <div class="bp-row"><span class="k">Collegate alla Capitale</span><span class="v" id="bp-prov-connected">0</span></div>
-                            <div class="bp-row"><span class="k">Generali · navi · vascelli</span><span class="v" id="bp-units">0 · 0 · 0</span></div>
-                            <div class="bp-row"><span class="k">Città · fortezze · mercati</span><span class="v" id="bp-buildings">0 · 0 · 0</span></div>
-
-                            <div class="bp-box">
-                                <div class="bp-box-head"><span class="k">Rinforzi del prossimo turno</span><span class="v" id="bp-reinf">0</span></div>
-                                <div id="bp-reinf-detail"></div>
-                            </div>
-
-                            <div class="bp-title">Regni in gioco</div>
-                            <div id="bp-kingdoms"></div>
-
-                            <div class="bp-title">Cosa fa l'IA <span class="bp-title-hint">solo ciò che vedi</span></div>
-                            <div id="bp-ailog"></div>
+                            <!-- OBIETTIVI DEL CICLO (§10, js/objectives.js): il piano del
+                                 regno, con spunta AUTOMATICA dal vivo e storico sempre
+                                 disponibile. Iniettato da renderObjectives in player-board.js.
+                                 Il totale di `puntiPrestigio` è mostrato in cima a questo
+                                 blocco: è l'unico cruscotto del prestigio (il vecchio
+                                 #bp-prestige-block a "punti d'oro" è stato tolto — non c'è
+                                 più il ciclo a 10 con conversione). -->
+                            <div id="bp-objectives" class="bp-objectives"></div>
                         </div>
                     </div>
                 </section>
@@ -509,6 +538,7 @@
         </div>
         <div id="lite-menu" style="display:none;">
             <button type="button" id="lm-sound">🔊 Suono</button>
+            <button type="button" id="lm-goals">🎯 Obiettivi</button>
             <button type="button" id="lm-help">❓ Guida</button>
             <div class="lm-auto" id="lm-auto-slot"></div>
             <button type="button" id="lm-full">🖥 Versione completa</button>
@@ -565,7 +595,7 @@
     <script src="js/app.js?v=129"></script>
     <script src="js/game-actions.js?v=133"></script>
     <script src="js/bot.js?v=134"></script>
-    <script src="js/player-board.js?v=136"></script>
+    <script src="js/player-board.js?v=137"></script>
 </body>
 
 </html>
