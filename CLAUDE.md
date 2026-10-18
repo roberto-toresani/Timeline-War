@@ -2028,6 +2028,19 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   22, quindi un cerchio geometrico farebbe attaccare Montpellier a una nave nella Manica.
   Portate del §9.2 in `SeaRoutes.RANGE` (Nave 12, Veliero 170): chi ne vuole una nuova la
   aggiunge lì, non sparsa.
+  - **MARI INTERNI vs OCEANI** (regola dell'utente): le portate di `RANGE` sono quelle
+    d'**oceano** (Atlantico, Pacifico, Indiano, Mare del Nord, Manica, Skagerrak). Nei
+    **mari interni** — Mediterraneo con Mar Nero, Baltico (Kattegat compreso), Mar Arabico
+    con Mar Rosso e Golfo Persico, e il Caspio — ogni passo del Dijkstra costa
+    `INNER_COST` = 12/18, quindi la Nave vi arriva a **18**, e una rotta mista paga ogni
+    tratto per quel che è. I bacini sono `INNER_SEAS` in `sea-routes.js`: un riempimento
+    dell'acqua da dei semi che non attraversa i **cancelli** misurati sulla griglia
+    (Gibilterra x<580; ovest dello Jutland e Skagerrak; Mar Arabico chiuso a y>284 e x>858).
+    La maschera `g.inner` si costruisce in `prepare` a griglia pronta, e lì si buttano le
+    portate già memorizzate col ripiego (tutto oceano). Vale per ogni scafo: il Veliero e
+    le spedizioni vanno 1,5× più lontano nei mari interni, ed è accettato.
+    Esempi misurati: Catalogna→Sardegna 12 (era 18), Attica→Calabria 9 (era 13),
+    Attica→Sicilia 13 (era 19). `SeaRoutes.isInnerSea(svg, x, y)` per controllare un punto.
   - La griglia (celle da 1,5 unità, come `WCELL` di map-anchors) si costruisce **una volta**
     con due rasterizzazioni dell'SVG su canvas: la prima, tutte le province dello stesso
     colore e **antialiasing acceso**, dice terra o acqua — i bordi condivisi si fondono e non

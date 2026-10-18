@@ -35,6 +35,9 @@
 //   Normandia→Olanda 12 · Sicilia→Tunisia 4 · Barcellona→Gerusalemme 111
 //   Barcellona→Cuba 278 · Barcellona→India 612 · Barcellona→Giava 666
 // Portate di §9.2: Nave 12, Veliero 170.
+// Nei MARI INTERNI (Mediterraneo, Mar Nero, Baltico, Mar Arabico, Caspio) ogni
+// passo costa 12/18: la Nave vi arriva a 18. Le distanze qui sopra sono in
+// unità geometriche, non ancora pesate. Vedi INNER_SEAS.
 
 (function (global) {
     'use strict';
@@ -50,6 +53,54 @@
 
     const WATER = 0, LAND = 1, UNKNOWN = 2;
     const NO_PROV = -1;
+
+    // ------------------------------------------------------- mari e oceani
+    // MARI INTERNI vs OCEANI (regola dell'utente): una Nave fa 12 in oceano
+    // (Atlantico, Pacifico, Indiano, Mare del Nord) e 18 nei mari interni
+    // (Mediterraneo, Mar Nero, Baltico, Mar Arabico). La portata scritta in RANGE
+    // resta quella d'oceano; nei mari ogni passo COSTA meno (INNER_COST = 12/18),
+    // quindi una rotta mista paga ciascun tratto per quel che è. Vale per ogni
+    // scafo: il Veliero, che ha già portata oceanica, ne guadagna poco di utile.
+    //
+    // Un bacino è un riempimento dell'acqua a partire da `semi`, che non entra
+    // nelle celle `fuori` — i cancelli verso l'oceano, misurati sulla griglia
+    // vera: Gibilterra (x < 580), gli stretti danesi (a ovest dello Jutland e
+    // lo Skagerrak), il Mar Arabico chiuso a sud fra il Corno d'Africa e la punta
+    // dell'India (y > 284) e a est dell'India (x > 858). Suez è chiuso, quindi il
+    // Mar Rosso entra col Mar Arabico, e il Golfo Persico pure. Il Caspio è un
+    // mare chiuso e conta come mare.
+    const INNER_COST = 12 / 18;
+    const INNER_SEAS = [
+        { nome: 'Mediterraneo e Mar Nero', semi: [[640, 184], [715, 155]], fuori: (x, y) => x < 580 },
+        { nome: 'Baltico', semi: [[668, 100]], fuori: (x, y) => x < 634 || (y < 91 && x < 640) },
+        { nome: 'Mar Arabico, Mar Rosso e Golfo Persico', semi: [[800, 262]], fuori: (x, y) => y > 284 || x > 858 },
+        { nome: 'Caspio', semi: [[768, 158]], fuori: () => false }
+    ];
+
+    // g.inner[cella] = 1 se la cella d'acqua sta in un mare interno. Si calcola
+    // una volta, a griglia pronta (prepare): prima vale tutto oceano.
+    function buildInnerSeas(g) {
+        const inner = new Uint8Array(GW * GH);
+        INNER_SEAS.forEach(b => {
+            const q = [];
+            b.semi.forEach(([x, y]) => {
+                const i = Math.floor(x / CELL), j = Math.floor(y / CELL), k = j * GW + i;
+                if (g.kind[k] === WATER && !inner[k]) { inner[k] = 1; q.push(k); }
+            });
+            for (let h = 0; h < q.length; h++) {
+                const k = q[h], i = k % GW, j = (k / GW) | 0;
+                for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+                    const ni = i + di, nj = j + dj;
+                    if ((!di && !dj) || ni < 0 || nj < 0 || ni >= GW || nj >= GH) continue;
+                    const nk = nj * GW + ni;
+                    if (inner[nk] || g.kind[nk] !== WATER) continue;
+                    if (b.fuori((ni + 0.5) * CELL, (nj + 0.5) * CELL)) continue;
+                    inner[nk] = 1; q.push(nk);
+                }
+            }
+        });
+        g.inner = inner;
+    }
 
     // ------------------------------------------------------------------ griglia
     function gridOf(svg) {
@@ -224,6 +275,10 @@
                     setCell(g, i, j, water ? WATER : LAND, water ? NO_PROV : prov);
                 }
             }
+            buildInnerSeas(g);
+            // Portate calcolate col ripiego lento (tutto oceano) prima che i
+            // bacini esistessero: si buttano, si ricalcolano giuste.
+            svg.__seaReach = null; svg.__seaReachPt = null;
             g.ready = true;
             g.pending = null;
             return g;
@@ -403,7 +458,8 @@
                             }
                             continue;
                         }
-                        push(k, d + ((di && dj) ? DIAG : CELL));
+                        const passo = (di && dj) ? DIAG : CELL;
+                        push(k, d + (g.inner && g.inner[k] ? passo * INNER_COST : passo));
                     }
                 }
             }
@@ -490,6 +546,8 @@
     global.SeaRoutes = {
         CELL, prepare, reach, reachCached, distances, hasSeaAccess,
         reachFromPoint, reachFromPointCached, sail,
+        INNER_SEAS, INNER_COST,
+        isInnerSea: (svg, x, y) => { const g = svg && svg.__seaGrid; return !!(g && g.inner && g.inner[Math.floor(y / CELL) * GW + Math.floor(x / CELL)]); },
         // Portate di §9.2. Chi ne vuole una nuova la aggiunge qui, non sparsa.
         RANGE: { barca: 12, vascello: 170 },
         rangeOf: tipo => (global.SeaRoutes.RANGE[tipo] || 0),
