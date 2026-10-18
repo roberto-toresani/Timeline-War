@@ -2417,6 +2417,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     e `objectiveContext` la espone come `benessere()` leggendo `Popularity.score`. Nel
     binario inglese ricorrono a III (Popolarità), V e VIII (Benessere). Il `hint`
     `{welfare:n}` entra in `objectivePopTarget` di `bot.js` come gli altri due.
+  - **IL CAPITOLO II È TARATO A MANO** (regola dell'utente, ritaratura della partita in
+    corso al turno 10): le trenta voci portano `fisso: true` — la soglia è `n.avanzare` a
+    ogni intensità, **senza** calibrazione (`soglia` esce subito), così un «difendi Aleppo
+    con 8» resta 8 anche dopo una crociata che ne sbarca 11. Template nuovi:
+    `regioneSenzaFede` (Castiglia: nessuna provincia musulmana in IBERIA, chiunque la tenga),
+    `migliorie` (§6.1 attive sulla Capitale, `ctx.welfareBuilt`), `naviRegione` (una nave
+    ormeggiata in un elenco di coste — `MED_BIZ` esclude Eastern/Northern Thrace, Bulgaria e
+    Hudavendigar, il cui approdo misurato cade sul Mar Nero), `fuoriRegione` (province fuori
+    dalle isole). `nDa(ctx)` su una voce dà ancore che dipendono dal ciclo prima, letto con
+    `ctx.cicloFatto(ciclo, posizione)` dallo storico che closeCycle archivia PRIMA di
+    generare (Abbasidi: 4 tipi collegati, 3 se il Terziario del ciclo I è mancato).
+    Dettaglio in `docs/BINARI_STORICI.md`.
   - **Un regno senza binario** (Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia,
     Orda: nascono per evento) resta senza obiettivi, senza rompere niente. Il pool
     condiviso di riscossa che li raccoglierà non c'è ancora.

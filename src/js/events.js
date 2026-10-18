@@ -63,7 +63,7 @@
     };
 
     // CROCIATA INGLESE (ciclo 3, turno 21). Gli uomini che l'Inghilterra ha
-    // radunato a Home Counties alla FINE del ciclo 2 (obiettivo in2-2, "La
+    // radunato a Home Counties alla FINE del ciclo 2 (obiettivo in2-1, "La
     // chiamata del Papa") salpano all'INIZIO del ciclo 3 e sbarcano all'assalto
     // di Gerusalemme (Palestine) — regola dell'utente: è l'Inghilterra, non più
     // Bisanzio, a portare la croce in Terra Santa. `da` è fisso su Home Counties,

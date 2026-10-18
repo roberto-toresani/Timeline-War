@@ -1110,8 +1110,8 @@
     // il presidio minimo del prelievo, §5), non una frazione: chi ne ha
     // radunati 6 ne manda 6 (meno l'unico che resta a guardia, come ogni
     // prelievo), chi ne ha radunati 40 ne manda 40. `o.minimo` è di norma
-    // l'ancora `resistere` dello stesso obiettivo che chiede il raduno (fr1 e
-    // in2-2 hanno entrambi `resistere: 6`): è il minimo che l'autore considera
+    // l'ancora `resistere` dello stesso obiettivo che chiede il raduno (fr1;
+    // il raduno inglese in2-1 oggi è un numero fisso, 9): il minimo che l'autore considera
     // "ci hai almeno provato", non un numero a sé. `forza`, se passato, resta
     // un TETTO opzionale (non aggiunge mai uomini da altrove, ne prende al più
     // tanti quanti ce n'è). Ritorna { soldati, merc, fromId, fromLabel } o

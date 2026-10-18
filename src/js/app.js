@@ -4891,7 +4891,30 @@ document.addEventListener('DOMContentLoaded', () => {
             // ogni turno, closeCycle azzera i due per-ciclo a fine giro.
             taxDuraTurns: () => (player.tassaCiclo || []).filter(t => t === 'dura').length,
             popTurns: lvl => (player.popCiclo || []).filter(p => p >= lvl).length,
-            navalConquests: () => player.conquisteNavali || 0
+            navalConquests: () => player.conquisteNavali || 0,
+            // La famiglia di fede di una provincia QUALUNQUE, anche non mia
+            // (template `regioneSenzaFede`: «nessuna provincia musulmana in Iberia»).
+            faithFamilyOf: id => {
+                const el = document.getElementById(id);
+                const f = el ? religionKeyOf(el) : null;
+                return f ? Religions.familyOf(f) : null;
+            },
+            // Le migliorie civiche ATTIVE sulla Capitale (§6.1): template `migliorie`.
+            welfareBuilt: () => {
+                const cap = getCapitalPathFor(player);
+                return cap ? welfareOf(cap).filter(e => !e.dormant).length : 0;
+            },
+            // Una voce del ciclo `ciclo` (per posizione: 0 Primario, 1 Secondario,
+            // 2 Terziario) è stata compiuta? Legge lo storico archiviato da
+            // closeCycle, che gira PRIMA della generazione del ciclo nuovo. Serve ai
+            // capitoli che cambiano misura secondo com'è andato il precedente
+            // (Abbasidi C2). null se il ciclo non è archiviato.
+            cicloFatto: (ciclo, idx) => {
+                const st = (player.obiettiviStorico || []).filter(h => h.ciclo === ciclo);
+                const rec = st.find(h => !h.backfill) || st[0];
+                const it = rec && rec.items ? rec.items[idx] : null;
+                return it ? !!it.completato : null;
+            }
         };
     }
 

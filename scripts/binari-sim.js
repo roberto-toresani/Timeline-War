@@ -38,6 +38,7 @@ function ctxDi(seq, st) {
         provCount: () => ids.length,
         soldiersOn: id => idSet.has(id) ? st.guarnigione : 0,
         hasMercato: () => st.mercato, hasCity: () => citta.length > 0, hasFortress: () => false,
+        faithFamilyOf: () => null, welfareBuilt: () => 0,
         cityIds: () => citta,
         shipIds: () => navi, shipCount: () => st.navi,
         // Metà della flotta è d'altura: basta a far vedere se un capitolo che

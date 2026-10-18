@@ -89,6 +89,18 @@ mai scritta, o scritta e poi sostituita da un capitolo diverso senza aggiornare 
 | Califfato Abbaside | PERSIA_OVEST → PERSIA_EST | cap II (**non** MESOPOTAMIA→PERSIA al cap III, che non è mai esistito) | ab2-2 |
 | Califfato Abbaside | PERSIA_EST → ARABIA | cap III, la stessa meta di ab4-1 in anticipo | ab3-2 |
 
+## Il capitolo II è tarato a mano (ritaratura della partita in corso)
+
+Per il ciclo II l'utente ha riscritto a mano i trenta obiettivi, regno per regno, sui
+risultati veri del ciclo I. Le voci portano `fisso: true`: la soglia è il numero scritto
+(`n.avanzare`) a **ogni** intensità e senza calibrazione — niente ratchet, così un «difendi
+Aleppo con 8» resta 8 anche se la crociata ne sbarca 11. Il prezzo, accettato: il capitolo II
+non scala più con l'intensità. Template nati per l'occasione: `regioneSenzaFede` (nessuna
+provincia di una famiglia di fede in una regione), `migliorie` (migliorie §6.1 attive sulla
+Capitale), `naviRegione` (una nave ormeggiata in un elenco di coste: `MED_BIZ` esclude le coste
+il cui approdo cade sul Mar Nero), `fuoriRegione` (province fuori dalle isole). `nDa(ctx)` dà
+ancore che dipendono dal ciclo prima (`ctx.cicloFatto(ciclo, posizione)`).
+
 ## La scala dell'ambizione
 
 **Un capitolo tardo non può chiedere una cosa che era già fattibile nei primi cicli**
@@ -249,7 +261,7 @@ da discutere con l'utente prima di scriverla.
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | La Reconquista comincia | `conquista ANDALUS` |
-| II | 1100-1199 | Verso il Tago | `conquista IBERIA` |
+| II | 1100-1199 | Verso il Tago | 12 province **e** nessuna provincia musulmana in IBERIA *(numeri fissi, ritaratura del ciclo II — vedi sotto)* |
 | III | 1200-1299 | Las Navas de Tolosa | espandi il regno *(`provCount`, non `unifica ANDALUS`: al cap III la mira è già il conteggio province totali)* |
 | IV | 1300-1399 | Lo Stretto | consolida IBERIA *(`regione IBERIA`, non `sbarca MAGHREB`: lo sbarco in Maghreb è il Secondario `ca4-2`)* |
 | V | 1400-1499 | Granada e l'Atlantico | vara un Veliero *(`naviTipo: vascello`, non `unifica IBERIA` — **nessun trabocco**: Castiglia non ha `arg.oltre` da nessuna parte nel codice, a differenza di quanto diceva la vecchia versione di questo doc)* |
@@ -264,7 +276,7 @@ da discutere con l'utente prima di scriverla.
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | L'appello di Clermont | `raduna MED_FR` |
-| II | 1100-1199 | Oltremare | `presidia Aleppo` |
+| II | 1100-1199 | Oltremare | `presidia Aleppo` con 8 *(fisso)* |
 | III | 1200-1299 | Bouvines e il Midi | `conquista NORMANDY_FR` *(trabocca in `MED_FR` se già intera — Béziers/Albigesi)* |
 | IV | 1300-1399 | I Cent'Anni | `tieni NORMANDY_FR` |
 | V | 1400-1499 | Cacciare l'inglese | `unifica NORMANDY_FR` *(trabocca in `ITALIA_NORD` se già intera)* |
@@ -279,7 +291,7 @@ da discutere con l'utente prima di scriverla.
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Le vele degli Almoravidi | `conquista IBERIA` *(`fa1`: sbarco e presa, ratchet come ogni `regione`)* |
-| II | 1100-1199 | Gli Almohadi e l'Egitto | `conquista IBERIA` *(`fa2-1`, non `EGYPT`: l'Egitto è il Secondario `fa2-2` — **nessun trabocco**: i Mori non hanno `arg.oltre` da nessuna parte)* |
+| II | 1100-1199 | Gli Almohadi e l'Egitto | `conquista IBERIA` 2 *(fisso; Secondario 5 migliorie, Terziario Matruh)* |
 | III | 1200-1299 | Saladino | conquista Terra Santa *(`province: [Palestine, Lebanon]`, elenco fisso — non `regione HOLY_LAND`, e HOLY_LAND non è mai usata dai Mori)* |
 | IV | 1300-1399 | I mamelucchi | `conquista EGYPT` *(non `tieni LEVANT`: LEVANT è definita ma non usata da nessun binario)* |
 | V | 1400-1499 | Le vie del Mar Rosso | regna *(`turniPopolarita`, non `conquista ARABIA`: ARABIA nel codice è usata solo dagli Abbasidi, mai dai Mori)* |
@@ -299,7 +311,7 @@ e leggero, si perde a metà partita, e la storia continua per mare.
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Unificare l'isola | `conquista BRITISH` |
-| II | 1100-1199 | L'impero angioino | `sbarca NORMANDY_FR` |
+| II | 1100-1199 | L'impero angioino | raduna 9 a Home Counties per la crociata *(fisso; lo sbarco sul continente è il Secondario)* |
 | III | 1200-1299 | Le teste di ponte | `presidia Flanders` + una di `FRANCIA` |
 | IV | 1300-1399 | I Cent'Anni | `presidia Aquitaine` |
 | V | 1400-1499 | L'Irlanda | `unifica IRELAND` + `fonda` lì una Città |
@@ -328,7 +340,7 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | I ducati | presidia il regno *(`guarnigioni`, non `presidia GERMANIA`: GERMANIA come regione non è usata prima del cap VII)* |
-| II | 1100-1199 | Le città imperiali | fonda una Città *(`citta`, non `fonda GERMANIA`: nessuna regione, una Città qualunque)* |
+| II | 1100-1199 | Le città imperiali | espandi a 12 province *(fisso; Secondario 10 uomini in South Tyrol)* |
 | III | 1200-1299 | L'Italia di Federico II | `conquista ITALIA_NORD` *(trabocca in `ADRIATIC` se già intera)* |
 | IV | 1300-1399 | La Bolla d'Oro | `conquista BALTICO_EST` *(non `unifica GERMANIA`: il cap IV chiede le coste baltiche di Tallin/Tartu/Riga/Courland, non la Germania)* |
 | V | 1400-1499 | Gli Asburgo | `conquista AUSTRIA_EST` *(trabocca in `PANNONIA` se già intera — **non** in `BALCANI`: la vecchia versione di questo doc sbagliava la meta)* |
@@ -343,7 +355,7 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Sbocco al mare | presidia le coste *(`guarnigioniCostiere`, non `presidia BALTICO`: BALTICO come regione non è mai usata da questo binario)* |
-| II | 1100-1199 | Verso le terre lituane | `conquista POLONIA_EST` *(trabocca in `RUS_NORD` se già intera — **non** `flotta`: il capitolo non parla mai di navi, era un titolo rimasto sbagliato da prima del 2026-09-22)* |
+| II | 1100-1199 | Verso le terre lituane | presidia Riga, Tartu e Talinn con 2 *(l'Ordine Teutonico, fisso)* |
 | III | 1200-1299 | La frammentazione | presidia i confini *(`guarnigioniConfine`, non `tieni POLONIA`: POLONIA come regione non compare in questo capitolo)* |
 | IV | 1300-1399 | Casimiro il Grande e l'unione di Krewo | `fonda POLONIA` |
 | V | 1400-1499 | L'unione e Grunwald | espandi il regno *(`provCount`, non `conquista BALTICO`: BALTICO non è mai usata come regione da conquistare da nessun binario, solo come meta di trabocco di Kievan Rus' VIII)* |
@@ -358,7 +370,7 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Le terre della Rus' | espandi il regno *(`provCount`, non `conquista RUS_NORD`: RUS_NORD come regione entra in gioco solo dal cap IV)* |
-| II | 1100-1199 | Kiev di pietra | `fonda Kiev` |
+| II | 1100-1199 | La riconquista di Kiev | 15 province, fra cui Kiev con 6 *(fisso)* |
 | III | 1200-1299 | L'ascesa di Mosca | presidia Uralsk *(`provincia`, non `tieni RUS_NORD`: la frontiera è una provincia sola, Uralsk — non un'intera regione)* |
 | IV | 1300-1399 | Raccogliere le terre russe | `unifica RUS_NORD` *(trabocca in `EST_RUSSO` se già intera — **una volta sola**, non due come diceva la vecchia versione di questo doc)* |
 | V | 1400-1499 | Oltre il Volga | `conquista EST_RUSSO` *(il Secondario `ru5-2` trabocca `CAUCASO`→`PERSIA`, ma non è il Primario)* |
@@ -373,7 +385,7 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Il regno prospero | regna *(`sicurezza`, coerente con `regna`)* |
-| II | 1100-1199 | L'Adriatico | `conquista ADRIATIC` *(trabocca in `BALCANI_OVEST` se già intera)* |
+| II | 1100-1199 | Verso i Balcani | 4 di `BALCANI_HU` *(Istria, Slovenia, Croatia, Bosnia, Dalmatia, Montenegro — fisso)* |
 | III | 1200-1299 | Le fortezze di pietra | `tieni PANNONIA` *(trabocca in `BALCANI` se già intera — il tema si chiamava "Mohi" nella vecchia versione di questo doc: rinominato per la regola "un capitolo non può poggiare su un evento", vedi sopra)* |
 | IV | 1300-1399 | Gli Angioini | fonda BALCANI *(`cittaRegione`, non `conquista BALCANI`: al cap IV si chiede una Città nei Balcani, non la conquista dell'intera regione — quella arriva all'VIII)* |
 | V | 1400-1499 | Hunyadi e Belgrado | `conquista AUSTRIA_EST` *(trabocca in `ITALIA_NORD` se già intera — **non** `presidia BALCANI`: al cap V la mira è l'Austria, non i Balcani)* |
@@ -388,7 +400,7 @@ Il filo che tiene insieme i capitoli, e che va letto prima di ritoccare una sogl
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | La riconquista balcanica | `conquista Macedonia+Bulgaria` |
-| II | 1100-1199 | I Comneni | `conquista GREECE` *(trabocca in `BALCANI` se già intera)* |
+| II | 1100-1199 | I Comneni | `presidia(5)` 3 di ANATOLIA *(fisso; la Grecia è il Secondario, la nave in `MED_BIZ` il Terziario)* |
 | III | 1200-1299 | La riscossa d'Anatolia | `presidia(6) ANATOLIA` *(**nessun trabocco** in questo capitolo)* |
 | IV | 1300-1399 | Le frontiere vigilate | `presidia ogni confine` |
 | V | 1400-1499 | La cristianità in pericolo | `presidia(8) ANATOLIA` |
@@ -419,7 +431,7 @@ conseguenza:
 | # | epoca | capitolo | mira primaria |
 |---|---|---|---|
 | I | 1000-1099 | Sbocco sul Mediterraneo | `presidia Syria` |
-| II | 1100-1199 | La Terra Santa | `conquista HOLY_LAND` *(il Secondario `ab2-2` trabocca `PERSIA_OVEST`→`PERSIA_EST`, ma non è il Primario)* |
+| II | 1100-1199 | La Terra Santa | `presidia(5)` 2 di HOLY_LAND *(fisso; Terziario 4 tipi collegati, 3 se il Terziario del ciclo I è mancato — `nDa`)* |
 | III | 1200-1299 | Il cuore della Mesopotamia | converti Terra Santa *(`fede` su `HOLY_LAND` — "scaccia i cristiani": non `tieni MESOPOTAMIA`, MESOPOTAMIA è definita fra i SET ma **non è mai usata**; il Secondario `ab3-2` trabocca `PERSIA_EST`→`ARABIA`, ma non è il Primario)* |
 | IV | 1300-1399 | L'altopiano persiano | `conquista ARABIA` *(non `conquista PERSIA`: la Persia armata è il Secondario `ab4-2` — `regioneGuarnigioni`, non `regione`, quindi non traboccabile)* |
 | V | 1400-1499 | La Persia in armi | fonda ARABIA *(`cittaRegione`, non `tieni PERSIA`)* |

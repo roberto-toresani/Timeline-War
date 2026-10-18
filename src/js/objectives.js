@@ -175,6 +175,16 @@
     const IMPERO_CENTRO = new Set(['Austria', 'Bohemia', 'Franconia']);
     // «Conquista o Sicilia o Creta» (Mori C3): possederne almeno una.
     const SICILIA_CRETA = new Set(['Sicily', 'Crete']);
+    // I Balcani d'Ungheria (Ungheria C2, regola dell'utente): la costa
+    // adriatica e il suo retroterra, dall'Istria al Montenegro.
+    const BALCANI_HU = new Set(['Istria', 'Slovenia', 'Croatia', 'Bosnia', 'Dalmatia', 'Montenegro']);
+    // Le coste bizantine sul MEDITERRANEO (Bisanzio C2, regola dell'utente):
+    // stessa logica di MED_FR, un elenco di province. Restano fuori quelle il
+    // cui approdo cade sul MAR NERO — misurato con MapAnchors.seaAnchor sulla
+    // mappa vera: Eastern_Thrace, Northern_Thrace, Bulgaria e anche
+    // Hudavendigar, il cui ormeggio sta a nord del Bosforo.
+    const MED_BIZ = new Set(['Western_Thrace', 'Macedonia', 'Thessalia', 'Attica', 'Peloponnese',
+        'Crete', 'Albania', 'Aydin', 'Konya', 'Adana']);
     // Africa centro-orientale (Abbasidi C5, richiesta dell'utente): il Corno
     // d'Africa e la costa swahili — Eritrea, Somalia, Kenya e dintorni.
     const AFRICA_CE = new Set(['Eritrea', 'Somaliland', 'Kenya', 'Zanzibar', 'Tanganyika', 'Mocambique', 'Uganda']);
@@ -213,7 +223,7 @@
         MAGHREB, ITALIA_NORD, GERMANIA, AUSTRIA_EST, RENO, BALTICO, POLONIA, POLONIA_EST, PANNONIA,
         BALCANI, BALCANI_OVEST, RUTENIA, BALTICO_NORD, RUS_NORD, EST_RUSSO, CAUCASO, SIBERIA, MESOPOTAMIA,
         PERSIA, PERSIA_OVEST, PERSIA_EST, ARABIA,
-        BALTICO_EST, IMPERO_CENTRO, SICILIA_CRETA, AFRICA_CE, AFRICA,
+        BALTICO_EST, IMPERO_CENTRO, SICILIA_CRETA, BALCANI_HU, MED_BIZ, AFRICA_CE, AFRICA,
         AMERICA_CENTRO, AMERICA_SUD
     };
 
@@ -414,6 +424,36 @@
             misura: c => c.fortressCount(),
             hint: (a, n) => ({ fortressCount: n })
         },
+        // Quante province di una REGIONE hanno una nave ancorata: «costruisci una
+        // nave sul Mediterraneo» (Bisanzio C2). Conta il POSTO dell'ormeggio, non
+        // la nave qualunque — le coste sul Mar Nero non sono nell'elenco.
+        naviRegione: {
+            misura: (c, a) => c.shipIds().filter(id => SETS[a.set].has(id)).length,
+            tetto: a => SETS[a.set].size,
+            hint: (a, n) => ({ ships: n, region: SETS[a.set] })
+        },
+        // Quante province possiedi FUORI da una regione: «metti piede sul
+        // continente» (Inghilterra C2) = una provincia fuori dalle isole.
+        fuoriRegione: {
+            misura: (c, a) => c.ownedIds().filter(id => !SETS[a.set].has(id)).length,
+            hint: (a, n) => ({ outside: SETS[a.set], min: n })
+        },
+        // Nessuna provincia di una REGIONE è della famiglia di fede indicata,
+        // chiunque la tenga (terre di nessuno comprese): «non ci devono essere
+        // province musulmane in Iberia» (Castiglia C2, regola dell'utente).
+        // Booleano come `mercato`: 1 = regione libera, 0 = no.
+        regioneSenzaFede: {
+            misura: (c, a) => [...SETS[a.set]].some(id => c.faithFamilyOf(id) === a.famiglia) ? 0 : 1,
+            hint: (a) => ({ region: SETS[a.set], clearOfFaith: a.famiglia })
+        },
+        // Le MIGLIORIE civiche ATTIVE sulla Capitale (§6.1, Sanità + Felicità,
+        // max 10): «costruisci N edifici per il benessere». Le dormienti non
+        // contano, come nella Popolarità.
+        migliorie: {
+            misura: c => c.welfareBuilt(),
+            tetto: () => 10,
+            hint: (a, n) => ({ welfareBuildings: n })
+        },
         // Una provincia con una nave ancorata e almeno n uomini a difenderla.
         naveGuarnigione: {
             misura: c => c.shipIds().reduce((m, id) => Math.max(m, c.soldiersOn(id)), -1),
@@ -508,21 +548,24 @@
                   check: n => `strade nel regno ≥ ${n}` }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'Verso il Tago', voci: [
-                { id: 'ca2-1', tipo: 'espansione', titolo: 'Avanza la Reconquista',
-                  tmpl: 'regione', arg: { set: 'IBERIA' },
-                  n: { resistere: 6, avanzare: 8, eccedere: 11, passo: 1 },
-                  testo: n => `Avanza sulla penisola iberica: possiedi ${n} delle 13 province iberiche.`,
-                  check: n => `province iberiche possedute ≥ ${n}` },
-                { id: 'ca2-2', tipo: 'crescita', titolo: 'Il benessere del popolo',
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'ca2-1', tipo: 'espansione', titolo: 'Avanza la Reconquista', fisso: true,
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'provCount', arg: {} },
+                                        altri: [{ tmpl: 'regioneSenzaFede', arg: { set: 'IBERIA', famiglia: 'musulmani' }, soglia: 1 }] },
+                  n: { avanzare: 12 },
+                  testo: n => `Possiedi ${n} province ed elimina la presenza araba dalla penisola iberica — a fine ciclo non deve restarvi nessuna provincia musulmana.`,
+                  check: n => `province ≥ ${n} e nessuna provincia musulmana in Iberia` },
+                { id: 'ca2-2', tipo: 'crescita', titolo: 'Il benessere del popolo', fisso: true,
                   tmpl: 'popolarita', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
+                  n: { avanzare: 4 },
                   testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
                   check: n => `Popolarità ≥ ${n}` },
-                { id: 'ca2-3', tipo: 'navale', titolo: 'Verso Sardegna e Sicilia',
-                  tmpl: 'regione', arg: { set: 'ISLANDS', viaSea: true },
-                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
-                  testo: n => `Sbarca e conquista ${pl(n, 'una provincia', 'province')} fra Sicilia e Sardegna.`,
-                  check: n => `province fra Sicily/Sardinia possedute ≥ ${n}` }
+                { id: 'ca2-3', tipo: 'navale', titolo: 'I cantieri di Castiglia', fisso: true,
+                  tmpl: 'navi', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci una nave.',
+                  check: n => `navi ≥ ${n}` }
             ] },
             // Ciclo III — Las Navas de Tolosa (1212) apre al-Andalus: da qui la
             // Reconquista smette di essere un'incursione. Il secondario prepara
@@ -681,21 +724,23 @@
                   check: n => `scorte di legno ≥ ${n}` }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'Oltremare', voci: [
-                { id: 'fr2-1', tipo: 'espansione', titolo: 'Difendi Aleppo',
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'fr2-1', tipo: 'espansione', titolo: 'L’insediamento dei Crociati', fisso: true,
                   tmpl: 'provincia', arg: { id: 'Aleppo' },
-                  n: { resistere: 5, avanzare: 8, eccedere: 11, passo: 2 },
-                  testo: n => `Difendi l’avamposto di Aleppo in Terra Santa con almeno ${n} armate.`,
+                  n: { avanzare: 8 },
+                  testo: n => `Difendi la provincia di Aleppo, in Terra Santa, con almeno ${n} uomini.`,
                   check: n => `possiedi Aleppo con soldati ≥ ${n}` },
-                { id: 'fr2-2', tipo: 'espansione', titolo: 'Il regno consolidato',
+                { id: 'fr2-2', tipo: 'espansione', titolo: 'L’estensione feudale', fisso: true,
                   tmpl: 'provCount', arg: {},
-                  n: { resistere: 7, avanzare: 10, eccedere: 13, passo: 1 },
-                  testo: n => `Espandi il regno a ${n} province.`,
+                  n: { avanzare: 16 },
+                  testo: n => `Conquista e difendi ${n} province.`,
                   check: n => `province ≥ ${n}` },
-                { id: 'fr2-3', tipo: 'crescita', titolo: 'Il regno feudale',
-                  tmpl: 'citta', arg: {},
-                  n: { resistere: 1, avanzare: 1, eccedere: 3, passo: 1 },
-                  testo: n => `Costruisci una Città${n > 1 ? ` e difendila con ${n} uomini` : ''}.`,
-                  check: n => `una Città${n > 1 ? ` con soldati ≥ ${n}` : ''}` }
+                { id: 'fr2-3', tipo: 'economia', titolo: 'Le ricchezze del regno', fisso: true,
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
             // Ciclo III — Bouvines (1214) e la crociata contro gli Albigesi: il
             // dominio reale si riafferma sulla Normandia e sul Midi. Lo stesso
@@ -869,21 +914,23 @@
                   check: () => 'possiedi un Mercato' }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'Gli Almohadi e l’Egitto', voci: [
-                { id: 'fa2-1', tipo: 'espansione', titolo: 'L’emirato resiste',
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'fa2-1', tipo: 'espansione', titolo: 'Incursioni iberiche', fisso: true,
                   tmpl: 'regione', arg: { set: 'IBERIA' },
-                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Difendi la posizione in Iberia: possiedi ${n} province della penisola.`,
+                  n: { avanzare: 2 },
+                  testo: n => `Conquista e difendi ${pl(n, 'una provincia', 'province')} nella penisola iberica.`,
                   check: n => `province iberiche possedute ≥ ${n}` },
-                { id: 'fa2-2', tipo: 'espansione', titolo: 'Verso l’Egitto',
-                  tmpl: 'regione', arg: { set: 'EGYPT' },
-                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
-                  testo: n => `Espanditi in Egitto: possiedi ${n} province egiziane.`,
-                  check: n => `province egiziane possedute ≥ ${n}` },
-                { id: 'fa2-3', tipo: 'economia', titolo: 'I granai del Nilo',
-                  tmpl: 'scorte', arg: { res: 'grano' },
-                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
-                  testo: n => `Immagazzina ${n} scorte di grano.`,
-                  check: n => `scorte di grano ≥ ${n}` }
+                { id: 'fa2-2', tipo: 'crescita', titolo: 'Il benessere dell’emirato', fisso: true,
+                  tmpl: 'migliorie', arg: {},
+                  n: { avanzare: 5 },
+                  testo: n => `Costruisci ${n} edifici per migliorare il benessere (migliorie di Sanità o Felicità sulla Capitale).`,
+                  check: n => `migliorie attive sulla Capitale ≥ ${n}` },
+                { id: 'fa2-3', tipo: 'espansione', titolo: 'Verso l’Egitto', fisso: true,
+                  tmpl: 'provincia', arg: { id: 'Matruh' },
+                  n: { avanzare: 0 },
+                  testo: () => 'Conquista la provincia di Matruh, in Egitto.',
+                  check: () => 'possiedi Matruh' }
             ] },
             // Ciclo III — Saladino riprende Gerusalemme (1187): l’emirato
             // torna in Terra Santa. Il secondario prepara già la difesa del
@@ -1045,26 +1092,31 @@
                   testo: n => `Costruisci una barca e difendi la provincia con ${n} uomini.`,
                   check: n => `una provincia con una nave e soldati ≥ ${n}` }
             ] },
-            // Ciclo II — lo SBARCO resta la mira primaria (regola dell'utente); il
-            // raduno a Home Counties gli sta sotto ed è quel che lo rende possibile,
-            // non quel che lo sostituisce. La guerra vera comincia comunque al IV:
-            // qui l'Inghilterra mette il piede sulla riva, non conquista la Francia.
+            // Ciclo II — il raduno per la crociata è la mira primaria (regola
+            // dell'utente, ritaratura del ciclo II): lo sbarco sul continente gli
+            // sta sotto. La guerra vera comincia comunque al IV: qui l'Inghilterra
+            // mette il piede sulla riva, non conquista la Francia.
             { ciclo: 2, epoca: '1100-1199', tema: 'L’impero angioino', voci: [
-                { id: 'in2-1', tipo: 'navale', titolo: 'Sbarco in Normandia',
-                  tmpl: 'regione', arg: { set: 'NORMANDY_FR', viaSea: true },
-                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
-                  testo: n => `Sbarca sul continente e conquista ${pl(n, 'una provincia', 'province')} in Francia.`,
-                  check: n => `province della costa francese possedute ≥ ${n}` },
-                { id: 'in2-2', tipo: 'preparazione', titolo: 'La chiamata del Papa',
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                // Il raduno a Home Counties è quello da cui salpa la crociata inglese
+                // del turno 21 (events.js): qui diventa il Primario.
+                { id: 'in2-1', tipo: 'preparazione', titolo: 'La Crociata di Cuor di Leone', fisso: true,
                   tmpl: 'provincia', arg: { id: 'Home_Counties' },
-                  n: { resistere: 6, avanzare: 8, eccedere: 12, passo: 2 },
-                  testo: n => `Raduna ${n} uomini a Home Counties, pronti a salpare per la crociata.`,
+                  n: { avanzare: 9 },
+                  testo: n => `Raduna ${n} uomini a Home Counties per la terza crociata.`,
                   check: n => `soldati a Home Counties ≥ ${n}` },
-                { id: 'in2-3', tipo: 'economia', titolo: 'Le strade della corona',
-                  tmpl: 'collegate', arg: {},
-                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
-                  testo: n => `Collega alla Capitale almeno ${n} province con strade.`,
-                  check: n => `province collegate ≥ ${n}` }
+                { id: 'in2-2', tipo: 'navale', titolo: 'Sbarco sul continente', fisso: true,
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'fuoriRegione', arg: { set: 'BRITISH' } },
+                                        altri: [{ tmpl: 'navi', arg: {}, soglia: 1 }] },
+                  n: { avanzare: 1 },
+                  testo: n => `Costruisci una nave e conquista ${pl(n, 'una provincia', 'province')} sul continente.`,
+                  check: n => `una nave e province fuori dalle isole ≥ ${n}` },
+                { id: 'in2-3', tipo: 'crescita', titolo: 'Edifici del Regno', fisso: true,
+                  tmpl: 'migliorie', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Costruisci ${n} edifici per migliorare il benessere (migliorie di Sanità o Felicità sulla Capitale).`,
+                  check: n => `migliorie attive sulla Capitale ≥ ${n}` }
             ] },
             // Ciclo III — non si conquista niente di nuovo: si TIENE quel che si
             // è preso, e si tiene in due posti precisi (le Fiandre e una terra di
@@ -1224,21 +1276,23 @@
                   check: n => n > 0 ? `possiedi Tyrol con soldati ≥ ${n}` : 'possiedi Tyrol' }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'Le città imperiali', voci: [
-                { id: 'sr2-1', tipo: 'crescita', titolo: 'La città imperiale',
-                  tmpl: 'citta', arg: {},
-                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
-                  testo: n => `Costruisci una Città e difendila con ${n} uomini.`,
-                  check: n => `una Città con soldati ≥ ${n}` },
-                { id: 'sr2-2', tipo: 'preparazione', titolo: 'La chiamata del Papa',
-                  tmpl: 'provincia', arg: { id: 'Bavaria' },
-                  n: { resistere: 6, avanzare: 10, eccedere: 14, passo: 2 },
-                  testo: n => `Raduna ${n} uomini in Bavaria, pronti a marciare verso sud.`,
-                  check: n => `soldati in Bavaria ≥ ${n}` },
-                { id: 'sr2-3', tipo: 'economia', titolo: 'Le cave imperiali',
-                  tmpl: 'scorte', arg: { res: 'pietra' },
-                  n: { resistere: 4, avanzare: 6, eccedere: 9, passo: 2 },
-                  testo: n => `Immagazzina ${n} scorte di pietra.`,
-                  check: n => `scorte di pietra ≥ ${n}` }
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'sr2-1', tipo: 'espansione', titolo: 'L’Impero di Germania', fisso: true,
+                  tmpl: 'provCount', arg: {},
+                  n: { avanzare: 12 },
+                  testo: n => `Conquista e difendi ${n} province.`,
+                  check: n => `province ≥ ${n}` },
+                { id: 'sr2-2', tipo: 'preparazione', titolo: 'La campagna d’Italia', fisso: true,
+                  tmpl: 'provincia', arg: { id: 'South_Tyrol' },
+                  n: { avanzare: 10 },
+                  testo: n => `Raduna ${n} uomini in South Tyrol per preparare la campagna d’Italia.`,
+                  check: n => `possiedi South Tyrol con soldati ≥ ${n}` },
+                { id: 'sr2-3', tipo: 'economia', titolo: 'Le vie dell’Impero', fisso: true,
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { avanzare: 3 },
+                  testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
             // Ciclo III — Federico II scende in Italia: lo stesso Nord Italia che
             // la Francia rivendicherà al suo capitolo VI — la stessa contesa.
@@ -1400,33 +1454,22 @@
                   check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'Verso le terre lituane', voci: [
-                // SCALABILE, non un elenco fisso (regola dell'utente): un ducato che
-                // ha già preso Vilnius e Brest nel ciclo I si trovava il Primario
-                // del ciclo II già compiuto al primo turno — «conquista Vilnius,
-                // Brest e Volinya» quando ne possiede già due su tre. Ora è una
-                // `regione` (POLONIA_EST) col ratchet: chi ne tiene già N deve
-                // spingersi a N+passo, cioè conquistarne ancora. Trabocca in
-                // RUS_NORD per chi le possiede già tutte.
-                { id: 'po2-1', tipo: 'espansione', titolo: 'Verso oriente',
-                  tmpl: 'regione', arg: { set: 'POLONIA_EST', oltre: 'RUS_NORD' },
-                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Espanditi a oriente, nelle terre lituano-rutene: possiedi ${pl(n, 'una provincia', 'province')} fra Vilnius, Brest, Minsk, Volinya e Mogilev.`,
-                  check: n => `province lituano-rutene possedute ≥ ${n}`,
-                  nOltre: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
-                  titoloOltre: 'Oltre, verso la Rus’',
-                  testoOltre: n => `Le terre lituano-rutene sono già tue: spingiti verso la Rus’ — possiedi ${pl(n, 'una provincia', 'province')} settentrionali russe.`,
-                  checkOltre: n => `province di RUS_NORD possedute ≥ ${n}` },
-                // xlsx: qui il Benessere, non un doppione di "Le vie del regno"
-                // (che è già il Terziario del ciclo I).
-                { id: 'po2-2', tipo: 'crescita', titolo: 'Il regno che prospera',
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'po2-1', tipo: 'espansione', titolo: 'L’Ordine Teutonico', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Riga', 'Tartu', 'Talinn'] },
+                  n: { avanzare: 2 },
+                  testo: n => `Diffondi la cristianità nelle terre pagane del Baltico: difendi Riga, Tartu e Tallinn con almeno ${n} uomini ciascuna.`,
+                  check: n => `Riga, Tartu e Talinn con soldati ≥ ${n} ciascuna` },
+                { id: 'po2-2', tipo: 'crescita', titolo: 'Il regno che prospera', fisso: true,
                   tmpl: 'benessere', arg: {},
-                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
-                  testo: n => `Tieni il Benessere del regno al livello ${n}.`,
+                  n: { avanzare: 3 },
+                  testo: n => `Raggiungi un Benessere di almeno ${n}.`,
                   check: n => `Benessere ≥ ${n}` },
-                { id: 'po2-3', tipo: 'economia', titolo: 'Le foreste polacche',
+                { id: 'po2-3', tipo: 'economia', titolo: 'Le foreste polacche', fisso: true,
                   tmpl: 'scorte', arg: { res: 'legno' },
-                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
-                  testo: n => `Immagazzina ${n} scorte di legno.`,
+                  n: { avanzare: 8 },
+                  testo: n => `Accumula ${n} scorte di legno.`,
                   check: n => `scorte di legno ≥ ${n}` }
             ] },
             // Ciclo III — la frammentazione feudale: il ducato si divide fra i
@@ -1583,22 +1626,26 @@
                   testo: n => `Immagazzina ${n} scorte di bestiame.`,
                   check: n => `scorte di bestiame ≥ ${n}` }
             ] },
-            { ciclo: 2, epoca: '1100-1199', tema: 'Kiev di pietra', voci: [
-                { id: 'ru2-1', tipo: 'crescita', titolo: 'Le mura di pietra',
-                  tmpl: 'citta', arg: { at: 'Kiev' },
-                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
-                  testo: n => `Costruisci una Città nella provincia di Kiev e difendila con ${n} uomini.`,
-                  check: n => `una Città a Kiev con soldati a Kiev ≥ ${n}` },
-                { id: 'ru2-2', tipo: 'espansione', titolo: 'Le terre della Rus’',
-                  tmpl: 'provCount', arg: {},
-                  n: { resistere: 10, avanzare: 13, eccedere: 16, passo: 1 },
-                  testo: n => `Espandi il regno a ${n} province.`,
-                  check: n => `province ≥ ${n}` },
-                { id: 'ru2-3', tipo: 'preparazione', titolo: 'Sentinella d’Oriente',
-                  tmpl: 'provincia', arg: { id: 'Tartaria' },
-                  n: { resistere: 5, avanzare: 8, eccedere: 11, passo: 2 },
-                  testo: n => `Raduna ${n} uomini a Tartaria per difendere i confini a oriente.`,
-                  check: n => `soldati a Tartaria ≥ ${n}` }
+            { ciclo: 2, epoca: '1100-1199', tema: 'La riconquista di Kiev', voci: [
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'ru2-1', tipo: 'espansione', titolo: 'Le terre della Rus’', fisso: true,
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'provCount', arg: {} },
+                                        altri: [{ tmpl: 'provincia', arg: { id: 'Kiev' }, soglia: 6 }] },
+                  n: { avanzare: 15 },
+                  testo: n => `Estendi il dominio a ${n} province, tra cui Kiev difesa da almeno 6 uomini.`,
+                  check: n => `province ≥ ${n} e Kiev con soldati ≥ 6` },
+                { id: 'ru2-2', tipo: 'crescita', titolo: 'Consenso e prosperità', fisso: true,
+                  tmpl: 'popolarita', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
+                  check: n => `Popolarità ≥ ${n}` },
+                { id: 'ru2-3', tipo: 'economia', titolo: 'Le cave della Rus’', fisso: true,
+                  tmpl: 'tutti', arg: { capo: { tmpl: 'scorte', arg: { res: 'pietra' } },
+                                        altri: [{ tmpl: 'scorte', arg: { res: 'argilla' }, soglia: 3 }] },
+                  n: { avanzare: 5 },
+                  testo: n => `Immagazzina ${n} scorte di pietra e 3 di argilla.`,
+                  check: n => `scorte di pietra ≥ ${n} e di argilla ≥ 3` }
             ] },
             // Ciclo III — l'ascesa di Mosca fra i principati divisi. NON è "il
             // giogo" (regola dell'utente): l'Orda potrebbe non arrivare mai fin
@@ -1764,31 +1811,24 @@
                   testo: () => 'Costruisci un Mercato.',
                   check: () => 'possiedi un Mercato' }
             ] },
-            { ciclo: 2, epoca: '1100-1199', tema: 'L’Adriatico', voci: [
-                // SCALABILE (regola dell'utente): la regione ADRIATIC col ratchet,
-                // non l'elenco fisso Croatia/Dalmatia/Istria che, prese nel ciclo I,
-                // lasciava il Primario compiuto. Trabocca verso i Balcani (giù per
-                // la costa dalmata) per chi possiede già le tre.
-                { id: 'un2-1', tipo: 'espansione', titolo: 'Il dominio adriatico',
-                  tmpl: 'regione', arg: { set: 'ADRIATIC', oltre: 'BALCANI_OVEST' },
-                  n: { resistere: 2, avanzare: 3, eccedere: 3, passo: 1 },
-                  testo: n => `Domina l’Adriatico: possiedi ${pl(n, 'una provincia', 'province')} fra Croatia, Dalmatia e Istria.`,
-                  check: n => `province adriatiche (Croatia/Dalmatia/Istria) ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  titoloOltre: 'Oltre l’Adriatico, nei Balcani',
-                  testoOltre: n => `La costa adriatica è già tua: scendi nei Balcani — possiedi ${pl(n, 'una provincia', 'province')} fra Albania, Serbia, Montenegro, Bosnia e Macedonia.`,
-                  checkOltre: n => `province dei Balcani occidentali possedute ≥ ${n}` },
-                { id: 'un2-2', tipo: 'crescita', titolo: 'La città di Buda',
-                  tmpl: 'citta', arg: {},
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Costruisci una Città e difendila con ${n} uomini.`
-                                    : 'Costruisci una Città nel tuo regno.',
-                  check: n => n > 0 ? `una Città con soldati ≥ ${n}` : 'possiedi una Città' },
-                { id: 'un2-3', tipo: 'economia', titolo: 'Le cave della Pannonia',
-                  tmpl: 'scorte', arg: { res: 'argilla' },
-                  n: { resistere: 5, avanzare: 8, eccedere: 12, passo: 2 },
-                  testo: n => `Immagazzina ${n} scorte di argilla.`,
-                  check: n => `scorte di argilla ≥ ${n}` }
+            { ciclo: 2, epoca: '1100-1199', tema: 'Verso i Balcani', voci: [
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'un2-1', tipo: 'espansione', titolo: 'Il dominio dei Balcani', fisso: true,
+                  tmpl: 'regione', arg: { set: 'BALCANI_HU' },
+                  n: { avanzare: 4 },
+                  testo: n => `Possiedi ${n} delle 6 province balcaniche: Istria, Slovenia, Croazia, Bosnia, Dalmazia e Montenegro.`,
+                  check: n => `province balcaniche (Istria/Slovenia/Croatia/Bosnia/Dalmatia/Montenegro) ≥ ${n}` },
+                { id: 'un2-2', tipo: 'economia', titolo: 'Le ricchezze di Pannonia', fisso: true,
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { avanzare: 3 },
+                  testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` },
+                { id: 'un2-3', tipo: 'economia', titolo: 'Il tesoro di Buda', fisso: true,
+                  tmpl: 'oro', arg: {},
+                  n: { avanzare: 1000 },
+                  testo: n => `Immagazzina ${n} monete.`,
+                  check: n => `monete ≥ ${n}` }
             ] },
             // Ciclo III — le fortezze di pietra di Béla IV: il programma di
             // incastellamento che rifece l'Ungheria nel Duecento. NON si nomina
@@ -1954,33 +1994,23 @@
                   check: n => `province collegate ≥ ${n}` }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'I Comneni', voci: [
-                // SCALABILE (regola dell'utente): non l'elenco fisso Thessalia/Attica
-                // — un impero che le teneva già dal ciclo I si trovava il Primario
-                // compiuto al primo turno. Ora è la regione GREECE col ratchet;
-                // trabocca nei Balcani per chi possiede già tutta la Grecia.
-                { id: 'bi2-1', tipo: 'espansione', titolo: 'La riconquista della Grecia',
-                  tmpl: 'regione', arg: { set: 'GREECE', oltre: 'BALCANI' },
-                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
-                  testo: n => `Riconquista la Grecia: possiedi ${pl(n, 'una provincia', 'province')} greche.`,
-                  check: n => `province di GREECE possedute ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  titoloOltre: 'Oltre la Grecia, nei Balcani',
-                  testoOltre: n => `La Grecia è già tua: risali nei Balcani — possiedi ${pl(n, 'una provincia', 'province')} balcaniche.`,
-                  checkOltre: n => `province di BALCANI possedute ≥ ${n}` },
-                // La svolta di storia (regola dell'utente): Bisanzio non tiene più
-                // Gerusalemme — non ci va nemmeno. La minaccia del ciclo II sono i
-                // Selgiuchidi in Anatolia, non la Terra Santa. Al posto de "La
-                // guardia di Gerusalemme" (Palestine), il fronte anatolico.
-                { id: 'bi2-2', tipo: 'espansione', titolo: 'La lotta ai Selgiuchidi',
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'bi2-1', tipo: 'espansione', titolo: 'La lotta ai Selgiuchidi', fisso: true,
                   tmpl: 'regioneGuarnigioni', arg: { set: 'ANATOLIA', soglia: 5 },
-                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  testo: n => `Frena i Selgiuchidi in Anatolia: tieni ${pl(n, 'una provincia', 'province')} anatoliche con almeno 5 uomini ciascuna.`,
+                  n: { avanzare: 3 },
+                  testo: n => `Conquista e difendi ${pl(n, 'una provincia anatolica', 'province anatoliche')} con almeno 5 uomini ciascuna.`,
                   check: n => `${n} province anatoliche con soldati ≥ 5 ciascuna` },
-                { id: 'bi2-3', tipo: 'economia', titolo: 'Il tesoro di Costantinopoli',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 700, avanzare: 1200, eccedere: 1800, passo: 200 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+                { id: 'bi2-2', tipo: 'espansione', titolo: 'La riconquista della Grecia', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Thessalia', 'Attica', 'Peloponnese'] },
+                  n: { avanzare: 0 },
+                  testo: () => 'Riconquista la Grecia: possiedi Tessaglia, Attica e Peloponneso.',
+                  check: () => 'possiedi Thessalia, Attica e Peloponnese' },
+                { id: 'bi2-3', tipo: 'navale', titolo: 'La flotta del Mediterraneo', fisso: true,
+                  tmpl: 'naviRegione', arg: { set: 'MED_BIZ' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci una nave in una provincia affacciata sul Mediterraneo (non sul Mar Nero): Tracia occidentale, Macedonia, Grecia, Creta, Albania o costa anatolica dell’Egeo.',
+                  check: n => `province mediterranee con una nave ≥ ${n}` }
             ] },
             // Ciclo III — la riscossa d'Anatolia (i Comneni oltre la Grecia): la
             // meta primaria è tenere ARMATA la frontiera anatolica, non solo
@@ -2136,29 +2166,26 @@
                   check: n => `${n} province con soldati ≥ 2 ciascuna` }
             ] },
             { ciclo: 2, epoca: '1100-1199', tema: 'La Terra Santa', voci: [
-                { id: 'ab2-1', tipo: 'espansione', titolo: 'Riconquista la Terra Santa',
-                  tmpl: 'regione', arg: { set: 'HOLY_LAND' },
-                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  testo: n => `Riconquista le province cristiane in Terra Santa: possiedi ${n} fra Palestina, Aleppo, Libano e Siria.`,
-                  check: n => `province di Terra Santa possedute ≥ ${n}` },
-                // SCALABILE (regola dell'utente): la regione PERSIA_OVEST col
-                // ratchet, non l'elenco fisso Isfahan/Irakajemi. Trabocca
-                // nell'altopiano orientale per chi tiene già le marche occidentali.
-                { id: 'ab2-2', tipo: 'preparazione', titolo: 'Le sentinelle d’Oriente',
-                  tmpl: 'regione', arg: { set: 'PERSIA_OVEST', oltre: 'PERSIA_EST' },
-                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
-                  testo: n => `Presidia le marche persiane occidentali: possiedi ${pl(n, 'una provincia', 'province')} fra Isfahan, Irakajemi, Kurdistan, Tabriz e Urmia.`,
-                  check: n => `province di PERSIA_OVEST possedute ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  titoloOltre: 'Oltre, sull’altopiano orientale',
-                  testoOltre: n => `Le marche occidentali sono già tue: spingiti sull’altopiano orientale — possiedi ${pl(n, 'una provincia', 'province')} fra Semnan, Khorasan, Kerman, Mazandaran e Fars.`,
-                  checkOltre: n => `province di PERSIA_EST possedute ≥ ${n}` },
-                { id: 'ab2-3', tipo: 'crescita', titolo: 'Lo splendore Abbaside',
-                  tmpl: 'tutti', arg: { capo: { tmpl: 'tipiCollegati', arg: {} },
-                                        altri: [{ tmpl: 'citta', arg: { connected: true }, soglia: 0 }] },
-                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
-                  testo: n => `Costruisci una Città e collegala a ${pl(n, 'una risorsa', 'tipi di risorsa')}.`,
-                  check: n => `una Città collegata alla rete e tipi di risorsa collegati ≥ ${n}` }
+                // Capitolo tarato a mano sulla partita (regola dell'utente, ciclo II
+                // della partita in corso): numeri FISSI, a ogni intensità.
+                { id: 'ab2-1', tipo: 'espansione', titolo: 'La lotta ai Crociati', fisso: true,
+                  tmpl: 'regioneGuarnigioni', arg: { set: 'HOLY_LAND', soglia: 5 },
+                  n: { avanzare: 2 },
+                  testo: n => `Conquista e difendi con almeno 5 uomini ${pl(n, 'una provincia', 'province')} fra Aleppo, Libano, Siria e Palestina.`,
+                  check: n => `${n} province di Terra Santa con soldati ≥ 5 ciascuna` },
+                { id: 'ab2-2', tipo: 'espansione', titolo: 'Le sentinelle d’Oriente', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Isfahan', 'Irakajemi', 'Kerman'] },
+                  n: { avanzare: 2 },
+                  testo: n => `Conquista Isfahan, Irakajemi e Kerman e presidiale con almeno ${n} uomini l’una.`,
+                  check: n => `Isfahan, Irakajemi e Kerman con soldati ≥ ${n} ciascuna` },
+                // 4 tipi, ma 3 se il Terziario del ciclo I («Rafforzare il Califfato»)
+                // non è stato compiuto (regola dell'utente): lo dice lo storico.
+                { id: 'ab2-3', tipo: 'economia', titolo: 'Lo splendore del Califfo', fisso: true,
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { avanzare: 4 },
+                  nDa: ctx => ({ avanzare: ctx.cicloFatto && ctx.cicloFatto(1, 2) === false ? 3 : 4 }),
+                  testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
             // Ciclo III — il cuore del califfato. NON è "il sacco di Baghdad"
             // (regola dell'utente): l'ala persiana della marcia mongola potrebbe
@@ -2378,9 +2405,15 @@
     //     regno che possiede già tutta l'Iberia generava un obiettivo impossibile.
     // Il passo si allunga o si accorcia col RITMO del ciclo scorso e col
     // gradino: al Primario si chiede di fare meglio, al Terziario di reggere.
+    // Una voce `fisso: true` non si calibra affatto: la soglia è il numero
+    // scritto a mano, a ogni intensità e qualunque cosa il regno abbia già
+    // (regola dell'utente, capitolo II tarato a mano sulla partita). Serve ai
+    // «difendi» — Aleppo con 8 uomini dopo una crociata che ne sbarca 11 resta
+    // 8, non diventa 12.
     function soglia(voce, intensita, misura, opts) {
         const n = voce.n || {};
         const anc = typeof n[intensita] === 'number' ? n[intensita] : (n.avanzare || 0);
+        if (voce.fisso) return typeof n.avanzare === 'number' ? n.avanzare : anc;
         if (typeof misura !== 'number' || !isFinite(misura)) return anc;
         opts = opts || {};
         const k = K_TIER[opts.tier] || 1;
@@ -2532,7 +2565,13 @@
         const cap = chapter(name, opts.capitolo || opts.ciclo || 1);
         if (!cap) return null;
         const intensita = INTENSITA.indexOf(opts.intensita) >= 0 ? opts.intensita : 'avanzare';
-        const voci = voicesOf(cap, ctx).map(v => withOverflow(v, ctx));
+        // `nDa(ctx)` (facoltativa): le ancore di una voce che dipendono da com'è
+        // andato il ciclo PRIMA (Abbasidi C2: 4 tipi, 3 se il Terziario del ciclo
+        // I è mancato). Si risolve qui, con lo stesso ctx della calibrazione.
+        const voci = voicesOf(cap, ctx).map(v => withOverflow(v, ctx)).map(v => {
+            if (typeof v.nDa !== 'function' || !ctx) return v;
+            try { return Object.assign({}, v, { n: v.nDa(ctx) || v.n }); } catch (e) { return v; }
+        });
         const items = voci.map((v, i) => {
             const t = TEMPLATES[v.tmpl];
             let mis = null;
