@@ -1521,6 +1521,11 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     `forza` come bersaglio (resta come tetto opzionale, non usato dalle crociate); la
     plumbing `ctx.soglia`/`assPrima` introdotta per la versione proporzionale è stata
     rimossa perché non serviva più a nessuno.
+    **TETTO DI 10 PER LA CROCIATA FRANCESE** (regola dell'utente, turno 10 della partita
+    in corso): `CROCIATA_FORZA = 10` in `events.js`, passato come `forza` (il tetto di
+    `eventMuster`) dalla spedizione di `PRIMA_CROCIATA`. Ne salpano al massimo 10 a
+    prescindere da quanti ce ne siano sulla costa: gli altri restano a casa. Sotto i 6 non
+    parte, fra 6 e 10 parte tutto. La crociata inglese non ha tetto.
   - **Il popup della crociata non si perde**: `crusadeHost` avvisa il regno con
     `ctx.notify` come ogni evento (`player.eventiAvvisi` → `showPendingEventi` →
     `Risiko.showFoundation`, la pergamena centrale) — vale identico per Francia e
@@ -2605,6 +2610,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     stessa risposta che usa `canPlacePiece` per accettare o rifiutare una nave. Con le
     soglie attuali il Caspio passa per mare (è grande) e i Grandi Laghi no: se serve
     cambiare, si tocca `SEA_CELLS`, non si aggiungono elenchi di eccezioni.
+  - **Il LATO dell'ormeggio** (regola dell'utente): `SEA_SIDE` in `map-anchors.js` dice a
+    certe province su due mari da che parte varare le navi. Oggi Thessalia, Attica e
+    Peloponnese ormeggiano sul lato **egeo/mediterraneo** (normale uscente verso est,
+    `nx > SIDE_MIN`), mai sulla costa occidentale della penisola. Se nessun punto di costa
+    guarda da quella parte vale la regola di sempre. È solo il posto del disegno: la
+    portata (§9.2) si misura dalla provincia.
   - **Anticollisione**: ogni approdo assegnato si registra in `svg.__seaSpots` con il
     proprio ingombro; i successivi preferiscono i punti liberi e, se il posto migliore è
     comunque occupato, `shiftAway` scivola al largo o lungo la costa finché le navi non

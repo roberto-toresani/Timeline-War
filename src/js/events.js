@@ -43,6 +43,13 @@
     // in game-actions.js, che non ripiega mai sul resto del regno.
     const CROCIATA_MINIMO = 6;
 
+    // QUANTI NE SALPANO AL PIÙ (regola dell'utente, turno 10 della partita in
+    // corso): la crociata francese imbarca SOLO 10 uomini, a prescindere da
+    // quanti ce ne siano sulla costa — gli altri restano a casa. Sotto il
+    // minimo non parte; fra 6 e 10 parte tutto quel che c'è. È il tetto
+    // `forza` di eventMuster. La crociata inglese non ne ha (parte tutto).
+    const CROCIATA_FORZA = 10;
+
     // PRIMA CROCIATA (ciclo 2, turno 11). Solo la FRANCIA marcia su Aleppo
     // (regola dell'utente: Bisanzio NON ha più la chiamata del Papa — il suo
     // obiettivo storico è cambiato, e Gerusalemme la prenderà l'Inghilterra nel
@@ -58,7 +65,7 @@
     // niente più patto di vista fra i due crociati.
     const PRIMA_CROCIATA = {
         spedizioni: [
-            { regno: 'Regno di Francia', regione: ['Provence', 'Languedoc', 'Rhone'], meta: 'Aleppo' }
+            { regno: 'Regno di Francia', regione: ['Provence', 'Languedoc', 'Rhone'], meta: 'Aleppo', forza: CROCIATA_FORZA }
         ]
     };
 
@@ -395,7 +402,7 @@
     // avvisando il regno con la pergamena dal suo punto di vista. Cuore comune
     // a tutte le crociate: una gamba = una chiamata di questa funzione.
     function crusadeHost(ctx, sp, titolo) {
-        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, minimo: CROCIATA_MINIMO });
+        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, minimo: CROCIATA_MINIMO, forza: sp.forza });
         if (!host) return null;             // regno morto o sotto il minimo: la crociata non parte
         const e = ctx.assault(sp.regno, sp.meta, host);
         if (!e) return null;

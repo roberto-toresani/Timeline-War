@@ -370,11 +370,24 @@ const MapAnchors = (() => {
     // Punto in MARE APERTO appena al largo, dove disegnare le navi.
     // { x, y, r } con r = acqua libera attorno (serve a dimensionare la fila).
     // null = questa provincia non ha sbocco sul mare (i laghi non contano).
+    // DA CHE PARTE si ormeggia (regola dell'utente): le province greche che
+    // toccano due mari varano le navi sul lato EGEO/mediterraneo, non sulla
+    // costa occidentale della penisola. Si tengono solo i punti di costa la cui
+    // normale uscente guarda a est (nx > SIDE_MIN); se non ce n'è nessuno vale
+    // la regola di sempre. È solo il POSTO del disegno: la portata (§9.2) si
+    // misura dalla provincia, non da qui.
+    const SEA_SIDE = { Thessalia: 'est', Attica: 'est', Peloponnese: 'est' };
+    const SIDE_MIN = 0.2;
+
     function seaAnchor(path) {
         if (path.__seaAnchor !== undefined) return path.__seaAnchor;
         const svg = path.ownerSVGElement;
         const bb = mainBodyBBox(path);
-        const cands = seaCandidates(path, false);
+        let cands = seaCandidates(path, false);
+        if (SEA_SIDE[path.id] === 'est') {
+            const est = cands.filter(c => c.nx > SIDE_MIN);
+            if (est.length) cands = est;
+        }
         let out = null;
         if (bb && cands.length) {
             const size = Math.max(bb.w, bb.h);
