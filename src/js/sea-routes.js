@@ -59,8 +59,9 @@
     // (Atlantico, Pacifico, Indiano, Mare del Nord) e 18 nei mari interni
     // (Mediterraneo, Mar Nero, Baltico, Mar Arabico). La portata scritta in RANGE
     // resta quella d'oceano; nei mari ogni passo COSTA meno (INNER_COST = 12/18),
-    // quindi una rotta mista paga ciascun tratto per quel che è. Vale per ogni
-    // scafo: il Veliero, che ha già portata oceanica, ne guadagna poco di utile.
+    // quindi una rotta mista paga ciascun tratto per quel che è. Lo sconto
+    // vale per la sola NAVE: il Veliero (portata oltre quella della Nave) resta
+    // com'era, è già molto forte (regola dell'utente).
     //
     // Un bacino è un riempimento dell'acqua a partire da `semi`, che non entra
     // nelle celle `fuori` — i cancelli verso l'oceano, misurati sulla griglia
@@ -410,6 +411,11 @@
         const out = new Map();
         if (!(radius > 0) || !startCells || !startCells.length) return out;
         indexTinyIslands(svg, g);
+        // Lo sconto dei mari interni vale SOLO per la Nave (regola dell'utente:
+        // il Veliero è già molto forte e resta com'era). Il tipo di scafo arriva
+        // qui come portata: entro quella della Nave si pesa, oltre (Veliero,
+        // spedizioni) no.
+        const pesaMari = !!g.inner && radius <= ((global.SeaRoutes && global.SeaRoutes.RANGE.barca) || 12);
 
         // Coda a bucket: le distanze crescono di CELL o CELL·√2, quindi un passo
         // di CELL/4 basta a ordinarle senza inventare uno heap.
@@ -459,7 +465,7 @@
                             continue;
                         }
                         const passo = (di && dj) ? DIAG : CELL;
-                        push(k, d + (g.inner && g.inner[k] ? passo * INNER_COST : passo));
+                        push(k, d + (pesaMari && g.inner[k] ? passo * INNER_COST : passo));
                     }
                 }
             }

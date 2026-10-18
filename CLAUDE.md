@@ -2037,8 +2037,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     dell'acqua da dei semi che non attraversa i **cancelli** misurati sulla griglia
     (Gibilterra x<580; ovest dello Jutland e Skagerrak; Mar Arabico chiuso a y>284 e x>858).
     La maschera `g.inner` si costruisce in `prepare` a griglia pronta, e lì si buttano le
-    portate già memorizzate col ripiego (tutto oceano). Vale per ogni scafo: il Veliero e
-    le spedizioni vanno 1,5× più lontano nei mari interni, ed è accettato.
+    portate già memorizzate col ripiego (tutto oceano). **Vale solo per la Nave** (regola
+    dell'utente: il Veliero è già molto forte e resta com'era): `floodWater` pesa i mari
+    solo se il raggio chiesto è entro `RANGE.barca` — il tipo di scafo arriva lì come
+    portata, quindi Veliero e spedizioni (170) restano in unità geometriche.
     Esempi misurati: Catalogna→Sardegna 12 (era 18), Attica→Calabria 9 (era 13),
     Attica→Sicilia 13 (era 19). `SeaRoutes.isInnerSea(svg, x, y)` per controllare un punto.
   - La griglia (celle da 1,5 unità, come `WCELL` di map-anchors) si costruisce **una volta**
