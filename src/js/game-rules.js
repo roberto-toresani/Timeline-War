@@ -480,13 +480,27 @@
     // una politica.
     function turnProduction(provinces, connectedSet, units, tax, popularity, blockedIds, pol) {
         const hasCapital = units.capitale > 0;
-        const zero = {
-            monete: 0, risorse: emptyScorte(), reclute: 0, vincolate: {}, recluteTotali: 0,
-            collegate: 0, hasCapital: false
-        };
-        // Senza Capitale non si raccoglie nulla (§2, §4): niente monete, niente
-        // risorse, niente reclute. Il regno resta fermo finché non la costruisce.
-        if (!hasCapital) return zero;
+
+        // SENZA CAPITALE RESTANO SOLO GLI UOMINI DELLE PROVINCE (regola
+        // dell'utente). Prima qui non arrivava assolutamente nulla e il regno
+        // decapitato restava fermo finché non ricostruiva il seggio; ora la
+        // terra continua a dare la sua leva (province ÷ 3, §5.1) e basta:
+        // niente monete, niente raccolto (senza Capitale non c'è una rete a cui
+        // collegarsi, §4) e niente rinforzi di Città o Fortezza, che nascono da
+        // un seggio che non c'è più. Il conto vero lo fa `reinforcements`, che
+        // è anche quello che la plancia mostra: una formula sola.
+        //
+        // La POLITICA tace: senza Capitale non c'è Popolarità da dividere, il
+        // Consiglio non siede (Politics.canIssue) e il grado resta congelato
+        // dov'era (game-actions.politicsDrift non scatta).
+        if (!hasCapital) {
+            const plan = KingdomStats.reinforcementPlan(provinces || [], null);
+            return {
+                monete: 0, risorse: emptyScorte(),
+                reclute: plan.libere, vincolate: {}, recluteTotali: plan.libere,
+                cavalieri: 0, collegate: 0, hasCapital: false
+            };
+        }
 
         const P = root.Politics;
         const grado = (pol && pol.grado) || 0;

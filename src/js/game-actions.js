@@ -2236,6 +2236,12 @@
     function politicsDrift(player, turno) {
         const P = POL();
         if (!P || !P.cycleStart(turno) || turno <= 1) return;
+        // Senza Capitale il Consiglio non siede, quindi il grado si CONGELA
+        // dov'era (regola dell'utente: "le scelte politiche non avvengono").
+        // Farlo scivolare verso l'Equilibrio mentre il regno è decapitato
+        // sarebbe una decisione presa da nessuno, e il giocatore non avrebbe
+        // modo di rimediare finché non ricostruisce il seggio.
+        if (!R().getCapitalPathFor(player)) return;
         const ciclo = P.cycleOf(turno);
         if (player.politicaTimbro === ciclo) return;
         player.politicaTimbro = ciclo;

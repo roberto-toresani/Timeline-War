@@ -94,6 +94,23 @@
     function reinforcements(provinceCount, units, popularity, grado, baseRisorse) {
         const cities = units.citta + units.capitale;
         const fromProvinces = Math.floor(provinceCount / 3);
+
+        // SENZA CAPITALE RESTANO SOLO GLI UOMINI DELLE PROVINCE (regola
+        // dell'utente): la terra continua a dare la sua leva, ma i rinforzi di
+        // Città e Fortezza nascono da un seggio che non c'è più, e senza
+        // Capitale non c'è nemmeno una Popolarità da sommare. Sta QUI e non
+        // solo in turnProduction perché questa è la formula che la plancia
+        // mostra nel cruscotto: se divergessero, il giocatore vedrebbe promessi
+        // dei rinforzi che poi non arrivano.
+        if (!units.capitale) {
+            return {
+                total: fromProvinces, libere: fromProvinces, vincolate: 0,
+                breakdown: [
+                    { label: provinceCount + ' province ÷ 3', value: fromProvinces, vincolata: false },
+                    { label: 'senza Capitale: nient\'altro', value: 0, vincolata: false }
+                ]
+            };
+        }
         const fromCities = cities;
         const fromForts = units.fortezza * 5;
         // Il traboccamento guarda i DUE canali, quindi serve anche il raccolto

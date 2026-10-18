@@ -2260,6 +2260,25 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     le migliorie del §6.1 e valgono la baseline neutra `WELFARE_PENDING = 3`.
     La rete di province collegate è quella di `GameActions.connectedOf`: chi ce l'ha già
     la passa come terzo argomento, così non si rifà la BFS due volte per render.
+- **SENZA CAPITALE RESTANO SOLO GLI UOMINI DELLE PROVINCE (regola dell'utente)**: un
+  regno che ha perso il seggio — o che non l'ha ancora costruito, al turno 1 — continua a
+  ricevere la leva della terra (**province ÷ 3**, §5.1) e **nient'altro**: niente monete,
+  niente raccolto (senza Capitale non c'è una rete a cui collegarsi, §4) e **niente
+  rinforzi di Città o Fortezza**, che nascono da un seggio che non c'è più. Prima non
+  arrivava assolutamente nulla e il regno decapitato restava fermo del tutto.
+  - La regola vive in **`KingdomStats.reinforcements`**, non solo in `turnProduction`,
+    perché quella è anche la formula che la **plancia mostra** nel cruscotto ("rinforzi
+    del prossimo turno"): se divergessero, il giocatore vedrebbe promessi dei rinforzi
+    che poi non arrivano.
+  - **La politica tace e si congela**: senza Capitale non c'è Popolarità da dividere, il
+    Consiglio non siede (`Politics.canIssue`) e il grado resta **dov'era** —
+    `politicsDrift` non scatta. Farlo scivolare verso l'Equilibrio mentre il regno è
+    decapitato sarebbe una decisione presa da nessuno, e il giocatore non avrebbe modo
+    di rimediare finché non ricostruisce il seggio.
+  - **Conseguenza al turno 1**: i regni non partono con una Capitale (la costruiscono per
+    500 monete), e `beginTurn` gira prima che la costruiscano — quindi al primo turno
+    ora arriva una recluta per ogni tre province invece di zero. La trappola del §8 si
+    ammorbidisce di quel tanto.
 - **POLITICA DEL REGNO (`js/politics.js`, §8-bis — regola dell'utente)**: chi sostiene
   la corona fra la **nobiltà** (che dà appoggio militare) e i **lavoratori** (che danno
   appoggio alla produzione). La Popolarità **non cambia e resta il motore**: decide
