@@ -439,6 +439,34 @@ const MultiplayerSync = (function () {
         })).catch(err => { console.error('patchPlayer:', err); return false; });
     }
 
+    // CODICE D'INVITO sul documento VIVO (bug del Portogallo, 2026-10-18): il 🔗
+    // dell'editor creava il codice solo nel browser dell'admin e lo affidava a
+    // saveAutoSave, che a partita in corso non scrive (l'editor non è lo scrittore
+    // del turno); lo snapshot dopo lo cancellava e il link portava a un codice
+    // che esisteva solo lì. Qui, in transazione: se il regno ha GIÀ un codice
+    // online si restituisce quello (un link già mandato non deve smettere di
+    // funzionare), altrimenti si salva `code`. Promise<codice | null>.
+    function ensureInvite(id, code) {
+        if (!isConfigured || !docRef) return Promise.resolve(code);
+        return firebase.firestore().runTransaction(tx => tx.get(docRef).then(snap => {
+            if (!snap.exists) return null;
+            const remote = snap.data() || {};
+            const players = Array.isArray(remote.players) ? remote.players.slice() : null;
+            if (!players) return null;
+            const i = players.findIndex(p => p && p.id === id);
+            if (i < 0) return null;
+            if (players[i].invite) return players[i].invite;
+            players[i] = Object.assign({}, players[i], { invite: code });
+            const remoteRev = (typeof remote.rev === 'number') ? remote.rev : 0;
+            tx.update(docRef, {
+                players: players,
+                rev: remoteRev + 1,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            return code;
+        })).catch(err => { console.error('ensureInvite:', err); return null; });
+    }
+
     function onPushReject(cb) { pushRejectListeners.push(cb); }
 
     // ---- LEASE DEL DRIVER DEI BOT ----
@@ -571,6 +599,7 @@ const MultiplayerSync = (function () {
         clearChat: clearChat,
         pushState: pushState,
         patchPlayer: patchPlayer,
+        ensureInvite: ensureInvite,
         onPushReject: onPushReject,
         // Rev dell'ultima scrittura riuscita di questa sessione: app.js scarta gli
         // echo dei propri stessi push (rev ≤ questo) per non arretrare.

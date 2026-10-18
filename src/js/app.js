@@ -3137,6 +3137,26 @@ document.addEventListener('DOMContentLoaded', () => {
         return dir + 'play.html?p=' + encodeURIComponent(inviteCodeFor(player));
     }
 
+    // Il link che l'editor COPIA o APRE: online passa dal documento vivo
+    // (MultiplayerSync.ensureInvite) — se il regno ha già un codice si usa
+    // quello, se no si salva il nuovo. Senza questo, a partita in corso il
+    // codice restava solo nel browser dell'admin (saveAutoSave non scrive se
+    // l'editor non è lo scrittore del turno) e il link non portava da nessuna
+    // parte: il caso del Portogallo nato per evento. Promise<url | null>.
+    function inviteUrlLive(player) {
+        const hadCode = !!player.invite;
+        inviteCodeFor(player);
+        if (!MultiplayerSync.isConfigured || adminIntervening || !MultiplayerSync.ensureInvite) {
+            if (!hadCode) saveAutoSave();   // locale / intervento: il salvataggio normale
+            return Promise.resolve(inviteUrlFor(player));
+        }
+        return MultiplayerSync.ensureInvite(player.id, player.invite).then(code => {
+            if (!code) return null;
+            player.invite = code;
+            return inviteUrlFor(player);
+        });
+    }
+
     function initPalette() {
         const palette = document.getElementById('palette');
         if (!palette) return;
@@ -3297,29 +3317,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
             btn.querySelector('.view-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
-                const hadCode = !!p.invite;
-                const url = inviteUrlFor(p);
-                if (!hadCode) saveAutoSave();   // il codice appena creato va salvato
                 // Scheda separata, così l'editor resta aperto. Ma nei pannelli di
                 // anteprima (e ovunque ci sia un blocco popup) window.open torna
                 // null senza dire niente e il bottone sembra rotto: in quel caso
                 // si va sulla plancia in questa stessa scheda, da cui si torna
-                // indietro col link "🛠 Editor".
-                const w = window.open(url, '_blank');
-                if (!w) window.location.href = url;
+                // indietro col link "🛠 Editor". La scheda si apre SUBITO (dentro
+                // il clic, o il blocco popup la ferma) e riceve l'indirizzo quando
+                // il codice è confermato online.
+                const w = window.open('', '_blank');
+                inviteUrlLive(p).then(url => {
+                    if (!url) {
+                        if (w) w.close();
+                        showPieceNotice('Link di ' + p.name + ' NON salvato online: riprova.');
+                        return;
+                    }
+                    if (w) w.location.href = url; else window.location.href = url;
+                });
             });
 
             btn.querySelector('.invite-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
-                const hadCode = !!p.invite;
-                const url = inviteUrlFor(p);
-                if (!hadCode) saveAutoSave();   // il codice appena creato va salvato
-                const done = () => showPieceNotice('Link di ' + p.name + ' copiato.');
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(url).then(done, () => window.prompt('Link d\'invito:', url));
-                } else {
-                    window.prompt('Link d\'invito:', url);
-                }
+                inviteUrlLive(p).then(url => {
+                    if (!url) { showPieceNotice('Link di ' + p.name + ' NON salvato online: riprova.'); return; }
+                    const done = () => showPieceNotice('Link di ' + p.name + ' copiato.');
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(url).then(done, () => window.prompt('Link d\'invito:', url));
+                    } else {
+                        window.prompt('Link d\'invito:', url);
+                    }
+                });
             });
 
             btn.querySelector('.rename-btn').addEventListener('click', (e) => {

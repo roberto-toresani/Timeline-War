@@ -240,6 +240,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   regno giusto, ma la sicurezza vera resta `firestore.rules` (scrittura solo admin). Nella
   plancia, il link "🛠 Editor" per tornare a `index.html` è visibile solo quando
   `Risiko.isAdmin()` è vero.
+  - **Il codice si salva sul documento VIVO** (bug del Portogallo, 2026-10-18): il 🔗 e
+    il 👁 della scheda-regno creavano il codice solo nel browser dell'admin e lo
+    affidavano a `saveAutoSave`, che a partita in corso non scrive (l'editor non è lo
+    scrittore del turno): lo snapshot dopo lo cancellava e il link portava a un codice
+    che non esisteva da nessun'altra parte — tipico dei regni nati per evento, che
+    nascono senza codice. Ora passano da `inviteUrlLive` (app.js) →
+    `MultiplayerSync.ensureInvite(id, code)`: transazione che, se il regno ha **già**
+    un codice online, restituisce quello (un link già mandato non deve smettere di
+    funzionare), altrimenti salva il nuovo. In locale o durante un intervento resta il
+    salvataggio normale.
 - **Partita e turni**: l'admin avvia la partita (`#start-game-btn` in `index.html`, chiama
   `GameActions.beginMatch()`) e passa i turni (`#end-turn-btn`); ogni giocatore ha anche il
   proprio bottone Fine turno nella plancia. `turnoDi`/`ordine`/`primoDelGiro` vivono in
