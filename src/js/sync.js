@@ -46,6 +46,7 @@ const MultiplayerSync = (function () {
     // cui il link d'invito, online, apriva la schermata vuota.
     let lastState = null;
     let hasState = false;
+    let stateError = null;
     // Guardia anti-sovrascrittura arretrata (§salvataggi robusti). Ogni scrittura
     // dello stato porta un `rev` che cresce di 1: è il numero di versione del
     // documento condiviso. `baseRev` è il rev dell'ULTIMO snapshot che questo
@@ -169,6 +170,9 @@ const MultiplayerSync = (function () {
             stateListeners.forEach(cb => cb(lastState));
         }, err => {
             console.error('Errore lettura stato condiviso:', err);
+            // La plancia lo mostra nel cartello "Sto caricando il tuo regno…":
+            // un giocatore da telefono non ha la console.
+            stateError = (err && (err.code || err.message)) || String(err);
         });
 
         presenceCol.onSnapshot(snap => {
@@ -553,6 +557,10 @@ const MultiplayerSync = (function () {
         // lo legge per concedere l'admin (sandbox a scheda singola, nessun login vero).
         localOnly: forceLocal,
         get isAdmin() { return isAdmin; },
+        // Lo stato condiviso è arrivato almeno una volta? E se la lettura è
+        // fallita, perché (codice Firestore)? Li legge l'attesa del link d'invito.
+        get hasState() { return hasState; },
+        get stateError() { return stateError; },
         authReady: authReady,
         onRoleChange: onRoleChange,
         onStateChange: onStateChange,

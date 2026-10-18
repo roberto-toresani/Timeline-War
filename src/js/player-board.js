@@ -6642,6 +6642,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showPicker();
     }
 
+    let inviteWaitFrom = 0;
     // Attesa del link d'invito: il riquadro della scelta del regno fa da
     // cartello. `sbagliato` = la partita è arrivata ma il codice non è di
     // nessun regno: si dice e, sotto, si lascia la scelta a mano.
@@ -6655,8 +6656,20 @@ document.addEventListener('DOMContentLoaded', () => {
             showPicker(true);
             return;
         }
+        // Secondi d'attesa ed eventuale errore di Firebase in chiaro: il giocatore
+        // da telefono non ha la console, e una foto di questo cartello deve
+        // bastare a capire se la partita è lenta o non arriva proprio.
+        if (!inviteWaitFrom) inviteWaitFrom = Date.now();
+        const sec = Math.round((Date.now() - inviteWaitFrom) / 1000);
+        const MS = (typeof MultiplayerSync !== 'undefined') ? MultiplayerSync : null;
+        const err = MS && MS.stateError;
+        const stato = !MS || !MS.isConfigured ? 'modalità locale'
+            : err ? 'errore di connessione: ' + err
+            : MS.hasState ? 'partita ricevuta, cerco il regno'
+            : 'in attesa del server';
         if (h) h.textContent = 'Sto caricando il tuo regno…';
-        if (p) p.textContent = 'La partita sta arrivando: da telefono può volerci qualche secondo.';
+        if (p) p.textContent = 'La partita sta arrivando: da telefono può volerci qualche secondo. ('
+            + sec + ' s · ' + stato + ')';
         const list = $('board-picker-list');
         if (list) list.innerHTML = '';
         box.style.display = 'flex';
