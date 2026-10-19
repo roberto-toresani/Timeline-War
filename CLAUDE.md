@@ -2491,6 +2491,12 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     l'assegnazione per il ciclo nuovo, cancellando le soglie con cui il ciclo che si
     chiude era cominciato. È un bug vero, visto succedere: un ciclo archiviato col
     numero sbagliato.
+    **Anche la SPUNTA si prende prima** (bug della Francia, 2026-10-19): `grabAssignments(chiuso)`
+    valuta gli obiettivi del ciclo che si chiude a mappa ancora intatta, PRIMA di
+    `applyEvents`. La Prima Crociata del turno 11 drena proprio gli uomini radunati
+    sulla costa che fr1 chiedeva: valutando dopo, la Francia perdeva Primario,
+    prestigio e leva per aver fatto quel che le era chiesto. Profilo e soglie del
+    ciclo nuovo restano calcolati dopo gli eventi, in `closeCycle`.
   - **`Risiko.objectiveContext`** è il solo ponte fra stato e regole (app.js misura, il
     modulo puro decide), e `objectivesFor` genera al volo se l'assegnazione manca —
     salvataggi anteriori al binario, partite già in corso. `archiveObjectives` è l'unico

@@ -801,8 +801,10 @@
     // non una rivalutazione a posteriori come faceva il render della plancia),
     // si scrive il profilo del regno, si muove il puntatore sul binario e si
     // genera l'assegnazione del ciclo nuovo. Sta nel blocco `giroFinito` di
-    // endTurn DOPO eventi, scismi, razzie e rifornimenti, così la fotografia è
-    // lo stato con cui il ciclo nuovo comincia davvero.
+    // endTurn DOPO eventi, scismi, razzie e rifornimenti, così il profilo e le
+    // soglie nuove partono dallo stato con cui il ciclo nuovo comincia davvero.
+    // La SPUNTA del ciclo chiuso invece no: quella si prende prima degli
+    // eventi (grabAssignments), sulla mappa com'era a fine ciclo.
     const PROFILE_MAX = 12;
 
     // Le assegnazioni IN CORSO, lette prima che il calendario si muova. Da
@@ -818,10 +820,25 @@
     // correrebbe un passo avanti al ciclo per tutta la partita (il capitolo 2
     // saltato). `passo` deve ricevere il capitolo com'era DURANTE il ciclo che
     // si chiude, non quello del render intermedio: lo si legge da qui.
-    function grabAssignments() {
+    // Con `chiuso` (il ciclo che sta per chiudersi) si fotografa anche la
+    // SPUNTA, cioè lo stato della mappa a fine ciclo, prima che gli eventi del
+    // decennio nuovo lo tocchino (regola dell'utente, bug della Francia al
+    // turno 10→11): la Prima Crociata drena proprio gli uomini radunati sulla
+    // costa mediterranea che l'obiettivo fr1 chiedeva, e valutando DOPO
+    // l'evento il regno perdeva il Primario — prestigio e leva — per aver
+    // fatto esattamente quel che gli era stato chiesto. Il ciclo si giudica
+    // su come lo si è chiuso, non su quel che il ciclo nuovo ne fa.
+    function grabAssignments(chiuso) {
         const m = {};
         R().players().forEach(p => {
-            m[p.id] = { a: p.obiettiviCiclo || null, capitolo: p.capitolo || 0, intensita: p.intensita };
+            const a = p.obiettiviCiclo || null;
+            let snap = null;
+            if (chiuso && R().objectiveContext) {
+                const ctx = R().objectiveContext(p);
+                const suo = a && Array.isArray(a.items) && a.items.length && a.ciclo === chiuso;
+                snap = suo ? OB().evaluate(a, ctx) : OB().evaluate(p.name, ctx, chiuso);
+            }
+            m[p.id] = { a: a, capitolo: p.capitolo || 0, intensita: p.intensita, snap: snap };
         });
         return m;
     }
@@ -843,8 +860,12 @@
             // 1. i conti del ciclo che si chiude. Si valuta l'ASSEGNAZIONE, cioè
             //    le soglie con cui il ciclo era cominciato; senza (regno appena
             //    nato, salvataggio vecchio) si ricade sul binario.
+            //    La spunta presa PRIMA degli eventi (grabAssignments) vince: qui
+            //    la mappa è già quella del decennio nuovo. Si rivaluta solo per
+            //    un regno che allora non c'era (nato da un evento adesso).
             const suo = a && Array.isArray(a.items) && a.items.length && a.ciclo === chiuso;
-            const snap = suo ? OB().evaluate(a, ctx) : OB().evaluate(player.name, ctx, chiuso);
+            const snap = (grabbed && grabbed.snap)
+                || (suo ? OB().evaluate(a, ctx) : OB().evaluate(player.name, ctx, chiuso));
             let leva = 0;
             // UN TAPPO DA TOGLIERE. Fra advanceGlobalTurn e questo punto passano
             // eventi, scismi e razzie, e più d'uno RIDISEGNA: il render della
@@ -996,7 +1017,11 @@
         let cicli = null;
         if (giroFinito) {
             const turnoPrima = R().turn();
-            const assPrima = OB() ? grabAssignments() : null;
+            // Se questo giro chiude un ciclo, la spunta si prende ADESSO, a mappa
+            // ancora del ciclo vecchio (vedi grabAssignments).
+            const chiude = OB() && OB().cycleOfTurn(turnoPrima + 1) > OB().cycleOfTurn(turnoPrima)
+                ? OB().cycleOfTurn(turnoPrima) : null;
+            const assPrima = OB() ? grabAssignments(chiude) : null;
             R().advanceGlobalTurn();
             // Nuovo decennio: gli EVENTI STORICI (js/events.js) scattano e
             // ticchettano PRIMA di scismi, razzie e rifornimenti — così un'orda
@@ -1024,8 +1049,9 @@
             neutrali = garrisonNeutrals();
             // Il calendario può essere entrato in un CICLO nuovo (§10): si
             // chiudono i conti di quello appena finito e si assegnano gli
-            // obiettivi del prossimo. Ultimo della catena apposta: la
-            // fotografia deve vedere orde, scismi e razzie già applicati.
+            // obiettivi del prossimo. Ultimo della catena apposta: il profilo e
+            // le soglie nuove devono vedere orde, scismi e razzie già applicati
+            // (la spunta del ciclo chiuso è già stata presa, in assPrima).
             if (OB()) {
                 const cicloOra = OB().cycleOfTurn(R().turn());
                 if (cicloOra > OB().cycleOfTurn(turnoPrima)) cicli = closeCycle(cicloOra, assPrima);
