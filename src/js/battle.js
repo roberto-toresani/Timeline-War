@@ -56,21 +56,34 @@
 //   media porta un tiro casuale (z ~ U(-1,1)) che garantisce imprevedibilita'
 //   SEMPRE, anche in battaglia squilibrata; z sposta l'entita', non il vincitore.
 //
+//   CHI FA I MORTI E' CHI COMBATTE CONTRO DI TE (regola dell'utente): le perdite
+//   non si misurano sul proprio esercito ma sulla FORZA DEL NEMICO, perche' tre
+//   difensori non possono uccidere sei uomini solo perche' ne hai portati quindici.
+//   La base delle perdite e' quindi il minore fra le proprie truppe e la forza
+//   (in uomini, senza mura) dell'avversario moltiplicata per KILL_TERRAIN: fra
+//   monti e paludi (chiuso, 1,3) ogni nemico costa un po' di piu' che in pianura
+//   (aperto, 1). In uno scontro alla pari la base e' l'esercito intero e nulla
+//   cambia; contro un pugno di difensori la base e' quel pugno.
+//     base_W = min(W, forza_perdente * KILL_TERRAIN)
+//
 //   Perdite del VINCITORE (W = sue truppe):
 //     loss_W = WIN_LOSS_MIN + (WIN_LOSS_MAX - WIN_LOSS_MIN) * I
 //     mu_f   = clamp( loss_W * (1 + CASUALTY_SPREAD * z), 0, 0.95 )
-//     C = min(W - 1, round(W * mu_f))        (al vincitore resta sempre >= 1)
-//   20-contro-13 (I alto) dissangua chi vince; 20-contro-5 (I basso) no.
+//     C = min(W - 1, max(1, round(base_W * mu_f)))  (al vincitore resta sempre >= 1;
+//         almeno un caduto se dall'altra parte qualcuno ha combattuto)
+//   20-contro-13 (I alto) dissangua chi vince; 20-contro-5 (I basso) no;
+//   15-contro-3 costa 1-2 uomini, mai la meta' dell'esercito.
 //
 //   Vince l'attaccante -> CONQUISTA: il difensore perde tutte le truppe,
 //   l'attaccante conserva A - C ed entra nella provincia.
 //   Vince il difensore -> l'attaccante RIPIEGA (non piu' annientato): perde una
 //   FRAZIONE delle truppe impegnate, tanto piu' grande quanto piu' la battaglia
 //   era pari — stessa direzione delle perdite del vincitore, non il contrario
-//   (scala quindi con la taglia dell'armata):
+//   (e con la stessa base: non piu' di quanti il difensore possa abbatterne):
+//     base_L = min(A, forza_difensore * KILL_TERRAIN)
 //     loss_L = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I
 //     mu_l   = clamp( loss_L * (1 + CASUALTY_SPREAD * zr), 0, 0.95 )
-//     persi  = max(1, round(A * mu_l))       (sconfitta = almeno un caduto)
+//     persi  = max(1, round(base_L * mu_l))  (sconfitta = almeno un caduto)
 //   Scontro sproporzionato perso -> pochi caduti (chi vince aveva pochi uomini
 //   per far danno); scontro pari perso -> un bagno di sangue anche per chi
 //   perde. Il difensore conserva D - C. (Lo sbarco §9.2 resta totale: la
@@ -159,6 +172,14 @@
     // 3) Ampiezza casuale attorno a OGNI media (z ~ U(-1,1)): garantisce
     //    imprevedibilita' SEMPRE, anche in una battaglia squilibrata.
     const CASUALTY_SPREAD = 0.35;
+    // 4) Quanti morti fa ogni uomo del nemico, a seconda del terreno della
+    //    provincia contesa: e' il tetto della base delle perdite (vedi sopra).
+    //    Fra monti e paludi si muore di piu', ma tre difensori restano tre.
+    const KILL_TERRAIN = { aperto: 1, chiuso: 1.3 };
+    function killTerrain(terreno) {
+        const t = KILL_TERRAIN[terreno];
+        return t > 0 ? t : 1;
+    }
 
     // Resa del contingente di ventura per un tiro z ~ U(-1,1).
     function mercYield(z) { return clamp(MERC_VALUE + MERC_SPREAD * z, 0, 2); }
@@ -261,13 +282,22 @@
         // Vincitore in termini di truppe iniziali.
         const W = attackerWins ? A : D;
 
+        // Chi fa i morti: la FORZA in uomini di ciascuna parte (ventura e
+        // cavalieri compresi, le MURA no — spostano la probabilita', non uccidono).
+        // effective() e' lineare, quindi togliere `fort` da DeffM da' gli uomini.
+        const kt = killTerrain(terreno);
+        const forzaA = Aeff, forzaD = Math.max(0, DeffM - fort);
+        const baseW = Math.min(W, (attackerWins ? forzaD : forzaA) * kt);
+
         // Perdite del VINCITORE: frazione media legata all'EQUILIBRIO I, piu' un
         // tiro casuale che garantisce imprevedibilita' anche in uno scontro
-        // squilibrato. Piu' la battaglia e' pari, piu' anche chi vince si dissangua.
+        // squilibrato. Piu' la battaglia e' pari, piu' anche chi vince si dissangua
+        // — ma sempre su una base che il nemico puo' davvero abbattere.
         const z = rng() * 2 - 1;                             // U(-1,1)
         const lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX - WIN_LOSS_MIN) * I;
         const muF = clamp(lossW * (1 + CASUALTY_SPREAD * z), 0, 0.95);
-        const C = Math.min(W - 1, Math.round(W * muF));      // vincitore tiene >= 1
+        const minC = (attackerWins ? D : A) > 0 ? 1 : 0;     // chi ha combattuto fa almeno un morto
+        const C = Math.max(0, Math.min(W - 1, Math.max(minC, Math.round(baseW * muF)))); // vincitore tiene >= 1
         const winnerSurvivors = W - C;
 
         // ESITO PER I DUE SCHIERAMENTI.
@@ -290,7 +320,8 @@
             zr = rng() * 2 - 1;                              // U(-1,1), tiro della ritirata
             lossL = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I;
             muL = clamp(lossL * (1 + CASUALTY_SPREAD * zr), 0, 0.95);
-            const lost = Math.max(1, Math.round(A * muL));   // sconfitta = almeno un caduto
+            const baseL = Math.min(A, forzaD * kt);          // non piu' di quanti il difensore ne abbatta
+            const lost = Math.min(A, Math.max(1, Math.round(baseL * muL))); // sconfitta = almeno un caduto
             attackerSurvivors = Math.max(0, A - lost);
         }
 

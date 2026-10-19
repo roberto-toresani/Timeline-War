@@ -591,22 +591,29 @@ vittime extra).** Tutto ruota attorno all'**EQUILIBRIO** `I = 4·P_A·P_D` (0 = 
 1 = perfetto 50/50): **uno scontro serrato è un bagno di sangue per tutti, uno squilibrato costa
 poco a chi vince e polverizza chi perde**. Ogni media porta un tiro casuale `z ~ U(−1,1)` che
 **garantisce imprevedibilità sempre**, anche in battaglia squilibrata (sposta l'entità, non il vincitore).
+- **[REGOLA] I morti li fa il NEMICO, non la propria taglia** (regola dell'utente: 15-contro-3
+  in terreno chiuso costava 5-7 uomini — tre difensori non possono distruggere metà di un
+  esercito). La base delle perdite è `min(proprie truppe, forza del nemico × KILL_TERRAIN)`: la
+  forza è in uomini (ventura e cavalieri pesati, **mura escluse**) e `KILL_TERRAIN` vale 1,3 in
+  terreno **chiuso**, 1 in **aperto** — fra monti e paludi si muore di più, ma tre difensori
+  restano tre. In uno scontro alla pari la base è l'esercito intero e nulla cambia.
 - **[REGOLA] Perdite del VINCITORE** (`W` = sue truppe): `lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX −
   WIN_LOSS_MIN)·I` → `muF = clamp(lossW·(1 + CASUALTY_SPREAD·z), 0, 0.95)` → `C = min(W−1,
-  round(W·muF))`, al vincitore resta sempre **≥ 1**. 20-contro-13 (I alto) dissangua chi vince e
-  lo lascia con un pugno di uomini; 20-contro-5 (I basso) lo lascia quasi intatto. 5-contro-2 non
-  dà più **sempre** "1 caduto".
+  max(1, round(base·muF)))`, al vincitore resta sempre **≥ 1** e c'è almeno un caduto se
+  dall'altra parte qualcuno ha combattuto. 20-contro-13 (I alto) dissangua chi vince; 20-contro-5
+  lo lascia quasi intatto; 9-contro-3 in terreno chiuso costa in media 2 uomini (mai più di 3),
+  15-contro-3 uno o due.
 - **Attaccante vince** → difensore azzerato, entrano `A−C`. **[REGOLA] Le costruzioni NON
   vengono rase**: Capitale/Città/Fortezza/Mercato/Generale/navi restano sulla provincia e
   cambiano semplicemente proprietario (e colore).
 - **[REGOLA] Difensore regge → l'attaccante RIPIEGA, non è più annientato.** In una disfatta
-  di **terra** torna alla provincia di partenza una **frazione** delle truppe impegnate, tanto
-  più grande quanto più la battaglia era pari (quindi **scala con la taglia dell'armata**):
-  `survL = ROUT_SURV_MIN + (ROUT_SURV_MAX − ROUT_SURV_MIN)·I` → `surv = clamp(round(A·survL·(1 +
-  CASUALTY_SPREAD·z)), 0, A−1)`. Disfatta netta (8-contro-3 perso) → **1-2 sbandati**; scontro pari
-  perso (20-contro-13) → **3-7**. Rientrano coi mercenari (le perdite colpiscono prima la ventura).
-  Il tetto `A−1` impone almeno un caduto; la **rotta totale** (0 superstiti) esce solo nella coda
-  bassa, quindi **di rado**. Il difensore tiene `D−C`. Lo **sbarco** (§9.2) resta **totale**:
+  di **terra** l'attaccante perde una **frazione**, tanto più grande quanto più la battaglia era
+  pari, della stessa base del vincitore (non più di quanti il difensore ne possa abbattere):
+  `lossL = ROUT_LOSS_MIN + (ROUT_LOSS_MAX − ROUT_LOSS_MIN)·I` → `persi = max(1, round(base·lossL·(1 +
+  CASUALTY_SPREAD·z)))`, e i superstiti tornano alla provincia di partenza. Disfatta netta
+  (15-contro-3 perso) → **1-2 caduti**; scontro pari perso → un bagno di sangue. Rientrano coi
+  mercenari (le perdite colpiscono prima la ventura). Almeno un caduto sempre; la **rotta
+  totale** esce solo nella coda alta di `I`, quindi **di rado**. Il difensore tiene `D−C`. Lo **sbarco** (§9.2) resta **totale**:
   chi non conquista la spiaggia è perduto con la nave, senza ritirata.
 - **Strade**: una strada appartiene al colore di chi l'ha costruita. La conquista di UNA delle
   due province che collega **non la distrugge**: sparisce solo quando **entrambe** le province

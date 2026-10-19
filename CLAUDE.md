@@ -2046,6 +2046,14 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     pronostico della plancia e quello del bot chiamano quella — prima ognuno riscriveva
     `A²/(A²+D²)` per conto suo, e bastava un ritocco per far mentire la percentuale
     mostrata al giocatore. Chi aggiunge un pronostico passa da lì.
+  - **Le PERDITE le fa il nemico, non la propria taglia** (regola dell'utente: la Francia
+    perse 6 uomini su 9 e 7 su 15 contro 3 difensori in terreno chiuso). In `resolveBattle`
+    la base delle perdite — del vincitore e dell'attaccante che ripiega — è
+    `min(proprie truppe, forza in uomini del nemico × KILL_TERRAIN)` (chiuso 1,3, aperto 1;
+    mura escluse, spostano la probabilità e non uccidono), poi la frazione legata
+    all'equilibrio `I` resta quella di prima. Alla pari nulla cambia; contro un pugno di
+    difensori la base è quel pugno: 9-contro-3 in montagna costa ~2 uomini, mai più di 3.
+    Almeno un caduto se dall'altra parte qualcuno ha combattuto.
   - **I bersagli portano il terreno con sé**: `GameActions.attackTargets` mette `terreno` e
     `esponente` su ogni bersaglio, così plancia e bot non se lo ricalcolano (e non possono
     sbagliarlo). Il risultato di `attack` porta `terreno` per il rapporto di battaglia.
