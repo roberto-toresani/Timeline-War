@@ -325,7 +325,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // un salvataggio vecchio si apre così e non si accorge di niente.
         //   decretiCiclo  quel che ogni SEDUTA del Consiglio ha già emanato,
         //                 per ciclo: { ciclo, sedute: { apertura:[], straordinaria:[] } }
-        //   decretiAttivi i decreti di durata ancora in corso: [{id, prov, fino}]
+        //   decretiAttivi i decreti di durata ancora in corso: [{id, prov, dal, fino}]
+        //                 (`dal` = turno in cui l'effetto entra in vigore)
         //   politicaTimbro l'ultimo ciclo in cui è scattato il ritorno verso
         //                 l'Equilibrio, perché valga una volta sola anche se
         //                 beginTurn rimbalza
@@ -335,6 +336,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p.decretiCiclo || typeof p.decretiCiclo !== 'object') p.decretiCiclo = { ciclo: 0, sedute: {} };
         if (!p.decretiCiclo.sedute) p.decretiCiclo.sedute = {};
         if (!Array.isArray(p.decretiAttivi)) p.decretiAttivi = [];
+        // I doni differiti dei decreti (il cavaliere del Torneo): [{cavaliere, dal}],
+        // consegnati da beginTurn dal turno `dal` in poi.
+        if (!Array.isArray(p.decretiPendenti)) p.decretiPendenti = [];
         if (typeof p.politicaTimbro !== 'number') p.politicaTimbro = 0;
         // FELICITÀ (§6.1, "Festa"): il privilegio di QUESTO turno —
         // `festaRisorse` (1-2 tipi di risorsa scontati sulle costruzioni,

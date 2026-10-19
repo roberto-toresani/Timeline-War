@@ -245,7 +245,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!t || t.disabled) return;
             const player = currentPlayer();
             if (!player) return;
-            polAskDecree(player, t.dataset.decree, t.dataset.decreeProv || null);
+            const id = t.dataset.decree;
+            const d = POL() && POL().decree(id);
+            // Se il decreto chiede una provincia, la legge dalla SUA tendina
+            // (non dalla provincia selezionata sulla mappa).
+            let provId = null;
+            if (d && d.prov) {
+                const sel = $('bp-politics').querySelector('.pol-prov-select[data-for="' + id + '"]');
+                provId = sel && sel.value ? sel.value : null;
+                if (!provId) return;
+            }
+            polAskDecree(player, id, provId);
         });
     }
     if ($('dock-costi')) $('dock-costi').addEventListener('click', () => showCosts(!costsOpen));
@@ -1887,24 +1897,46 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div class="pol-foot">Il totale non cambia mai: la politica sposta il favore da un ' +
                 'ceto all\'altro.</div>' +
             testa +
-            polDecreesHtml(player, -1) +
-            polDecreesHtml(player, 1) +
+            polDecreesHtml(player, -1, connectedSet) +
+            polDecreesHtml(player, 1, connectedSet) +
             polActiveHtml(player);
     }
 
     // Le tessere dei decreti, con la stessa veste delle costruzioni
     // (buildTile/costChips): acceso = si può fare adesso, gettone rosso = quel
-    // che manca. Chi chiede una provincia usa quella SELEZIONATA, come le
-    // strade e gli ordini.
-    function polDecreesHtml(player, verso) {
+    // che manca. Chi chiede una provincia la sceglie da una TENDINA (regola
+    // dell'utente), ristretta ai soli collegati per i decreti che toccano il
+    // raccolto (corvée, feudo, affranca — campo `collegata` del decreto).
+    function polDecreesHtml(player, verso, connectedSet) {
         const P = POL();
         const titolo = verso < 0 ? 'Decreti verso la nobiltà' : 'Decreti verso il popolo';
-        const tiles = P.decreesFor(verso).map(d => polDecreeTile(player, d)).join('');
+        const tiles = P.decreesFor(verso).map(d => polDecreeTile(player, d, connectedSet)).join('');
         return '<div class="bp-title pol-head">' + polGlifo(verso < 0 ? 'spada' : 'martello', 14) +
             '<span>' + titolo + '</span></div><div class="bp-tiles">' + tiles + '</div>';
     }
 
-    function polDecreeTile(player, d) {
+    // Le province su cui QUESTO decreto si può emanare: proprie, adatte al tipo
+    // (risorsa / Città), col presidio per gli uomini, senza un decreto già in
+    // corso, e — per i decreti `collegata` — collegate alla rete (§4). È l'elenco
+    // della tendina, e combacia con i controlli di `issueDecree`.
+    function polEligibleProvinces(player, d, connectedSet) {
+        if (!d.prov) return [];
+        const presi = new Set((player.decretiAttivi || []).map(a => a.prov));
+        return R.ownedPaths(player.name).filter(path => {
+            if (presi.has(path.id)) return false;
+            const haCitta = R.countPiece(path, 'citta') > 0;
+            const haCap = R.countPiece(path, 'capitale') > 0;
+            if (d.prov.noCapitale && haCap) return false;
+            if (d.prov.noCitta && haCitta) return false;
+            if (d.prov.tipo === 'risorsa' && !R.resourceKeyOf(path)) return false;
+            if (d.prov.tipo === 'citta' && !haCitta) return false;
+            if (d.prov.soldati && spareOf(path) < d.prov.soldati) return false;
+            if (d.prov.collegata && connectedSet && !connectedSet.has(path.id)) return false;
+            return true;
+        }).map(path => ({ id: path.id, label: R.provinceLabel(path) }));
+    }
+
+    function polDecreeTile(player, d, connectedSet) {
         const P = POL();
         const cap = R.getCapitalPathFor(player);
         const v = P.canIssue(d.id, {
@@ -1915,12 +1947,16 @@ document.addEventListener('DOMContentLoaded', () => {
         let nota = v.ok ? '' : v.motivo;
         let can = v.ok && !Object.keys(manca).length;
 
-        // La provincia: il decreto si emana su quella selezionata adesso.
-        let provId = null;
-        if (d.prov && can) {
-            const check = polProvCheck(player, d);
-            provId = check.id;
-            if (!check.ok) { can = false; nota = check.motivo; }
+        // La provincia: una tendina delle province adatte. La tessera è accesa
+        // solo se ce n'è almeno una; il provId vero lo legge il click dalla
+        // tendina, non da un attributo congelato al render.
+        let elenco = [];
+        if (d.prov) {
+            elenco = polEligibleProvinces(player, d, connectedSet);
+            if (can && !elenco.length) {
+                can = false;
+                nota = d.prov.collegata ? 'Nessuna provincia adatta e collegata.' : 'Nessuna provincia adatta.';
+            }
         }
 
         const chips = [];
@@ -1939,16 +1975,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (!chips.length) chips.push('<span class="bt-cost"><b>nessun costo</b></span>');
 
-        return '<button type="button" class="bp-tile ' + (can ? 'can' : 'no') +
-            '" data-decree="' + d.id + '" data-decree-prov="' + (provId || '') + '"' +
+        const btn = '<button type="button" class="bp-tile ' + (can ? 'can' : 'no') +
+            '" data-decree="' + d.id + '"' +
             (can ? '' : ' disabled') +
-            ' title="' + d.testo + ' — ' + d.effetto + '">' +
+            ' title="' + (d.testo + ' — ' + d.effetto) + '">' +
             '<span class="bt-ico pol-ico-wrap">' + d.ico +
                 '<i class="bt-badge">' + polGlifo(d.verso < 0 ? 'spada' : 'martello', 10) + '</i></span>' +
             '<span class="bt-name">' + d.nome + '</span>' +
             '<div class="bt-costs">' + chips.join('') + '</div>' +
             (nota ? '<span class="bt-why">' + tileNote(nota) + '</span>' : '') +
             '</button>';
+
+        // Senza provincia è una tessera e basta. Con provincia, tessera + tendina
+        // in un contenitore che fa da cella della griglia.
+        if (!d.prov) return btn;
+        const opts = elenco.map(p => '<option value="' + p.id + '">' + p.label + '</option>').join('');
+        const sel = '<select class="pol-prov-select" data-for="' + d.id + '"' +
+            (elenco.length ? '' : ' disabled') + '>' +
+            (opts || '<option value="">—</option>') + '</select>';
+        return '<div class="pol-decree">' + btn + sel + '</div>';
     }
 
     function polMissing(player, d) {
@@ -1958,29 +2003,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (d.costo.scorte[k] > ((player.scorte && player.scorte[k]) || 0)) m[k] = 1;
         });
         return m;
-    }
-
-    // Stessi controlli di `issueDecree`, letti dalla mappa: così la tessera
-    // accesa e quella accettata non divergono.
-    function polProvCheck(player, d) {
-        const path = selectedProvId && R.engine.path(selectedProvId);
-        if (!path) return { ok: false, motivo: 'Seleziona una provincia.' };
-        if (R.engine.owner(path) !== player.name) return { ok: false, motivo: 'Una tua provincia.' };
-        const haCitta = R.countPiece(path, 'citta') > 0;
-        const haCap = R.countPiece(path, 'capitale') > 0;
-        if (d.prov.noCapitale && haCap) return { ok: false, motivo: 'Non sulla Capitale.' };
-        if (d.prov.noCitta && haCitta) return { ok: false, motivo: 'Non dove c\'è una Città.' };
-        if (d.prov.tipo === 'risorsa' && !R.resourceKeyOf(path)) {
-            return { ok: false, motivo: 'Serve una provincia con risorsa.' };
-        }
-        if (d.prov.tipo === 'citta' && !haCitta) return { ok: false, motivo: 'Serve una tua Città.' };
-        if (d.prov.soldati && spareOf(path) < d.prov.soldati) {
-            return { ok: false, motivo: 'Servono ' + d.prov.soldati + ' uomini oltre al presidio.' };
-        }
-        if ((player.decretiAttivi || []).some(a => a.prov === path.id)) {
-            return { ok: false, motivo: 'Qui c\'è già un decreto.' };
-        }
-        return { ok: true, id: path.id };
     }
 
     // La conferma di un decreto: dice il passo politico e quel che costa, con

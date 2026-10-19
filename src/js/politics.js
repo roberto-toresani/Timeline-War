@@ -248,6 +248,11 @@
     //             noCapitale   — la Capitale non si può usare
     //             noCitta      — la provincia non deve avere una Città
     //             soldati      — quanti uomini se ne vanno (oltre al presidio §5)
+    //             collegata    — la provincia deve essere COLLEGATA alla rete (§4).
+    //                            Vale per i decreti che toccano il RACCOLTO (corvée,
+    //                            feudo, affranca): su una scollegata non raccoglieresti
+    //                            comunque, quindi fermarla o potenziarla non farebbe
+    //                            nulla — la tendina in plancia la esclude.
     //   durata: null (effetto immediato) | 'ciclo' | un numero di turni
     const DECREES = [
         // ---- verso la NOBILTÀ ----
@@ -256,7 +261,7 @@
             testo: 'Giostre e banchetti per i signori del regno. Chi vince resta a corte.',
             costo: { monete: 200, scorte: { bestiame: 2 } },
             dono: { cavaliere: 1 },
-            effetto: 'Dal ciclo II: 1 cavaliere si unisce alla guardia della Capitale.',
+            effetto: 'Dal ciclo II, il TURNO DOPO, 1 cavaliere si aggiunge alle tue truppe da schierare.',
             durata: null
         },
         {
@@ -269,15 +274,18 @@
             // che per giunta rendeva, e la simulazione lo mostrava: la corona
             // pro-nobiltà spendeva 200 monete in 50 turni contro le 900 di
             // quella pro-popolo. Una politica deve costare da tutti e due i lati.
-            prov: { tipo: 'risorsa', noCapitale: true },
-            effetto: '+2 Pietra subito, ma per tutto il ciclo quella provincia non raccoglie.',
+            prov: { tipo: 'risorsa', noCapitale: true, collegata: true },
+            effetto: 'I contadini costruiscono i castelli dei baroni: +2 Pietra subito, ' +
+                'SEMPRE Pietra qualunque cosa produca la provincia (è il lavoro sui castelli, ' +
+                'non il suo raccolto). In cambio quella provincia non raccoglie la propria ' +
+                'risorsa fino a fine ciclo.',
             durata: 'ciclo'
         },
         {
             id: 'feudo', verso: -1, ico: '🏰', nome: 'Concedi un feudo',
             testo: 'Una provincia passa sotto un barone: la sua rendita è sua, non tua.',
             costo: {},
-            prov: { tipo: 'risorsa', noCapitale: true, noCitta: true },
+            prov: { tipo: 'risorsa', noCapitale: true, noCitta: true, collegata: true },
             effetto: 'Per tutto il ciclo quella provincia non consegna la sua risorsa.',
             durata: 'ciclo'
         },
@@ -301,7 +309,7 @@
             id: 'affranca', verso: 1, ico: '🔓', nome: 'Affranca i servi',
             testo: 'Due uomini d\'arme tornano ai campi come uomini liberi.',
             costo: {},
-            prov: { tipo: 'risorsa', soldati: 2 },
+            prov: { tipo: 'risorsa', soldati: 2, collegata: true },
             effetto: 'Per tutto il ciclo quella provincia rende +1 della sua risorsa.',
             durata: 'ciclo'
         },
@@ -310,7 +318,7 @@
             testo: 'Una città si governa da sé, e per un po\' non versa nulla.',
             costo: {},
             prov: { tipo: 'citta', noCapitale: true },
-            effetto: 'Quella Città non paga tasse per 3 turni.',
+            effetto: 'Dal turno dopo, quella Città non paga tasse per 3 turni.',
             durata: 3
         }
     ];
@@ -364,6 +372,7 @@
         const out = { bloccate: {}, extra: {}, esenti: {} };
         (attivi || []).forEach(a => {
             if (!a || !a.prov) return;
+            if (a.dal != null && turno < a.dal) return;       // non ancora in vigore (franchigia: parte dal turno dopo)
             if (a.fino != null && turno > a.fino) return;     // scaduto
             if (a.id === 'feudo' || a.id === 'corvee') out.bloccate[a.prov] = true;
             else if (a.id === 'affranca') out.extra[a.prov] = (out.extra[a.prov] || 0) + 1;
@@ -374,11 +383,14 @@
 
     // Fino a quando dura un decreto emanato al turno `turno`. 'ciclo' = l'ultimo
     // turno del ciclo in corso (un feudo concesso al turno 3 dura fino al 10),
-    // un numero = tanti turni da adesso.
-    function expiryOf(d, turno) {
+    // un numero = tanti turni dal suo inizio. `dal` è il turno in cui l'effetto
+    // ENTRA in vigore (la franchigia parte dal turno dopo l'emanazione): così
+    // "3 turni" valgono 3 raccolte piene, non 2 mangiate dal turno d'emanazione.
+    function expiryOf(d, turno, dal) {
         if (!d || !d.durata) return null;
         if (d.durata === 'ciclo') return cycleOf(turno) * CYCLE;
-        return (turno || 1) + d.durata - 1;
+        const base = (dal != null) ? dal : (turno || 1);
+        return base + d.durata - 1;
     }
 
     const api = {

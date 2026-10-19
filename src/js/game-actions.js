@@ -732,6 +732,23 @@
         if (prod.cavalieri && GR().isUnlocked('cavaliere', turnoGlobale)) {
             player.cavalieriDaSchierare = (player.cavalieriDaSchierare || 0) + prod.cavalieri;
         }
+        // I DONI DIFFERITI dei decreti (oggi: il cavaliere del Torneo, regola
+        // dell'utente — arriva il turno dopo l'emanazione). Ognuno porta `dal`,
+        // il turno globale dal quale si può consegnare. Il cavaliere entra nel
+        // serbatoio da schierare come quello della «Nobiltà forte»; se i
+        // cavalieri non sono ancora sbloccati (prima del ciclo II) resta in
+        // attesa invece di andare perso.
+        if (Array.isArray(player.decretiPendenti) && player.decretiPendenti.length) {
+            const restano = [];
+            player.decretiPendenti.forEach(g => {
+                if (!g || (g.dal != null && turnoGlobale < g.dal)) { restano.push(g); return; }
+                if (g.cavaliere) {
+                    if (!GR().isUnlocked('cavaliere', turnoGlobale)) { restano.push(g); return; }
+                    player.cavalieriDaSchierare = (player.cavalieriDaSchierare || 0) + g.cavaliere;
+                }
+            });
+            player.decretiPendenti = restano;
+        }
         const bound = boundPool(player);
         Object.keys(prod.vincolate || {}).forEach(id => {
             bound[id] = (bound[id] || 0) + prod.vincolate[id];
@@ -2328,6 +2345,12 @@
             if (d.prov.soldati && spare(path) < d.prov.soldati) {
                 return fail('Servono ' + d.prov.soldati + ' uomini oltre al presidio (§5) in ' + nome + '.');
             }
+            // I decreti che toccano il raccolto (corvée, feudo, affranca) valgono
+            // solo su una provincia COLLEGATA alla rete (§4): su una scollegata non
+            // si raccoglie comunque, quindi fermarla o potenziarla non farebbe nulla.
+            if (d.prov.collegata && !connectedOf(player).has(provId)) {
+                return fail(nome + ' non è collegata alla rete (§4): il decreto non avrebbe effetto.');
+            }
             if ((player.decretiAttivi || []).some(a => a.prov === provId)) {
                 return fail('In ' + nome + ' c\'è già un decreto in corso.');
             }
@@ -2338,23 +2361,36 @@
         if (d.costo.monete) costo.monete = d.costo.monete;
         const payErr = pay(player, costo, 'Per ' + d.nome.toLowerCase()); if (payErr) return payErr;
 
-        // Da qui in poi si muta. Il dono immediato, se c'è.
+        // Da qui in poi si muta. Il dono in scorte è immediato.
         const dettagli = [];
         const dono = d.dono || {};
         Object.keys(dono.scorte || {}).forEach(k => {
             player.scorte[k] = (player.scorte[k] || 0) + dono.scorte[k];
             dettagli.push('+' + dono.scorte[k] + ' ' + (GR().RES_LABEL[k] || k));
         });
+        // Il dono in CAVALIERI arriva il TURNO DOPO (regola dell'utente): resta
+        // in attesa in `decretiPendenti` e beginTurn lo versa nel serbatoio dei
+        // cavalieri alla prossima apertura di turno (solo dal ciclo II, quando i
+        // cavalieri esistono — se no beginTurn lo tiene in attesa).
+        if (dono.cavaliere) {
+            player.decretiPendenti = player.decretiPendenti || [];
+            player.decretiPendenti.push({ cavaliere: dono.cavaliere, dal: turno + 1 });
+            dettagli.push('+' + dono.cavaliere + (dono.cavaliere === 1 ? ' cavaliere' : ' cavalieri') +
+                ' dal turno prossimo');
+        }
 
-        // Il prezzo sulla mappa, e la voce di durata.
+        // Il prezzo sulla mappa, e la voce di durata. `dal` è il turno in cui
+        // l'effetto entra in vigore: per i decreti a durata fissa (franchigia) è
+        // il turno DOPO l'emanazione, così i suoi 3 turni sono 3 raccolte piene.
         if (path) {
             if (d.prov.soldati) {
                 loseFromPath(path, d.prov.soldati);
                 dettagli.push('−' + d.prov.soldati + ' uomini da ' + R().provinceLabel(path));
             }
             if (d.durata) {
+                const dal = (typeof d.durata === 'number') ? turno + 1 : turno;
                 player.decretiAttivi.push({
-                    id: d.id, prov: provId, fino: P.expiryOf(d, turno)
+                    id: d.id, prov: provId, dal: dal, fino: P.expiryOf(d, turno, dal)
                 });
             }
             E().redrawProvince(path);

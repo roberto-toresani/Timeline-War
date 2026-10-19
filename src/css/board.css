@@ -3635,6 +3635,28 @@ body.mobile-lite #ui-foundation .uf-sheet { max-height: 72dvh; overflow-y: auto;
     font-size: 1.9rem;
 }
 
+/* Un decreto che chiede una provincia: tessera + tendina, in una cella sola
+   della griglia .bp-tiles (regola dell'utente: la provincia si sceglie da un
+   elenco a tendina, non dalla provincia selezionata sulla mappa). */
+.pol-decree {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.pol-decree .bp-tile { width: 100%; }
+.pol-prov-select {
+    width: 100%;
+    padding: 5px 6px;
+    background: rgba(0, 0, 0, .28);
+    border: 1px solid var(--rule-strong);
+    border-radius: 7px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: .85rem;
+    cursor: pointer;
+}
+.pol-prov-select:disabled { opacity: .5; cursor: default; }
+
 .pol-active {
     display: flex;
     gap: 8px;
