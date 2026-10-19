@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // decreti della politica si applicano a una PROVINCIA, e quella si
             // sceglie cliccandola sulla mappa — coprirla rendeva muto il gesto.
             sheetsEl.classList.toggle('peek', openSheet === 'diplomazia' ||
-                openSheet === 'chat' || openSheet === 'corona');
+                openSheet === 'chat' || openSheet === 'corona' || openSheet === 'obiettivi');
         }
         syncDock();
         // Un foglio che si apre non deve mostrare i numeri di dieci turni fa:
