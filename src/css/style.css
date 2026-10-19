@@ -285,6 +285,11 @@ svg path.haze {
 #ui-confirm .uc-title { color: var(--gold); font-size: 1.3rem; margin-bottom: 8px; }
 
 #ui-confirm .uc-text {
+    /* il testo e' semplice (textContent): gli a capo vanno rispettati, o un
+       "
+
+" per separare due paragrafi si legge come uno spazio */
+    white-space: pre-line;
     color: var(--parchment-dim);
     font-size: 1rem;
     line-height: 1.5;

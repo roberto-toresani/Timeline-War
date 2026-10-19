@@ -340,6 +340,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // consegnati da beginTurn dal turno `dal` in poi.
         if (!Array.isArray(p.decretiPendenti)) p.decretiPendenti = [];
         if (typeof p.politicaTimbro !== 'number') p.politicaTimbro = 0;
+        // Il ritorno di questo ciclo verso l'Equilibrio ({ciclo, da, a}), per
+        // dirlo nel pop-up del Consiglio. null = niente è scivolato.
+        if (p.politicaRitorno === undefined) p.politicaRitorno = null;
         // FELICITÀ (§6.1, "Festa"): il privilegio di QUESTO turno —
         // `festaRisorse` (1-2 tipi di risorsa scontati sulle costruzioni,
         // GameRules.costFor) e `festaCostruzioneBonus` (monete restituite a ogni

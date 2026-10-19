@@ -2364,6 +2364,22 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     Capitale non ce l'ha ancora quando comincia la fase (la costruisce lì), e senza
     Capitale il Consiglio non siede — messo in testa alla fase il decreto non partiva mai
     al primo ciclo.
+  - **«Il Consiglio si riunisce» è un POP-UP** (`showPendingCouncil` in player-board.js,
+    regola dell'utente): a inizio di ogni seduta — apertura e straordinaria — una
+    `Risiko.confirm` con **Apri la Corona** / **Più tardi**, **una volta per seduta**
+    (chiave `regno|ciclo|seduta`, quindi le due sedute del ciclo si annunciano entrambe),
+    gated da `ownsBoard`, e non se il decreto della seduta è già stato emanato. Dice anche
+    del **ritorno verso l'Equilibrio** (`player.politicaRitorno = {ciclo, da, a}`, scritto
+    da `politicsDrift`): prima c'era una pergamena a parte per quello, ma due finestre per
+    la stessa riunione erano una di troppo.
+    - **Se c'è un'altra finestra aperta riprova DA SOLO** (700 ms): chiudere una pergamena
+      non ridisegna la plancia, quindi "riprova al render dopo" lasciava il Consiglio muto
+      finché il giocatore non faceva un'altra mossa. Al turno 11 capita sempre — ci sono
+      le pergamene del Grande Scisma e degli eventi.
+    - **`Risiko.confirm` scrive `textContent`: NIENTE tag HTML.** Qui e in `polAskDecree` i
+      `<br>` e i `<b>` si leggevano come testo. Gli a capo sono `
+`, e `#ui-confirm
+      .uc-text` ha ora `white-space: pre-line` perché vengano rispettati.
   - **La UI sta nel foglio 👑 Corona**, sotto la Popolarità (`renderPolitics`, disegnata
     solo se il foglio è aperto, come gli obiettivi): un **asse** spada↔martello col segno
     di dove sei (non sono bottoni: la posizione la spostano i decreti), i **numeri veri**

@@ -2019,7 +2019,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         R.confirm({
             title: d.nome,
-            text: d.testo + '<br><br>La corona passa a <b>' + dopo.label + '</b>.<br>' +
+            text: d.testo + '\n\nLa corona passa a ' + dopo.label + '.\n' +
                 d.effetto + dove + '.',
             ok: 'Emana il decreto'
         }, () => run(GA().issueDecree(player, id, provId)));
@@ -6304,6 +6304,74 @@ document.addEventListener('DOMContentLoaded', () => {
         () => { pactAnswered.add(off.id); run(GA().declinePact(player, off.id)); });
     }
 
+    // ---------- «IL CONSIGLIO SI RIUNISCE» (regola dell'utente) ----------
+    // Il Consiglio della Corona siede due volte per ciclo e vale un decreto per
+    // seduta: se nessuno lo dice, un giocatore può lasciar passare la finestra
+    // senza accorgersi che c'era. Un pop-up a inizio seduta, UNA volta per
+    // seduta (la chiave unisce ciclo e seduta, quindi apertura e straordinaria
+    // si annunciano entrambe). Se la corona è scivolata verso l'Equilibrio a
+    // inizio ciclo lo dice qui, e non in una pergamena a parte.
+    const councilShown = new Set();
+    let councilRetry = null;
+
+    function showPendingCouncil(player) {
+        const P = POL();
+        if (!P || !R.confirm) return;
+        if (!isPlaying(player) || !ownsBoard(player)) return;
+        if (!R.getCapitalPathFor(player)) return;           // senza Capitale non siede
+
+        const turno = R.turn();
+        const slot = P.councilSlot(turno, player.nato || 1);
+        if (!slot) return;
+        const chiave = player.id + '|' + P.cycleOf(turno) + '|' + slot;
+        if (councilShown.has(chiave)) return;
+        // Se il decreto di questa seduta c'è già, non c'è niente da annunciare.
+        if ((GA().councilIssued(player, turno) || []).length >= P.MAX_DECREES) return;
+
+        // Non sopra la guida del primo turno né sopra un'altra finestra: una
+        // per volta. Chiudere una pergamena NON ridisegna la plancia, quindi
+        // "riprovare al render dopo" non basta — il Consiglio resterebbe muto
+        // finché il giocatore non fa un'altra mossa. Si riprova da soli.
+        if (tourEl || document.getElementById('ui-foundation') ||
+            document.getElementById('ui-confirm')) {
+            if (!councilRetry) {
+                councilRetry = setTimeout(() => {
+                    councilRetry = null;
+                    const p = currentPlayer();
+                    if (p) showPendingCouncil(p);
+                }, 700);
+            }
+            return;
+        }
+        councilShown.add(chiave);
+
+        const g = P.grade(player.politica || 0);
+        const ritorno = player.politicaRitorno;
+        const left = P.councilTurnsLeft(turno, player.nato || 1);
+        const quando = left > 1 ? 'Hai ' + left + ' turni per decidere.' : 'Si decide in questo turno.';
+        const righe = [];
+
+        if (slot === 'straordinaria') {
+            righe.push('Il Consiglio è convocato in via straordinaria: un decreto per ' +
+                'correggere la rotta, verso l\'equilibrio o verso l\'estremo.');
+        } else {
+            righe.push('Si apre il Consiglio della Corona: un decreto per stabilire ' +
+                'l\'orientamento del ciclo.');
+            if (ritorno && ritorno.ciclo === P.cycleOf(turno)) {
+                righe.push('I favori concessi si dimenticano: la corona è scivolata da ' +
+                    P.grade(ritorno.da).label + ' a ' + P.grade(ritorno.a).label + '.');
+            }
+        }
+        righe.push('La corona oggi è ' + g.label + '. ' + quando);
+
+        R.confirm({
+            title: 'Il Consiglio si riunisce',
+            text: righe.join('\n\n'),
+            ok: 'Apri la Corona',
+            cancel: 'Più tardi'
+        }, () => { if (openSheet !== 'corona') showSheet('corona'); });
+    }
+
     // ---------- schieramento automatico dei rinforzi obbligatori ----------
     // (richiesta dell'utente) I rinforzi OBBLIGATORI (Capitale +1, Città +1,
     // Fortezza +5) hanno una destinazione sola: non c'è niente da decidere, e
@@ -6673,6 +6741,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showPendingCommerci(player);
         showPendingPactNotices(player);
         showPendingPactProposals(player);
+        showPendingCouncil(player);
         showPendingWelfare(player);
         showPendingLeva(player);
         showPendingCronache(player);

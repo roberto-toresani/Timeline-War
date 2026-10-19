@@ -2268,15 +2268,13 @@
 
         const prima = player.politica || 0;
         player.politica = P.drift(prima);
-        if (prima === player.politica) return;
-        player.eventiAvvisi.push({
-            tipo: 'politica',
-            titolo: 'Il Consiglio della Corona si riunisce',
-            testo: 'I favori concessi si dimenticano: la corona scivola da ' +
-                P.grade(prima).label + ' a ' + P.grade(player.politica).label +
-                '. Il Consiglio siede: un decreto per rimettere la rotta.',
-            turno: turno, letto: false
-        });
+
+        // Il ritorno NON fa una pergamena a sé: lo ricorda soltanto, e lo dice
+        // il pop-up «Il Consiglio si riunisce» (showPendingCouncil in
+        // player-board.js) insieme alla convocazione. Due finestre per la stessa
+        // riunione sarebbero una di troppo.
+        player.politicaRitorno = (prima === player.politica) ? null
+            : { ciclo: ciclo, da: prima, a: player.politica };
     }
 
     // I decreti di durata che sono scaduti si spengono da sé, e così quelli su
