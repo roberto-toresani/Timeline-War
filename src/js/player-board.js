@@ -1224,7 +1224,6 @@ document.addEventListener('DOMContentLoaded', () => {
         else aiLines.push({ colore: player.color, capo: false, n: 1, txt });
 
         while (aiLines.length > AI_LOG_MAX) aiLines.shift();
-        if (openSheet === 'corona') renderAiLog();
     }
 
     // Le razzie delle terre di nessuno (game-actions.neutralRaids) arrivano nel
@@ -1245,7 +1244,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (!added) return;
         while (aiLines.length > AI_LOG_MAX) aiLines.shift();
-        if (openSheet === 'corona') renderAiLog();
     }
 
     function renderAiLog() {
@@ -6618,7 +6616,6 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBattle();
         renderMove(player);
         renderProvinceList(player, paths, connectedSet);
-        if (corona) renderAiLog();
         renderMapHud(player);
         // Prima si accendono i bersagli sulla mappa, poi si disegna il cursore
         // d'ordine: renderOrderHud legge `orderTargets` per capire se l'ordine

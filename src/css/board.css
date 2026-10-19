@@ -595,7 +595,11 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
    barra di scorrimento. `display: flex` le ridà l'altezza del contenitore.
    Serve ai fogli Corona e Obiettivi, che hanno una colonna sola; `.cols` e
    `.chat-body` hanno già il loro display e non passano di qui. */
-.sheet-body:not(.cols):not(.chat-body) { display: flex; }
+/* `padding-right: 0` perché il padding del corpo cade FUORI dalla colonna che
+   scorre, e lasciava una banda vuota fra la barra di scorrimento e il bordo del
+   foglio: spazio sprecato che non serviva a niente. La distanza fra il testo e
+   la barra la dà già `.sheet-col { padding-right: 6px }`, che sta dentro. */
+.sheet-body:not(.cols):not(.chat-body) { display: flex; padding-right: 0; }
 
 .sheet-col {
     min-width: 0;

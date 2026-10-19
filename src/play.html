@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=97">
-    <link rel="stylesheet" href="css/board.css?v=135">
+    <link rel="stylesheet" href="css/board.css?v=136">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -367,13 +367,12 @@
                                         arriva il favore del popolo</span></div>
                                 <div id="bp-politics"></div>
 
-                                <!-- Il registro dell'IA resta, ma in una cartellina
-                                     chiusa: è l'unico modo di sapere cosa hanno fatto i
-                                     bot sotto nebbia, e non vale la colonna che occupava. -->
-                                <details class="bp-fold">
-                                    <summary>Cosa fa l'IA <span class="bp-fold-hint">solo ciò che vedi</span></summary>
-                                    <div class="bp-fold-body"><div id="bp-ailog"></div></div>
-                                </details>
+                                <!-- Il registro dell'IA ("Cosa fa l'IA") è stato tolto
+                                     dalla plancia su richiesta dell'utente. Le funzioni
+                                     `aiLog`/`renderAiLog` in player-board.js restano, ma
+                                     si fermano da sole alla prima riga: cercano
+                                     `#bp-ailog` e non lo trovano più. Chi volesse
+                                     rimetterlo deve solo ridare loro un contenitore. -->
                             </div>
                         </div>
                     </div>
@@ -595,7 +594,7 @@
     <script src="js/app.js?v=129"></script>
     <script src="js/game-actions.js?v=133"></script>
     <script src="js/bot.js?v=134"></script>
-    <script src="js/player-board.js?v=137"></script>
+    <script src="js/player-board.js?v=138"></script>
 </body>
 
 </html>
