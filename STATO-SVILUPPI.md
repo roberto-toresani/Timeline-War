@@ -4,9 +4,9 @@ Documento di stato **condiviso tra tutte le chat**. Riporta la versione attuale 
 e dei suoi sistemi. Va aggiornato **ogni volta che si fa un progresso** (in qualunque chat),
 e in particolare al momento del commit.
 
-- **Ultimo aggiornamento:** 2026-10-14 (Cavaliere disponibile dal ciclo II)
+- **Ultimo aggiornamento:** 2026-10-19 (scelta post-invasione affidabile online)
 - **Branch corrente:** `main`
-- **Ultimo commit:** vedi `git log` — Cavaliere disponibile dal ciclo II
+- **Ultimo commit:** vedi `git log` — Conquista: le azioni rileggono il regno vivo
 
 ## Sistemi in gioco (stato attuale)
 
@@ -317,6 +317,11 @@ e in particolare al momento del commit.
   Dal 2026-10-12 cambiare l'e-mail o la preferenza delle 6 ore dall'editor a partita in
   corso si salva davvero online (ritocco mirato del solo regno, `MultiplayerSync.patchPlayer`):
   prima il cambio restava sullo schermo dell'admin e la mail partiva al vecchio indirizzo.
+- **Scelta post-invasione affidabile online** (2026-10-19): ogni snapshot in arrivo ricrea
+  i record dei regni, e un'azione partita da un record vecchio (il cursore d'attacco lo
+  tiene da quando si apre) scriveva la presa in sospeso e il bottino nel vuoto: la provincia
+  cambiava padrone ma la scelta di quanti lasciarvi non compariva (Francia, Lebanon, turno
+  11). Ora ogni funzione di `GameActions` rilegge il regno vivo prima di agire.
 
 ## In lavorazione (WIP)
 

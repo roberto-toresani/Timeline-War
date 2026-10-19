@@ -4645,4 +4645,28 @@
         mercEngagedWith: (provId, n, voluti) => { const p = E().path(provId); return p ? groupLeaving(p, n, voluti).merc : 0; }
     };
 
+    // IL REGNO SI RILEGGE DAL VIVO a ogni chiamata (bug della Francia, turno 11:
+    // conquistata Lebanon, la scelta post-invasione non è uscita). Online ogni
+    // snapshot in arrivo RICREA i record dei regni (mergePlayerData), ma chi
+    // chiama tiene spesso il record di prima: la plancia lo cattura quando apre il
+    // cursore d'ordine, un bot lo tiene fra un `yield` e l'altro. L'azione mutava
+    // allora un oggetto ormai fuori dallo stato — la provincia passava di mano
+    // (sta sulla mappa), ma la presa in sospeso, il bottino e ogni altro campo del
+    // regno finivano nel vuoto, e la modale leggeva il record nuovo, senza presa.
+    // Qui, nell'unica porta d'ingresso, un record di regno non più vivo si scambia
+    // con quello attuale dello stesso id: chi chiama non deve saperlo.
+    function liveArg(a) {
+        if (!a || typeof a !== 'object' || Array.isArray(a) || typeof a.name !== 'string') return a;
+        const r = R();
+        if (!r || typeof r.players !== 'function') return a;
+        const live = r.players().find(p => p.id === a.id);
+        return (live && live !== a && live.name === a.name) ? live : a;
+    }
+    const API = root.GameActions;
+    Object.keys(API).forEach(k => {
+        const fn = API[k];
+        if (typeof fn !== 'function') return;
+        API[k] = function () { return fn.apply(this, Array.prototype.map.call(arguments, liveArg)); };
+    });
+
 })(typeof window !== 'undefined' ? window : globalThis);

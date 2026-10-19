@@ -107,6 +107,16 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     restano in **sostituzione**. Il restore per-turno legge una **collezione a parte**
     (`backupTurn`/`getBackup`), non `history`, quindi è indipendente da questo. Chi tocca
     `saveAutoSave` NON rimetta lo storico intero nel push "per uniformità".
+  - **OGNI SNAPSHOT RICREA I RECORD DEI REGNI** (`mergePlayerData`), quindi chi
+    tiene in mano un record vecchio — la plancia lo cattura aprendo il cursore
+    d'ordine, un bot fra un `yield` e l'altro — muterebbe un oggetto ormai fuori
+    dallo stato (bug della Francia, 2026-10-19: Lebanon presa, presa in sospeso e
+    bottino finiti nel vuoto, nessuna scelta post-invasione). La cura sta
+    nell'unica porta d'ingresso: in coda a `game-actions.js` ogni funzione
+    esportata passa i suoi argomenti da `liveArg`, che scambia un record di regno
+    non più vivo con quello attuale dello stesso id. Chi aggiunge un'azione a
+    `GameActions` è coperto da sé; chi muta un regno **fuori** da lì rilegge il
+    record da `Risiko.players()` invece di fidarsi di uno catturato prima.
   - **PRESENZA dei giocatori** (collezione Firestore `presence`, un doc per codice
     d'invito): dice quale regno una PERSONA ha "preso" aprendo il suo link, così l'editor
     dell'admin mostra sulla scheda del regno "👤 Preso dal giocatore" invece del default
