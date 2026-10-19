@@ -1557,7 +1557,9 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     in corso): `CROCIATA_FORZA = 10` in `events.js`, passato come `forza` (il tetto di
     `eventMuster`) dalla spedizione di `PRIMA_CROCIATA`. Ne salpano al massimo 10 a
     prescindere da quanti ce ne siano sulla costa: gli altri restano a casa. Sotto i 6 non
-    parte, fra 6 e 10 parte tutto. La crociata inglese non ha tetto.
+    parte, fra 6 e 10 parte tutto. **La crociata inglese salpa col 90%** (regola
+    dell'utente): `quota: 0.9` in `CROCIATA_INGLESE`, letta da `eventMuster` come
+    tetto `⌊presenti × 0,9⌋` — 9 radunati a Home Counties → 8 partono, 12 → 10, 20 → 18.
   - **Il popup della crociata non si perde**: `crusadeHost` avvisa il regno con
     `ctx.notify` come ogni evento (`player.eventiAvvisi` → `showPendingEventi` →
     `Risiko.showFoundation`, la pergamena centrale) — vale identico per Francia e

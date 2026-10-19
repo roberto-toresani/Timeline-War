@@ -47,7 +47,8 @@
     // corso): la crociata francese imbarca SOLO 10 uomini, a prescindere da
     // quanti ce ne siano sulla costa — gli altri restano a casa. Sotto il
     // minimo non parte; fra 6 e 10 parte tutto quel che c'è. È il tetto
-    // `forza` di eventMuster. La crociata inglese non ne ha (parte tutto).
+    // `forza` di eventMuster. La crociata inglese ha invece un tetto in
+    // proporzione: il 90% degli uomini radunati (`quota`, CROCIATA_INGLESE).
     const CROCIATA_FORZA = 10;
 
     // PRIMA CROCIATA (ciclo 2, turno 11). Solo la FRANCIA marcia su Aleppo
@@ -78,10 +79,14 @@
     // almeno il minimo, niente crociata (il trasporto è del Papa, §editto, ma
     // la leva resta del giocatore). L'evento scatta al passaggio al turno 21,
     // prima che chiunque giochi il ciclo 3.
+    // TETTO DEL 90% (regola dell'utente, come il tetto di 10 della Francia):
+    // salpano al più 9 uomini su 10 di quelli a Home Counties, arrotondando per
+    // difetto — 9 radunati → 8 partono, 12 → 10, 20 → 18. Il resto resta a casa.
     const CROCIATA_INGLESE = {
         regno: 'Regno di Inghilterra',
         da: 'Home_Counties',
-        meta: 'Palestine'   // → Gerusalemme
+        meta: 'Palestine',  // → Gerusalemme
+        quota: 0.9
     };
 
     // INVASIONE MONGOLA (turno 21 = 1200, scelta dell'utente: si leva presto
@@ -385,7 +390,7 @@
             nota: '',
             onStart(ctx) {
                 const d = CROCIATA_INGLESE;
-                crusadeHost(ctx, { regno: d.regno, da: d.da, meta: d.meta }, 'La crociata inglese');
+                crusadeHost(ctx, { regno: d.regno, da: d.da, meta: d.meta, quota: d.quota }, 'La crociata inglese');
             }
         },
         {
@@ -402,7 +407,7 @@
     // avvisando il regno con la pergamena dal suo punto di vista. Cuore comune
     // a tutte le crociate: una gamba = una chiamata di questa funzione.
     function crusadeHost(ctx, sp, titolo) {
-        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, minimo: CROCIATA_MINIMO, forza: sp.forza });
+        const host = ctx.muster(sp.regno, { da: sp.da, regione: sp.regione, minimo: CROCIATA_MINIMO, forza: sp.forza, quota: sp.quota });
         if (!host) return null;             // regno morto o sotto il minimo: la crociata non parte
         const e = ctx.assault(sp.regno, sp.meta, host);
         if (!e) return null;

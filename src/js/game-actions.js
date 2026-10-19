@@ -1215,7 +1215,11 @@
         const disp = GR().spendableTroops(E().countPiece(daPath, 'soldato'));
         const minimo = Math.max(0, Math.floor(o.minimo || 0));
         if (disp < Math.max(1, minimo)) return null;
-        const tetto = (typeof o.forza === 'number' && o.forza > 0) ? Math.floor(o.forza) : disp;
+        let tetto = (typeof o.forza === 'number' && o.forza > 0) ? Math.floor(o.forza) : disp;
+        // `quota`: al più quella FRAZIONE degli uomini presenti (crociata
+        // inglese: 0,9 — almeno un decimo resta a casa, arrotondato per eccesso).
+        if (typeof o.quota === 'number' && o.quota > 0 && o.quota < 1)
+            tetto = Math.min(tetto, Math.floor(E().countPiece(daPath, 'soldato') * o.quota));
         const soldati = Math.min(disp, tetto);
         const g = groupLeaving(daPath, soldati);
         takeGroup(daPath, g);
