@@ -600,9 +600,11 @@ poco a chi vince e polverizza chi perde**. Ogni media porta un tiro casuale `z ~
 - **[REGOLA] Perdite del VINCITORE** (`W` = sue truppe): `lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX −
   WIN_LOSS_MIN)·I` → `muF = clamp(lossW·(1 + CASUALTY_SPREAD·z), 0, 0.95)` → `C = min(W−1,
   max(1, round(base·muF)))`, al vincitore resta sempre **≥ 1** e c'è almeno un caduto se
-  dall'altra parte qualcuno ha combattuto. 20-contro-13 (I alto) dissangua chi vince; 20-contro-5
-  lo lascia quasi intatto; 9-contro-3 in terreno chiuso costa in media 2 uomini (mai più di 3),
-  15-contro-3 uno o due.
+  dall'altra parte qualcuno ha combattuto. **Il pavimento è il 35%** (`WIN_LOSS_MIN`, e lo
+  stesso `ROUT_LOSS_MIN` per chi ripiega — regola dell'utente: anche una vittoria schiacciante
+  costa, ogni difensore porta via almeno un terzo di uomo). 20-contro-13 (I alto) dissangua chi
+  vince; 30-contro-10 in pianura costa in media 4,4 uomini; 9-contro-3 in terreno chiuso 2,4
+  (mai più di 3), 15-contro-3 due.
 - **Attaccante vince** → difensore azzerato, entrano `A−C`. **[REGOLA] Le costruzioni NON
   vengono rase**: Capitale/Città/Fortezza/Mercato/Generale/navi restano sulla provincia e
   cambiano semplicemente proprietario (e colore).

@@ -72,7 +72,7 @@
 //     C = min(W - 1, max(1, round(base_W * mu_f)))  (al vincitore resta sempre >= 1;
 //         almeno un caduto se dall'altra parte qualcuno ha combattuto)
 //   20-contro-13 (I alto) dissangua chi vince; 20-contro-5 (I basso) no;
-//   15-contro-3 costa 1-2 uomini, mai la meta' dell'esercito.
+//   15-contro-3 in montagna costa ~2 uomini, mai la meta' dell'esercito.
 //
 //   Vince l'attaccante -> CONQUISTA: il difensore perde tutte le truppe,
 //   l'attaccante conserva A - C ed entra nella provincia.
@@ -153,9 +153,11 @@
     // poco a chi vince e polverizza chi perde.
     //
     // 1) Perdite del VINCITORE: frazione media persa, cresce con I. Lopsided
-    //    (I->0) la porta a casa quasi intatta; battaglia pari (I->1) resta con
+    //    (I->0) paga solo un terzo della forza nemica; battaglia pari (I->1) resta con
     //    un pugno di uomini. Cosi' 20-contro-13 dissangua chi vince, 20-contro-5 no.
-    const WIN_LOSS_MIN = 0.10;  // frazione persa dal vincitore in uno scontro scontato
+    const WIN_LOSS_MIN = 0.35;  // frazione persa dal vincitore in uno scontro scontato (regola
+                                // dell'utente: anche una vittoria schiacciante costa — ogni
+                                // difensore porta via almeno un terzo di uomo)
     const WIN_LOSS_MAX = 0.80;  // ...e in un perfetto 50/50
     // 2) Perdite dell'attaccante SCONFITTO (ripiega, non e' annientato): frazione
     //    media che NON torna a casa, cresce con l'EQUILIBRIO I come le perdite
@@ -167,7 +169,7 @@
     //    difensori. Solo uno scontro alla pari (I alto), vinto o perso, e' un
     //    bagno di sangue per tutti. E' una FRAZIONE, cosi' scala con la taglia
     //    dell'armata.
-    const ROUT_LOSS_MIN = 0.10; // frazione persa in una sconfitta netta (scontro sproporzionato)
+    const ROUT_LOSS_MIN = 0.35; // frazione persa in una sconfitta netta (scontro sproporzionato)
     const ROUT_LOSS_MAX = 0.70; // ...e in uno scontro alla pari perso
     // 3) Ampiezza casuale attorno a OGNI media (z ~ U(-1,1)): garantisce
     //    imprevedibilita' SEMPRE, anche in una battaglia squilibrata.

@@ -2085,8 +2085,10 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     la base delle perdite — del vincitore e dell'attaccante che ripiega — è
     `min(proprie truppe, forza in uomini del nemico × KILL_TERRAIN)` (chiuso 1,3, aperto 1;
     mura escluse, spostano la probabilità e non uccidono), poi la frazione legata
-    all'equilibrio `I` resta quella di prima. Alla pari nulla cambia; contro un pugno di
-    difensori la base è quel pugno: 9-contro-3 in montagna costa ~2 uomini, mai più di 3.
+    all'equilibrio `I` va dal **35%** (scontro scontato, `WIN_LOSS_MIN`/`ROUT_LOSS_MIN`:
+    regola dell'utente, a 10% conquistare costava troppo poco) all'80%/70% (alla pari).
+    Alla pari nulla cambia; contro un pugno di difensori la base è quel pugno: 9-contro-3
+    in montagna costa ~2,4 uomini, mai più di 3; 30-contro-10 in pianura ~4,4.
     Almeno un caduto se dall'altra parte qualcuno ha combattuto.
   - **I bersagli portano il terreno con sé**: `GameActions.attackTargets` mette `terreno` e
     `esponente` su ogni bersaglio, così plancia e bot non se lo ricalcolano (e non possono
