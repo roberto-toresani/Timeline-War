@@ -4324,6 +4324,45 @@
         while (player.editti.length > DECREE_MAX) player.editti.shift();
     }
 
+    // EDITTO DIFFERITO (oro e scorte, regola dell'utente 2026-10-19): a partita in
+    // corso l'editto non tocca lo stato adesso — l'editor dell'admin di norma non è
+    // lo scrittore del turno, e il primo snapshot lo cancellerebbe. Va invece nella
+    // stessa coda di "🔧 Intervieni sulla partita" (pendingDiff in app.js) e si
+    // applica al CAMBIO TURNO, come DELTA sullo stato di quel momento: chi
+    // promulga dice "+100", non "porta a 1100", perché nel frattempo il regno può
+    // spendere o incassare. Qui si valida e si prepara il pacchetto; lo applica
+    // applyDecree.
+    function deferDecree(target, o, delta, msg) {
+        return done('Editto in coda: ' + msg, {
+            editto: true, prov: null, provs: [],
+            rinvio: {
+                playerId: target.id, delta,
+                notizia: { titolo: o.titolo || 'Editto', testo: o.testo || msg, prov: null }
+            }
+        });
+    }
+
+    // Applica un editto differito (lo chiama applyAdminDiff al cambio turno).
+    // IDEMPOTENTE: l'avviso porta l'id dell'editto, e se è già fra gli editti del
+    // regno il delta non si somma una seconda volta — un intervento può
+    // ripresentarsi sul suo canale prima che la cancellazione arrivi.
+    function applyDecree(rec) {
+        if (!rec || !rec.delta) return false;
+        const target = R().players().find(p => p.id === rec.playerId);
+        if (!target) return false;
+        if (rec.id && (target.editti || []).some(e => e && e.edittoId === rec.id)) return false;
+        const d = rec.delta;
+        if (typeof d.monete === 'number') target.monete = Math.max(0, (target.monete || 0) + d.monete);
+        if (d.scorte) {
+            if (!target.scorte) target.scorte = GR().emptyScorte();
+            Object.keys(d.scorte).forEach(k => {
+                target.scorte[k] = Math.max(0, (target.scorte[k] || 0) + (d.scorte[k] || 0));
+            });
+        }
+        decreeNotice(target, Object.assign({}, rec.notizia || {}, { edittoId: rec.id || null }));
+        return true;
+    }
+
     // Le truppe appartengono a chi possiede la PROVINCIA (come le navi, §9.2):
     // `data-pc-color` è solo la bandiera che si vede. Perciò posare soldati su
     // una provincia altrui non li consegna a nessuno — chi promulga un editto
@@ -4480,17 +4519,19 @@
         } else if (o.azione === 'oro') {
             if (!target) return fail('Indica il regno.');
             if (!n) return fail('Indica quante monete (negative per toglierle).');
-            target.monete = Math.max(0, (target.monete || 0) + n);
             msg = (n > 0 ? '+' : '') + n + ' monete a ' + target.name + '.';
+            if (o.differito) return deferDecree(target, o, { monete: n }, msg);
+            target.monete = Math.max(0, (target.monete || 0) + n);
 
         } else if (o.azione === 'scorte') {
             if (!target) return fail('Indica il regno.');
             const res = o.risorsa;
             if (GR().RES.indexOf(res) < 0) return fail('Risorsa sconosciuta.');
             if (!n) return fail('Indica quante scorte (negative per toglierle).');
+            msg = (n > 0 ? '+' : '') + n + ' ' + GR().RES_LABEL[res] + ' a ' + target.name + '.';
+            if (o.differito) return deferDecree(target, o, { scorte: { [res]: n } }, msg);
             if (!target.scorte) target.scorte = GR().emptyScorte();
             target.scorte[res] = Math.max(0, (target.scorte[res] || 0) + n);
-            msg = (n > 0 ? '+' : '') + n + ' ' + GR().RES_LABEL[res] + ' a ' + target.name + '.';
 
         } else {
             return fail('Editto sconosciuto.');
@@ -4612,6 +4653,7 @@
         // esposti anche qui per poterli guidare a mano nei test.
         applyEvents, tickEvents,
         decree,
+        applyDecree,
         deploy, deployBound, deployAllBound, undeploy, deployKnight,
         build, buildWelfare, maintainWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
         destroyMarket, destroyShip,

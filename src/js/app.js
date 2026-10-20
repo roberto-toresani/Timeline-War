@@ -148,6 +148,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // prima che la cancellazione arrivi).
     let pendingId = null;
     const appliedInterventions = new Set();
+    // EDITTI DIFFERITI (oro/scorte, GameActions.deferDecree) promulgati DURANTE un
+    // intervento: non sono nel diff delle province, quindi si tengono a parte e
+    // si aggiungono al pacchetto al commit (pendingDiff.decrees).
+    let interventionDecrees = [];
     // Comandi della vista mappa (fit/insets), riempiti da wireMapZoom: li usa la plancia.
     // Dichiarato qui in cima perche' initMap gira molto prima del corpo di wireMapZoom.
     let mapView = null;
@@ -2882,8 +2886,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Diff coi SOLI campi che l'admin ha toccato: province (proprietario/pedine/
     // risorsa/fede), regni aggiunti, controllo/nome/colore cambiati, ordine e strade.
     // Tutto il resto (le mosse dei giocatori nel frattempo) resta intatto.
+    function emptyDiff() {
+        return { provinces: {}, addPlayers: [], setPlayer: {}, ordineAppend: [], roadsAdd: [], roadsRemove: [] };
+    }
+
+    // Un pacchetto che porta SOLO editti (oro/scorte): non blocca un intervento
+    // nuovo — al commit gli editti si travasano nel diff che nasce.
+    function decreeOnly(d) {
+        return !!d && !Object.keys(d.provinces || {}).length && !(d.addPlayers || []).length
+            && !Object.keys(d.setPlayer || {}).length && !(d.ordineAppend || []).length
+            && !(d.roadsAdd || []).length && !(d.roadsRemove || []).length;
+    }
+
     function diffSnapshots(base, ed) {
-        const diff = { provinces: {}, addPlayers: [], setPlayer: {}, ordineAppend: [], roadsAdd: [], roadsRemove: [] };
+        const diff = emptyDiff();
         const bp = base.pieces || {}, ep = ed.pieces || {};
         const br = base.resources || {}, er = ed.resources || {};
         const bf = base.religions || {}, ef = ed.religions || {};
@@ -2960,6 +2976,11 @@ document.addEventListener('DOMContentLoaded', () => {
             ROADS = ROADS.filter(x => !((x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a)));
         });
         (diff.roadsAdd || []).forEach(r => { if (!findRoad(r.a, r.b)) ROADS.push({ a: r.a, b: r.b, c: r.c || PIECE_NEUTRAL }); });
+        // Editti differiti (oro/scorte): un DELTA sullo stato di adesso, con la
+        // pergamena per il regno. applyDecree è idempotente per id di editto.
+        (diff.decrees || []).forEach(rec => {
+            if (typeof GameActions !== 'undefined' && GameActions.applyDecree) GameActions.applyDecree(rec);
+        });
         initPalette();
         renderPlayerTabs();
         renderDecreeControls();
@@ -3018,9 +3039,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pendingDiff && turnoDi !== null && turnoDi !== undefined && turnoDi !== pendingBaseTurnoDi && isInterventionApplier()) applyPendingIntervention();
     }
 
+    // Un editto oro/scorte a partita in corso: entra nel pacchetto dell'intervento.
+    // Durante un intervento aspetta il commit; altrimenti si aggiunge a quello in
+    // attesa (o ne apre uno di soli editti) e parte subito sul canale, come al
+    // commit — lo applica il regista al prossimo cambio turno.
+    function queueDecree(rinvio) {
+        const rec = Object.assign({
+            id: 'ed-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7)
+        }, rinvio);
+        if (adminIntervening) { interventionDecrees.push(rec); updateInterventionUI(); return; }
+        if (!pendingDiff) { pendingDiff = emptyDiff(); pendingBaseTurnoDi = turnoDi; }
+        pendingDiff = Object.assign({}, pendingDiff, { decrees: (pendingDiff.decrees || []).concat([rec]) });
+        if (MultiplayerSync.isConfigured && MultiplayerSync.setIntervention) {
+            // Id nuovo a ogni invio: un regista che avesse già applicato il pacchetto
+            // vecchio (id fra i suoi appliedInterventions) ignorerebbe l'aggiunta.
+            // Riapplicare gli editti vecchi non fa danni (applyDecree è idempotente).
+            pendingId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+            MultiplayerSync.setIntervention({ id: pendingId, diff: pendingDiff, base: pendingBaseTurnoDi })
+                .then(ok => { if (!ok) showPieceNotice('⚠ Editto NON inviato al server: riprova.'); });
+        }
+        saveAutoSave();          // in locale il pacchetto vive nello stato salvato
+        updateInterventionUI();
+    }
+
     function beginIntervention() {
         if (adminIntervening) return;
-        if (pendingDiff) { showPieceNotice('C\'è già un intervento in attesa del prossimo turno.'); return; }
+        if (pendingDiff && !decreeOnly(pendingDiff)) { showPieceNotice('C\'è già un intervento in attesa del prossimo turno.'); return; }
         // I bot guidati da QUESTO browser si fermano: le loro mosse finirebbero
         // sullo schermo congelato e al commit verrebbero buttate (lo schermo torna
         // a `live`) o, peggio, scambiate per ritocchi dell'admin dentro il diff.
@@ -3029,6 +3073,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBotLease();
         adminIntervening = true;
         bufferedRemote = null;
+        interventionDecrees = [];
         interventionBase = buildSnapshotClone();
         updateInterventionUI();
     }
@@ -3036,7 +3081,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function commitIntervention() {
         if (!adminIntervening) return;
         const edited = buildSnapshotClone();
+        // Gli editti già in attesa (pacchetto di soli editti) e quelli promulgati
+        // durante l'intervento viaggiano nel diff nuovo.
+        const editti = ((pendingDiff && pendingDiff.decrees) || []).concat(interventionDecrees);
+        interventionDecrees = [];
         pendingDiff = diffSnapshots(interventionBase, edited);
+        if (editti.length) pendingDiff.decrees = editti;
         adminIntervening = false;
         const live = bufferedRemote || interventionBase;   // stato vero a cui tornare
         pendingBaseTurnoDi = (live && live.turnoDi !== undefined) ? live.turnoDi : null;
@@ -3067,6 +3117,7 @@ document.addEventListener('DOMContentLoaded', () => {
         adminIntervening = false;
         bufferedRemote = null;
         interventionBase = null;
+        interventionDecrees = [];
         if (live) applyCloudState(live);
         updateInterventionUI();
         showPieceNotice('Intervento annullato.');
@@ -3081,7 +3132,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // modalità editor — e nella pausa "preparata ma non avviata" (ordine pieno,
         // turnoDi null) — l'admin edita direttamente, senza differire nulla.
         const gameLive = turnoDi !== null && turnoDi !== undefined;
-        if (beginBtn) beginBtn.style.display = (isAdminMode && gameLive && !adminIntervening && !pendingDiff) ? '' : 'none';
+        if (beginBtn) beginBtn.style.display = (isAdminMode && gameLive && !adminIntervening
+            && (!pendingDiff || decreeOnly(pendingDiff))) ? '' : 'none';
         if (commitBtn) commitBtn.style.display = adminIntervening ? '' : 'none';
         if (cancelBtn) cancelBtn.style.display = adminIntervening ? '' : 'none';
         // Aggiorna tutti: per l'admin, solo online (in locale non c'è nessuno).
@@ -3100,11 +3152,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (canRestore && wasHidden && sel && !sel.options.length) refreshRestorePanel();
         }
         if (banner) {
+            const nEditti = ((pendingDiff && pendingDiff.decrees) || []).length;
             if (adminIntervening) {
-                banner.textContent = '🔧 Intervento in preparazione — edita liberamente, poi «Applica al prossimo turno». Le tue modifiche non sono ancora in partita.';
+                const nPacchetto = nEditti + interventionDecrees.length;
+                banner.textContent = '🔧 Intervento in preparazione — edita liberamente, poi «Applica al prossimo turno». Le tue modifiche non sono ancora in partita.' +
+                    (nPacchetto ? ' Editti nel pacchetto: ' + nPacchetto + '.' : '');
                 banner.style.display = '';
             } else if (pendingDiff) {
-                banner.textContent = '⏳ Intervento in attesa: sarà applicato al prossimo cambio turno.';
+                banner.textContent = decreeOnly(pendingDiff)
+                    ? '⏳ ' + (nEditti === 1 ? 'Un editto' : nEditti + ' editti') + ' (oro/scorte) in attesa: ' + (nEditti === 1 ? 'sarà applicato' : 'saranno applicati') + ' al prossimo cambio turno.'
+                    : '⏳ Intervento in attesa: sarà applicato al prossimo cambio turno.' + (nEditti ? ' Con ' + nEditti + ' editti.' : '');
                 banner.style.display = '';
             } else {
                 banner.style.display = 'none';
@@ -3902,8 +3959,21 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!isAdminMode) return;
             const val = id => (document.getElementById(id) || {}).value;
             const playerId = val('decree-player');
+            const azione = val('decree-action');
+            // ORO e SCORTE a partita in corso NON toccano lo stato adesso: entrano
+            // nella coda di "🔧 Intervieni sulla partita" e li applica il regista al
+            // cambio turno, sommati allo stato di quel momento (GameActions.deferDecree
+            // → queueDecree → applyAdminDiff). Online l'editor quasi mai è lo
+            // scrittore del turno, e un cambio fatto adesso lo cancellerebbe il
+            // primo snapshot. A partita non avviata si applicano subito, come prima.
+            const gameLive = turnoDi !== null && turnoDi !== undefined;
+            const differito = gameLive && (azione === 'oro' || azione === 'scorte');
+            // TRUPPE e PROVINCIA restano immediate: online da non-scrittore del turno
+            // non arrivano in partita. Si decide PRIMA di chiamare decree, perché il
+            // suo saveAutoSave consuma l'handoff.
+            const perso = !differito && MultiplayerSync.isConfigured && !adminIntervening && !shouldPushState();
             const r = GameActions.decree({
-                azione: val('decree-action'),
+                azione,
                 playerId: playerId === '' ? null : playerId,
                 fromId: (val('decree-from') || '').trim() || null,
                 toId: (val('decree-to') || '').trim() || null,
@@ -3911,14 +3981,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 risorsa: val('decree-res'),
                 modo: val('decree-mode'),
                 titolo: (val('decree-title') || '').trim(),
-                testo: (val('decree-text') || '').trim()
+                testo: (val('decree-text') || '').trim(),
+                differito
             });
+            let msg = r.msg, ok = r.ok;
+            if (r.ok && r.rinvio) {
+                queueDecree(r.rinvio);
+                msg += adminIntervening
+                    ? ' Entra nell\'intervento in preparazione.'
+                    : ' Sarà applicato al prossimo cambio turno.';
+            } else if (r.ok && perso) {
+                // Detto chiaro, invece di sparire al primo aggiornamento.
+                ok = false;
+                msg += ' ⚠ NON salvato online: non sei lo scrittore del turno e il prossimo ' +
+                    'aggiornamento lo cancellerà. Per truppe e province usa "🔧 Intervieni ' +
+                    'sulla partita".';
+            }
             const out = document.getElementById('decree-result');
             if (out) {
-                out.textContent = r.msg;
-                out.style.color = r.ok ? '#8fc98f' : '#ff9d9d';
+                out.textContent = msg;
+                out.style.color = ok ? '#8fc98f' : '#ff9d9d';
             }
-            showPieceNotice(r.msg);
+            showPieceNotice(msg);
             if (r.ok) renderGameControls();
         });
     }

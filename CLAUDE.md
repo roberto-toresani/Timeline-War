@@ -1490,6 +1490,30 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     ne resta sempre 1. E le truppe appartengono a chi possiede la **provincia** (come le navi,
     §9.2): con `consegna` posare soldati su una provincia non del regno non glieli consegna —
     `decree` lo dice nel messaggio invece di far finta di niente.
+  - **ORO e SCORTE a partita in corso vanno nella coda di 🔧 INTERVIENI e si applicano al
+    CAMBIO TURNO** (bug 2026-10-19: l'admin dava 100 monete alla Francia per conto del Papa e
+    sparivano — `E().save()` online scrive solo se l'editor è lo scrittore del turno, quasi
+    mai a partita in corso, e il primo snapshot cancellava l'editto; regola dell'utente: "come
+    Intervieni, ma per oro e risorse"). L'handler di `#decree-btn` passa `differito: true`
+    quando `turnoDi` non è null; `decree` allora **non tocca lo stato**: valida e restituisce
+    `rinvio = {playerId, delta, notizia}` (`deferDecree`). `queueDecree` (app.js) lo mette
+    in `pendingDiff.decrees` — in un pacchetto già in attesa o in uno nuovo di soli editti
+    (`emptyDiff`, base = `turnoDi` attuale) — e lo spedisce subito sul canale dell'intervento
+    (`setIntervention`, id nuovo a ogni invio) e nell'autosave; durante un intervento aperto
+    resta in `interventionDecrees` e `commitIntervention` lo travasa nel diff. Al cambio turno
+    il regista lo applica in `applyAdminDiff` → `GameActions.applyDecree`: **somma il delta
+    allo stato di quel momento** (mai sotto zero), non il valore visto dall'admin, e accoda
+    la pergamena a `editti`. `applyDecree` è **idempotente**: l'avviso porta `edittoId` e un
+    editto già presente non si somma due volte (il diff degli interventi, fatto di valori
+    assoluti, poteva permettersi di ripresentarsi; un delta no). Un pacchetto di **soli
+    editti** (`decreeOnly`) non blocca "Intervieni": il banner dice quanti editti attendono.
+    A partita non avviata l'editto oro/scorte resta immediato, come prima. Online il regista
+    è il motore `driver/` se acceso: deve girare col codice nuovo, o gli editti restano in coda.
+  - **TRUPPE e PROVINCIA restano immediate**, con lo stesso problema non risolto: online da
+    non-scrittore l'esito dice "⚠ NON salvato online" e rimanda a **🔧 Intervieni sulla
+    partita**, dove proprietari e pedine finiscono nel diff — ma l'**avviso** al regno
+    (`editti`) no, perché il diff delle province non lo porta. Chi li sistema faccia passare
+    anche l'avviso (`decrees` è il posto).
 - **Eventi storici (`js/events.js`)**: il calendario datato della partita (crociate,
   mongoli, peste, Cent'Anni) sul calendario compresso, gemello di `Religions.SCHISMS`.
   `events.js` è **puro**: descrittori `{id, turn, fino, tipo, titolo, testo, nota, dato,
