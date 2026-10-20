@@ -94,6 +94,16 @@
 
     function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
 
+    // Arrotondamento A SORTE dei caduti: la parte decimale e' la probabilita' di
+    // un morto in piu' (1,3 -> 1 sette volte su dieci, 2 tre volte). La media
+    // resta quella del conto; un arrotondamento secco invece la schiaccia sui
+    // piccoli numeri — 15-contro-3 in pianura, ~1,1 attesi, dava SEMPRE 1, mai 2
+    // (regola dell'utente: "delle volte anche 2 perdite").
+    function roundRand(x, rng) {
+        const f = Math.floor(x);
+        return f + (rng() < x - f ? 1 : 0);
+    }
+
     // Esponente di default: nessun terreno = il valore storico del gioco.
     const DEFAULT_EXP = 2;
 
@@ -299,7 +309,7 @@
         const lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX - WIN_LOSS_MIN) * I;
         const muF = clamp(lossW * (1 + CASUALTY_SPREAD * z), 0, 0.95);
         const minC = (attackerWins ? D : A) > 0 ? 1 : 0;     // chi ha combattuto fa almeno un morto
-        const C = Math.max(0, Math.min(W - 1, Math.max(minC, Math.round(baseW * muF)))); // vincitore tiene >= 1
+        const C = Math.max(0, Math.min(W - 1, Math.max(minC, roundRand(baseW * muF, rng)))); // vincitore tiene >= 1
         const winnerSurvivors = W - C;
 
         // ESITO PER I DUE SCHIERAMENTI.
@@ -323,7 +333,7 @@
             lossL = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I;
             muL = clamp(lossL * (1 + CASUALTY_SPREAD * zr), 0, 0.95);
             const baseL = Math.min(A, forzaD * kt);          // non piu' di quanti il difensore ne abbatta
-            const lost = Math.min(A, Math.max(1, Math.round(baseL * muL))); // sconfitta = almeno un caduto
+            const lost = Math.min(A, Math.max(1, roundRand(baseL * muL, rng))); // sconfitta = almeno un caduto
             attackerSurvivors = Math.max(0, A - lost);
         }
 

@@ -2088,7 +2088,9 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     all'equilibrio `I` va dal **35%** (scontro scontato, `WIN_LOSS_MIN`/`ROUT_LOSS_MIN`:
     regola dell'utente, a 10% conquistare costava troppo poco) all'80%/70% (alla pari).
     Alla pari nulla cambia; contro un pugno di difensori la base è quel pugno: 9-contro-3
-    in montagna costa ~2,4 uomini, mai più di 3; 30-contro-10 in pianura ~4,4.
+    in montagna costa ~2,4 uomini, 30-contro-10 in pianura ~4,4. I caduti si arrotondano
+    A SORTE (`roundRand`: la parte decimale è la probabilità di un morto in più), così
+    15-contro-3 in pianura dà 1 caduto e ogni tanto 2, invece di sempre 1.
     Almeno un caduto se dall'altra parte qualcuno ha combattuto.
   - **I bersagli portano il terreno con sé**: `GameActions.attackTargets` mette `terreno` e
     `esponente` su ogni bersaglio, così plancia e bot non se lo ricalcolano (e non possono
