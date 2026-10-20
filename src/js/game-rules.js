@@ -26,17 +26,17 @@
         strada:      { pietra: 1, soldati: 1 },
         barca:       { legno: 3, soldati: 1 },
         capitale:    { monete: 500 },
-        citta:       { monete: 1000, pietra: 3, argilla: 2, bestiame: 2 },
-        fortezza:    { monete: 2000, pietra: 6, legno: 4, argilla: 4, bestiame: 2, grano: 2 },
-        vascello:    { monete: 4000, legno: 10, argilla: 2, bestiame: 4, grano: 4 },
-        mercato:     { monete: 800, soldati: 4 },
-        generale:    { monete: 500, bestiame: 3, grano: 3, argilla: 1 },
-        mercenario:  { monete: 150 },
-        guarnigione: { bestiame: 2, grano: 2, argilla: 1 },
+        citta:       { monete: 800, pietra: 3, argilla: 2, bestiame: 2 },
+        fortezza:    { monete: 1500, pietra: 6, legno: 4, argilla: 4, bestiame: 2, grano: 2 },
+        vascello:    { monete: 1800, legno: 10, argilla: 2, bestiame: 4, grano: 4 },
+        mercato:     { monete: 600, soldati: 3 },
+        generale:    { monete: 200, bestiame: 3, grano: 3, argilla: 1 },
+        mercenario:  { monete: 100 },
+        guarnigione: { bestiame: 1, grano: 1, argilla: 1 },
         // Il cavallo è Bestiame (regola dell'utente: 1 Bestiame + 50 monete): il
         // prezzo vero del cavaliere è la bestia, non l'oro.
         cavaliere:   { monete: 50, bestiame: 1 },
-        spia:        { monete: 300 }
+        spia:        { monete: 200 }
     };
 
     // Descrizione dell'effetto, per la legenda (§6).

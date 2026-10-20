@@ -4,7 +4,7 @@
 // chi confina con chi. Chi muta lo stato è game-actions.js (sendSpy), chi
 // dipinge la nebbia è app.js (computeVisibleProvinces).
 //
-// Che cosa fa una spia, in una riga: per 300 monete manda un uomo in un
+// Che cosa fa una spia, in una riga: per 200 monete manda un uomo in un
 // territorio LONTANO e per 3 turni ti fa vedere di CHI SONO quella provincia e
 // le sue limitrofe. Non le truppe: una spia riconosce le bandiere, non conta le
 // guarnigioni — è esattamente la NEBBIA LEGGERA del §9.2 (`haze`), la stessa
@@ -20,7 +20,7 @@
 (function (root) {
     'use strict';
 
-    const COSTO = 300;      // monete (§6)
+    const COSTO = 200;      // monete (§6)
     const DURATA = 3;       // turni di perlustrazione, cioè 3 decenni (§9.3)
     const MAX = 3;          // perlustrazioni aperte contemporaneamente
     const RAGGIO = 5;       // quanti confini si possono percorrere per arrivarci

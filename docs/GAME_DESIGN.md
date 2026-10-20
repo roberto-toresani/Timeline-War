@@ -239,7 +239,7 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 
 ### 5.3 Valori delle unità speciali
 - **Generale** = vale 2 soldati **[REGOLA]**, e conta per la Popolarità se nella Capitale.
-- **Mercenario** = 1 soldato **permanente** ma **di ventura** (150 monete) **[REGOLA]**.
+- **Mercenario** = 1 soldato **permanente** ma **di ventura** (100 monete) **[REGOLA]**.
 - **Guarnigione** = 2 soldati di rinforzo **permanenti** (truppe normali) **[REGOLA]**.
 
 #### La ventura **[REGOLA]**
@@ -308,14 +308,14 @@ dove indicato.
 | **Strada** | 1 Pietra + 1 soldato | Collega due province controllate adiacenti. |
 | **Nave** | 2 Legno + 2 soldati | Solo su provincia **costiera**. Portata di mare **12**, carico **8** soldati (§9.2). |
 | **Capitale** | 500 monete (0 soldati) | I regni **non partono** con una Capitale: la prima si costruisce al turno 1. **Conta come una Città a tutti gli effetti** (difesa **+1**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. **Spostabile** su una provincia propria per altre **500 monete** (la vecchia sede → Città). Conquistando una Capitale nemica: se non ne hai una è tua; se ne hai già una scegli se promuoverla (la vecchia → Città) o lasciarla Città. |
-| **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 1000 monete | Capitale secondaria (collegamento locale). Difesa **+1**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
-| **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 2000 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+3**. Ogni turno: +5 soldati **oppure** +1 Generale. |
-| **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 4000 monete | Solo su provincia **costiera**. Portata di mare **170**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
-| **Mercato** | 4 soldati + 800 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
-| **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 500 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
-| **Mercenario** | 150 monete | +1 soldato **permanente**, ma di ventura: in battaglia vale meno di un suddito e rende un numero incerto (§5.3, §9). |
-| **Guarnigione** | 2 Bestiame + 2 Grano + 1 Argilla | +2 soldati di rinforzo permanenti (truppe normali). |
-| **Spia** | 300 monete | Perlustra per **3 turni** una provincia lontana e le sue limitrofe: se ne vedono i **proprietari**, non le truppe (§9.3). |
+| **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 800 monete | Capitale secondaria (collegamento locale). Difesa **+1**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
+| **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 1500 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+3**. Ogni turno: +5 soldati **oppure** +1 Generale. |
+| **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 1800 monete | Solo su provincia **costiera**. Portata di mare **170**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
+| **Mercato** | 3 soldati + 600 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
+| **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 200 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
+| **Mercenario** | 100 monete | +1 soldato **permanente**, ma di ventura: in battaglia vale meno di un suddito e rende un numero incerto (§5.3, §9). |
+| **Guarnigione** | 1 Bestiame + 1 Grano + 1 Argilla | +2 soldati di rinforzo permanenti (truppe normali). |
+| **Spia** | 200 monete | Perlustra per **3 turni** una provincia lontana e le sue limitrofe: se ne vedono i **proprietari**, non le truppe (§9.3). |
 
 **Interpretazioni [PROPOSTA]:**
 - Città "+1 Pietra" = **[REGOLA]** bonus **una tantum** alla costruzione (+1 Pietra alle scorte),
@@ -772,7 +772,7 @@ della mappa. La **spia** è la terza strada, e l'unica che si compra con l'oro.
 
 | | valore |
 |---|---|
-| **Costo** | **300 monete** |
+| **Costo** | **200 monete** |
 | **Durata** | **3 turni** (quello dell'invio e i due successivi) |
 | **Quante insieme** | **3** per regno |
 | **Quanto lontano** | fino a **5 confini** di distanza dal proprio territorio |
@@ -793,7 +793,7 @@ compare per nessuno. Quindi non esiste il gesto "caccia la spia": l'unica difesa
 tre turni e poi rientra da sé. È voluto — una perlustrazione che si può scoprire diventerebbe
 una seconda guerra, con una sua economia e i suoi turni, e questo gioco non la vuole.
 
-**Si manda solo dove non si vede già.** Non è una restrizione di comodo: 300 monete per
+**Si manda solo dove non si vede già.** Non è una restrizione di comodo: 200 monete per
 guardare la provincia che confina con la propria sarebbero monete buttate, e il gioco non deve
 permettere di buttarle per distrazione. Il vincolo vale anche verso il mare — se lì arriva già
 un Veliero, quella provincia non è una meta.

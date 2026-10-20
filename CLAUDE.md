@@ -285,7 +285,7 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
 - **Presidio minimo (§5)**: una provincia **non resta mai sguarnita**. `GameRules.MIN_GARRISON`
   (=1) e `GameRules.spendableTroops(n)` sono l'unica fonte della regola: qualunque cosa porti
   soldati fuori da una provincia lavora sugli **spendibili**, non sui presenti — attacco,
-  spostamento finale, costi in soldati delle costruzioni (Mercato 4, Nave 1,
+  spostamento finale, costi in soldati delle costruzioni (Mercato 3, Nave 1,
   Strada 1 — la Capitale non costa soldati) e persino il ritiro di una recluta appena schierata. Anche la conquista la
   rispetta dall'altra parte: almeno 1 superstite resta nella provincia presa. Se aggiungi
   un'azione che sottrae soldati, passa da `spare(path)` in `game-actions.js` e da `spareOf(path)`
@@ -322,7 +322,7 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
   (duplicato, §Mercato qui sopra, o una chiglia in più che non serve), si demolisce e si
   recupera QUALCOSA. Mai il pieno valore, o conquistare varrebbe più che costruire da zero:
   **Mercato → 2 uomini + 100 monete. Nave → 1 uomo + 1 Legno.**
-  **Solo la Nave (barca), MAI il Vascello** (regola dell'utente): il Vascello costa 4000
+  **Solo la Nave (barca), MAI il Vascello** (regola dell'utente): il Vascello costa 1800
   monete e serve alle rotte lunghe (§9.2) — recuperarne un decimo con la stessa leva della
   Nave svaluterebbe l'investimento. `destroyShip` rifiuta `tipo !== 'barca'` a monte, e
   `demolitionGroup` in `player-board.js` filtra gli scafi della provincia allo stesso modo
