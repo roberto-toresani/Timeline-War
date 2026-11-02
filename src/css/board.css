@@ -3358,6 +3358,11 @@ body.mobile-lite .sheet-head { padding: 10px 12px; gap: 8px; }
 body.mobile-lite .sheet-sub { display: none; }
 body.mobile-lite .sheet-close { width: 42px; height: 42px; margin-left: auto; }
 body.mobile-lite .sheet-body { padding: 12px; }
+/* Da telefono a scorrere è il CORPO del foglio, non la colonna (qui sotto le
+   colonne vanno a `overflow: visible`). Vale anche per i fogli a colonna sola
+   — Corona e Obiettivi — che non hanno `.cols`: lasciati fuori, il loro corpo
+   restava `overflow: hidden` e Popolarità e obiettivi non scorrevano più. */
+body.mobile-lite .sheet-body:not(.chat-body),
 body.mobile-lite .sheet-body.cols,
 body.mobile-lite .sheet-body.cols:has(.sheet-col.wide),
 body.mobile-lite .sheet-body.cols:has(.sheet-col.wide:last-child) {
