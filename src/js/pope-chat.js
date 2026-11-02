@@ -2,21 +2,26 @@
 // ✝ IL PAPA — la voce dell'admin in chat (regola dell'utente)
 //
 // Il Papa NON è un regno: niente province, niente turno, niente record in
-// PLAYERS. È solo una firma in chat, che l'admin presta da qui (editor). Scrive
-// in PRIVATO a qualunque regno — confini o no, nebbia o no — oppure a tutti
+// PLAYERS. È solo una firma in chat, che l'admin presta da qui. Scrive in
+// PRIVATO a qualunque regno — confini o no, nebbia o no — oppure a tutti
 // (un'enciclica sul canale pubblico). Ogni regno trova nella sua chat il filo
 // "✝ Il Papa" e può rispondergli lì (player-board.js; i regni musulmani solo
 // dopo che il Papa ha scritto loro).
 //
-// Il pannello è una CASELLA DI POSTA (regola dell'utente): in alto TUTTE le
-// conversazioni in corso, dalla più recente, con l'ultima riga, l'ora e i non
-// letti; un clic apre il filo sotto. "Nuova lettera a…" apre il filo con un
-// regno a cui il Papa non ha ancora scritto.
+// È una FINESTRA A PARTE (regola dell'utente), non un pannello dell'editor:
+// normalmente CHIUSA, si apre col bottone ✝ che solo l'admin vede, sia
+// nell'editor sia nella plancia, da PC e da telefono. Il modulo costruisce da
+// sé bottone e finestra, quindi basta caricarlo in una pagina.
+//   · a sinistra i REGNI con la loro relazione con la Santa Sede — fede di
+//     stato, come la Chiesa li considera, se possono scrivere al Papa, chi li
+//     governa, lettere scambiate, ultimo contatto, non lette;
+//   · a destra il filo aperto e la riga d'invio.
+//   Da telefono è una colonna sola: l'elenco, e il filo sopra con "← Regni".
 //
 // Trasporto: la stessa collezione `chat` di sync.js. Un messaggio del Papa è
 // {regno:'Il Papa', papa:true, to?, toId?}; uno al Papa è {regno:<regno>,
 // to:'Il Papa', papa:true}. `papa:true` dice ai bot di non rispondere.
-// Il "letto" della console sta in localStorage (comodità di chi guarda).
+// Il "letto" sta in localStorage (comodità di chi guarda).
 // ============================================================
 
 (function (root, doc) {
@@ -28,20 +33,26 @@
     const ENC = '';             // la "conversazione" delle encicliche (canale pubblico)
 
     const R = () => root.Risiko;
-    const $ = id => doc.getElementById(id);
     const sync = () => (typeof MultiplayerSync !== 'undefined' ? MultiplayerSync : null);
 
     let messages = [];
-    let target = ENC;           // ENC = encicliche, altrimenti il NOME del regno
+    let target = null;          // null = nessun filo aperto; ENC = encicliche; altrimenti NOME del regno
+    let isOpen = false;
     let seen = {};
     try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (e) { seen = {}; }
     let lastListSig = '';
-    let lastSelSig = '';
     let lastLogSig = '';
+    let el = null;              // i pezzi della finestra, creati una volta
+
+    // Una plancia aperta col link d'invito (?p=) è la pagina di un giocatore:
+    // lì il Papa non compare nemmeno se chi guarda è l'admin.
+    const onPlayerLink = (() => {
+        try { return new URLSearchParams(root.location.search).has('p'); } catch (e) { return false; }
+    })();
 
     function isAdmin() {
         const r = R();
-        return !!(r && r.isAdmin && r.isAdmin());
+        return !onPlayerLink && !!(r && r.isAdmin && r.isAdmin());
     }
 
     function kingdoms() {
@@ -49,22 +60,35 @@
         return (r && r.players) ? r.players() : [];
     }
 
-    // Il filo fra il Papa e un regno; con ENC l'elenco delle encicliche.
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // ---------- i fili ----------
+
     function thread(name) {
         if (name === ENC) return messages.filter(m => m.regno === PAPA && !m.to);
         return messages.filter(m =>
             (m.regno === PAPA && m.to === name) || (m.to === PAPA && m.regno === name));
     }
 
-    // Quanti messaggi AL Papa da quel regno non sono ancora stati letti qui.
     function unread(name) {
-        if (name === ENC) return 0;
+        if (name === ENC || name == null) return 0;
         const at = seen[name] || 0;
         return messages.filter(m => m.to === PAPA && m.regno === name && (m.ts || 0) > at).length;
     }
 
+    function totalUnread() {
+        const names = new Set(kingdoms().map(k => k.name));
+        messages.forEach(m => { if (m.to === PAPA && m.regno) names.add(m.regno); });
+        let t = 0;
+        names.forEach(n => { t += unread(n); });
+        return t;
+    }
+
     function markSeen(name) {
-        if (name === ENC) return;
+        if (name === ENC || name == null) return;
         const last = thread(name).reduce((a, m) => Math.max(a, m.ts || 0), 0);
         if (last > (seen[name] || 0)) {
             seen[name] = last;
@@ -72,198 +96,289 @@
         }
     }
 
-    // Tutte le conversazioni che hanno almeno un messaggio, dalla più recente.
-    // Un regno uscito di scena resta in elenco col suo nome: lo storico non si perde.
-    function conversations() {
-        const by = new Map();
-        messages.forEach(m => {
-            let key = null;
-            if (m.regno === PAPA) key = m.to || ENC;
-            else if (m.to === PAPA) key = m.regno;
-            if (key === null || key === undefined) return;
-            const c = by.get(key) || { name: key, last: null, n: 0 };
-            c.n++;
-            if (!c.last || (m.ts || 0) >= (c.last.ts || 0)) c.last = m;
-            by.set(key, c);
-        });
-        // Il filo aperto resta in elenco anche se è ancora vuoto (nuova lettera).
-        if (!by.has(target)) by.set(target, { name: target, last: null, n: 0 });
-        return Array.from(by.values())
-            .sort((a, b) => ((b.last && b.last.ts) || Infinity) - ((a.last && a.last.ts) || Infinity));
-    }
-
-    function colorOf(name) {
-        if (name === ENC) return COLORE;
-        const k = kingdoms().find(p => p.name === name);
-        if (k) return k.color;
-        const m = messages.find(x => x.regno === name && x.colore);
-        return m ? m.colore : '#888';
-    }
-
-    function labelOf(name) {
-        return name === ENC ? '🌍 Encicliche (a tutti)' : name;
-    }
-
     function time(ts) {
         if (!ts) return '';
         const d = new Date(ts);
         const p = n => String(n).padStart(2, '0');
-        const oggi = new Date();
-        const stessoGiorno = d.toDateString() === oggi.toDateString();
+        const stessoGiorno = d.toDateString() === new Date().toDateString();
         return (stessoGiorno ? '' : p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ') +
             p(d.getHours()) + ':' + p(d.getMinutes());
     }
 
-    function renderThreads() {
-        const box = $('pope-threads');
-        if (!box) return;
-        const convs = conversations();
-        const sig = target + '|' + convs.map(c => c.name + ':' + c.n + ':' + unread(c.name) +
-            ':' + (c.last ? c.last.id : '')).join('|');
-        if (sig === lastListSig) return;
-        lastListSig = sig;
-        box.innerHTML = '';
-        convs.forEach(c => {
-            const row = doc.createElement('button');
-            row.type = 'button';
-            row.className = 'pope-thread' + (c.name === target ? ' on' : '');
-            const n = unread(c.name);
+    // ---------- la relazione con la Santa Sede ----------
+    // Tutta letta dallo stato che il gioco già tiene: niente campi nuovi.
 
-            const dot = doc.createElement('span');
-            dot.className = 'pope-dot';
-            dot.style.background = colorOf(c.name);
-            const name = doc.createElement('span');
-            name.className = 'pope-thread-name';
-            name.textContent = labelOf(c.name);
-            const when = doc.createElement('span');
-            when.className = 'pope-thread-when';
-            when.textContent = c.last ? time(c.last.ts) : 'nuova';
-            const top = doc.createElement('div');
-            top.className = 'pope-thread-top';
-            top.appendChild(dot); top.appendChild(name); top.appendChild(when);
-            if (n) {
-                const b = doc.createElement('span');
-                b.className = 'pope-unread';
-                b.textContent = n;
-                top.appendChild(b);
-            }
-
-            const prev = doc.createElement('div');
-            prev.className = 'pope-thread-prev' + (n ? ' new' : '');
-            prev.textContent = c.last
-                ? (c.last.regno === PAPA ? 'Tu: ' : '') + (c.last.testo || '')
-                : 'Nessuna lettera ancora.';
-
-            row.appendChild(top); row.appendChild(prev);
-            row.addEventListener('click', () => open(c.name));
-            box.appendChild(row);
-        });
+    function faithOf(k) {
+        const r = R();
+        const fede = (r && r.stateReligionOf) ? r.stateReligionOf(k) : null;
+        const Rel = root.Religions;
+        if (fede && Rel) return { id: fede, label: Rel.label(fede), fam: Rel.familyOf(fede), color: Rel.color(fede) };
+        // Senza Capitale non c'è fede di stato: la famiglia che pesa sui patti
+        // (dottrina, poi maggioranza delle province) dice almeno da che parte sta.
+        const fam = (root.Bot && root.Bot.faithFamilyOf) ? root.Bot.faithFamilyOf(k) : null;
+        return fam ? { id: null, label: fam.charAt(0).toUpperCase() + fam.slice(1), fam: fam, color: '#888' } : null;
     }
 
-    // "Nuova lettera a…": tutti i regni (e le encicliche), per aprire un filo
-    // che non c'è ancora. Scelto, torna sulla voce guida.
-    function renderSelect() {
-        const sel = $('pope-target');
-        if (!sel) return;
-        const ks = kingdoms();
-        const sig = ks.map(k => k.name).join('|');
-        if (sig === lastSelSig) return;
-        lastSelSig = sig;
-        sel.innerHTML = '';
-        const add = (value, text) => {
-            const o = doc.createElement('option');
-            o.value = value; o.textContent = text;
-            sel.appendChild(o);
+    // Come la Chiesa di Roma guarda quel regno, dalla sua fede.
+    function standing(f) {
+        if (!f) return { label: 'Fede ignota', cls: 'unk' };
+        if (f.id === 'cattolici' || f.id === 'cristiani') return { label: 'Figlio della Chiesa', cls: 'faithful' };
+        if (f.id === 'ortodossi') return { label: 'Scismatico', cls: 'schism' };
+        if (f.id === 'protestanti') return { label: 'Eretico', cls: 'heretic' };
+        if (f.fam === 'cristiani') return { label: 'Cristiano', cls: 'faithful' };
+        if (f.fam === 'musulmani') return { label: 'Infedele', cls: 'infidel' };
+        return { label: 'Pagano', cls: 'pagan' };
+    }
+
+    function relationOf(k) {
+        const f = faithOf(k);
+        const th = thread(k.name);
+        const sent = th.filter(m => m.regno === PAPA).length;
+        const recv = th.length - sent;
+        const last = th.length ? th[th.length - 1] : null;
+        // Stessa regola della plancia (papaReachable): un regno musulmano non si
+        // rivolge al Papa finché il Papa non gli ha scritto.
+        const voce = (f && f.fam === 'musulmani')
+            ? (sent ? 'Può rispondere al Papa' : 'Non scrive finché il Papa non scrive')
+            : 'Può scrivere al Papa';
+        const chi = k.bot ? '🤖 IA — non risponde' : (k.controllo === 'player' ? '👤 Giocatore' : '🧑 Admin');
+        return { fede: f, st: standing(f), sent, recv, last, voce, chi, unread: unread(k.name) };
+    }
+
+    // ---------- la finestra ----------
+
+    function build() {
+        if (el) return el;
+        const fab = doc.createElement('button');
+        fab.type = 'button';
+        fab.id = 'pope-fab';
+        fab.title = 'Il Papa — lettere ai regni';
+        fab.innerHTML = '<span class="pf-ico">✝</span><span class="pf-badge" style="display:none;"></span>';
+        fab.style.display = 'none';
+        fab.addEventListener('click', () => (isOpen ? close() : open()));
+
+        const win = doc.createElement('div');
+        win.id = 'pope-win';
+        win.style.display = 'none';
+        win.innerHTML =
+            '<div class="pw-box" role="dialog" aria-label="La Santa Sede">' +
+              '<header class="pw-head">' +
+                '<span class="pw-title">✝ La Santa Sede</span>' +
+                '<span class="pw-sub">lettere e rapporti con i regni</span>' +
+                '<span class="pw-unread" style="display:none;"></span>' +
+                '<button type="button" class="pw-close" title="Chiudi (Esc)">✕</button>' +
+              '</header>' +
+              '<div class="pw-body">' +
+                '<aside class="pw-list"></aside>' +
+                '<section class="pw-thread">' +
+                  '<div class="pw-thead">' +
+                    '<button type="button" class="pw-back">← Regni</button>' +
+                    '<div class="pw-tinfo"></div>' +
+                  '</div>' +
+                  '<div class="pw-log"></div>' +
+                  '<form class="pw-form" autocomplete="off">' +
+                    '<textarea class="pw-text" rows="2" maxlength="500"></textarea>' +
+                    '<button type="submit" class="pw-send">✉ Invia</button>' +
+                  '</form>' +
+                '</section>' +
+              '</div>' +
+            '</div>';
+        doc.body.appendChild(fab);
+        doc.body.appendChild(win);
+
+        el = {
+            fab, win,
+            badge: fab.querySelector('.pf-badge'),
+            unread: win.querySelector('.pw-unread'),
+            list: win.querySelector('.pw-list'),
+            info: win.querySelector('.pw-tinfo'),
+            log: win.querySelector('.pw-log'),
+            form: win.querySelector('.pw-form'),
+            text: win.querySelector('.pw-text')
         };
-        add('__', '✉ Nuova lettera a…');
-        add(ENC, '🌍 Tutti i regni (enciclica pubblica)');
-        ks.forEach(k => add(k.name, '🔒 ' + k.name));
-        sel.value = '__';
-    }
 
-    function renderTotal() {
-        const box = $('pope-unread');
-        if (!box) return;
-        const tot = conversations().reduce((a, c) => a + unread(c.name), 0);
-        box.textContent = tot ? '✉ ' + tot : '';
-        box.style.display = tot ? '' : 'none';
-    }
-
-    function renderLog() {
-        const head = $('pope-thread-head');
-        if (head) head.textContent = target === ENC
-            ? '🌍 Encicliche — le leggono tutti i regni'
-            : '🔒 Lettere con ' + target;
-        const log = $('pope-log');
-        if (!log) return;
-        const msgs = thread(target);
-        // Il controllo ogni 2 s non deve riportare in fondo chi sta rileggendo.
-        const sig = target + '#' + msgs.length + '#' + (msgs.length ? msgs[msgs.length - 1].id : '');
-        if (sig === lastLogSig) return;
-        lastLogSig = sig;
-        log.innerHTML = '';
-        if (!msgs.length) {
-            const e = doc.createElement('div');
-            e.className = 'pope-empty';
-            e.textContent = target !== ENC
-                ? 'Nessuna lettera fra il Papa e ' + target + '.'
-                : 'Nessuna enciclica. Quel che scrivi qui lo leggono tutti i regni.';
-            log.appendChild(e);
-            return;
-        }
-        msgs.forEach(m => {
-            const row = doc.createElement('div');
-            row.className = 'pope-msg' + (m.regno === PAPA ? ' mine' : '');
-            const meta = doc.createElement('div');
-            meta.className = 'pope-meta';
-            const dot = doc.createElement('span');
-            dot.className = 'pope-dot';
-            dot.style.background = m.colore || '#888';
-            const who = doc.createElement('b');
-            who.textContent = m.regno === PAPA ? '✝ ' + PAPA : (m.regno || '—');
-            const when = doc.createElement('span');
-            when.textContent = ' ' + time(m.ts);
-            meta.appendChild(dot); meta.appendChild(who); meta.appendChild(when);
-            const bub = doc.createElement('div');
-            bub.className = 'pope-bubble';
-            bub.textContent = m.testo || '';
-            row.appendChild(meta); row.appendChild(bub);
-            log.appendChild(row);
+        win.querySelector('.pw-close').addEventListener('click', close);
+        win.querySelector('.pw-back').addEventListener('click', () => select(null));
+        // Un clic sul velo (fuori dal riquadro) chiude, come le altre finestre.
+        win.addEventListener('mousedown', e => { if (e.target === win) close(); });
+        el.list.addEventListener('click', e => {
+            const card = e.target.closest && e.target.closest('.pw-card');
+            if (card) select(card.dataset.name);
         });
-        log.scrollTop = log.scrollHeight;
+        el.form.addEventListener('submit', e => { e.preventDefault(); send(); });
+        el.text.addEventListener('keydown', e => {
+            // Invio manda, Maiusc+Invio va a capo.
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+        doc.addEventListener('keydown', e => { if (isOpen && e.key === 'Escape') close(); });
+        return el;
     }
 
-    function render() {
-        const box = $('pope-controls');
-        if (!box) return;
-        const admin = isAdmin();
-        box.style.display = admin ? 'block' : 'none';
-        if (!admin) return;
-        // Aperto un filo, le lettere di quel regno sono lette.
-        markSeen(target);
-        renderSelect();
-        renderThreads();
-        renderTotal();
-        renderLog();
-        const inp = $('pope-text');
-        if (inp) inp.placeholder = target !== ENC
-            ? 'Lettera privata a ' + target + '…'
-            : 'Enciclica a tutti i regni…';
+    function open() {
+        if (!isAdmin()) return;
+        build();
+        isOpen = true;
+        el.win.style.display = '';
+        el.fab.classList.add('on');
+        // Da PC si apre già sul filo più recente; da telefono si parte dall'elenco.
+        if (target == null && !narrow()) {
+            const recente = cards()[0];
+            target = recente ? recente.name : ENC;
+        }
+        lastListSig = ''; lastLogSig = '';
+        render();
     }
 
-    function open(name) {
+    function close() {
+        isOpen = false;
+        if (!el) return;
+        el.win.style.display = 'none';
+        el.fab.classList.remove('on');
+    }
+
+    function narrow() { return root.matchMedia && root.matchMedia('(max-width: 820px)').matches; }
+
+    function select(name) {
         target = name;
         lastListSig = ''; lastLogSig = '';
         render();
-        const inp = $('pope-text');
-        if (inp) inp.focus();
+        if (name != null && el && !narrow()) el.text.focus();
+    }
+
+    // Le schede dell'elenco: le encicliche, poi i regni con cui c'è già
+    // corrispondenza (dalla più recente), poi tutti gli altri per nome. Un regno
+    // uscito di scena resta col suo nome finché ha lettere.
+    function cards() {
+        const byName = new Map();
+        kingdoms().forEach(k => byName.set(k.name, k));
+        messages.forEach(m => {
+            const n = m.regno === PAPA ? m.to : (m.to === PAPA ? m.regno : null);
+            if (n && !byName.has(n)) byName.set(n, { name: n, color: m.colore || '#888', ghost: true });
+        });
+        const list = Array.from(byName.values()).map(k => {
+            const rel = k.ghost ? null : relationOf(k);
+            const th = thread(k.name);
+            return { name: k.name, color: k.color, k, rel, lastTs: th.length ? (th[th.length - 1].ts || 0) : 0 };
+        });
+        list.sort((a, b) => (b.lastTs - a.lastTs) || a.name.localeCompare(b.name));
+        return list;
+    }
+
+    function renderList() {
+        const cs = cards();
+        const enc = thread(ENC);
+        const sig = target + '|' + enc.length + '|' + cs.map(c =>
+            c.name + ':' + c.lastTs + ':' + (c.rel ? c.rel.unread + c.rel.st.label + c.rel.chi : '')).join('|');
+        if (sig === lastListSig) return;
+        lastListSig = sig;
+
+        const encLast = enc.length ? enc[enc.length - 1] : null;
+        let html = '<button type="button" class="pw-card enc' + (target === ENC ? ' on' : '') + '" data-name="">' +
+            '<div class="pw-crow"><span class="pw-dot" style="background:' + COLORE + '"></span>' +
+            '<span class="pw-cname">🌍 Encicliche</span>' +
+            '<span class="pw-when">' + (encLast ? time(encLast.ts) : '') + '</span></div>' +
+            '<div class="pw-cmeta">A tutti i regni, sul canale pubblico · ' + enc.length + ' inviate</div></button>';
+
+        cs.forEach(c => {
+            const r = c.rel;
+            const last = r ? r.last : null;
+            html += '<button type="button" class="pw-card' + (target === c.name ? ' on' : '') + '" data-name="' + esc(c.name) + '">' +
+                '<div class="pw-crow"><span class="pw-dot" style="background:' + esc(c.color || '#888') + '"></span>' +
+                '<span class="pw-cname">' + esc(c.name) + '</span>' +
+                (r && r.unread ? '<span class="pw-badge">' + r.unread + '</span>' : '') +
+                '<span class="pw-when">' + (last ? esc(time(last.ts)) : '') + '</span></div>';
+            if (r) {
+                html += '<div class="pw-tags">' +
+                    '<span class="pw-tag st-' + r.st.cls + '">' + esc(r.st.label) + '</span>' +
+                    (r.fede ? '<span class="pw-tag"><i style="background:' + esc(r.fede.color) + '"></i>' + esc(r.fede.label) + '</span>' : '') +
+                    '</div>' +
+                    '<div class="pw-cmeta">' + esc(r.chi) + ' · ✉ ' + r.sent + ' inviate · ' + r.recv + ' ricevute</div>';
+                if (last) {
+                    html += '<div class="pw-prev' + (r.unread ? ' new' : '') + '">' +
+                        (last.regno === PAPA ? 'Tu: ' : '') + esc(last.testo) + '</div>';
+                }
+            } else {
+                html += '<div class="pw-cmeta">Regno non più in gioco</div>';
+            }
+            html += '</button>';
+        });
+        el.list.innerHTML = html;
+    }
+
+    function renderThread() {
+        const box = el.win.querySelector('.pw-box');
+        box.classList.toggle('has-thread', target != null);
+        if (target == null) {
+            el.info.innerHTML = '';
+            el.log.innerHTML = '<div class="pw-empty">Scegli un regno a sinistra per leggere le lettere e scrivergli.</div>';
+            el.text.disabled = true;
+            lastLogSig = '';
+            return;
+        }
+        el.text.disabled = false;
+        el.text.placeholder = target === ENC ? 'Enciclica a tutti i regni…' : 'Lettera privata a ' + target + '…';
+
+        // Intestazione del filo: chi è e com'è messo con Roma.
+        if (target === ENC) {
+            el.info.innerHTML = '<div class="pw-tname">🌍 Encicliche</div>' +
+                '<div class="pw-tline">Le leggono tutti i regni nel canale pubblico della chat.</div>';
+        } else {
+            const k = kingdoms().find(p => p.name === target);
+            const r = k ? relationOf(k) : null;
+            el.info.innerHTML = '<div class="pw-tname"><span class="pw-dot" style="background:' +
+                esc(k ? k.color : '#888') + '"></span>' + esc(target) + '</div>' +
+                (r ? '<div class="pw-tags">' +
+                    '<span class="pw-tag st-' + r.st.cls + '">' + esc(r.st.label) + '</span>' +
+                    (r.fede ? '<span class="pw-tag"><i style="background:' + esc(r.fede.color) + '"></i>' + esc(r.fede.label) + '</span>' : '') +
+                    '<span class="pw-tag">' + esc(r.chi) + '</span>' +
+                    '<span class="pw-tag">' + esc(r.voce) + '</span>' +
+                    '</div>' : '<div class="pw-tline">Regno non più in gioco.</div>');
+        }
+
+        const msgs = thread(target);
+        // Il controllo periodico non deve riportare in fondo chi sta rileggendo.
+        const sig = target + '#' + msgs.length + '#' + (msgs.length ? msgs[msgs.length - 1].id : '');
+        if (sig === lastLogSig) return;
+        lastLogSig = sig;
+        if (!msgs.length) {
+            el.log.innerHTML = '<div class="pw-empty">' + (target === ENC
+                ? 'Nessuna enciclica. Quel che scrivi qui lo leggono tutti i regni.'
+                : 'Nessuna lettera fra il Papa e ' + esc(target) + '.') + '</div>';
+            return;
+        }
+        el.log.innerHTML = msgs.map(m => {
+            const mine = m.regno === PAPA;
+            return '<div class="pw-msg' + (mine ? ' mine' : '') + '">' +
+                '<div class="pw-mmeta"><span class="pw-dot" style="background:' + esc(m.colore || '#888') + '"></span>' +
+                '<b>' + esc(mine ? '✝ ' + PAPA : (m.regno || '—')) + '</b> ' + esc(time(m.ts)) + '</div>' +
+                '<div class="pw-bubble">' + esc(m.testo) + '</div></div>';
+        }).join('');
+        el.log.scrollTop = el.log.scrollHeight;
+    }
+
+    function render() {
+        const admin = isAdmin();
+        if (!admin) {
+            if (el) { el.fab.style.display = 'none'; close(); }
+            return;
+        }
+        build();
+        el.fab.style.display = '';
+        if (isOpen && target != null) markSeen(target);
+        const tot = totalUnread();
+        el.badge.textContent = tot;
+        el.badge.style.display = tot ? '' : 'none';
+        if (!isOpen) return;
+        el.unread.textContent = tot ? '✉ ' + tot + ' da leggere' : '';
+        el.unread.style.display = tot ? '' : 'none';
+        renderList();
+        renderThread();
     }
 
     function send() {
-        const inp = $('pope-text');
         const s = sync();
-        if (!inp || !s || !s.sendChat || !isAdmin()) return;
-        const text = (inp.value || '').trim();
+        if (!el || !s || !s.sendChat || !isAdmin() || target == null) return;
+        const text = (el.text.value || '').trim();
         if (!text) return;
         const r = R();
         const msg = { testo: text.slice(0, 500), regno: PAPA, colore: COLORE, papa: true,
@@ -274,33 +389,19 @@
             if (k) msg.toId = k.id;
         }
         s.sendChat(msg);
-        inp.value = '';
-        inp.focus();
+        el.text.value = '';
+        el.text.focus();
     }
 
     function wire() {
-        const sel = $('pope-target');
-        if (sel) sel.addEventListener('change', () => {
-            if (sel.value === '__') return;
-            const v = sel.value;
-            sel.value = '__';
-            open(v);
-        });
-        const btn = $('pope-send');
-        if (btn) btn.addEventListener('click', send);
-        const inp = $('pope-text');
-        if (inp) inp.addEventListener('keydown', e => {
-            // Invio manda, Maiusc+Invio va a capo.
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-        });
         const s = sync();
         if (s && s.onChatChange) s.onChatChange(msgs => {
             messages = Array.isArray(msgs) ? msgs : [];
             render();
         });
-        // I regni nascono e cambiano nome a partita in corso, e l'admin si
-        // riconosce solo dopo il login: un controllo leggero ogni 2 s basta
-        // (ogni parte ridisegna solo se qualcosa è cambiato).
+        // I regni nascono e cambiano a partita in corso, e l'admin si riconosce
+        // solo dopo il login: un controllo leggero ogni 2 s basta (ogni parte
+        // ridisegna solo se qualcosa è cambiato).
         setInterval(render, 2000);
         render();
     }
@@ -308,5 +409,5 @@
     if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', wire);
     else wire();
 
-    root.PopeChat = { render: render, open: open, NAME: PAPA };
+    root.PopeChat = { open: open, close: close, render: render, NAME: PAPA };
 })(window, document);
