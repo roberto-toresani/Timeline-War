@@ -2166,9 +2166,9 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     attecchisce.
   - **I salvataggi vecchi si migrano da soli**: `applyPieceState` converte un `barca:2`
     trovato in `data-pieces` in due scafi vuoti. Non serve toccare `start_map.json`.
-  - Sulla mappa si disegna **una pedina per scafo** con il carico nel pallino (`badge` in
-    `drawPieceRow`, che si mostra sempre, anche a 0 — è diverso dal numero di pedine, che
-    compare solo da 2 in su).
+  - Sulla mappa si disegna **una pedina per scafo**, **senza numero sopra** (regola
+    dell'utente: il carico nel pallino non serviva — `badge: null` in `renderPiecesForPath`).
+    Il carico resta nei dati e nel pannello; il pallino resta solo sulle spedizioni in mare.
 - **Sbarchi (§9.2)**: in fase `attacca` il bersaglio può essere di terra o di mare, e
   `GameActions.attackTargets` li restituisce mescolati con `viaMare`, `scafo` e `carico`
   addosso — la plancia non deve ricalcolare niente. `attack()` capisce da sé di che si

@@ -1744,10 +1744,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             land = out;
         }
-        // Una pedina PER SCAFO, non una pedina col numero di navi: ognuna mostra il
-        // proprio carico di uomini (§9.2). È la ragione per cui gli scafi non si
-        // impilano — quel numero serve a chi le guarda, non solo a chi le muove.
-        const ships = shipsOf(path).map(s => ({ type: s.tipo, count: 1, badge: s.carico }));
+        // Una pedina PER SCAFO, senza numero sopra (regola dell'utente: il carico
+        // nel pallino non serviva). `badge: null` spegne anche il conteggio.
+        const ships = shipsOf(path).map(s => ({ type: s.tipo, count: 1, badge: null }));
 
         if (land.length) {
             const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
