@@ -2099,12 +2099,13 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     la base delle perdite — del vincitore e dell'attaccante che ripiega — è
     `min(proprie truppe, forza in uomini del nemico × KILL_TERRAIN)` (chiuso 1,3, aperto 1;
     mura escluse, spostano la probabilità e non uccidono), poi la frazione legata
-    all'equilibrio `I` va dal **35%** (scontro scontato, `WIN_LOSS_MIN`/`ROUT_LOSS_MIN`:
-    regola dell'utente, a 10% conquistare costava troppo poco) all'80%/70% (alla pari).
-    Alla pari nulla cambia; contro un pugno di difensori la base è quel pugno: 9-contro-3
-    in montagna costa ~2,4 uomini, 30-contro-10 in pianura ~4,4. I caduti si arrotondano
-    A SORTE (`roundRand`: la parte decimale è la probabilità di un morto in più), così
-    15-contro-3 in pianura dà 1 caduto e ogni tanto 2, invece di sempre 1.
+    all'equilibrio `I` va dal **60% al 90%** per chi vince (`WIN_LOSS_MIN`/`WIN_LOSS_MAX`)
+    e dal 50% al 70% per chi ripiega (`ROUT_LOSS_*`) — regola dell'utente, in due tempi: a
+    10% e poi a 35% si perdevano pochissime truppe. Ogni difensore costa ~2/3 di uomo in
+    pianura e ~1 in montagna: 9-contro-3 in montagna ~3 uomini (mai la metà dell'armata),
+    12-contro-6 ~4,5 in pianura e ~6,3 in montagna, 30-contro-10 in pianura ~6,6. I caduti
+    si arrotondano A SORTE (`roundRand`: la parte decimale è la probabilità di un morto in
+    più), così i piccoli numeri non si schiacciano sempre sullo stesso intero.
     Almeno un caduto se dall'altra parte qualcuno ha combattuto.
   - **I bersagli portano il terreno con sé**: `GameActions.attackTargets` mette `terreno` e
     `esponente` su ogni bersaglio, così plancia e bot non se lo ricalcolano (e non possono

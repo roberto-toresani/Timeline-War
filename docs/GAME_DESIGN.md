@@ -600,11 +600,13 @@ poco a chi vince e polverizza chi perde**. Ogni media porta un tiro casuale `z ~
 - **[REGOLA] Perdite del VINCITORE** (`W` = sue truppe): `lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX −
   WIN_LOSS_MIN)·I` → `muF = clamp(lossW·(1 + CASUALTY_SPREAD·z), 0, 0.95)` → `C = min(W−1,
   max(1, round(base·muF)))`, al vincitore resta sempre **≥ 1** e c'è almeno un caduto se
-  dall'altra parte qualcuno ha combattuto. **Il pavimento è il 35%** (`WIN_LOSS_MIN`, e lo
-  stesso `ROUT_LOSS_MIN` per chi ripiega — regola dell'utente: anche una vittoria schiacciante
-  costa, ogni difensore porta via almeno un terzo di uomo). 20-contro-13 (I alto) dissangua chi
-  vince; 30-contro-10 in pianura costa in media 4,4 uomini; 9-contro-3 in terreno chiuso 2,4
-  (mai la metà dell'armata), 15-contro-3 due in montagna e in pianura 1 (2 una volta su sei).
+  dall'altra parte qualcuno ha combattuto. **La frazione va dal 60% al 90%** (`WIN_LOSS_MIN`/
+  `WIN_LOSS_MAX`; per chi ripiega `ROUT_LOSS_MIN` 50% → `ROUT_LOSS_MAX` 70% — regola
+  dell'utente, in due tempi: a 10% e poi a 35% si perdevano pochissime truppe). Ogni difensore
+  costa così circa due terzi di uomo in pianura e uno in montagna. 20-contro-13 (I alto)
+  dissangua chi vince; 30-contro-10 in pianura costa in media 6,6 uomini; 12-contro-6 4,5 in
+  pianura e 6,3 in montagna; 9-contro-3 in montagna 3 (mai la metà dell'armata); 6-contro-2
+  in pianura 1-2.
   **L'arrotondamento dei caduti è a sorte** (`roundRand`, per vincitore e respinto): la parte
   decimale è la probabilità di un morto in più, così la media resta quella del conto e i
   piccoli numeri non si schiacciano sempre sullo stesso intero (regola dell'utente).

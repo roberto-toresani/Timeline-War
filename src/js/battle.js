@@ -163,12 +163,12 @@
     // poco a chi vince e polverizza chi perde.
     //
     // 1) Perdite del VINCITORE: frazione media persa, cresce con I. Lopsided
-    //    (I->0) paga solo un terzo della forza nemica; battaglia pari (I->1) resta con
+    //    (I->0) paga il 60% della forza nemica; battaglia pari (I->1) resta con
     //    un pugno di uomini. Cosi' 20-contro-13 dissangua chi vince, 20-contro-5 no.
-    const WIN_LOSS_MIN = 0.35;  // frazione persa dal vincitore in uno scontro scontato (regola
-                                // dell'utente: anche una vittoria schiacciante costa — ogni
-                                // difensore porta via almeno un terzo di uomo)
-    const WIN_LOSS_MAX = 0.80;  // ...e in un perfetto 50/50
+    const WIN_LOSS_MIN = 0.60;  // frazione persa dal vincitore in uno scontro scontato (regola
+                                // dell'utente: a 0,35 si perdevano pochissime truppe — ora ogni
+                                // difensore costa ~2/3 di uomo in pianura, ~1 in montagna)
+    const WIN_LOSS_MAX = 0.90;  // ...e in un perfetto 50/50
     // 2) Perdite dell'attaccante SCONFITTO (ripiega, non e' annientato): frazione
     //    media che NON torna a casa, cresce con l'EQUILIBRIO I come le perdite
     //    del vincitore (§ sopra) — non il contrario. Un piccolo che sbaraglia un
@@ -179,7 +179,7 @@
     //    difensori. Solo uno scontro alla pari (I alto), vinto o perso, e' un
     //    bagno di sangue per tutti. E' una FRAZIONE, cosi' scala con la taglia
     //    dell'armata.
-    const ROUT_LOSS_MIN = 0.35; // frazione persa in una sconfitta netta (scontro sproporzionato)
+    const ROUT_LOSS_MIN = 0.50; // frazione persa in una sconfitta netta (scontro sproporzionato)
     const ROUT_LOSS_MAX = 0.70; // ...e in uno scontro alla pari perso
     // 3) Ampiezza casuale attorno a OGNI media (z ~ U(-1,1)): garantisce
     //    imprevedibilita' SEMPRE, anche in una battaglia squilibrata.
