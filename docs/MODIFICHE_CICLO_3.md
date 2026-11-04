@@ -157,10 +157,10 @@ segno di razzia al valico, trattamento in nebbia. [APERTO, minore] colore defini
 (oro vs cremisi/turchese) e quanto "viva" la carovana — da decidere sulla **mappa vera**
 (`_dev`/`_diag-rotte.html`).
 
-**Primitivo condiviso col §4**: la **carovana** e il **corpo di spedizione alleato** sono lo stesso
-oggetto — "sulla mappa, colore del proprietario, viaggia ed è attaccabile" — modellato su
-`player.spedizioni` (stato sul record, `x,y`/provincia, avanzamento in `beginTurn`, render
-dedicato, nebbia). Si disegna **una volta** e serve a entrambe.
+**NB — niente primitivo condiviso col §4** (correzione): nel design finale la razzia è decisa dal
+**proprietario del valico** (un flag giro per giro), quindi la carovana è **solo colore**, non un
+token che si intercetta. Il mattone nuovo del §4 è invece **"stack straniero su una provincia"**,
+che le rotte non usano. Le due feature restano separate.
 
 **Piano**: 2A (semplice) subito col §3; 2B come progetto a sé, sul primitivo carovana.
 
@@ -197,24 +197,50 @@ realistica.
 truppe di un altro proprietario). L'invariante è ovunque (`data-pieces`, `data-merc`,
 `data-cav`, `data-ships`, presidio, produzione, combattimento).
 
-**[PROPOSTA] Architettura consigliata — struttura PARALLELA sul record del proprietario**, come
-`spie`/`spedizioni`, **non** dentro `data-pieces`:
+**[REGOLA] Architettura — struttura PARALLELA sul record del MITTENTE** (come `spie`/`spedizioni`),
+**non** dentro `data-pieces`:
 ```
-B.corpiSpedizione = [{ prov, alleato:'A', soldati, cav, merc }]
+B.corpiSpedizione = [{ id, prov, alleato:'A', soldati, cav, merc }]
 ```
-- La provincia resta di A con le SUE pedine (invariante salvo).
-- Render speciale: bandiera/pedine di B sopra la provincia di A (come la pedina-spedizione).
-- **Difesa di coalizione**: se qualcuno attacca quella provincia, il combattimento somma
-  presidio di A **+** i corpi di B presenti.
-- **Turno di B**: B riceve azioni sui corpi — attaccare il nemico confinante *da lì*, ritirarli,
-  o niente. Il fronte comune nasce da sé. Arrivano al turno 1, attaccabili dal turno 2 (§1).
+È "un'armata di B parcheggiata su suolo alleato": tiene colore e proprietà di B; la provincia resta
+di A con le sue pedine (invariante salvo). I **due soli punti che toccano il cuore del motore**:
+1. **Difesa a somma di due stack**: un attacco alla provincia ospite lo difendono insieme la
+   guarnigione di A **e** il corpo di B.
+2. **Attacco con origine su provincia altrui**: B attacca partendo dalla provincia di A dove sta il
+   corpo (oggi le origini di attacco/movimento sono solo province proprie).
 
-**[APERTO] Da decidere prima di implementare:**
-- Se A perde la provincia mentre i corpi di B sono lì → distrutti? ritirata forzata? catturati?
-- I corpi di B contano per la Sicurezza §8 di A (nemiche al confine della Capitale)? (Direi no.)
-- Nebbia: A vede cosa fa B dai propri territori? (coerente con patto `vista`.)
-- **Bot**: `sendReinforcements` oggi fonde; serve una modalità "corpo di spedizione" + AI che
-  lo muove al proprio turno.
+**Ciclo di vita [REGOLA]:**
+- **Invio** (fase movimento, §1): B manda un'armata su una provincia di un **alleato** (accesso
+  militare = patto `rinforzi` o alleanza), raggiungibile via catena di terra (mod. B) o passo/nave
+  (mod. A). Consuma il movimento. **Arriva al turno 1, usabile dal turno 2.** Nessun flag "nemico
+  comune": l'accesso militare è il cancello, poi B combatte chi vuole (fronte comune emergente).
+- **Ospitalità/difesa**: il corpo **difende sempre insieme** alla guarnigione di A (anche nel turno
+  di A). Non conta per il presidio minimo di A, né per la sua produzione/§8. [punto 7]
+- **Comando (turno di B)**: il corpo è **un'armata di B a tutti gli effetti**, sta solo su suolo
+  alleato; muove/attacca con le regole §1 (una mossa / un attacco) **dalla provincia ospite**. Le
+  armate muovibili di B = truppe nelle sue province **+** corpi su province alleate.
+- **Base di proiezione** [punto 6]: dalla provincia ospite B può attaccare **qualunque** provincia
+  nemica adiacente (A fa da base); un corpo **non può attaccare il proprio ospite** (niente
+  pugnalata dall'interno — il tradimento resta quello di confine). Se ad A non sta bene, rompe
+  l'alleanza e il corpo diventa sconfinamento da ritirare.
+- **Conquista** [punto 1]: la provincia presa **va a B** (testa di ponte sua), con la ripartizione
+  conquista di B.
+- **Ritiro** [punto 3]: **richiamo immediato** alla provincia di B **più vicina** (si rifonde nella
+  guarnigione), consuma la mossa del corpo per quel turno. Se B non ha più province, il corpo non
+  può rientrare.
+- **Difesa e perdita** [punti 2+4, chiariti dall'utente]: ospite + corpo combattono come **un'unica
+  difesa**, perdite **proporzionali** fra i due stack (ventura per prima in ciascuno). Difesa che
+  **regge** → i due si spartiscono le perdite; provincia che **cade** → **cadono tutti**,
+  guarnigione di A e corpo di B, **nessun superstite** (modello a difesa combinata, non "il nemico
+  ignora gli alleati"). È il prezzo vero dell'impegno oltreconfine.
+
+**Bot [punto 5]**: in v1 comandare un corpo è **solo umano** (come spie/spedizioni); i bot tengono
+il rinforzo-che-fonde (`sendReinforcements`). Un umano può mandare un corpo da un **alleato-bot**
+(il bot ospita, l'umano comanda). L'AI dei corpi arriva dopo.
+
+**Nebbia/render**: le pedine di B si disegnano sulla provincia di A col **colore di B** + coccarda
+"corpo di spedizione"; visibili a B (è roba sua) e a chi vede le truppe di quella provincia
+(confine/`vista`/spia), come una guarnigione in più.
 
 ---
 
@@ -226,7 +252,7 @@ B.corpiSpedizione = [{ prov, alleato:'A', soldati, cav, merc }]
 | 2A Commerci per confine | Definito | Basso | Col §3 |
 | 2B Rotte commerciali | **Definito** | Molto alto (sottosistema) | Progetto a sé, sul primitivo carovana |
 | 3 Diplomazia persistente | Definito | Basso (gating UI) | Col §2A |
-| 4 Rinforzi alleati al fronte | Definito (archit. aperta) | Alto (invariante) | Struttura parallela, a sé |
+| 4 Rinforzi alleati al fronte | **Definito** | Alto (invariante) | Struttura parallela, a sé |
 
 Lotto a rischio basso: **1 + 2A + 3**. Poi **4** (struttura parallela). Poi **2B** riusando il
 primitivo "carovana/corpo" maturato sul 4.
@@ -238,4 +264,5 @@ primitivo "carovana/corpo" maturato sul 4.
   primo taglio degli spostamenti.
 - **Rotte commerciali §2B**: design chiuso; restano minori — colore definitivo della linea e
   "vivacità" della carovana, da decidere sulla mappa vera.
-- **Dettagli architetturali del §4**: i 4 punti aperti qui sopra.
+- **§4 corpi di spedizione**: design chiuso; restano l'implementazione, l'AI dei bot per
+  comandarli (v1 è solo-umano), e un'eventuale preview su mappa vera.
