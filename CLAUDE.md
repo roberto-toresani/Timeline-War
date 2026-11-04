@@ -2808,6 +2808,18 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     fondo c'è la barra.
   - Il menu ⋯ (`#lite-menu`) contiene suono, guida, versione completa e la preferenza
     delle 6h: `#board-auto` vi viene SPOSTATO (non copiato) da `applyLite`.
+  - **Sul telefono ci si va anche con la versione completa** (menu ⋯ → 🖥): diplomazia, mercato e
+    chat stanno solo lì. Due trappole, costate una segnalazione ripetuta ("non scorre"): (1) la **barra
+    in alto** è una riga da ~1800px e, se allarga la pagina, il dito sposta la pagina invece di scorrere
+    il foglio sotto: da telefono scorre di lato per conto suo (`#board-topbar`, `overflow-x: auto`);
+    (2) a scorrere è il **corpo del foglio** (`.sheet-body`), compresi i fogli a colonna sola, e **niente
+    `:has()` nelle liste di selettori di queste regole**: un browser che non lo conosce scarta la regola
+    intera. Lo scorrimento si prova col dito (`Input.dispatchTouchEvent` via Puppeteer, viewport
+    `isMobile`/`hasTouch`): `scrollTop` assegnato da script funziona anche dove il dito non scorre, e
+    `synthesizeScrollGesture` in headless non muove nemmeno uno scroller di prova.
+  - **La legenda dei confini (`#map-border-key`) da telefono è piccola e sta solo a mappa nuda** (regola
+    dell'utente): `syncBorderKeyCover` accende `.covered` con un foglio, i costi, la colonna del turno o
+    il cursore d'ordine aperti. Soglia uguale a `liteQuery`. Nella vista semplice resta nascosta del tutto.
 - **Navigare la mappa: mouse E dito** (regola dell'utente). `wireMapZoom` gestisce rotella +
   trascinamento col mouse e, su telefono/tablet, **un dito trascina e due dita pizzicano lo
   zoom** (handler `touchstart/move/end` sul wrapper). `touch-action: none` su `#map-wrapper`

@@ -177,6 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function setRightOpen(open) {
         rightPanel.classList.toggle('collapsed', !open);
         syncRightTab();
+        syncBorderKeyCover();
         // La mappa ha appena cambiato larghezza: si reinquadra dopo che il
         // layout si è assestato, altrimenti misura la colonna vecchia.
         requestAnimationFrame(syncViewInsets);
@@ -197,6 +198,17 @@ document.addEventListener('DOMContentLoaded', () => {
         dockButtons.forEach(b => b.classList.toggle('on', b.dataset.sheet === openSheet));
         const costi = $('dock-costi');
         if (costi) costi.classList.toggle('on', costsOpen);
+        syncBorderKeyCover();
+    }
+
+    // Da telefono la legenda dei confini resta solo a mappa nuda (regola
+    // dell'utente): qualunque altro pannello aperto la toglie di mezzo.
+    function syncBorderKeyCover() {
+        const key = $('map-border-key');
+        if (!key) return;
+        const hud = $('map-order-hud');
+        const altro = !!openSheet || costsOpen || rightOpen() || (!!hud && hud.style.display !== 'none');
+        key.classList.toggle('covered', liteQuery.matches && altro);
     }
 
     // Apre `name`, o lo chiude se era già quello aperto. null chiude e basta.
@@ -303,6 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const back = $('board-lite-on');
         if (back) back.style.display = (!on && liteQuery.matches) ? '' : 'none';
+        syncBorderKeyCover();
         if (!on) showLiteMenu(false);
         if (on !== was) {
             if (on) { showSheet(null); showCosts(false); }
@@ -4351,6 +4364,7 @@ document.addEventListener('DOMContentLoaded', () => {
         orderKey = '';
         if (orderHud) orderHud.style.display = 'none';
         if (orderRaf) { cancelAnimationFrame(orderRaf); orderRaf = null; }
+        syncBorderKeyCover();
     }
 
     // Quanti uomini possono partire per questo ordine. Il presidio minimo (§5)
@@ -4457,6 +4471,7 @@ document.addEventListener('DOMContentLoaded', () => {
         syncOrderHud();
 
         orderHud.style.display = 'block';
+        syncBorderKeyCover();
         placeOrderHud();
         if (!orderRaf) orderRaf = requestAnimationFrame(trackOrderHud);
     }
@@ -5136,6 +5151,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncBorderMarks(player) {
         const key = $('map-border-key');
         if (!R.markBorders) return;
+        syncBorderKeyCover();
         // In vista generale non c'è un "tuo" confine da segnare.
         if (!player || spectating) {
             R.clearBorders();

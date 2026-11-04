@@ -785,13 +785,17 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 }
 .rel-chat:hover { background: var(--gold-edge); color: var(--bg-panel-solid); }
 
-/* Su schermi bassi/stretti le colonne si impilano e scorre il corpo. */
+/* Su schermi bassi/stretti le colonne si impilano e scorre il corpo. Vale anche
+   per i fogli a colonna sola (Corona, Obiettivi): la colonna qui sotto smette di
+   scorrere, quindi se il corpo restasse `overflow: hidden` non scorrerebbe niente.
+   Niente `:has()` in questa lista: un browser che non lo conosce scarta l'INTERA
+   regola, e col display:block il layout delle colonne non serve comunque. */
 @media (max-width: 1100px), (max-height: 620px) {
     .sheet-body.cols,
-    .sheet-body.cols:has(.sheet-col.wide),
-    .sheet-body.cols:has(.sheet-col.wide:last-child) {
+    .sheet-body:not(.cols):not(.chat-body) {
         display: block;
         overflow-y: auto;
+        overflow-x: hidden;
     }
     .sheet-col { overflow: visible; margin-bottom: 18px; }
 }
@@ -3094,6 +3098,42 @@ svg path.state.spied {
     font-variant-numeric: tabular-nums;
 }
 
+/* Da telefono la legenda è un promemoria della mappa nuda (regola dell'utente):
+   piccola, senza titolo, a destra (a sinistra c'è il dock) e non prende i tocchi.
+   Stessa soglia di liteQuery in player-board.js, che accende `.covered` appena si
+   apre un altro pannello (foglio, costi, colonna del turno, cursore d'ordine). */
+@media (max-width: 820px), (pointer: coarse) and (max-width: 1024px) {
+    #map-border-key {
+        left: auto;
+        right: 6px;
+        bottom: 6px;
+        max-width: 44vw;
+        max-height: 28vh;
+        overflow: hidden;
+        padding: 3px 7px;
+        font-size: .68rem;
+        background: rgba(23, 18, 12, .72);
+        pointer-events: none;
+    }
+    #map-border-key .mbk-title { display: none; }
+    #map-border-key .mbk-row { gap: 5px; padding: 1px 0; }
+    #map-border-key .mbk-dot { width: 10px; height: 3px; }
+    #map-border-key.covered { display: none !important; }
+
+    /* LA VERSIONE COMPLETA DA TELEFONO NON DEVE ALLARGARE LA PAGINA. La barra in
+       alto è una riga da ~1800px: su uno schermo da 390 il browser allargava tutta
+       la pagina, e il dito spostava la pagina invece di scorrere il foglio sotto —
+       per questo Popolarità e obiettivi non si leggevano. Resta una riga, ma scorre
+       per conto suo dentro lo schermo. La vista semplice ha la sua barra. */
+    body:not(.mobile-lite) #board-topbar {
+        gap: 10px;
+        padding: 6px 10px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    body:not(.mobile-lite) #board-topbar > * { flex-shrink: 0; }
+}
+
 /* il nome del patto dentro il gettone della scheda */
 .rel-pact .lab { white-space: nowrap; }
 .rel-pacts .bp-empty-hint { margin: 0; }
@@ -3361,13 +3401,13 @@ body.mobile-lite .sheet-body { padding: 12px; }
 /* Da telefono a scorrere è il CORPO del foglio, non la colonna (qui sotto le
    colonne vanno a `overflow: visible`). Vale anche per i fogli a colonna sola
    — Corona e Obiettivi — che non hanno `.cols`: lasciati fuori, il loro corpo
-   restava `overflow: hidden` e Popolarità e obiettivi non scorrevano più. */
-body.mobile-lite .sheet-body:not(.chat-body),
-body.mobile-lite .sheet-body.cols,
-body.mobile-lite .sheet-body.cols:has(.sheet-col.wide),
-body.mobile-lite .sheet-body.cols:has(.sheet-col.wide:last-child) {
+   restava `overflow: hidden` e Popolarità e obiettivi non scorrevano più.
+   Un selettore solo, senza `:has()`: nei telefoni con un browser che non lo
+   conosce l'intera regola sparirebbe, e con lei lo scorrimento. */
+body.mobile-lite .sheet-body:not(.chat-body) {
     display: block;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
 }
 body.mobile-lite .sheet-col { overflow: visible; margin-bottom: 18px; padding-right: 0; }
