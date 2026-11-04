@@ -226,8 +226,10 @@ di A con le sue pedine (invariante salvo). I **due soli punti che toccano il cuo
 - **Conquista** [punto 1]: la provincia presa **va a B** (testa di ponte sua), con la ripartizione
   conquista di B.
 - **Ritiro** [punto 3]: **richiamo immediato** alla provincia di B **più vicina** (si rifonde nella
-  guarnigione), consuma la mossa del corpo per quel turno. Se B non ha più province, il corpo non
-  può rientrare.
+  guarnigione). **Costa come lo spostamento di fine turno in modalità B** (la "versione 2": un'unica
+  armata): quel turno **occupa tutto il movimento** ed è **esclusivo con i 3 spostamenti della
+  modalità A**. (L'invio resta invece ammesso in entrambe le modalità; solo il ritiro è prezzato
+  come la B.) Se B non ha più province, il corpo non può rientrare.
 - **Difesa e perdita** [punti 2+4, chiariti dall'utente]: ospite + corpo combattono come **un'unica
   difesa**, perdite **proporzionali** fra i due stack (ventura per prima in ciascuno). Difesa che
   **regge** → i due si spartiscono le perdite; provincia che **cade** → **cadono tutti**,
