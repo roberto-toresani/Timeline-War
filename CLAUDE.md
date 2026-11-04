@@ -2107,6 +2107,38 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     si arrotondano A SORTE (`roundRand`: la parte decimale è la probabilità di un morto in
     più), così i piccoli numeri non si schiacciano sempre sullo stesso intero.
     Almeno un caduto se dall'altra parte qualcuno ha combattuto.
+  - **IL LIMITE DI CONQUISTA E I DUE ATTACCHI (regola dell'utente)**: *"non è concepibile che
+    5 uomini ne uccidano 15 in un solo attacco"*. Vale per ogni battaglia, tutto in `battle.js`:
+    - **Limite**: sotto i 2 attaccanti ogni 3 difensori (`CONQUEST_RATIO` = 1,5, in forza
+      effettiva, mura escluse) la provincia non può cadere: `P_A` = 0. `winForecast` applica lo
+      stesso limite (`conquestChance`), quindi la plancia mostra 0%. **Il limite non si spiega
+      in gioco, di proposito** (regola dell'utente: i giocatori lo imparano giocando): nessuna
+      scritta su quanti uomini servono. Chi viene respinto in inferiorità paga di più
+      (`ROUT_OUTNUMBERED`) e fa meno morti (radice di forzaA/forzaD): 5 contro 15 in terreno
+      chiuso costa ~4,1 attaccanti e ~2,8 difensori, e farne più di quanti se ne subiscono
+      capita nel ~6% dei casi (~1% in aperto). Sopra il limite le percentuali non cambiano.
+    - **Due attacchi** con più di 10 uomini per parte (`needsTwoCharges`, conta gli uomini veri):
+      non è una meccanica nuova, è un'azione divisa in due perché chi attacca veda come va. Il
+      primo (`firstCharge`) è un **esito normale, non blocca niente**: perdite per entrambi,
+      nessuna conquista, i superstiti restano nella provincia di partenza; il verdetto è
+      Vittoria se fa più morti di quanti ne subisce (a pari morti, chi perde la quota minore
+      del proprio esercito; a pari quota, Sconfitta). Il secondo è un `resolveBattle` normale:
+      **Conquistata** o **Sconfitta**. Nel frattempo si può fare tutt'altro, e se non si
+      prosegue non c'è niente da chiudere.
+    - **Il segno** è `player.primiAttacchi` = `[{from, to, turno, consenso}]`: vale per la coppia
+      di province e per quel turno (`firstChargeOf`); al turno dopo il difensore si è rinforzato
+      ed è una battaglia nuova. Dopo un secondo attacco respinto si ricomincia dal primo.
+      `consenso` serve perché il permesso una-tantum si consuma al primo attacco e deve valere
+      anche per il secondo. `recordAggression` sostituisce la voce del primo: è una battaglia sola.
+    - **Il tiro del primo attacco è ANTICORRELATO** (`FIRST_SWING`: se va bene a uno va male
+      all'altro). Con perdite simili le proporzioni non cambierebbero mai e fermarsi non avrebbe
+      senso (simulato: nessuno si fermava mai). Così su 20 contro 15 chi prosegue solo con
+      almeno il 50% si ferma una volta su cinque, e chi prosegue sempre conquista quanto prima.
+    - **Chi non può fermarsi fa i due attacchi di seguito** (`resolveFullBattle`, stessi argomenti
+      e campi di `resolveBattle`): sbarchi, spedizioni, editti, crociate, razzie. Chi aggiunge una
+      battaglia senza una provincia a cui tornare passa di lì.
+    - **I bot** non hanno una regola apposta: rivalutano il bersaglio al giro dopo, e il primo
+      attacco non conta in `maxAttacchi` (è metà battaglia; costa uomini, quindi il giro finisce).
   - **I bersagli portano il terreno con sé**: `GameActions.attackTargets` mette `terreno` e
     `esponente` su ogni bersaglio, così plancia e bot non se lo ricalcolano (e non possono
     sbagliarlo). Il risultato di `attack` porta `terreno` per il rapporto di battaglia.

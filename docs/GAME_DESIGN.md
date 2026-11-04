@@ -487,8 +487,18 @@ un **pannello dedicato** che si **aggiorna automaticamente** ed evolve, mostrand
 ## 9. Combattimento e conquista **[REGOLA]**
 
 Modello **probabilistico**: il più numeroso è favorito in modo **super-lineare** (l'esponente),
-ma il più debole ha **sempre** una probabilità non nulla. Implementato in `src/js/battle.js`
+ma il più debole ha una probabilità non nulla **finché ha almeno 2 uomini ogni 3 difensori**. Implementato in `src/js/battle.js`
 (funzione pura `resolveBattle(A, D, fort, rng, esponente, mercA, mercD)`, testata).
+
+**Limite di conquista [REGOLA]:** sotto i **2 attaccanti ogni 3 difensori** (in forza effettiva,
+mura escluse) la provincia non può cadere: l'attacco viene respinto e fa solo perdite. Chi attacca
+in forte inferiorità subisce di norma più morti di quanti ne fa.
+
+**Due attacchi [REGOLA]:** con **più di 10 uomini per parte** la battaglia si divide in due. Il primo
+attacco è un esito intermedio — **Vittoria** o **Sconfitta**, secondo chi ha fatto più morti — con
+perdite per entrambi e nessuna conquista. Chi attacca può fare altro e, nella stessa fase e dalla
+stessa provincia, attaccare di nuovo: questo secondo attacco decide (**Conquistata** o **Sconfitta**).
+Sbarchi, spedizioni, editti, crociate e razzie non si fermano: fanno i due attacchi di seguito.
 
 **Bersagli validi:** provincia nemica/neutra **adiacente via terra**, oppure costiera dentro la
 **portata di mare** di una propria Nave/Veliero (§9.2) — che a tutti gli effetti la rende limitrofa.

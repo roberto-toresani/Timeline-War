@@ -2944,7 +2944,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // parte di quel che si sa guardando il confine (§5.3).
             const vent = (t.cav ? ' · ' + t.cav + '🐎' : '') + (t.merc ? ' · ' + t.merc + '⚑' : '');
             const btn = actionButton((t.viaMare ? '⚓ ' : '⚔ ') + t.label,
-                t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : ''), null,
+                t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : '') +
+                    (t.decisivo ? ' · attacco decisivo' : ''), null,
                 () => askAttack(player, path, t, engagedFor(), cavFor()));
             const chip = document.createElement('span');
             chip.className = 'bp-odds';
@@ -2952,7 +2953,7 @@ document.addEventListener('DOMContentLoaded', () => {
             odds.push(() => {
                 const f = forecast(path, engagedFor(), t, cavFor());
                 chip.textContent = oddsText(f);
-                chip.title = mercNote(f);
+                chip.title = [chargeNote(t, engagedFor()), mercNote(f)].filter(Boolean).join(' ');
                 chip.className = 'bp-odds ' + (f.p >= 60 ? 'good' : f.p >= 40 ? 'even' : 'bad');
             });
             body.appendChild(btn);
@@ -3158,9 +3159,9 @@ document.addEventListener('DOMContentLoaded', () => {
                   ': approda comunque vada. Vinci e resta ancorata sulla costa presa; ' +
                   'perdi e finisce in mano al difensore, con tutti gli uomini a bordo. ') +
               'Uno sbarco non si può fermare a metà.'
-            : ' Le truppe impegnate lasciano ' + R.provinceLabel(path) +
-              ' comunque vada: se vinci deciderai quante restano nella provincia presa ' +
-              'e quante rientrano; se perdi non torna nessuno.';
+            : ' Se vinci deciderai quante truppe restano nella provincia presa e quante ' +
+              'rientrano; se perdi, i superstiti ripiegano su ' + R.provinceLabel(path) + '.';
+        const testoCariche = chargeNote(t, n) ? ' ' + chargeNote(t, n) : '';
         // La ventura è l'altra cosa che non si vede: se c'è, il numero mostrato è
         // una media e va detto qui, prima della carica (§5.3).
         const testoVentura = f.banda ? ' ' + mercNote(f) : '';
@@ -3181,8 +3182,8 @@ document.addEventListener('DOMContentLoaded', () => {
             title: (tradisce ? 'Tradire ' + t.owner + ' a ' : t.viaMare ? 'Sbarcare a ' : 'Attaccare ') + t.label + '?',
             text: squadText(n, f.cavA, ' truppa imbarcata', ' truppe') + ' contro ' +
                 t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
-                ' · probabilità di vittoria ' + (f.banda ? 'intorno al ' : '') + f.p + '%.' +
-                testoVentura + nota + testoSbarco + testoPatto,
+                ' · probabilità di conquista ' + (f.banda ? 'intorno al ' : '') + f.p + '%.' +
+                testoCariche + testoVentura + nota + (chargeNote(t, n) && !t.decisivo ? '' : testoSbarco) + testoPatto,
             ok: tradisce ? '⚔ Tradisci' : t.viaMare ? '⚓ Sbarca' : '⚔ Carica',
             tone: tradisce ? 'danger' : 'war'
         }, () => {
@@ -3268,6 +3269,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // "62%" oppure "~62%" quando la ventura rende il numero incerto.
     function oddsText(f) { return (f.banda ? '~' : '') + f.p + '%'; }
+
+    // Che attacco è questo (§9, i due attacchi): cambia con quanti se ne mandano.
+    function chargeNote(t, n) {
+        if (t.viaMare || t.rinforzabile) return '';
+        if (t.decisivo) return 'Attacco decisivo: dopo il primo, questo decide la battaglia.';
+        return RisikoBattle.needsTwoCharges(n, t.troops || 0)
+            ? 'Con più di 10 uomini per parte questo è il primo attacco: perdite per entrambi e nessuna ' +
+              'conquista, poi in questa fase potrai attaccare di nuovo per decidere la battaglia.'
+            : '';
+    }
 
     // Che cosa c'è dietro quel numero, in una riga: serve al `title` del chip e al
     // testo della conferma. Vuoto quando non ci sono mercenari.
@@ -4685,10 +4696,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Con la ventura in campo il cursore mostra la banda: è lì che il
         // giocatore decide quanti uomini mandare, ed è lì che deve vedere che
         // quel numero è meno saldo del solito (§5.3).
-        odds.textContent = f.banda
-            ? '~' + f.p + '% di vittoria (' + f.min + '–' + f.max + '%)'
-            : f.p + '% di vittoria';
-        odds.title = mercNote(f);
+        const carica = t.decisivo ? ' · decisivo'
+            : (chargeNote(t, order.n) ? ' · primo attacco' : '');
+        odds.textContent = (f.banda
+            ? '~' + f.p + '% di conquista (' + f.min + '–' + f.max + '%)'
+            : f.p + '% di conquista') + carica;
+        odds.title = [chargeNote(t, order.n), mercNote(f)].filter(Boolean).join(' ');
         odds.className = 'moh-odds ' + (f.p >= 60 ? 'good' : f.p >= 40 ? 'even' : 'bad');
     }
 
@@ -4825,11 +4838,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // il giocatore l'ha chiesto. Il click alterna, e ogni nuova battaglia
         // parte da chiuso (run() azzera battleOpen).
         if (title) {
-            const vintaLast = lastBattle.battle.attackerWins;
+            const inter = lastBattle.battle.intermedio;
             title.style.display = '';
             title.classList.toggle('open', battleOpen);
-            title.textContent = (battleOpen ? '▾ ' : '▸ ') +
-                (vintaLast ? 'Ultima battaglia — vinta' : 'Ultima battaglia — persa');
+            title.textContent = (battleOpen ? '▾ ' : '▸ ') + 'Ultima battaglia — ' +
+                (inter ? (lastBattle.battle.vittoria ? 'vittoria nel primo attacco' : 'sconfitta nel primo attacco')
+                    : lastBattle.battle.attackerWins ? 'conquistata' : 'sconfitta');
             title.onclick = () => { battleOpen = !battleOpen; renderBattle(); };
         }
         if (!battleOpen) { box.style.display = 'none'; return; }
@@ -4837,15 +4851,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const L = lastBattle;
         const b = L.battle;
         const vinta = b.attackerWins;
+        const inter = !!b.intermedio;
         const odds = Math.round(b.P_A * 100);
         // Il terreno del campo di battaglia: spiega perché quel numero è quello.
         const terreno = terrainTag(L.terreno) ? ' · ' + terrainTag(L.terreno) : '';
 
         box.style.display = 'block';
-        box.className = 'bp-battle ' + (vinta ? 'win' : 'lose');
+        box.className = 'bp-battle ' + ((inter ? b.vittoria : vinta) ? 'win' : 'lose');
         box.innerHTML = `
             <div class="bb-head">
-                <span class="bb-verdict">${vinta ? '⚔ Provincia conquistata' : '🛡 Attacco respinto'}</span>
+                <span class="bb-verdict">${inter
+                    ? (b.vittoria ? '⚔ Vittoria nel primo attacco' : '🛡 Sconfitta nel primo attacco')
+                    : vinta ? '⚔ Provincia conquistata' : '🛡 Sconfitta'}</span>
                 <button type="button" class="bb-replay" title="Rivedi lo scontro sulla mappa">↺</button>
             </div>
             <div class="bb-route"></div>
@@ -4854,7 +4871,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="bb-who"></div>
                     <div class="bb-n">${L.engaged} <span>impegnati</span></div>
                     <div class="bb-loss${L.perditeAttaccante ? '' : ' none'}">${caduti(L.perditeAttaccante)}</div>
-                    <div class="bb-left">${(() => { const s = L.engaged - L.perditeAttaccante; return vinta ? s + ' in marcia' : (s > 0 ? s + (s === 1 ? ' ripiega' : ' ripiegano') : 'nessun superstite'); })()}</div>
+                    <div class="bb-left">${(() => { const s = L.engaged - L.perditeAttaccante; return inter ? s + ' ancora in piedi' : vinta ? s + ' in marcia' : (s > 0 ? s + (s === 1 ? ' ripiega' : ' ripiegano') : 'nessun superstite'); })()}</div>
                 </div>
                 <div class="bb-mid">vs</div>
                 <div class="bb-side def">
@@ -4866,7 +4883,9 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="bb-odds">
                 <div class="bb-bar"><span style="width:${odds}%"></span></div>
-                <div class="bb-odds-txt">probabilità che avevi di vincere: ${odds}%${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}${terreno}</div>
+                <div class="bb-odds-txt">${inter
+                    ? 'se attacchi di nuovo con questi ' + (L.engaged - L.perditeAttaccante) + ': ' + odds + '% di conquista'
+                    : 'probabilità che avevi di vincere: ' + odds + '%'}${L.fort ? ' · +' + L.fort + ' di difesa dalle strutture' : ''}${terreno}</div>
             </div>
             ${mercLine(L)}
             ${cavLine(L)}

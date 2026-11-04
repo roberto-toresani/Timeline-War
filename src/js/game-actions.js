@@ -335,7 +335,7 @@
             // Le terre di nessuno non assoldano nessuno: la ventura è solo di chi
             // difende, e pesa anche qui (§5.3).
             const mercDif = E().merc(tp);
-            const res = RisikoBattle.resolveBattle(attaccanti, difTruppe, fort, null, terrainExp(tp),
+            const res = RisikoBattle.resolveFullBattle(attaccanti, difTruppe, fort, null, terrainExp(tp),
                 0, mercDif, 0, E().cav(tp), terrainOf(tp));
             if (!res) return;
 
@@ -1249,7 +1249,7 @@
         const fort = GR().defenceBonus(unitsOf([to]));
         const difensore = E().owner(to) || 'Neutrale';
         const mercDif = E().merc(to);
-        const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to), mercMossi, mercDif,
+        const res = RisikoBattle.resolveFullBattle(mossi, defTroops, fort, null, terrainExp(to), mercMossi, mercDif,
             cavMossi, E().cav(to), terrainOf(to));
         if (!res) return null;
         const arrivati = res.attackerWins ? survivorsOf(oste, res.losses) : null;
@@ -3155,6 +3155,23 @@
     // Bersagli d'attacco validi: province adiacenti via terra non tue (§9).
     // `terreno`/`esponente` viaggiano col bersaglio: plancia e bot pronosticano
     // con lo stesso numero che poi userà la battaglia, senza rileggerlo da sé.
+    // I DUE ATTACCHI (§9): sotto i 10 uomini per parte una battaglia si decide in
+    // un colpo; sopra, il primo attacco è un esito intermedio e il successivo dalla
+    // stessa provincia, in questa fase, decide. Il segno vive sul record di chi
+    // attacca e vale solo per il turno in corso: al turno dopo il difensore si è
+    // rinforzato ed è una battaglia nuova. `consenso` ricorda che il proprietario
+    // aveva dato il permesso una-tantum, già consumato dal primo attacco.
+    function firstChargeOf(player, fromId, toId) {
+        const turno = R().turn();
+        return (player.primiAttacchi || []).find(c =>
+            c.from === fromId && c.to === toId && c.turno === turno) || null;
+    }
+    function dropFirstCharge(player, fromId, toId) {
+        const turno = R().turn();
+        player.primiAttacchi = (player.primiAttacchi || []).filter(c =>
+            c.turno === turno && !(c.from === fromId && c.to === toId));
+    }
+
     function attackTargets(player, provId) {
         const seen = new Set();
         const card = (p, viaMare, scafo) => {
@@ -3163,17 +3180,20 @@
         // plancia deve saperlo per chiedere consenso/tradimento invece di
         // attaccare liscio. `alleanza` distingue il patto che costa prestigio.
         const pattoNonAgg = !!(difP && D().grantsNonAggression(player, difP));
+        const primo = viaMare ? null : firstChargeOf(player, provId, p.id);
         return {
             id: p.id,
             label: R().provinceLabel(p),
             owner: E().owner(p) || 'Neutrale',
+            // C'è già stato il primo attacco: il prossimo decide la battaglia.
+            decisivo: !!primo,
             patto: pattoNonAgg,
             alleanza: !!(difP && D().areAllied(player, difP)),
             // ACCESSO MILITARE (§Diplomazia): su questa provincia si può marciare
             // in AIUTO invece che addosso. Viaggia col bersaglio come il terreno,
             // così la plancia offre il secondo bottone senza rifare il conto.
             rinforzabile: !!(difP && D().allowsReinforce(player, difP) && !viaMare),
-            consenso: pattoNonAgg && difP ? consentIndex(difP, player.id, p.id) >= 0 : false,
+            consenso: pattoNonAgg && difP ? (consentIndex(difP, player.id, p.id) >= 0 || !!(primo && primo.consenso)) : false,
             troops: E().countPiece(p, 'soldato'),
             // Quanti di quei difensori sono di ventura (§5.3): viaggia col
             // bersaglio come il terreno, così plancia e bot pronosticano con lo
@@ -3472,7 +3492,11 @@
         // bot.js non decide apposta di tradire.
         const difRegno = R().players().find(p => p.name === E().owner(to));
         const pattoNonAgg = !!(difRegno && D().grantsNonAggression(player, difRegno));
-        const consenso = pattoNonAgg && difRegno ? consentIndex(difRegno, player.id, toId) >= 0 : false;
+        // Il primo attacco di questa battaglia, se c'è già stato (§9): il prossimo
+        // decide, e il consenso speso allora vale anche per lui.
+        const primoFatto = firstChargeOf(player, fromId, toId);
+        const consensoSpeso = !!(primoFatto && primoFatto.consenso);
+        const consenso = pattoNonAgg && difRegno ? (consentIndex(difRegno, player.id, toId) >= 0 || consensoSpeso) : false;
         if (pattoNonAgg && !consenso && !tradimento) {
             return fail('Hai un patto con ' + difRegno.name + ': serve il suo consenso per colpire ' +
                 R().provinceLabel(to) + ', oppure devi tradire (rompe il patto' +
@@ -3539,7 +3563,13 @@
         const gruppo = groupLeaving(from, engaged, ordA.cav);
         const mercImp = gruppo.merc, cavImp = gruppo.cav;
         const mercDif = E().merc(to), cavDif = E().cav(to);
-        const res = RisikoBattle.resolveBattle(engaged, defTroops, fort, rng, terrainExp(to),
+        // I DUE ATTACCHI (§9): via terra, con più di 10 uomini per parte, il primo è
+        // un esito intermedio. Uno sbarco non si può fermare a metà (§9.2), quindi
+        // li fa tutti e due di seguito.
+        const intermedio = !viaMare && !primoFatto && RisikoBattle.needsTwoCharges(engaged, defTroops);
+        const combatti = intermedio ? RisikoBattle.firstCharge
+            : viaMare ? RisikoBattle.resolveFullBattle : RisikoBattle.resolveBattle;
+        const res = combatti(engaged, defTroops, fort, rng, terrainExp(to),
             mercImp, mercDif, cavImp, cavDif, terreno);
         if (!res) return fail('Nessuna battaglia possibile.');
 
@@ -3548,10 +3578,11 @@
         // il permesso una-tantum e il patto resta; senza, è un TRADIMENTO che
         // rompe ogni patto col difensore (−2 prestigio se c'era un'alleanza) e
         // avvisa il tradito. Il save di questa attack in coda copre tutto (silent).
+        let consensoUsato = consensoSpeso;
         if (pattoNonAgg && difRegno) {
             const ci = consentIndex(difRegno, player.id, toId);
-            if (ci >= 0) difRegno.permessiAttacco.splice(ci, 1);
-            else breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
+            if (ci >= 0) { difRegno.permessiAttacco.splice(ci, 1); consensoUsato = true; }
+            else if (!consensoSpeso) breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
         }
 
         // L'ATTO DI GUERRA SI REGISTRA COMUNQUE VADA (§Diplomazia): la provincia
@@ -3559,7 +3590,21 @@
         // così `peso` dice quanto valeva davvero. Vinto o respinto, il vicino se
         // lo ricorda — è la differenza fra il rancore (che vuole le prede grosse,
         // per i bot) e il rapporto diplomatico (che conta ogni colpo portato).
+        // I due attacchi sono UNA battaglia: il secondo sostituisce la voce del primo.
+        if (primoFatto && difRegno && Array.isArray(difRegno.aggressioni)) {
+            const turno = R().turn();
+            const vecchia = difRegno.aggressioni.map(a => a.chi === player.name && a.prov === toId && a.turno === turno)
+                .lastIndexOf(true);
+            if (vecchia >= 0) difRegno.aggressioni.splice(vecchia, 1);
+        }
         recordAggression(difRegno, to, player.name, res.attackerWins ? 'presa' : 'respinto');
+
+        // Il segno del primo attacco: si mette ora e si toglie appena la battaglia è
+        // decisa. Dopo un secondo attacco respinto, un nuovo attacco ricomincia.
+        dropFirstCharge(player, fromId, toId);
+        if (intermedio) {
+            player.primiAttacchi.push({ from: fromId, to: toId, turno: R().turn(), consenso: consensoUsato });
+        }
 
         // Le truppe impegnate lasciano comunque la provincia di partenza.
         takeGroup(from, gruppo);
@@ -3627,7 +3672,12 @@
             applyBattleOutcome(player, to, res, defTroops, 0);
             if (ritorno) putGroup(from, ritorno);
             const caduti = engaged - superstitiRitorno;
-            msg = superstitiRitorno > 0
+            msg = intermedio
+                ? (res.vittoria ? 'Vittoria' : 'Sconfitta') + ' nel primo attacco a ' + toLabel + ': ' +
+                  caduti + (caduti === 1 ? ' caduto tuo, ' : ' caduti tuoi, ') +
+                  res.lossD + (res.lossD === 1 ? ' suo' : ' suoi') + '. Al difensore restano ' +
+                  res.defenderSurvivors + ' uomini. Attacca di nuovo per decidere la battaglia, o fermati qui.'
+                : superstitiRitorno > 0
                 ? R().provinceLabel(to) + ' ha retto: ' + superstitiRitorno +
                   (superstitiRitorno === 1 ? ' superstite ripiega' : ' superstiti ripiegano') +
                   ' su ' + R().provinceLabel(from) + ' (' + caduti +
@@ -3660,7 +3710,8 @@
         // combattuta una battaglia, la cronaca la ricorda (js/chronicle.js +
         // data/historic_battles.js). Prima la provincia contesa, poi quella di
         // partenza; nessuna corrispondenza -> niente pergamena, ed è la norma.
-        const eco = root.Chronicle && root.Chronicle.battleEcho
+        // I due attacchi sono una battaglia sola: la cronaca la ricorda una volta.
+        const eco = !primoFatto && root.Chronicle && root.Chronicle.battleEcho
             ? root.Chronicle.battleEcho([toLabel, fromLabel], R().turn())
             : null;
         if (eco) { eco.colore = player.color; eco.id = eco.provincia === toLabel ? toId : fromId; }
@@ -3669,6 +3720,8 @@
             cronaca: eco,
             conversione,
             battle: res, engaged, defTroops, fort, terreno,
+            // Esito intermedio (§9): nessuna conquista, si può attaccare di nuovo.
+            intermedio, vittoria: intermedio ? res.vittoria : res.attackerWins,
             // Ventura in campo (§5.3): quanti per parte e quanti ne sono arrivati.
             mercImpegnati: mercImp, mercDifensore: mercDif, mercArrivati,
             // Cavalleria in campo: quanti per parte e quanti sono arrivati.
@@ -3855,7 +3908,7 @@
         const terreno = terrainOf(to);
         const mercDif = E().merc(to);
         const cavDif = E().cav(to);
-        const res = RisikoBattle.resolveBattle(carico, defTroops, fort, rng, terrainExp(to), mercImp, mercDif,
+        const res = RisikoBattle.resolveFullBattle(carico, defTroops, fort, rng, terrainExp(to), mercImp, mercDif,
             cavImp, cavDif, terreno);
         if (!res) return fail('Nessuna battaglia possibile.');
         const arrivati = res.attackerWins ? survivorsOf(bordo, res.losses) : null;
@@ -4417,7 +4470,7 @@
                 const difensore = E().owner(to) || 'Neutrale';
                 const mercDif = E().merc(to);
                 const cavDif = E().cav(to);
-                const res = RisikoBattle.resolveBattle(mossi, defTroops, fort, null, terrainExp(to),
+                const res = RisikoBattle.resolveFullBattle(mossi, defTroops, fort, null, terrainExp(to),
                     mercMossi, mercDif, cavMossi, cavDif, terrainOf(to));
                 if (!res) return fail('Nessuna battaglia possibile.');
                 const arrivati = res.attackerWins

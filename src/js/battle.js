@@ -88,6 +88,23 @@
 //   per far danno); scontro pari perso -> un bagno di sangue anche per chi
 //   perde. Il difensore conserva D - C. (Lo sbarco §9.2 resta totale: la
 //   ritirata la applica game-actions, solo all'attacco di terra.)
+//
+//   IL LIMITE DI CONQUISTA (regola dell'utente, "non è concepibile che 5 uomini
+//   ne uccidano 15 in un solo attacco"): sotto i 2 attaccanti ogni 3 difensori
+//   (CONQUEST_RATIO, in forza effettiva, mura escluse perche' non uccidono) la
+//   provincia non puo' cadere: P_A = 0. E' la stessa idea di KILL_TERRAIN vista
+//   dall'altra parte: chi fa i morti e' chi ti combatte contro. Chi e' in forte
+//   inferiorita' e viene respinto paga di piu' (ROUT_OUTNUMBERED) e fa meno morti
+//   (radice di forzaA/forzaD): raramente ne fa piu' di quanti ne subisce.
+//
+//   I DUE ATTACCHI (regola dell'utente): con piu' di TWO_CHARGE_MIN uomini per
+//   parte una battaglia si divide in due, cosi' chi attacca vede come va e decide
+//   se proseguire. firstCharge e' l'esito intermedio: perdite per entrambi,
+//   nessuna conquista. Il secondo attacco e' un normale resolveBattle. Il tiro
+//   FIRST_SWING e' ANTICORRELATO (se uno va bene l'altro va male): con perdite
+//   simili per le due parti le proporzioni non cambierebbero mai, e la scelta di
+//   fermarsi sarebbe finta. Chi non puo' fermarsi (sbarchi, editti, crociate,
+//   razzie) passa da resolveFullBattle, che fa i due attacchi di seguito.
 
 (function (root) {
     'use strict';
@@ -119,6 +136,23 @@
         const a = Math.pow(A, k), d = Math.pow(Deff, k);
         return a / (a + d);        // A>0 => denominatore > 0 (Deff=0 => 1)
     }
+
+    // ====================== IL LIMITE DI CONQUISTA ======================
+    // Quanti difensori puo' abbattere ogni attaccante, al massimo: 1,5 vuol dire 2
+    // attaccanti ogni 3 difensori. Si misura sulla FORZA in uomini (ventura e
+    // cavalieri compresi), le mura no: spostano la probabilita', non uccidono.
+    const CONQUEST_RATIO = 1.5;
+    function canConquer(forzaA, forzaD) { return forzaA * CONQUEST_RATIO >= forzaD; }
+    // winChance col limite: `dEff` comprende le mura, che qui si tolgono.
+    function conquestChance(forzaA, dEff, fort, k) {
+        return canConquer(forzaA, Math.max(0, dEff - (fort || 0))) ? winChance(forzaA, dEff, k) : 0;
+    }
+
+    // ====================== I DUE ATTACCHI ======================
+    const TWO_CHARGE_MIN = 10;   // PIU' di tanti uomini per parte: due attacchi
+    const FIRST_LOSS = 0.30;     // quota media persa nel primo attacco
+    const FIRST_SWING = 0.70;    // quanto puo' scartare, a favore di uno e a danno dell'altro
+    function needsTwoCharges(A, D) { return A > TWO_CHARGE_MIN && D > TWO_CHARGE_MIN; }
 
     // ====================== MERCENARI (§5.3) ======================
     // Le due manopole della ventura. Sono QUI e non sparse: chi vuole mercenari
@@ -181,9 +215,15 @@
     //    dell'armata.
     const ROUT_LOSS_MIN = 0.50; // frazione persa in una sconfitta netta (scontro sproporzionato)
     const ROUT_LOSS_MAX = 0.70; // ...e in uno scontro alla pari perso
+    // ...e quanto in piu' paga chi attacca in inferiorita' (si somma per 1 - A/D):
+    // 5 contro 15 vengono respinti con perdite gravi, senza far piu' morti di loro.
+    const ROUT_OUTNUMBERED = 0.35;
     // 3) Ampiezza casuale attorno a OGNI media (z ~ U(-1,1)): garantisce
     //    imprevedibilita' SEMPRE, anche in una battaglia squilibrata.
     const CASUALTY_SPREAD = 0.35;
+    // I morti del difensore che respinge oscillano di piu': e' da qui che esce la
+    // piccola probabilita' che pochi attaccanti ne facciano piu' di quanti ne subiscono.
+    const REPEL_SPREAD = 0.55;
     // 4) Quanti morti fa ogni uomo del nemico, a seconda del terreno della
     //    provincia contesa: e' il tetto della base delle perdite (vedi sopra).
     //    Fra monti e paludi si muore di piu', ma tre difensori restano tre.
@@ -228,21 +268,22 @@
         cavA = clamp(Math.floor(cavA || 0), 0, A - mercA);
         cavD = clamp(Math.floor(cavD || 0), 0, Deff - mercD);
         const kvA = knightAttackValue(fort, terreno), kvD = knightDefenceValue(terreno);
+        fort = Math.max(0, fort || 0);
         const extra = { cavA: cavA, cavD: cavD, kvA: kvA, kvD: kvD };
         if (!mercA && !mercD) {
-            const p = winChance(effective(A, 0, 1, cavA, kvA), effective(Deff, 0, 1, cavD, kvD), k);
+            const p = conquestChance(effective(A, 0, 1, cavA, kvA), effective(Deff, 0, 1, cavD, kvD), fort, k);
             return Object.assign({ p: p, min: p, max: p, banda: 0, mercA: 0, mercD: 0 }, extra);
         }
         let s = 0;
         for (let i = 0; i < QUAD.length; i++) {
             const ea = effective(A, mercA, mercYield(QUAD[i]), cavA, kvA);
             for (let j = 0; j < QUAD.length; j++) {
-                s += winChance(ea, effective(Deff, mercD, mercYield(QUAD[j]), cavD, kvD), k);
+                s += conquestChance(ea, effective(Deff, mercD, mercYield(QUAD[j]), cavD, kvD), fort, k);
             }
         }
         // Il caso peggiore e' la mia ventura che si sfalda MENTRE regge la sua.
-        const min = winChance(effective(A, mercA, MERC_MIN, cavA, kvA), effective(Deff, mercD, MERC_MAX, cavD, kvD), k);
-        const max = winChance(effective(A, mercA, MERC_MAX, cavA, kvA), effective(Deff, mercD, MERC_MIN, cavD, kvD), k);
+        const min = conquestChance(effective(A, mercA, MERC_MIN, cavA, kvA), effective(Deff, mercD, MERC_MAX, cavD, kvD), fort, k);
+        const max = conquestChance(effective(A, mercA, MERC_MAX, cavA, kvA), effective(Deff, mercD, MERC_MIN, cavD, kvD), fort, k);
         return Object.assign({
             p: s / (QUAD.length * QUAD.length),
             min: min, max: max, banda: max - min,
@@ -284,22 +325,28 @@
         const Aeff = effective(A, mercA, rhoA, cavA, kvA);
         const DeffM = effective(Deff, mercD, rhoD, cavD, kvD);
 
-        const P_A = winChance(Aeff, DeffM, k);
+        // Chi fa i morti: la FORZA in uomini di ciascuna parte (ventura e
+        // cavalieri compresi, le MURA no — spostano la probabilita', non uccidono).
+        // effective() e' lineare, quindi togliere `fort` da DeffM da' gli uomini.
+        const kt = killTerrain(terreno);
+        const forzaA = Aeff, forzaD = Math.max(0, DeffM - fort);
+
+        // L'equilibrio I si misura sulla probabilita' della formula: il limite di
+        // conquista decide se la provincia puo' cadere, non quanto e' serrato lo scontro.
+        const rawP = winChance(Aeff, DeffM, k);
+        const P_A = canConquer(forzaA, forzaD) ? rawP : 0;
         const P_D = 1 - P_A;
-        const I = 4 * P_A * P_D;
+        const I = 4 * rawP * (1 - rawP);
 
         const u = rng();
         const attackerWins = u < P_A;
 
         // Vincitore in termini di truppe iniziali.
         const W = attackerWins ? A : D;
-
-        // Chi fa i morti: la FORZA in uomini di ciascuna parte (ventura e
-        // cavalieri compresi, le MURA no — spostano la probabilita', non uccidono).
-        // effective() e' lineare, quindi togliere `fort` da DeffM da' gli uomini.
-        const kt = killTerrain(terreno);
-        const forzaA = Aeff, forzaD = Math.max(0, DeffM - fort);
-        const baseW = Math.min(W, (attackerWins ? forzaD : forzaA) * kt);
+        // Quanto l'attaccante e' in inferiorita': 1 alla pari o in vantaggio.
+        const ratio = forzaD > 0 ? Math.min(1, forzaA / forzaD) : 1;
+        // Respinti in pochi, si fanno meno morti della forza che si ha.
+        const baseW = Math.min(W, (attackerWins ? forzaD : forzaA) * kt) * (attackerWins ? 1 : Math.sqrt(ratio));
 
         // Perdite del VINCITORE: frazione media legata all'EQUILIBRIO I, piu' un
         // tiro casuale che garantisce imprevedibilita' anche in uno scontro
@@ -307,7 +354,7 @@
         // — ma sempre su una base che il nemico puo' davvero abbattere.
         const z = rng() * 2 - 1;                             // U(-1,1)
         const lossW = WIN_LOSS_MIN + (WIN_LOSS_MAX - WIN_LOSS_MIN) * I;
-        const muF = clamp(lossW * (1 + CASUALTY_SPREAD * z), 0, 0.95);
+        const muF = clamp(lossW * (1 + (attackerWins ? CASUALTY_SPREAD : REPEL_SPREAD) * z), 0, 0.95);
         const minC = (attackerWins ? D : A) > 0 ? 1 : 0;     // chi ha combattuto fa almeno un morto
         const C = Math.max(0, Math.min(W - 1, Math.max(minC, roundRand(baseW * muF, rng)))); // vincitore tiene >= 1
         const winnerSurvivors = W - C;
@@ -330,7 +377,7 @@
         } else {
             defenderSurvivors = winnerSurvivors;
             zr = rng() * 2 - 1;                              // U(-1,1), tiro della ritirata
-            lossL = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I;
+            lossL = ROUT_LOSS_MIN + (ROUT_LOSS_MAX - ROUT_LOSS_MIN) * I + ROUT_OUTNUMBERED * (1 - ratio);
             muL = clamp(lossL * (1 + CASUALTY_SPREAD * zr), 0, 0.95);
             const baseL = Math.min(A, forzaD * kt);          // non piu' di quanti il difensore ne abbatta
             const lost = Math.min(A, Math.max(1, roundRand(baseL * muL, rng))); // sconfitta = almeno un caduto
@@ -358,8 +405,80 @@
         };
     }
 
+    // Quanti della ventura e dei cavalieri restano dopo `perdite`: la ventura cade
+    // per prima, poi fanti e cavalieri in proporzione (come in game-actions).
+    function afterLosses(n, merc, cav, perdite) {
+        const mercLeft = Math.max(0, merc - perdite);
+        const resto = Math.max(0, perdite - merc);
+        const regolari = Math.max(0, n - merc);
+        const cavLeft = regolari > 0 ? Math.max(0, cav - Math.round(resto * cav / regolari)) : 0;
+        return { n: Math.max(0, n - perdite), merc: mercLeft, cav: Math.min(cavLeft, Math.max(0, n - perdite - mercLeft)) };
+    }
+
+    // IL PRIMO ATTACCO: stessi argomenti di resolveBattle. Nessuno conquista e
+    // nessuno resta a zero; `vittoria` e' chi ne esce meglio: piu' morti inflitti,
+    // a pari morti la quota piu' piccola del proprio esercito, a pari quota no.
+    function firstCharge(A, D, fort, rng, esponente, mercA, mercD, cavA, cavD, terreno) {
+        rng = rng || Math.random;
+        A = Math.max(0, Math.floor(A));
+        D = Math.max(0, Math.floor(D));
+        fort = Math.max(0, Math.floor(fort || 0));
+        const k = (esponente > 0) ? esponente : DEFAULT_EXP;
+        mercA = clamp(Math.floor(mercA || 0), 0, A);
+        mercD = clamp(Math.floor(mercD || 0), 0, D);
+        cavA = clamp(Math.floor(cavA || 0), 0, A - mercA);
+        cavD = clamp(Math.floor(cavD || 0), 0, D - mercD);
+        const rhoA = mercA ? mercYield(rng() * 2 - 1) : 1;
+        const rhoD = mercD ? mercYield(rng() * 2 - 1) : 1;
+        const kvA = knightAttackValue(fort, terreno), kvD = knightDefenceValue(terreno);
+        const forzaA = effective(A, mercA, rhoA, cavA, kvA);
+        const forzaD = effective(D, mercD, rhoD, cavD, kvD);
+        const kt = killTerrain(terreno);
+        const z = rng() * 2 - 1;     // >0: va male a chi attacca; <0: va male a chi difende
+        const lossA = clamp(roundRand(Math.min(A, forzaD * kt) * FIRST_LOSS * (1 + FIRST_SWING * z), rng), 1, A - 1);
+        const lossD = clamp(roundRand(Math.min(D, forzaA * kt) * FIRST_LOSS * (1 - FIRST_SWING * z), rng), 1, D - 1);
+        const vittoria = lossD > lossA || (lossD === lossA && lossA * D < lossD * A);
+        const restaA = afterLosses(A, mercA, cavA, lossA), restaD = afterLosses(D, mercD, cavD, lossD);
+        // La percentuale per il secondo attacco, se partono tutti i superstiti.
+        const next = winForecast(restaA.n, restaD.n + fort, k, restaA.merc, restaD.merc, restaA.cav, restaD.cav, fort, terreno);
+        const Deff = D + fort;
+        return {
+            intermedio: true, vittoria: vittoria,
+            attackerWins: false, winner: vittoria ? 'attacker' : 'defender',
+            attackerSurvivors: A - lossA, defenderSurvivors: D - lossD,
+            losses: lossD, lossA: lossA, lossD: lossD, restaA: restaA, restaD: restaD,
+            P_next: next.p,
+            fort: fort, Deff: Deff, esponente: k,
+            mercA: mercA, mercD: mercD, rhoA: rhoA, rhoD: rhoD,
+            cavA: cavA, cavD: cavD, kvA: kvA, kvD: kvD,
+            Aeff: forzaA, DeffMerc: forzaD + fort,
+            P_A: next.p, P_D: 1 - next.p, I: 0, u: 0, z: z, zr: 0
+        };
+    }
+
+    // La battaglia intera per chi non puo' fermarsi a meta' (sbarchi, spedizioni,
+    // editti, crociate, razzie): stessi argomenti e stessi campi di resolveBattle,
+    // con le perdite dei due attacchi sommate. Fino a 10 uomini per parte e' un
+    // resolveBattle qualunque.
+    function resolveFullBattle(A, D, fort, rng, esponente, mercA, mercD, cavA, cavD, terreno) {
+        if (typeof fort === 'function') { rng = fort; fort = 0; }
+        if (!needsTwoCharges(Math.floor(A), Math.floor(D))) {
+            return resolveBattle(A, D, fort, rng, esponente, mercA, mercD, cavA, cavD, terreno);
+        }
+        const f = firstCharge(A, D, fort, rng, esponente, mercA, mercD, cavA, cavD, terreno);
+        const fine = resolveBattle(f.restaA.n, f.restaD.n, fort, rng, esponente,
+            f.restaA.merc, f.restaD.merc, f.restaA.cav, f.restaD.cav, terreno);
+        return Object.assign({}, fine, {
+            primoAttacco: f,
+            losses: (fine.attackerWins ? f.lossA : f.lossD) + fine.losses
+        });
+    }
+
     const api = {
         resolveBattle: resolveBattle, winChance: winChance, winForecast: winForecast,
+        firstCharge: firstCharge, resolveFullBattle: resolveFullBattle,
+        needsTwoCharges: needsTwoCharges, canConquer: canConquer,
+        CONQUEST_RATIO: CONQUEST_RATIO, TWO_CHARGE_MIN: TWO_CHARGE_MIN,
         mercYield: mercYield, effective: effective, clamp: clamp,
         knightAttackValue: knightAttackValue, knightDefenceValue: knightDefenceValue,
         KNIGHT_TERRAIN: KNIGHT_TERRAIN,

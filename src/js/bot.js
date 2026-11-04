@@ -2375,9 +2375,13 @@
             // Il 7º argomento è il TRADIMENTO (§Diplomazia): serve solo quando il
             // bersaglio è di un partner senza consenso — bestAttack l'ha già deciso.
             const voluti = knightsFor(best.fromId, engaged, best.target);
-            yield GA().attack(player, best.fromId, best.toId,
+            const esito = GA().attack(player, best.fromId, best.toId,
                 voluti === undefined ? engaged : { n: engaged, cav: voluti },
                 undefined, undefined, best.tradimento);
+            yield esito;
+            // Il primo attacco (§9) non conta fra quelli del turno: è metà di una
+            // battaglia, e costa uomini a ogni colpo, quindi il giro finisce da sé.
+            if (esito && esito.intermedio) k--;
             // La conquista si chiude SUBITO: finché è aperta il motore blocca
             // qualsiasi altra azione (compreso il passaggio di fase).
             const pend = GA().conquestPending(player);

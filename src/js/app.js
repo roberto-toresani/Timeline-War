@@ -408,6 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // turno}] — i Velieri in rotta lunga, in mare aperto fuori da ogni
         // provincia. Ognuno porta con sé posizione (x,y in coordinate SVG), la
         // direzione che segue e il carico. Persistono nel salvataggio come le spie.
+        if (!Array.isArray(p.primiAttacchi)) p.primiAttacchi = [];   // §9, i due attacchi
         if (!Array.isArray(p.spedizioni)) p.spedizioni = [];
         // AVVISI DI MARE (§9.2): naufragi e morìa dell'equipaggio in mare aperto,
         // in coda finché il giocatore non li ha letti — stessa logica degli editti,
@@ -6191,7 +6192,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // no, su due province piccole l'impatto uscirebbe fuori dai loro confini
         // e non si capirebbe più chi le sta prendendo.
         const unit = Math.max(4.5, Math.min(dist * 0.13, Math.min(A.r, B.r) * 1.25));
-        const vinta = !!info.conquistata;
+        // Conquistata, oppure l'esito intermedio del primo attacco (§9) se è andato bene.
+        const vinta = !!info.conquistata || !!(info.intermedio && info.vittoria);
 
         // Le urla partono con la carica, non con l'esito: è il momento in cui
         // l'ordine è dato. Il grido è più grosso quando l'assalto è grosso.
@@ -6276,7 +6278,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 'font-size': unit * 0.65,
                 fill: vinta ? '#ffd479' : '#cfe8cf'
             }, 'fx-verdict');
-            esito.textContent = vinta ? 'CONQUISTATA' : 'RESPINTO';
+            esito.textContent = info.conquistata ? 'CONQUISTATA' : vinta ? 'VITTORIA' : 'SCONFITTA';
         }, 1750);
 
         battleLater(() => {
