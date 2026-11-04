@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diag · Rotte commerciali</title>
+<style>
+  :root{
+    --bg:#1b1712; --panel:#2a241b; --edge:#4a4229; --ink:#ece2c7; --muted:#b2a582;
+    --sea:#11303a; --land:#4a4430; --border:#6f6245;
+    --route:#f2bb46; --route-glow:#ffe08a; --route-casing:#0a0702;
+    --sel:#e0533a;
+  }
+  html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif;
+    display:flex;flex-direction:column;}
+  .bar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 14px;
+    background:var(--panel);border-bottom:1px solid var(--edge);}
+  .bar b{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .grp{display:flex;gap:6px;align-items:center;}
+  button{font:inherit;background:#36301f;color:var(--ink);border:1px solid var(--edge);
+    border-radius:7px;padding:5px 10px;cursor:pointer;}
+  button.on{background:var(--route);color:#241803;font-weight:600;border-color:var(--route);}
+  button.sw{width:26px;height:22px;padding:0;border-radius:5px;}
+  label.ck{display:inline-flex;gap:6px;align-items:center;cursor:pointer;color:var(--muted);}
+  .path-read{color:var(--muted);font-size:13px;padding:6px 14px;background:#221d15;
+    border-bottom:1px solid var(--edge);min-height:1.4em;}
+  .path-read b{color:var(--ink);text-transform:none;letter-spacing:0;}
+  #stage{flex:1;position:relative;overflow:hidden;background:var(--sea);}
+  #map{position:absolute;inset:0;}
+  #map svg{width:100%;height:100%;display:block;cursor:grab;}
+  #map svg.drag{cursor:grabbing;}
+  #svg-background{fill:var(--sea)!important;}
+  #map-group path.state{fill:var(--land)!important;stroke:var(--border)!important;
+    stroke-width:.28!important;}
+  #map-group path.state.sel-a{fill:var(--sel)!important;}
+  #map-group path.state.sel-b{fill:#e0a33a!important;}
+  #map-group path.state.on-route{fill:color-mix(in srgb,var(--land) 62%, var(--route))!important;}
+  .hint{position:absolute;left:12px;bottom:10px;background:rgba(10,8,4,.74);color:#f3ead3;
+    padding:7px 11px;border-radius:8px;font-size:12.5px;max-width:min(92vw,360px);}
+  /* la rotta */
+  .r-glow{fill:none;stroke:var(--route-glow);stroke-width:2.8;stroke-linecap:round;
+    stroke-linejoin:round;opacity:.5;filter:blur(3px);}
+  .r-casing{fill:none;stroke:var(--route-casing);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;opacity:.9;}
+  .r-core{fill:none;stroke:var(--route);stroke-width:.85;stroke-linecap:round;stroke-linejoin:round;}
+  .r-flow{fill:none;stroke:var(--route-glow);stroke-width:.85;stroke-linecap:round;stroke-linejoin:round;
+    stroke-dasharray:.5 4;animation:march 1.4s linear infinite;}
+  @keyframes march{to{stroke-dashoffset:-4.5;}}
+  .caravan{fill:var(--route);stroke:var(--route-casing);stroke-width:.3;}
+  .mkt{fill:#f3ead3;stroke:var(--route-casing);stroke-width:.4;}
+  .ctr{fill:var(--route-glow);opacity:.9;}
+  @media (prefers-reduced-motion:reduce){.r-flow{animation:none;}.caravan{display:none;}}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <b>Rotte · diag</b>
+    <div class="grp"><b>colore</b>
+      <button class="sw on" data-col="oro"    style="background:#f2bb46" title="Oro"></button>
+      <button class="sw"    data-col="cremisi"style="background:#d23b2e" title="Cremisi"></button>
+      <button class="sw"    data-col="turchese"style="background:#1fb8c4" title="Turchese"></button>
+      <button class="sw"    data-col="viola"  style="background:#9b5de5" title="Viola"></button>
+    </div>
+    <div class="grp">
+      <label class="ck"><input type="checkbox" id="ckCar" checked> carovana</label>
+      <label class="ck"><input type="checkbox" id="ckCtr"> centri</label>
+    </div>
+    <div class="grp">
+      <button id="btnDemo">Rotta d'esempio</button>
+      <button id="btnReset">Azzera</button>
+      <button id="btnFit">Inquadra tutto</button>
+    </div>
+  </div>
+  <div class="path-read" id="read">Clicca <b>due province</b> per tracciare la rotta (la 1ª è il mercato di partenza, la 2ª l'arrivo). Oppure premi “Rotta d'esempio”.</div>
+  <div id="stage">
+    <div id="map"></div>
+    <div class="hint" id="hint">Caricamento mappa…</div>
+  </div>
+
+  <script src="data/embedded_map.js?v=83"></script>
+  <script src="js/map-anchors.js?v=83"></script>
+  <script>
+  (function(){
+    var SVGNS='http://www.w3.org/2000/svg';
+    var map=document.getElementById('map');
+    map.innerHTML = (typeof RAW_SVG_CONTENT!=='undefined') ? RAW_SVG_CONTENT : '<p style="color:#f88">embedded_map non caricato</p>';
+    var svg=map.querySelector('svg');
+    if(!svg){ document.getElementById('hint').textContent='SVG non trovato'; return; }
+
+    // --- province vere (path.state con id) ---
+    var NON_PLAYABLE=new Set(['East_Aegean_Islands','West_Aegean_Islands','Canary_Islands','Cabo_Verde','Bahamas','Hawaiian_Islands','South_Atlantic_Islands']);
+    var paths=Array.prototype.slice.call(svg.querySelectorAll('#map-group path.state'))
+      .filter(function(p){return p.id && !NON_PLAYABLE.has(p.id);});
+    var byId={}; paths.forEach(function(p){byId[p.id]=p;});
+
+    // --- grafo dei confini di terra: identico ad app.js (CELL_LAND 0.32 + eccezioni) ---
+    var CELL_LAND=0.32;
+    function hashPoint(cells,id,x,y,cell){
+      var cx=Math.round(x/cell),cy=Math.round(y/cell);
+      for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){
+        var k=(cx+dx)+':'+(cy+dy); var s=cells.get(k); if(!s){s=new Set();cells.set(k,s);} s.add(id);
+      }
+    }
+    function landNotAdjacent(){return [
+      ['Posen','Mazovia'],['Riga','Vilnius'],['Smolensk','Vitebsk'],['Courland','Vitebsk'],
+      ['Minsk','Volhynia'],['Kiev','Moldavia'],['Bessarabia','Wallachia'],['Anhalt','Mecklenburg'],
+      ['Gelre','Hannover'],['Flanders','Ruhr'],['Picardy','Wallonia'],['Baden','West_Switzerland'],
+      ['Franche_Comte','Savoy'],['Aquitaine','Catalonia'],['Lombardy','Romagna'],['South_Tyrol','Styria'],
+      ['Skopia','Western_Thrace'],['Armenia','Erzurum'],['Hedjaz','Palestine'],['Aktobe','Ufa'],
+      ['Aktobe','Khiva'],['Dzungaria','Fergana'],['Fergana','Pashtunistan'],['Bornu','North_Cameroon'],
+      ['Botswana','South_Angola'],['Antioquia','Guaviare'],['Bahia','Maranhao'],['New_Mexico','Utah'],
+      ['Arizona','Colorado'],['Tabriz','Diyarbakir'],['Tabriz','Greater_Caucasus'],['Tabriz','Mosul'],['Tabriz','Erzurum']
+    ];}
+    var NEI={};
+    (function build(){
+      var cells=new Map();
+      paths.forEach(function(p){
+        var pts=MapAnchors.boundaryPoints(p);
+        for(var i=0;i<pts.length;i++) hashPoint(cells,p.id,pts[i].x,pts[i].y,CELL_LAND);
+      });
+      paths.forEach(function(p){NEI[p.id]=new Set();});
+      cells.forEach(function(s){
+        if(s.size<2)return; var a=Array.from(s);
+        for(var i=0;i<a.length;i++)for(var j=i+1;j<a.length;j++){NEI[a[i]].add(a[j]);NEI[a[j]].add(a[i]);}
+      });
+      landNotAdjacent().forEach(function(pr){ if(NEI[pr[0]])NEI[pr[0]].delete(pr[1]); if(NEI[pr[1]])NEI[pr[1]].delete(pr[0]); });
+    })();
+
+    function bfs(a,b){ // percorso più breve (meno province) via terra
+      if(!byId[a]||!byId[b])return null;
+      var prev={}, seen=new Set([a]), q=[a];
+      while(q.length){ var cur=q.shift(); if(cur===b){ var path=[b],k=b; while(k!==a){k=prev[k];path.unshift(k);} return path; }
+        (NEI[cur]||new Set()).forEach(function(n){ if(!seen.has(n)){seen.add(n);prev[n]=cur;q.push(n);} }); }
+      return null;
+    }
+    function center(id){ var c=MapAnchors.landAnchor(byId[id]); return c?{x:c.x,y:c.y}:null; }
+
+    // --- strato della rotta, in coordinate SVG ---
+    var layer=document.createElementNS(SVGNS,'g'); layer.setAttribute('id','route-layer'); svg.appendChild(layer);
+    var selA=null,selB=null;
+    function clearSel(){ paths.forEach(function(p){p.classList.remove('sel-a','sel-b','on-route');}); }
+
+    function draw(a,b){
+      layer.innerHTML='';
+      var seq=bfs(a,b);
+      if(!seq){ setRead('Nessuna strada di terra fra <b>'+nm(a)+'</b> e <b>'+nm(b)+'</b> — in v1 la rotta non si può creare.'); return; }
+      clearSel();
+      byId[a].classList.add('sel-a'); byId[b].classList.add('sel-b');
+      seq.forEach(function(id,i){ if(i>0&&i<seq.length-1) byId[id].classList.add('on-route'); });
+      var cs=seq.map(center).filter(Boolean);
+      if(cs.length<2){ setRead('Centri non calcolabili.'); return; }
+      var d='M'+cs.map(function(p){return p.x.toFixed(2)+','+p.y.toFixed(2);}).join(' L');
+      // path per il moto (nascosto)
+      var mp=document.createElementNS(SVGNS,'path'); mp.setAttribute('id','r-motion'); mp.setAttribute('d',d);
+      mp.setAttribute('fill','none'); mp.setAttribute('stroke','none'); layer.appendChild(mp);
+      ['r-glow','r-casing','r-core','r-flow'].forEach(function(cl){
+        var pe=document.createElementNS(SVGNS,'path'); pe.setAttribute('class',cl); pe.setAttribute('d',d); layer.appendChild(pe);
+      });
+      // centri (debug)
+      if(document.getElementById('ckCtr').checked){
+        cs.forEach(function(p){var c=document.createElementNS(SVGNS,'circle');c.setAttribute('class','ctr');
+          c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);c.setAttribute('r','.7');layer.appendChild(c);});
+      }
+      // mercati ai due capi
+      [cs[0],cs[cs.length-1]].forEach(function(p){var c=document.createElementNS(SVGNS,'circle');c.setAttribute('class','mkt');
+        c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);c.setAttribute('r','1.6');layer.appendChild(c);});
+      // carovana
+      if(document.getElementById('ckCar').checked){
+        var cav=document.createElementNS(SVGNS,'circle'); cav.setAttribute('class','caravan'); cav.setAttribute('r','1.1');
+        var am=document.createElementNS(SVGNS,'animateMotion'); am.setAttribute('dur',(Math.max(3,cs.length*1.1))+'s');
+        am.setAttribute('repeatCount','indefinite'); am.setAttribute('rotate','auto');
+        var mpath=document.createElementNS(SVGNS,'mpath'); mpath.setAttributeNS('http://www.w3.org/1999/xlink','href','#r-motion');
+        mpath.setAttribute('href','#r-motion'); am.appendChild(mpath); cav.appendChild(am); layer.appendChild(cav);
+      }
+      setRead('<b>'+seq.length+'</b> province · '+seq.map(nm).join(' › '));
+    }
+    function nm(id){return id.replace(/_/g,' ');}
+    function setRead(h){document.getElementById('read').innerHTML=h;}
+
+    // --- click: scegli A poi B ---
+    map.addEventListener('click',function(e){
+      if(dragMoved)return;
+      var t=e.target.closest&&e.target.closest('path.state'); if(!t||!byId[t.id])return;
+      if(!selA||selB){ selA=t.id; selB=null; layer.innerHTML=''; clearSel(); byId[selA].classList.add('sel-a');
+        setRead('Partenza: <b>'+nm(selA)+'</b> — ora clicca l\'arrivo.'); }
+      else if(t.id!==selA){ selB=t.id; draw(selA,selB); }
+    });
+
+    // --- colore ---
+    document.querySelectorAll('button.sw').forEach(function(b){ b.addEventListener('click',function(){
+      document.querySelectorAll('button.sw').forEach(function(x){x.classList.remove('on');}); b.classList.add('on');
+      var m={oro:['#f2bb46','#ffe08a'],cremisi:['#d23b2e','#ff8a6b'],turchese:['#1fb8c4','#8af0f7'],viola:['#9b5de5','#d6b3ff']}[b.dataset.col];
+      document.documentElement.style.setProperty('--route',m[0]);
+      document.documentElement.style.setProperty('--route-glow',m[1]);
+    });});
+    document.getElementById('ckCar').addEventListener('change',redraw);
+    document.getElementById('ckCtr').addEventListener('change',redraw);
+    function redraw(){ if(selA&&selB)draw(selA,selB); }
+    document.getElementById('btnReset').addEventListener('click',function(){selA=selB=null;layer.innerHTML='';clearSel();setRead('Azzerato. Clicca due province.');});
+
+    // rotta d'esempio: un corridoio lungo ~7 province, valido di sicuro
+    document.getElementById('btnDemo').addEventListener('click',demo);
+    function demo(){
+      // parti dalla provincia più centrale, BFS fino a ~7 salti
+      var cx=0,cy=0,n=0; paths.forEach(function(p){var c=center(p.id); if(c){cx+=c.x;cy+=c.y;n++;}}); cx/=n;cy/=n;
+      var start=null,best=1e9; paths.forEach(function(p){var c=center(p.id); if(!c)return; var d=(c.x-cx)*(c.x-cx)+(c.y-cy)*(c.y-cy); if(d<best){best=d;start=p.id;}});
+      // BFS livelli, prendi un nodo a distanza ~7
+      var dist={},q=[start];dist[start]=0;var far=start;
+      while(q.length){var cur=q.shift(); (NEI[cur]||new Set()).forEach(function(nb){ if(dist[nb]==null){dist[nb]=dist[cur]+1; if(dist[nb]<=8){far=nb;} q.push(nb);} });}
+      selA=start; selB=far; draw(start,far);
+    }
+
+    // --- zoom/pan sul viewBox ---
+    var vb={x:0,y:0,w:1200,h:575};
+    function apply(){svg.setAttribute('viewBox',vb.x+' '+vb.y+' '+vb.w+' '+vb.h);}
+    function fit(){vb={x:0,y:0,w:1200,h:575};apply();}
+    document.getElementById('btnFit').addEventListener('click',fit);
+    var stage=document.getElementById('stage');
+    stage.addEventListener('wheel',function(e){e.preventDefault();
+      var r=svg.getBoundingClientRect(); var mx=vb.x+(e.clientX-r.left)/r.width*vb.w, my=vb.y+(e.clientY-r.top)/r.height*vb.h;
+      var f=e.deltaY<0?0.85:1/0.85; var nw=vb.w*f,nh=vb.h*f; nw=Math.max(60,Math.min(1200,nw));nh=Math.max(28.75,Math.min(575,nh));
+      vb.x=mx-(mx-vb.x)*(nw/vb.w); vb.y=my-(my-vb.y)*(nh/vb.h); vb.w=nw;vb.h=nh; apply();
+    },{passive:false});
+    var dragging=false,dragMoved=false,px=0,py=0;
+    svg.addEventListener('pointerdown',function(e){dragging=true;dragMoved=false;px=e.clientX;py=e.clientY;svg.classList.add('drag');});
+    window.addEventListener('pointermove',function(e){ if(!dragging)return; var r=svg.getBoundingClientRect();
+      var dx=(e.clientX-px)/r.width*vb.w, dy=(e.clientY-py)/r.height*vb.h; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>3)dragMoved=true;
+      vb.x-=dx;vb.y-=dy;px=e.clientX;py=e.clientY;apply(); });
+    window.addEventListener('pointerup',function(){dragging=false;svg.classList.remove('drag');setTimeout(function(){dragMoved=false;},0);});
+
+    document.getElementById('hint').textContent='Clicca due province per la rotta · rotella = zoom · trascina = sposta';
+    fit();
+    demo();
+  })();
+  </script>
+</body>
+</html>
