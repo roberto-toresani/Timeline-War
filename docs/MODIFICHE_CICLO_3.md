@@ -96,37 +96,73 @@ confini ora **oppure** `turno − ultimoConfine ≤ K` (stessa logica del `fade`
 **diplomazia no** (lettere/araldi = ovunque). Oggi sono gated dallo stesso
 `diploKingdomsVisibili`: qui si **separano**.
 
-### 2B — Rotte commerciali [PROPOSTA / APERTO]
-Oltre agli scambi occasionali (come oggi), per trarne profitto si può creare una **rotta
-commerciale fra due Mercati**:
-- **+50 monete per regno a ogni scambio** sulla rotta.
-- Creando la rotta si traccia una **linea** (immaginaria) fra i due Mercati.
-- **Chiunque possieda una provincia toccata dalla linea** può **inserirsi** nella rotta
-  (vendere/acquistare e godere dei bonus economici) **oppure** conquistare la provincia e
-  **razziare le carovane**.
+### 2B — Rotte commerciali [REGOLA] (v1 solo terra)
+Oltre agli scambi occasionali (§2A), per trarne profitto stabile si crea una **rotta commerciale
+fra due Mercati** di due regni. Non è un bonus una-tantum: è un **tubo ricorrente** — ogni turno
+una **carovana** percorre la rotta e, se arriva, i due regni **si scambiano le risorse concordate
++ 50 monete a testa**.
 
-Ancora = i **Mercati** (riusa la costruzione esistente; investimento gate per entrambe le parti).
+- **Ancora**: un **Mercato** a ciascun capo (riusa la costruzione esistente).
+- **Merci**: ogni rotta scambia **fino a 2 tipi** di risorsa, concordati alla firma.
+- **Cap per Mercato**: un Mercato → max **1 rotta verso lo stesso regno** e max **2 rotte totali**
+  (verso 2 regni diversi). Più Mercati → più rotte (budget per-Mercato).
+- **Nascita**: proposta da araldo (come patti/commerci); entrambi devono possedere un Mercato ed
+  entrambi accettano. Può collegare Mercati **non confinanti** (è il senso del corridoio) — a
+  differenza dello scambio occasionale del §2A, legato al confine.
 
-**[APERTO] Quattro decisioni che definiscono la meccanica:**
-1. **Chi incassa il +50**: solo i due proprietari dei Mercati, o anche gli **intermediari**
-   sulla linea? Alternativa storica più ricca: l'intermediario che controlla il valico
-   **tassa** la carovana (fetta presa *dai* due capi) = *skimming* invece che bonus diffuso.
-2. **Cosa traccia la linea**: **retta** fra i due Mercati (semplice; campionamento del
-   segmento con `isPointInFill`) oppure **cammino vero** strade+mare
-   (`connectedOf`/`sea-routes.js`, realistico ma pesante). Propensione: retta, come da
-   "linea immaginaria".
-3. **"Razziare le carovane"**: *passiva* (possiedi una provincia del corridoio → tagli/tassi)
-   o *attiva* (una **carovana** vera viaggia e può essere intercettata e distrutta).
-4. **Un nemico sulla linea rompe la rotta?** Presumibilmente sì (interdizione): la rotta paga
-   solo se il corridoio è amico/neutrale.
+**Il corridoio.**
+- Linea **fluttuante, colore in risalto**, che passa per il **centro esatto** delle province
+  attraversate.
+- Tracciata sulla **strada più breve** via terra (BFS sui confini di terra, a parità la più corta
+  geometricamente). Mercati confinanti → linea diretta; non confinanti → attraversa province di
+  regni o neutrali.
+- **Geografica e congelata alla firma**: se un terzo conquista una provincia del corridoio, la
+  rotta **non si re-instrada** (è il senso del raid). [punto 1]
+- **Niente via di terra fra i due Mercati → rotta non creabile** in v1. [punto 2]
+- **Solo terra** in v1; le rotte via mare (carovana→nave, intercettazione navale) sono
+  un'estensione futura.
+- **Nebbia**: la rotta si vede con le **regole delle icone-risorsa** (la vedi dove vedi la
+  provincia), ma **senza i dettagli di scambio** (merci/quantità).
 
-Nota architetturale: la **carovana** (3-attiva) e il **corpo di spedizione alleato** (§4) sono
-lo **stesso primitivo** — "oggetto sulla mappa, del colore del proprietario, che viaggia ed è
-attaccabile" — già visto in `spie`/`spedizioni` (`player.spedizioni`, `x,y`, avanzamento in
-`beginTurn`, render dedicato, nebbia). Se si sceglie la razzia attiva, conviene disegnare quel
-primitivo **una volta** e usarlo per entrambi.
+**Resa, una volta per giro.** La rotta si risolve nel blocco `giroFinito` di `endTurn` (accanto a
+`neutralRaids`/eventi): se la carovana non è stata razziata, paga i due capi (merci concordate +
+50 monete ciascuno). Risolvendo per **giro** non c'è ambiguità di "carovana a metà viaggio": si
+guarda la proprietà del corridoio e i flag di razzia di QUEL giro.
+- **Se un capo non ha le risorse concordate** quel turno → l'intero scambio **salta** (niente
+  merci, **niente +50**: la carovana non è partita). [punto 3]
 
-**Piano**: 2A (semplice) subito col §3; 2B come progetto a sé, sul pattern `spedizioni`.
+**Razzia e "lascia passare".** Un terzo che possiede una provincia del corridoio decide dalla
+**sezione Mercato**:
+- **Default ogni giro = lascia passare.** La razzia **NON è persistente**: va decisa
+  **esplicitamente giro per giro** dal proprietario del valico; il flag si **azzera a ogni giro**.
+  [punto 4 — rivisto dall'utente]
+- **Razzia**: sequestra le **merci in transito** di quel giro e **blocca il bonus monete** ai due
+  capi. È un **atto di guerra** → `aggressione`/`rancore` verso entrambi i capi e calo di `standing`.
+- **Lascia passare**: la rotta frutta; l'eventuale compenso per il passaggio si **regola via chat**,
+  nessun pedaggio imposto dal motore. [punto 6]
+- **Più terzi sul corridoio**: il **primo razziatore lungo il percorso** si prende il carico e
+  blocca il bonus per tutti a valle. [punto 5]
+
+**La nebbia vale anche per la razzia [REGOLA].** Un capo che **non confina** (e non vede) il valico
+razziato **non vede l'atto** — stessa nebbia delle icone-risorsa. Ne sente però l'**effetto** sulla
+propria economia: quel giro la rotta non frutta. Avviso al capo a due livelli:
+- valico **non visibile** → "una tua rotta è stata interrotta" (senza chi/dove);
+- valico **visibile** (confine, patto `vista`, o **spia**) → dettaglio pieno (chi l'ha razziata).
+Emergente e voluto: la trade interdetta spinge a **mandare una spia** o a **mettere in sicurezza il
+corridoio** per scoprire chi ti strozza.
+
+**UI**: le rotte si gestiscono/vedono nella **sezione Mercato** della plancia. Stile approvato su
+mock (`claude.ai/artifact/9GZjUFbG8GCrv6kyBWGMyk`): linea d'oro fluttuante, carovana che scorre,
+segno di razzia al valico, trattamento in nebbia. [APERTO, minore] colore definitivo della rotta
+(oro vs cremisi/turchese) e quanto "viva" la carovana — da decidere sulla **mappa vera**
+(`_dev`/`_diag-rotte.html`).
+
+**Primitivo condiviso col §4**: la **carovana** e il **corpo di spedizione alleato** sono lo stesso
+oggetto — "sulla mappa, colore del proprietario, viaggia ed è attaccabile" — modellato su
+`player.spedizioni` (stato sul record, `x,y`/provincia, avanzamento in `beginTurn`, render
+dedicato, nebbia). Si disegna **una volta** e serve a entrambe.
+
+**Piano**: 2A (semplice) subito col §3; 2B come progetto a sé, sul primitivo carovana.
 
 ---
 
@@ -188,7 +224,7 @@ B.corpiSpedizione = [{ prov, alleato:'A', soldati, cav, merc }]
 |---|-------|---------|-------|
 | 1 Spostamenti | **Definito** | Basso | Primo taglio |
 | 2A Commerci per confine | Definito | Basso | Col §3 |
-| 2B Rotte commerciali | Aperto | Molto alto (sottosistema) | Progetto a sé |
+| 2B Rotte commerciali | **Definito** | Molto alto (sottosistema) | Progetto a sé, sul primitivo carovana |
 | 3 Diplomazia persistente | Definito | Basso (gating UI) | Col §2A |
 | 4 Rinforzi alleati al fronte | Definito (archit. aperta) | Alto (invariante) | Struttura parallela, a sé |
 
@@ -200,5 +236,6 @@ primitivo "carovana/corpo" maturato sul 4.
   due volte in modalità A (eccezione al "una partenza per provincia"). Da definire: origine
   (reclutato? guadagnato? uno per regno?), costo, pedina propria, regola esatta. **Non** nel
   primo taglio degli spostamenti.
-- **Rotte commerciali §2B**: le 4 decisioni qui sopra.
+- **Rotte commerciali §2B**: design chiuso; restano minori — colore definitivo della linea e
+  "vivacità" della carovana, da decidere sulla mappa vera.
 - **Dettagli architetturali del §4**: i 4 punti aperti qui sopra.
