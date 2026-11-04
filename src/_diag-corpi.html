@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diag · Corpo di spedizione</title>
+<style>
+  :root{
+    --bg:#1b1712; --panel:#2a241b; --edge:#4a4229; --ink:#ece2c7; --muted:#b2a582;
+    --sea:#11303a; --land:#4a4430; --border:#6f6245;
+    --ally:#3f74c0;      /* A — ospite/alleato */
+    --corps:#3fae63;     /* B — mittente del corpo */
+    --enemy:#c43a2e;     /* C — nemico al fronte */
+    --cocc:#f2c23c;      /* oro della coccarda */
+  }
+  html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column;}
+  .bar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--edge);}
+  .bar b{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  button{font:inherit;background:#36301f;color:var(--ink);border:1px solid var(--edge);border-radius:7px;padding:5px 10px;cursor:pointer;}
+  .key{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:13px;}
+  .dot{width:.8rem;height:.8rem;border-radius:3px;display:inline-block;}
+  .read{color:var(--muted);font-size:13px;padding:6px 14px;background:#221d15;border-bottom:1px solid var(--edge);min-height:1.4em;}
+  .read b{color:var(--ink);}
+  #stage{flex:1;position:relative;overflow:hidden;background:var(--sea);}
+  #map{position:absolute;inset:0;}
+  #map svg{width:100%;height:100%;display:block;cursor:grab;} #map svg.drag{cursor:grabbing;}
+  #svg-background{fill:var(--sea)!important;}
+  #map-group path.state{fill:var(--land)!important;stroke:var(--border)!important;stroke-width:.28!important;}
+  #map-group path.state.p-ally{fill:var(--ally)!important;}
+  #map-group path.state.p-enemy{fill:var(--enemy)!important;}
+  #map-group path.state.p-near{fill:color-mix(in srgb,var(--land) 70%, var(--ally))!important;}
+  .hint{position:absolute;left:12px;bottom:10px;background:rgba(10,8,4,.78);color:#f3ead3;padding:7px 11px;border-radius:8px;font-size:12.5px;max-width:min(92vw,380px);}
+  /* coccarda del corpo straniero */
+  .cocc-halo{fill:var(--corps);opacity:.22;}
+  .cocc-ring{fill:none;stroke:var(--cocc);stroke-width:.32;stroke-dasharray:.9 .7;}
+  .corps-label{font:600 2px 'Cinzel',serif;fill:var(--cocc);text-anchor:middle;paint-order:stroke;stroke:#2a1c04;stroke-width:.25;}
+  .pennant-pole{stroke:#2a1c04;stroke-width:.22;}
+  .arrow{fill:none;stroke:var(--cocc);stroke-width:.5;stroke-linecap:round;}
+  .arrow-head{fill:var(--cocc);}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <b>Corpo di spedizione · diag</b>
+    <span class="key"><span class="dot" style="background:var(--ally)"></span>A ospite</span>
+    <span class="key"><span class="dot" style="background:var(--corps)"></span>B (corpo)</span>
+    <span class="key"><span class="dot" style="background:var(--enemy)"></span>nemico</span>
+    <button id="btnDemo">Scenario d'esempio</button>
+    <button id="btnReset">Azzera</button>
+    <button id="btnFit">Inquadra tutto</button>
+  </div>
+  <div class="read" id="read">Clicca una provincia = <b>ospite (A)</b> col corpo di B; poi clicca una sua confinante = <b>nemico</b> al fronte. Oppure “Scenario d'esempio”.</div>
+  <div id="stage"><div id="map"></div><div class="hint" id="hint">Caricamento…</div></div>
+
+  <script src="data/embedded_map.js?v=83"></script>
+  <script src="data/piece_icons.js?v=126"></script>
+  <script src="js/map-anchors.js?v=83"></script>
+  <script>
+  (function(){
+    var SVGNS='http://www.w3.org/2000/svg', XLINK='http://www.w3.org/1999/xlink';
+    var map=document.getElementById('map');
+    map.innerHTML=(typeof RAW_SVG_CONTENT!=='undefined')?RAW_SVG_CONTENT:'<p style="color:#f88">no map</p>';
+    var svg=map.querySelector('svg'); if(!svg){document.getElementById('hint').textContent='no svg';return;}
+
+    // simboli-pedina veri
+    if(typeof PIECE_SYMBOLS!=='undefined'){
+      var d=new DOMParser().parseFromString('<svg xmlns="'+SVGNS+'" xmlns:xlink="'+XLINK+'"><defs id="pc-defs">'+PIECE_SYMBOLS+'</defs></svg>','image/svg+xml');
+      var defs=d.querySelector('#pc-defs'); if(defs) svg.insertBefore(document.importNode(defs,true),svg.firstChild);
+    }
+
+    var NON=new Set(['East_Aegean_Islands','West_Aegean_Islands','Canary_Islands','Cabo_Verde','Bahamas','Hawaiian_Islands','South_Atlantic_Islands']);
+    var paths=Array.prototype.slice.call(svg.querySelectorAll('#map-group path.state')).filter(function(p){return p.id&&!NON.has(p.id);});
+    var byId={}; paths.forEach(function(p){byId[p.id]=p;});
+
+    // grafo confini di terra (come app.js)
+    var NEI={};
+    (function(){
+      var cells=new Map();
+      function hp(id,x,y){var c=.32,cx=Math.round(x/c),cy=Math.round(y/c);for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){var k=(cx+dx)+':'+(cy+dy);var s=cells.get(k);if(!s){s=new Set();cells.set(k,s);}s.add(id);}}
+      paths.forEach(function(p){var pts=MapAnchors.boundaryPoints(p);for(var i=0;i<pts.length;i++)hp(p.id,pts[i].x,pts[i].y);});
+      paths.forEach(function(p){NEI[p.id]=new Set();});
+      cells.forEach(function(s){if(s.size<2)return;var a=Array.from(s);for(var i=0;i<a.length;i++)for(var j=i+1;j<a.length;j++){NEI[a[i]].add(a[j]);NEI[a[j]].add(a[i]);}});
+      [['Posen','Mazovia'],['Riga','Vilnius'],['Smolensk','Vitebsk'],['Courland','Vitebsk'],['Minsk','Volhynia'],['Kiev','Moldavia'],['Bessarabia','Wallachia'],['Anhalt','Mecklenburg'],['Gelre','Hannover'],['Flanders','Ruhr'],['Picardy','Wallonia'],['Baden','West_Switzerland'],['Franche_Comte','Savoy'],['Aquitaine','Catalonia'],['Lombardy','Romagna'],['South_Tyrol','Styria'],['Skopia','Western_Thrace'],['Armenia','Erzurum'],['Hedjaz','Palestine'],['Aktobe','Ufa'],['Aktobe','Khiva'],['Dzungaria','Fergana'],['Fergana','Pashtunistan'],['Bornu','North_Cameroon'],['Botswana','South_Angola'],['Antioquia','Guaviare'],['Bahia','Maranhao'],['New_Mexico','Utah'],['Arizona','Colorado'],['Tabriz','Diyarbakir'],['Tabriz','Greater_Caucasus'],['Tabriz','Mosul'],['Tabriz','Erzurum']].forEach(function(pr){if(NEI[pr[0]])NEI[pr[0]].delete(pr[1]);if(NEI[pr[1]])NEI[pr[1]].delete(pr[0]);});
+    })();
+
+    var layer=document.createElementNS(SVGNS,'g'); layer.setAttribute('id','corps-layer'); svg.appendChild(layer);
+    function anchor(id){return MapAnchors.landAnchor(byId[id]);}
+    function nm(id){return id.replace(/_/g,' ');}
+    function clearPaint(){paths.forEach(function(p){p.classList.remove('p-ally','p-enemy','p-near');});}
+    function el(tag,attrs){var e=document.createElementNS(SVGNS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);return e;}
+
+    // una "unità": icona pedina + pastiglia col numero
+    function unit(cx,cy,size,type,color,count){
+      var g=el('g',{}); g.style.color=color;
+      var u=el('use',{x:cx-size/2,y:cy-size/2,width:size,height:size}); u.setAttribute('href','#pc-'+type); u.setAttributeNS(XLINK,'href','#pc-'+type); g.appendChild(u);
+      if(count!=null){
+        var bx=cx+size*0.34,by=cy-size*0.34,br=size*0.3;
+        g.appendChild(el('circle',{cx:bx,cy:by,r:br,fill:'#fff',stroke:'#2a1c04','stroke-width':size*0.06}));
+        var t=el('text',{x:bx,y:by,'text-anchor':'middle','dominant-baseline':'central','font-size':br*1.35,'font-weight':'bold','font-family':'sans-serif',fill:'#2a1c04'}); t.textContent=count; g.appendChild(t);
+      }
+      return g;
+    }
+
+    function drawScenario(host,enemy){
+      layer.innerHTML=''; clearPaint();
+      var a=anchor(host); if(!a){setRead('Ancora non calcolabile per '+nm(host));return;}
+      byId[host].classList.add('p-ally');
+      (NEI[host]||new Set()).forEach(function(n){ if(byId[n]&&n!==enemy) byId[n].classList.add('p-near'); });
+      if(enemy&&byId[enemy]) byId[enemy].classList.add('p-enemy');
+
+      var r=Math.max(2,a.r||3), sz=Math.min(3.4,Math.max(2.1,r*0.62));
+      var allyCol=getComputedStyle(document.documentElement).getPropertyValue('--ally').trim();
+      // A: guarnigione ospite (in basso a sinistra, ben staccata)
+      var ax=a.x-r*0.9, ay=a.y+r*0.45;
+      layer.appendChild(unit(ax,ay,sz,'soldato',allyCol,'3'));
+      layer.appendChild(el('text',{x:ax,y:ay+sz*0.9,'class':'corps-label',fill:allyCol,stroke:'#0b1830'})).textContent='A';
+
+      // B: corpo di spedizione — distinto solo dal COLORE di B (niente coccarda/bandiera)
+      var bx=a.x+r*0.42, by=a.y-r*0.1, col=getComputedStyle(document.documentElement).getPropertyValue('--corps').trim();
+      // due reparti: fanti + cavalieri
+      layer.appendChild(unit(bx,by,sz,'soldato',col,'8'));
+      layer.appendChild(unit(bx+sz*0.95,by,sz,'cavaliere',col,'2'));
+      // etichetta
+      layer.appendChild(el('text',{x:bx+sz*0.5,y:by+sz*1.0,'class':'corps-label'})).textContent='corpo di B';
+
+      // freccia d'attacco verso il nemico
+      if(enemy&&byId[enemy]){
+        var e=anchor(enemy); if(e){
+          var dx=e.x-a.x,dy=e.y-a.y,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len;
+          var x1=a.x+ux*(r*0.9),y1=a.y+uy*(r*0.9), x2=e.x-ux*((e.r||2)*0.9),y2=e.y-uy*((e.r||2)*0.9);
+          var mx=(x1+x2)/2 - uy*2, my=(y1+y2)/2 + ux*2; // leggera curva
+          layer.appendChild(el('path',{d:'M'+x1+','+y1+' Q'+mx+','+my+' '+x2+','+y2,'class':'arrow'}));
+          var hx=x2,hy=y2,hl=1.8;
+          layer.appendChild(el('path',{d:'M'+hx+','+hy+' l'+(-ux*hl-uy*hl*0.6)+','+(-uy*hl+ux*hl*0.6)+' l'+(uy*hl*1.2)+','+(-ux*hl*1.2)+' z','class':'arrow-head'}));
+        }
+      }
+      setRead('<b>'+nm(host)+'</b> (A) ospita il <b>corpo di B</b> · fronte verso <b>'+(enemy?nm(enemy):'—')+'</b>. A difende con la sua guarnigione <b>e</b> col corpo; il corpo attacca il nemico nel turno di B.');
+    }
+    function setRead(h){document.getElementById('read').innerHTML=h;}
+
+    var host=null,enemy=null;
+    map.addEventListener('click',function(e){
+      if(dragMoved)return; var t=e.target.closest&&e.target.closest('path.state'); if(!t||!byId[t.id])return;
+      if(!host||enemy){host=t.id;enemy=null;drawScenario(host,null);}
+      else if(t.id!==host){enemy=t.id;drawScenario(host,enemy);}
+    });
+    document.getElementById('btnReset').addEventListener('click',function(){host=enemy=null;layer.innerHTML='';clearPaint();setRead('Azzerato. Clicca una provincia ospite.');});
+    document.getElementById('btnDemo').addEventListener('click',demo);
+    function demo(){
+      // un ospite con >=3 vicini vicino al centro mappa
+      var cx=0,cy=0,n=0; paths.forEach(function(p){var a=anchor(p.id);if(a){cx+=a.x;cy+=a.y;n++;}});cx/=n;cy/=n;
+      var best=null,bd=1e9; paths.forEach(function(p){var a=anchor(p.id);if(!a)return;if((NEI[p.id]||new Set()).size<3)return;var d=(a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy);if(d<bd){bd=d;best=p.id;}});
+      host=best; var ns=Array.from(NEI[host]||[]); enemy=ns[0]||null; drawScenario(host,enemy);
+      zoomTo(host);
+    }
+
+    // zoom/pan
+    var vb={x:0,y:0,w:1200,h:575};
+    function apply(){svg.setAttribute('viewBox',vb.x+' '+vb.y+' '+vb.w+' '+vb.h);}
+    function fit(){vb={x:0,y:0,w:1200,h:575};apply();}
+    function zoomTo(id){var a=anchor(id);if(!a)return;var w=70,h=w*575/1200;vb={x:a.x-w/2,y:a.y-h/2,w:w,h:h};apply();}
+    document.getElementById('btnFit').addEventListener('click',fit);
+    var stage=document.getElementById('stage');
+    stage.addEventListener('wheel',function(e){e.preventDefault();var r=svg.getBoundingClientRect();var mx=vb.x+(e.clientX-r.left)/r.width*vb.w,my=vb.y+(e.clientY-r.top)/r.height*vb.h;var f=e.deltaY<0?0.85:1/0.85;var nw=Math.max(30,Math.min(1200,vb.w*f)),nh=Math.max(14,Math.min(575,vb.h*f));vb.x=mx-(mx-vb.x)*(nw/vb.w);vb.y=my-(my-vb.y)*(nh/vb.h);vb.w=nw;vb.h=nh;apply();},{passive:false});
+    var dragging=false,dragMoved=false,px=0,py=0;
+    svg.addEventListener('pointerdown',function(e){dragging=true;dragMoved=false;px=e.clientX;py=e.clientY;svg.classList.add('drag');});
+    window.addEventListener('pointermove',function(e){if(!dragging)return;var r=svg.getBoundingClientRect();var dx=(e.clientX-px)/r.width*vb.w,dy=(e.clientY-py)/r.height*vb.h;if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>3)dragMoved=true;vb.x-=dx;vb.y-=dy;px=e.clientX;py=e.clientY;apply();});
+    window.addEventListener('pointerup',function(){dragging=false;svg.classList.remove('drag');setTimeout(function(){dragMoved=false;},0);});
+
+    document.getElementById('hint').textContent='Clicca ospite + nemico · rotella = zoom · trascina = sposta';
+    fit(); demo();
+  })();
+  </script>
+</body>
+</html>
