@@ -25,14 +25,15 @@ Troppo stretto per un impero grande.
 - **Fino a 3 spostamenti** per turno.
 - **Ogni provincia può partire una volta sola** (non puoi partire due volte dalla stessa
   provincia di partenza).
-- **Una partenza muove solo gli uomini presenti all'INIZIO del turno** in quella provincia,
-  non quelli arrivati con un altro spostamento dello stesso turno. È questo il vincolo che
+- **Una partenza muove solo gli uomini presenti all'INIZIO della fase di spostamento** in quella
+  provincia: un soldato già mosso in questa fase non si muove di nuovo. Chi è arrivato prima,
+  con lo schieramento o conquistando nella fase `attacca`, può partire. È questo il vincolo che
   impedisce a un'armata di attraversare due regioni in un turno (la catena è il mestiere di
   B). *Formulazione scelta: ordine-indipendente — vedi sotto.*
 - **Gli arrivi sono liberi di ripetersi**: più partenze diverse possono confluire in **una
   stessa destinazione** (aggregazione: prov1→X, prov2→X, prov3→X).
 - Una provincia può fare **sia da partenza sia da arrivo** nello stesso turno (es. parte coi
-  suoi uomini di inizio turno e più tardi ne riceve altri, che però restano lì).
+  uomini di inizio fase e più tardi ne riceve altri, che però restano lì).
 - **Contatore visibile**: "spostamenti rimasti: N/3" sempre in vista nella fase `sposta`; le
   partenze già usate si spengono.
 
@@ -42,7 +43,7 @@ Esempio valido (confermato dall'utente):
 - Spost. 3: prov4 → prov3 (1 uomo)
 
 Qui prov2 è partenza (spost. 1) e arrivo (spost. 2); prov3 riceve due volte. Tutto lecito
-perché prov2 parte coi suoi uomini di inizio turno e l'uomo che le arriva non prosegue.
+perché prov2 parte coi suoi uomini di inizio fase e l'uomo che le arriva non prosegue.
 
 Esempio vietato (catena mascherata):
 - prov1 → prov2, poi prov2 → prov3 **usando gli uomini appena arrivati**. Gli uomini arrivati
@@ -50,11 +51,11 @@ Esempio vietato (catena mascherata):
   salta due regioni.
 
 **[REGOLA] Formulazione (a) — ordine-indipendente** (scelta dell'utente). Le partenze
-attingono SOLO dal presidio di inizio turno della provincia; il giocatore non deve pensare
+attingono SOLO dal presidio di inizio fase della provincia; il giocatore non deve pensare
 all'ordine dei click. (Scartata la (b) "una provincia che ha ricevuto non può più partire",
 più semplice da spiegare ma dipendente dall'ordine e più restrittiva.)
 
-> Invariante da implementare: per ogni provincia, *troppe uscenti ≤ presidio di inizio turno*;
+> Invariante da implementare: per ogni provincia, *truppe uscenti ≤ presidio a inizio fase `sposta`*;
 > ogni provincia parte al massimo una volta; destinazioni ripetibili; massimo 3 spostamenti.
 
 ### Modalità B — una catena
@@ -63,6 +64,8 @@ più semplice da spiegare ma dipendente dall'ordine e più restrittiva.)
   della catena, ma come scelta esplicita e non come default.
 - Gli intermedi sono solo la **rotta**: i soldati partono da **una** provincia e arrivano in
   **una**, §5 (presidio minimo) rispettato solo agli estremi.
+- **Verso il fronte alleato** la catena attraversa anche le province dell'alleato che concede
+  l'accesso militare (§4). Non attraversa mai province neutrali o nemiche.
 
 ### Regole comuni a A e B
 - **Rinforzo via nave** = conta come **uno** spostamento (uno dei 3 in A; la mossa in B).
@@ -73,7 +76,7 @@ più semplice da spiegare ma dipendente dall'ordine e più restrittiva.)
 
 ### Impatti noti sul codice (da affrontare in implementazione)
 - `player.spostamentoFatto` (booleano) → **contatore** per A (es. `spostamentiFatti`), più
-  lo stato di quali province hanno già fatto da partenza e il presidio di inizio turno.
+  lo stato di quali province hanno già fatto da partenza e il presidio di inizio fase.
 - Selettore di modalità A/B nella fase `sposta` (riusa l'impianto del selettore `.bp-vessels`).
 - `moveTargets`/`finalMove`/`moveOrigins` e l'armamento a due click (`moveArmed`): B richiede
   pathfinding sul territorio proprio.
@@ -205,15 +208,29 @@ B.corpiSpedizione = [{ id, prov, alleato:'A', soldati, cav, merc }]
 È "un'armata di B parcheggiata su suolo alleato": tiene colore e proprietà di B; la provincia resta
 di A con le sue pedine (invariante salvo). I **due soli punti che toccano il cuore del motore**:
 1. **Difesa a somma di due stack**: un attacco alla provincia ospite lo difendono insieme la
-   guarnigione di A **e** il corpo di B.
+   guarnigione di A **e** il corpo di B, e la battaglia si calcola sulla loro somma.
 2. **Attacco con origine su provincia altrui**: B attacca partendo dalla provincia di A dove sta il
    corpo (oggi le origini di attacco/movimento sono solo province proprie).
 
 **Ciclo di vita [REGOLA]:**
 - **Invio** (fase movimento, §1): B manda un'armata su una provincia di un **alleato** (accesso
-  militare = patto `rinforzi` o alleanza), raggiungibile via catena di terra (mod. B) o passo/nave
-  (mod. A). Consuma il movimento. **Arriva al turno 1, usabile dal turno 2.** Nessun flag "nemico
-  comune": l'accesso militare è il cancello, poi B combatte chi vuole (fronte comune emergente).
+  militare = patto `rinforzi` o alleanza), con le strade descritte qui sotto. Consuma il
+  movimento. **Arriva al turno 1, usabile dal turno 2.** Nessun flag "nemico comune": l'accesso
+  militare è il cancello, poi B combatte chi vuole (fronte comune emergente).
+- **Come si arriva al fronte** [REGOLA]:
+  - **Regni confinanti via terra**: uno spostamento di modalità B porta l'armata fino al fronte
+    nello stesso turno, attraverso le province proprie e quelle dell'alleato. Attacco al turno 2.
+  - **Regni non confinanti**: serve prima una tappa sul continente, e la scelta è di tempismo:
+    - **Scalo su una provincia dell'alleato** (fase `sposta`): si arriva via nave, senza
+      battaglia, ma il movimento del turno è speso. La catena parte al turno dopo: fronte al
+      turno 2, attacco al turno 3.
+    - **Conquista di una neutrale** (fase `attacca`): sbarco con battaglia, e la provincia presa
+      diventa di B. Nello stesso turno, in fase `sposta`, i superstiti meno il presidio (§5)
+      proseguono con la catena: fronte al turno 1, attacco al turno 2. Si guadagna un turno, ma
+      lo sbarco si può perdere e al fronte arrivano meno uomini.
+  - Una neutrale non si attraversa e non fa da scalo senza essere conquistata.
+  - Chi ha conquistato nella fase `attacca` è già nella provincia quando comincia lo spostamento,
+    quindi può muoversi in entrambe le modalità: in A di un solo confine, in B con la catena.
 - **Ospitalità/difesa**: il corpo **difende sempre insieme** alla guarnigione di A (anche nel turno
   di A). Non conta per il presidio minimo di A, né per la sua produzione/§8. [punto 7]
 - **Comando (turno di B)**: il corpo è **un'armata di B a tutti gli effetti**, sta solo su suolo
@@ -230,9 +247,13 @@ di A con le sue pedine (invariante salvo). I **due soli punti che toccano il cuo
   armata): quel turno **occupa tutto il movimento** ed è **esclusivo con i 3 spostamenti della
   modalità A**. (L'invio resta invece ammesso in entrambe le modalità; solo il ritiro è prezzato
   come la B.) Se B non ha più province, il corpo non può rientrare.
-- **Difesa e perdita** [punti 2+4, chiariti dall'utente]: ospite + corpo combattono come **un'unica
-  difesa**, perdite **proporzionali** fra i due stack (ventura per prima in ciascuno). Difesa che
-  **regge** → i due si spartiscono le perdite; provincia che **cade** → **cadono tutti**,
+- **Difesa e perdita** [punti 2+4, chiariti dall'utente]: sul fronte condiviso le due armate **si
+  sommano**. Contro il nemico contano come un solo difensore, sia nella **percentuale di vittoria**
+  sia nel calcolo dei **morti in battaglia**: soldati di A + soldati di B, con le loro quote di
+  ventura e cavalieri; terreno e mura sono quelli della provincia ospite, contati una volta sola.
+  La somma vale anche per il limite di conquista e per la soglia dei due attacchi (§9).
+  Difesa che **regge** → i due si spartiscono le perdite in **proporzione** (ventura per prima in
+  ciascuno). Provincia che **cade** → il nemico ha avuto la forza di uccidere tutti: **cadono**
   guarnigione di A e corpo di B, **nessun superstite** (modello a difesa combinata, non "il nemico
   ignora gli alleati"). È il prezzo vero dell'impegno oltreconfine.
 
