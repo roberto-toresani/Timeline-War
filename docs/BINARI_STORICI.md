@@ -256,6 +256,13 @@ da discutere con l'utente prima di scriverla.
 
 # I dieci binari
 
+> **NB (2026-11-05): i capitoli III (ciclo 1200-1299) sono stati RISCRITTI** con gli
+> obiettivi decisi dall'utente — numeri fissi, titoli storici, il capitolo Mori non è più
+> "Saladino/Gerusalemme" ma "L'emirato d'Egitto". Le mire primarie di cap III elencate qui
+> sotto per alcuni regni sono quindi **superate**: la versione viva è in
+> `docs/CICLO3_RICERCA.md` §"Obiettivi adottati" e in `js/objectives.js`. Aggiunti i
+> template `politica`, `cavalieri`, `rottaCommerciale` e i SET `ITALIA_FED`, `EGYPT_SINAI`.
+
 ## Regno di Castiglia — *dalla Reconquista all'impero atlantico*
 
 | # | epoca | capitolo | mira primaria |

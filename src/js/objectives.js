@@ -216,7 +216,14 @@
         'Uruguay', 'Rio_Grande_Do_Sul', 'Parana', 'Santa_Catarina', 'Tucuman', 'Jujuy',
         'Antofagasta', 'Tarapaca', 'Santiago', 'Araucania', 'Rio_Negro', 'La_Pampa', 'Patagonia']);
 
+    // Aggiunte per il ciclo III (obiettivi scritti dall'utente):
+    //  ITALIA_FED  — l'Italia padana di Federico II (Sacro Impero cap III).
+    //  EGYPT_SINAI — tutto l'Egitto più il Sinai (Mori cap III, «l'emirato d'Egitto»).
+    const ITALIA_FED = new Set(['Lombardy', 'Venetia', 'Romagna', 'Emilia']);
+    const EGYPT_SINAI = new Set(['Matruh', 'Lower_Egypt', 'Upper_Egypt', 'Middle_Egypt', 'Egyptian_Desert', 'Sinai']);
+
     const SETS = {
+        ITALIA_FED, EGYPT_SINAI,
         ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT,
         ISLANDS, HOLY_LAND, IRELAND, FRANCIA, AMERICA, INDIE,
         ANATOLIA, TRANSGIORDANIA, SICILIA_CALABRIA, ITALIA_SUD, ISLAM_ORIGINE,
@@ -466,6 +473,25 @@
         // capitolo che lo chiede sta chiedendo di governare, non di vincere: è il
         // contrappeso giusto a un secolo speso a conquistare.
         benessere: { misura: c => c.benessere(), tetto: () => 5, hint: (a, n) => ({ welfare: n }) },
+        // POLITICA DEL REGNO (§8-bis, js/politics.js): quanto la corona pende
+        // verso un ceto. Il grado vero (player.politica) va da −2 (Nobiltà forte)
+        // a +2 (Popolo forte). Qui la misura è SEMPRE positiva — quanto si pende
+        // DALLA PARTE chiesta — così `misura ≥ soglia` resta la regola di tutti:
+        //   arg.lato = 'nobili' → −grado (−2 diventa 2)
+        //   arg.lato = 'popolo' → +grado
+        // Una soglia 2 = «fortemente» (il grado estremo), 1 = «orientata».
+        politica: {
+            misura: (c, a) => (a.lato === 'popolo' ? c.politicaGrade() : -c.politicaGrade()),
+            tetto: () => 2,
+            hint: (a, n) => ({ politics: a.lato || 'nobili', strength: n })
+        },
+        // Quanti CAVALIERI in armi in tutto il regno (§Cavalieri, data-cav).
+        cavalieri: { misura: c => c.knightCount(), hint: (a, n) => ({ knights: n }) },
+        // ROTTA COMMERCIALE (§7): quanti scambi il regno ha concluso in QUESTO
+        // ciclo (player.commerciCiclo, azzerato da closeCycle come popCiclo). È il
+        // modo misurabile di «apri una rotta e mantienila fino a fine ciclo»:
+        // tenere viva la rotta = continuare a commerciare durante il ciclo.
+        rottaCommerciale: { misura: c => c.tradesThisCycle(), hint: (a, n) => ({ tradeRoute: n }) },
         // Combinato: una parte SCALABILE (`capo`) più parti fisse (`altri`) che
         // vanno tutte soddisfatte. Finché le fisse non lo sono la misura è -1,
         // così l'obiettivo non risulta mai completo; per la calibrazione conta
@@ -567,26 +593,26 @@
                   testo: () => 'Costruisci una nave.',
                   check: n => `navi ≥ ${n}` }
             ] },
-            // Ciclo III — Las Navas de Tolosa (1212) apre al-Andalus: da qui la
-            // Reconquista smette di essere un'incursione. Il secondario prepara
-            // già la traversata dello Stretto del capitolo dopo — sbarcare in
-            // Maghreb vuole una nave, non solo un esercito.
+            // Ciclo III — Las Navas de Tolosa (1212) e la grande avanzata di
+            // Ferdinando III: Córdoba 1236, Siviglia 1248. Le città riconquistate
+            // si ripopolano; la frontiera con Granada si presidia; la Castiglia
+            // affaccia sull'Atlantico (Cádiz, 1262). Obiettivi FISSI (utente).
             { ciclo: 3, epoca: '1200-1299', tema: 'Las Navas de Tolosa', voci: [
-                { id: 'ca3-1', tipo: 'espansione', titolo: 'Las Navas de Tolosa',
-                  tmpl: 'provCount', arg: {},
-                  n: { resistere: 9, avanzare: 12, eccedere: 15, passo: 1 },
-                  testo: n => `Las Navas de Tolosa spalanca al-Andalus: possiedi ${n} province.`,
-                  check: n => `province ≥ ${n}` },
-                { id: 'ca3-2', tipo: 'espansione', titolo: 'La frontiera con gli arabi',
-                  tmpl: 'guarnigioniConfine', arg: {},
-                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
-                  testo: n => `Difendi le province ai confini con gli arabi con almeno ${n} truppe ciascuna.`,
-                  check: n => `ogni provincia confinante con un nemico con soldati ≥ ${n}` },
-                { id: 'ca3-3', tipo: 'crescita', titolo: 'Il regno che si governa',
-                  tmpl: 'popolarita', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
-                  check: n => `Popolarità ≥ ${n}` }
+                { id: 'ca3-1', tipo: 'crescita', titolo: 'Le città della Reconquista', fisso: true,
+                  tmpl: 'cittaCount', arg: {},
+                  n: { avanzare: 2 },
+                  testo: n => `Ripopola le terre riconquistate: costruisci ${n} città nel tuo regno.`,
+                  check: n => `città ≥ ${n}` },
+                { id: 'ca3-2', tipo: 'espansione', titolo: 'La frontiera della cristianità', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Granada', 'Andalusia'] },
+                  n: { avanzare: 10 },
+                  testo: n => `Difendi le province di Granada e Andalusia con almeno ${n} uomini ciascuna.`,
+                  check: n => `Granada e Andalusia possedute con soldati ≥ ${n}` },
+                { id: 'ca3-3', tipo: 'navale', titolo: 'Verso l’Atlantico', fisso: true,
+                  tmpl: 'conquisteNavali', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Esegui con successo una conquista navale.',
+                  check: n => `conquiste navali ≥ ${n}` }
             ] },
             // Ciclo IV — lo Stretto: Rio Salado (1340), la Castiglia porta la
             // guerra in Africa. Il secondario prosegue il lavoro di fondo su
@@ -747,31 +773,24 @@
             // pezzo di mondo che l'Inghilterra chiama NORMANDY_FR — è la stessa
             // guerra vista dall'altra sponda.
             { ciclo: 3, epoca: '1200-1299', tema: 'Bouvines e il Midi', voci: [
-                // Ordine (commento dell'utente sul worksheet, 2026-09-14):
-                // Bouvines è il PRIMARIO, le marce di confine il Secondario.
-                // TRABOCCAMENTO: se il dominio reale è già completo prima che il
-                // capitolo nasca, il 1214 di Bouvines coincide col 1209 di Béziers
-                // — la crociata contro gli Albigesi porta la corona sulla costa
-                // mediterranea (MED_FR, la stessa di fr1).
-                { id: 'fr3-1', tipo: 'espansione', titolo: 'Bouvines',
-                  tmpl: 'regione', arg: { set: 'NORMANDY_FR', oltre: 'MED_FR' },
-                  n: { resistere: 3, avanzare: 4, eccedere: 6, passo: 1 },
-                  testo: n => `Riafferma il dominio reale: possiedi ${n} delle 6 province fra Normandia, Bretagna, Piccardia, Fiandre, Aquitania e Borgogna.`,
-                  check: n => `province di NORMANDY_FR possedute ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  titoloOltre: 'La crociata contro gli Albigesi',
-                  testoOltre: n => `Il dominio reale è già saldo: piega gli eretici del Midi — possiedi ${pl(n, 'una provincia', 'province')} sulla costa mediterranea.`,
-                  checkOltre: n => `province di MED_FR possedute ≥ ${n}` },
-                { id: 'fr3-2', tipo: 'espansione', titolo: 'Le marce difese',
-                  tmpl: 'guarnigioni', arg: { soglia: 5 },
-                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
-                  testo: n => `Arma le province di confine: tieni ${n} territori con almeno 5 uomini ciascuno.`,
-                  check: n => `${n} province con soldati ≥ 5 ciascuna` },
-                { id: 'fr3-3', tipo: 'economia', titolo: 'La crociata contro gli eretici',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 700, avanzare: 1200, eccedere: 1800, passo: 200 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+                // Obiettivi FISSI (utente): l'espansione capetingia verso le marche
+                // (Aquitania e l'arco alpino), il buon governo di San Luigi, e la
+                // crociata di Luigi IX in Terra Santa (1248-50, 1270).
+                { id: 'fr3-1', tipo: 'espansione', titolo: 'Le marche del regno', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Aquitaine', 'Piedmont', 'Savoy', 'West_Switzerland'] },
+                  n: { avanzare: 1 },
+                  testo: () => 'Estendi il dominio reale: conquista Aquitania, Piemonte, Savoia e Svizzera Occidentale.',
+                  check: () => 'Aquitaine, Piedmont, Savoy e West_Switzerland possedute' },
+                { id: 'fr3-2', tipo: 'crescita', titolo: 'Il regno di San Luigi', fisso: true,
+                  tmpl: 'popolarita', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Il buon governo di Luigi IX: chiudi il ciclo con una Popolarità di livello ${n}.`,
+                  check: n => `Popolarità ≥ ${n}` },
+                { id: 'fr3-3', tipo: 'espansione', titolo: 'La crociata di San Luigi', fisso: true,
+                  tmpl: 'regione', arg: { set: 'HOLY_LAND' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Porta la croce in Oriente: difendi almeno una provincia in Terra Santa.',
+                  check: () => 'almeno 1 provincia di HOLY_LAND posseduta' }
             ] },
             // Ciclo IV — i Cent'Anni cominciano (1337): l'inglese sbarca proprio
             // dove la Francia ha appena consolidato. Aquitaine è la stessa
@@ -932,26 +951,26 @@
                   testo: () => 'Conquista la provincia di Matruh, in Egitto.',
                   check: () => 'possiedi Matruh' }
             ] },
-            // Ciclo III — Saladino riprende Gerusalemme (1187): l’emirato
-            // torna in Terra Santa. Il secondario prepara già la difesa del
-            // Levante che il capitolo dopo (Ain Jalut) chiede di tenere.
-            { ciclo: 3, epoca: '1200-1299', tema: 'Saladino', voci: [
-                { id: 'fa3-1', tipo: 'espansione', titolo: 'Saladino riprende Gerusalemme',
-                  tmpl: 'province', arg: { ids: ['Palestine', 'Lebanon'] },
-                  n: { resistere: 0, avanzare: 0, eccedere: 3, passo: 0 },
-                  testo: n => n > 0 ? `Riprendi la Terra Santa: conquista Palestina e Libano, difese con ${n} uomini.`
-                                    : 'Riprendi la Terra Santa: conquista Palestina e Libano.',
-                  check: n => n > 0 ? `Palestina e Libano con soldati ≥ ${n}` : 'possiedi Palestina e Libano' },
-                { id: 'fa3-2', tipo: 'espansione', titolo: 'Il Levante presidiato',
-                  tmpl: 'guarnigioniConfine', arg: {},
-                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Presidia il fronte cristiano: ogni provincia confinante con i cristiani con almeno ${n} uomini.`,
-                  check: n => `ogni provincia confinante con un nemico con soldati ≥ ${n}` },
-                { id: 'fa3-3', tipo: 'navale', titolo: 'Sicilia o Creta',
-                  tmpl: 'regione', arg: { set: 'SICILIA_CRETA', viaSea: true },
-                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
-                  testo: n => `Sbarca nel Mediterraneo: conquista ${pl(n, 'una provincia', 'province')} fra Sicilia e Creta.`,
-                  check: n => `province fra Sicilia e Creta ≥ ${n}` }
+            // Ciclo III — l'emirato vira sull'Egitto (riscritto, obiettivi FISSI
+            // dell'utente): tolto "Saladino/Gerusalemme" (Terra Santa irraggiungibile
+            // per un regno d'Iberia-Maghreb). Qui si conquista la valle del Nilo, si
+            // fonda la cittadella del Cairo e si governa la ricchezza del fiume.
+            { ciclo: 3, epoca: '1200-1299', tema: 'L’emirato d’Egitto', voci: [
+                { id: 'fa3-1', tipo: 'espansione', titolo: 'L’emirato d’Egitto', fisso: true,
+                  tmpl: 'regione', arg: { set: 'EGYPT_SINAI' },
+                  n: { avanzare: 6 },
+                  testo: () => 'Conquista tutta la valle del Nilo: le cinque province egiziane e il Sinai.',
+                  check: () => 'tutte le province di EGYPT_SINAI possedute' },
+                { id: 'fa3-2', tipo: 'crescita', titolo: 'La cittadella del Cairo', fisso: true,
+                  tmpl: 'citta', arg: { at: 'Middle_Egypt' },
+                  n: { avanzare: 8 },
+                  testo: n => `Fonda il Cairo: costruisci una città in Medio Egitto e difendila con ${n} uomini.`,
+                  check: n => `città in Middle_Egypt con soldati ≥ ${n}` },
+                { id: 'fa3-3', tipo: 'crescita', titolo: 'La prosperità del Nilo', fisso: true,
+                  tmpl: 'popolarita', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
+                  check: n => `Popolarità ≥ ${n}` }
             ] },
             // Ciclo IV — il sultanato mamelucco tiene il Levante. NON si nomina
             // l'Orda (regola dell'utente): un capitolo non può dipendere da un
@@ -1118,28 +1137,27 @@
                   testo: n => `Costruisci ${n} edifici per migliorare il benessere (migliorie di Sanità o Felicità sulla Capitale).`,
                   check: n => `migliorie attive sulla Capitale ≥ ${n}` }
             ] },
-            // Ciclo III — non si conquista niente di nuovo: si TIENE quel che si
-            // è preso, e si tiene in due posti precisi (le Fiandre e una terra di
-            // Francia), perché una testa di ponte sola è una testa di ponte persa.
-            { ciclo: 3, epoca: '1200-1299', tema: 'Le teste di ponte', voci: [
-                { id: 'in3-1', tipo: 'espansione', titolo: 'Fiandre e Francia',
+            // Ciclo III — l'impero angioino sul continente, la Magna Carta (1215)
+            // e la signoria d'Irlanda. Obiettivi FISSI (utente).
+            { ciclo: 3, epoca: '1200-1299', tema: 'Magna Carta', voci: [
+                { id: 'in3-1', tipo: 'espansione', titolo: 'Le terre del continente', fisso: true,
                   tmpl: 'tutti', arg: {
-                      capo: { tmpl: 'provincia', arg: { id: 'Flanders' } },
-                      altri: [{ tmpl: 'regioneGuarnigione', arg: { set: 'FRANCIA' }, soglia: 5 }]
+                      capo: { tmpl: 'fuoriRegione', arg: { set: 'BRITISH' } },
+                      altri: [{ tmpl: 'citta', arg: {}, soglia: 6 }]
                   },
-                  n: { resistere: 4, avanzare: 8, eccedere: 12, passo: 2 },
-                  testo: n => `Tieni le Fiandre con ${n} uomini e una provincia di Francia con almeno 5.`,
-                  check: n => `Flanders con soldati ≥ ${n} e una provincia francese con soldati ≥ 5` },
-                { id: 'in3-2', tipo: 'espansione', titolo: 'L’isola alle spalle',
-                  tmpl: 'regione', arg: { set: 'BRITISH' },
-                  n: { resistere: 7, avanzare: 9, eccedere: 11, passo: 1 },
-                  testo: n => `Non lasciare sguarnita l’isola: possiedi ${n} province britanniche.`,
-                  check: n => `province britanniche possedute ≥ ${n}` },
-                { id: 'in3-3', tipo: 'crescita', titolo: 'Governare, non solo tenere',
-                  tmpl: 'popolarita', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
-                  check: n => `Popolarità ≥ ${n}` }
+                  n: { avanzare: 3 },
+                  testo: n => `Conquista ${n} province sul continente e tieni una città con almeno 6 uomini.`,
+                  check: n => `province fuori dalle isole ≥ ${n} e una città con soldati ≥ 6` },
+                { id: 'in3-2', tipo: 'crescita', titolo: 'La Magna Carta', fisso: true,
+                  tmpl: 'politica', arg: { lato: 'nobili' },
+                  n: { avanzare: 2 },
+                  testo: () => 'Concedi la Magna Carta: chiudi il ciclo con una politica fortemente a favore della nobiltà.',
+                  check: () => 'politica a Nobiltà forte' },
+                { id: 'in3-3', tipo: 'espansione', titolo: 'La signoria d’Irlanda', fisso: true,
+                  tmpl: 'regione', arg: { set: 'IRELAND' },
+                  n: { avanzare: 2 },
+                  testo: n => `Estendi la signoria oltremare: conquista ${n} province in Irlanda.`,
+                  check: n => `province d'Irlanda possedute ≥ ${n}` }
             ] },
             // Ciclo IV — i Cent'Anni: qui comincia la guerra vera, e la posta è
             // l'Aquitania. Prenderla non basta: va difesa, se no il capitolo si
@@ -1294,31 +1312,25 @@
                   testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
                   check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
-            // Ciclo III — Federico II scende in Italia: lo stesso Nord Italia che
-            // la Francia rivendicherà al suo capitolo VI — la stessa contesa.
+            // Ciclo III — Federico II scende in Italia (Cortenuova 1237): la contesa
+            // con la Lega Lombarda. Poi le città imperiali e la Lega Anseatica (il
+            // commercio tedesco del Duecento). Obiettivi FISSI (utente).
             { ciclo: 3, epoca: '1200-1299', tema: 'L’Italia di Federico II', voci: [
-                // TRABOCCAMENTO: se l'Italia settentrionale è già tutta
-                // imperiale, la spinta di Federico continua verso l'Adriatico
-                // — la stessa costa che l'Ungheria contende dal suo lato.
-                { id: 'sr3-1', tipo: 'espansione', titolo: 'Federico scende in Italia',
-                  tmpl: 'regione', arg: { set: 'ITALIA_NORD', oltre: 'ADRIATIC' },
-                  n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Scendi in Italia: possiedi ${n} delle 5 province fra Piemonte, Lombardia, Veneto, Toscana e Romagna.`,
-                  check: n => `province di ITALIA_NORD possedute ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
-                  titoloOltre: 'La costa dalmata',
-                  testoOltre: n => `L'Italia del nord è già imperiale: affacciati sull'Adriatico — possiedi ${pl(n, 'una provincia', 'province')} fra Croazia, Dalmazia e Istria.`,
-                  checkOltre: n => `province di ADRIATIC possedute ≥ ${n}` },
-                { id: 'sr3-2', tipo: 'economia', titolo: 'Le vie dell’impero',
-                  tmpl: 'collegate', arg: {},
-                  n: { resistere: 6, avanzare: 8, eccedere: 11, passo: 1 },
-                  testo: n => `Collega alla Capitale ${n} territori con strade.`,
-                  check: n => `province collegate ≥ ${n}` },
-                { id: 'sr3-3', tipo: 'navale', titolo: 'Una nave sul Baltico',
-                  tmpl: 'navi', arg: {},
-                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
-                  testo: n => `Costruisci ${pl(n, 'una nave', 'navi')} sul mar Baltico.`,
-                  check: n => `navi ≥ ${n}` }
+                { id: 'sr3-1', tipo: 'espansione', titolo: 'Federico scende in Italia', fisso: true,
+                  tmpl: 'regioneGuarnigioni', arg: { set: 'ITALIA_FED', soglia: 3 },
+                  n: { avanzare: 3 },
+                  testo: n => `Scendi in Italia: conquista ${n} province fra Lombardia, Veneto, Romagna ed Emilia e presidiale con almeno 3 uomini ciascuna.`,
+                  check: n => `${n} province di ITALIA_FED con soldati ≥ 3` },
+                { id: 'sr3-2', tipo: 'crescita', titolo: 'Le mura degli Asburgo', fisso: true,
+                  tmpl: 'cittaCount', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Erigi una città imperiale: costruisci una città nel tuo regno.',
+                  check: n => `città ≥ ${n}` },
+                { id: 'sr3-3', tipo: 'economia', titolo: 'La Lega Anseatica', fisso: true,
+                  tmpl: 'rottaCommerciale', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Apri una rotta commerciale e mantienila fino a fine ciclo (concludi almeno uno scambio nel ciclo).',
+                  check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
             // Ciclo IV — la Bolla d'Oro (1356): la costituzione dell'Impero
             // formalizza il dominio sulla Germania intera.
@@ -1478,24 +1490,27 @@
             // non arrivare in tempo. Tenere insieme il regno è una cosa che il
             // giocatore controlla; l'arrivo di un invasore no.
             { ciclo: 3, epoca: '1200-1299', tema: 'La frammentazione', voci: [
-                // Ordine dell'xlsx: la difesa dei confini è il Primario (l'xlsx qui
-                // aveva un doppione di "La flotta per Grunwald", che vive già al
-                // ciclo IV; al suo posto resta il coerente "Il regno diviso").
-                { id: 'po3-1', tipo: 'espansione', titolo: 'Ogni confine armato',
-                  tmpl: 'guarnigioniConfine', arg: {},
-                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
-                  testo: n => `Rafforza ogni provincia che confina con un regno nemico con almeno ${n} uomini.`,
-                  check: n => `ogni provincia confinante con un nemico con soldati ≥ ${n}` },
-                { id: 'po3-2', tipo: 'navale', titolo: 'La flotta per Grunwald',
-                  tmpl: 'conquisteNavali', arg: {},
-                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  testo: n => `Effettua almeno ${n} conquiste via nave (sbarchi vinti).`,
-                  check: n => `conquiste navali ≥ ${n}` },
-                { id: 'po3-3', tipo: 'economia', titolo: 'Le pietre per Casimiro',
-                  tmpl: 'scorte', arg: { res: 'pietra' },
-                  n: { resistere: 3, avanzare: 5, eccedere: 8, passo: 2 },
-                  testo: n => `Immagazzina ${n} scorte di pietra.`,
-                  check: n => `scorte di pietra ≥ ${n}` }
+                // Obiettivi FISSI (utente): raccogliere i ducati divisi attorno a
+                // una città, l'affrancamento dei villaggi (la colonizzazione del
+                // Duecento) e le rotte commerciali del Baltico.
+                { id: 'po3-1', tipo: 'espansione', titolo: 'Il rafforzamento interno', fisso: true,
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'cittaCount', arg: {} },
+                      altri: [{ tmpl: 'province', arg: { ids: ['Posen', 'Silesia', 'West_Galicia', 'East_Galicia'] }, soglia: 1 }]
+                  },
+                  n: { avanzare: 1 },
+                  testo: () => 'Raccogli i ducati: conquista Posen, Slesia, Galizia Occidentale e Orientale e costruisci una città.',
+                  check: () => 'Posen, Silesia, West_Galicia, East_Galicia possedute e città ≥ 1' },
+                { id: 'po3-2', tipo: 'crescita', titolo: 'L’affrancamento dei villaggi', fisso: true,
+                  tmpl: 'politica', arg: { lato: 'popolo' },
+                  n: { avanzare: 2 },
+                  testo: () => 'Chiudi il ciclo con una politica fortemente a favore del popolo.',
+                  check: () => 'politica a Popolo forte' },
+                { id: 'po3-3', tipo: 'economia', titolo: 'L’ambra del Baltico', fisso: true,
+                  tmpl: 'rottaCommerciale', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Apri una rotta commerciale e mantienila fino a fine ciclo (concludi almeno uno scambio nel ciclo).',
+                  check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
             // Ciclo IV — Casimiro il Grande (1333-1370): "trovò una Polonia di
             // legno e la lasciò di pietra". La pietra del ciclo prima serve qui.
@@ -1647,28 +1662,26 @@
                   testo: n => `Immagazzina ${n} scorte di pietra e 3 di argilla.`,
                   check: n => `scorte di pietra ≥ ${n} e di argilla ≥ 3` }
             ] },
-            // Ciclo III — l'ascesa di Mosca fra i principati divisi. NON è "il
-            // giogo" (regola dell'utente): l'Orda potrebbe non arrivare mai fin
-            // qui, e un capitolo che chiedesse di sopravviverle sarebbe
-            // compiuto o impossibile per ragioni che non dipendono dal
-            // giocatore. Si chiede quel che si controlla: tenere insieme le
-            // terre del nord e fare di Mosca la più forte fra le città russe.
-            { ciclo: 3, epoca: '1200-1299', tema: 'L’ascesa di Mosca', voci: [
-                { id: 'ru3-1', tipo: 'espansione', titolo: 'La frontiera di Uralsk',
-                  tmpl: 'provincia', arg: { id: 'Uralsk' },
-                  n: { resistere: 3, avanzare: 5, eccedere: 8, passo: 1 },
-                  testo: n => `Difendi la frontiera di Uralsk con almeno ${n} uomini.`,
-                  check: n => `possiedi Uralsk con soldati ≥ ${n}` },
-                { id: 'ru3-2', tipo: 'economia', titolo: 'Le vie di Mosca',
-                  tmpl: 'tipiCollegati', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
-                  check: n => `tipi di risorsa collegati ≥ ${n}` },
-                { id: 'ru3-3', tipo: 'espansione', titolo: 'Le terre difese',
-                  tmpl: 'guarnigioni', arg: { soglia: 5 },
-                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
-                  testo: n => `Difendi un minimo di ${n} province con almeno 5 uomini ciascuna.`,
-                  check: n => `${n} province con soldati ≥ 5 ciascuna` }
+            // Ciclo III — le invasioni mongole (1237-1240). Il Primario chiede di
+            // TENERE il cuore del regno, non di sconfiggere l'Orda (l'evento
+            // potrebbe non arrivare): è una condizione che il giocatore controlla.
+            // Obiettivi FISSI (utente).
+            { ciclo: 3, epoca: '1200-1299', tema: 'Le invasioni mongole', voci: [
+                { id: 'ru3-1', tipo: 'espansione', titolo: 'Le invasioni mongole', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Tartaria', 'Kazan', 'Kursk', 'Chernihiv', 'Kiev'] },
+                  n: { avanzare: 1 },
+                  testo: () => 'Difendi il cuore del regno: chiudi il ciclo possedendo Tartaria, Kazan, Kursk, Chernihiv e Kiev.',
+                  check: () => 'Tartaria, Kazan, Kursk, Chernihiv e Kiev possedute' },
+                { id: 'ru3-2', tipo: 'crescita', titolo: 'Il consenso del popolo', fisso: true,
+                  tmpl: 'popolarita', arg: {},
+                  n: { avanzare: 5 },
+                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
+                  check: n => `Popolarità ≥ ${n}` },
+                { id: 'ru3-3', tipo: 'navale', titolo: 'La via del Baltico', fisso: true,
+                  tmpl: 'naviRegione', arg: { set: 'BALTICO' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Affacciati sul mare: conquista una provincia del Baltico e costruiscivi una nave.',
+                  check: () => 'una provincia di BALTICO con una nave ancorata' }
             ] },
             // Ciclo IV — raccogliere le terre russe: Mosca diventa il fulcro
             // attorno a cui la Rus’ settentrionale si ricompone per intero.
@@ -1830,33 +1843,24 @@
                   testo: n => `Immagazzina ${n} monete.`,
                   check: n => `monete ≥ ${n}` }
             ] },
-            // Ciclo III — le fortezze di pietra di Béla IV: il programma di
-            // incastellamento che rifece l'Ungheria nel Duecento. NON si nomina
-            // l'Orda (regola dell'utente) — quel che si chiede è tenere unita
-            // la Pannonia e armarne i confini, che dipende dal giocatore.
+            // Ciclo III — il dominio dei Balcani, la Bolla d'Oro (1222) e il
+            // ripopolamento dopo Mohi (i coloni di Béla IV). Obiettivi FISSI (utente).
             { ciclo: 3, epoca: '1200-1299', tema: 'Le fortezze di pietra', voci: [
-                // TRABOCCAMENTO: se la Pannonia è già tutta tua, il regno
-                // guarda ai Balcani in anticipo — la stessa meta di un4-1, un
-                // capitolo prima e a intensità più modesta.
-                { id: 'un3-1', tipo: 'espansione', titolo: 'Il regno incastellato',
-                  tmpl: 'regione', arg: { set: 'PANNONIA', oltre: 'BALCANI' },
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Tieni unito il regno e mettilo in stato di difesa: ${n} delle 5 terre della Pannonia.`,
-                  check: n => `province di PANNONIA possedute ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  titoloOltre: 'La marcia sui Balcani, in anticipo',
-                  testoOltre: n => `La Pannonia è già tua: spingiti verso i Balcani — possiedi ${pl(n, 'una provincia', 'province')} balcaniche.`,
-                  checkOltre: n => `province di BALCANI possedute ≥ ${n}` },
-                { id: 'un3-2', tipo: 'espansione', titolo: 'Ogni confine armato',
-                  tmpl: 'guarnigioniConfine', arg: {},
-                  n: { resistere: 2, avanzare: 4, eccedere: 6, passo: 1 },
-                  testo: n => `Rafforza ogni provincia che confina con un regno nemico con almeno ${n} uomini.`,
-                  check: n => `ogni provincia confinante con un nemico con soldati ≥ ${n}` },
-                { id: 'un3-3', tipo: 'economia', titolo: 'Il tesoro reale',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 700, avanzare: 1200, eccedere: 1800, passo: 200 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+                { id: 'un3-1', tipo: 'espansione', titolo: 'Il dominio dei Balcani', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Bosnia', 'Northern_Serbia', 'Albania', 'Montenegro'] },
+                  n: { avanzare: 3 },
+                  testo: n => `Conquista e difendi con almeno ${n} uomini Bosnia, Serbia, Albania e Montenegro.`,
+                  check: n => `Bosnia, Serbia, Albania e Montenegro possedute con soldati ≥ ${n}` },
+                { id: 'un3-2', tipo: 'crescita', titolo: 'La Bolla d’Oro', fisso: true,
+                  tmpl: 'politica', arg: { lato: 'nobili' },
+                  n: { avanzare: 2 },
+                  testo: () => 'Concedi la Bolla d’Oro: chiudi il ciclo con una politica fortemente a favore della nobiltà.',
+                  check: () => 'politica a Nobiltà forte' },
+                { id: 'un3-3', tipo: 'crescita', titolo: 'I coloni di Béla', fisso: true,
+                  tmpl: 'benessere', arg: {},
+                  n: { avanzare: 3 },
+                  testo: n => `Ripopola il regno dopo l’invasione: raggiungi un Benessere di almeno ${n}.`,
+                  check: n => `Benessere ≥ ${n}` }
             ] },
             // Ciclo IV — gli Angioini (Carlo Roberto, 1308-1342): il regno si
             // espande nei Balcani.
@@ -2019,22 +2023,28 @@
             // teneva, spingi verso la Transgiordania) è CADUTO con la storia
             // cambiata: Bisanzio non è mai stata in Terra Santa, quindi non c'è più
             // niente da proseguire — il ciclo guarda tutto a oriente.
-            { ciclo: 3, epoca: '1200-1299', tema: 'La riscossa d’Anatolia', voci: [
-                { id: 'bi3-1', tipo: 'espansione', titolo: 'La riscossa d’Anatolia',
-                  tmpl: 'regioneGuarnigioni', arg: { set: 'ANATOLIA', soglia: 6 },
-                  n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Riconquista l’Anatolia: tieni ${pl(n, 'una provincia', 'province')} anatoliche con almeno 6 uomini ciascuna.`,
-                  check: n => `${n} province anatoliche con soldati ≥ 6 ciascuna` },
-                { id: 'bi3-2', tipo: 'crescita', titolo: 'Il popolo di Costantinopoli',
-                  tmpl: 'popolarita', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
-                  check: n => `Popolarità ≥ ${n}` },
-                { id: 'bi3-3', tipo: 'economia', titolo: 'I boschi d’Anatolia',
-                  tmpl: 'scorte', arg: { res: 'legno' },
-                  n: { resistere: 3, avanzare: 5, eccedere: 8, passo: 2 },
-                  testo: n => `Immagazzina ${n} scorte di legno.`,
-                  check: n => `scorte di legno ≥ ${n}` }
+            { ciclo: 3, epoca: '1200-1299', tema: 'Le porte della Grecia', voci: [
+                // Obiettivi FISSI (utente): tenere armate le porte dei Balcani verso
+                // la Grecia, riportare le vele in Sud Italia (impresa normanna alla
+                // rovescia), e schierare la cavalleria pesante dell'impero.
+                { id: 'bi3-1', tipo: 'espansione', titolo: 'Le porte della Grecia', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Northern_Thrace', 'Skopia', 'Albania'] },
+                  n: { avanzare: 8 },
+                  testo: n => `Conquista e difendi con almeno ${n} uomini Tracia settentrionale, Skopia e Albania.`,
+                  check: n => `Northern_Thrace, Skopia e Albania possedute con soldati ≥ ${n}` },
+                { id: 'bi3-2', tipo: 'navale', titolo: 'Le vele verso l’Italia', fisso: true,
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'regione', arg: { set: 'ITALIA_SUD' } },
+                      altri: [{ tmpl: 'cittaRegione', arg: { set: 'ITALIA_SUD' }, soglia: 1 }]
+                  },
+                  n: { avanzare: 2 },
+                  testo: n => `Sbarca in Italia: conquista ${n} province del Sud Italia e fondavi una città.`,
+                  check: n => `${n} province del Sud Italia possedute e una città lì` },
+                { id: 'bi3-3', tipo: 'crescita', titolo: 'I cavalieri dell’impero', fisso: true,
+                  tmpl: 'cavalieri', arg: {},
+                  n: { avanzare: 10 },
+                  testo: n => `Chiudi il ciclo con ${n} cavalieri in armi nel tuo regno.`,
+                  check: n => `cavalieri nel regno ≥ ${n}` }
             ] },
             // Ciclo IV — la frontiera vigilata: dopo la riconquista, si presidia
             // ogni confine con un REGNO nemico (le neutrali non contano), mentre
@@ -2187,37 +2197,25 @@
                   testo: n => `Collega alla Capitale ${n} tipi di risorse diverse.`,
                   check: n => `tipi di risorsa collegati ≥ ${n}` }
             ] },
-            // Ciclo III — il cuore del califfato. NON è "il sacco di Baghdad"
-            // (regola dell'utente): l'ala persiana della marcia mongola potrebbe
-            // non arrivare mai, e il capitolo si reggerebbe su un evento che non
-            // accade. Si chiede di tenere la Mesopotamia e di armarne i confini.
+            // Ciclo III — il cuore del califfato: scacciare i crociati dalla Terra
+            // Santa, estendere il dominio, e le carovane di Baghdad (la Via della
+            // Seta). Obiettivi FISSI (utente).
             { ciclo: 3, epoca: '1200-1299', tema: 'Il cuore della Mesopotamia', voci: [
-                // FOGLIO: «Scaccia i cristiani dal medio oriente, nessuna provincia
-                // di religione cristiana». Reso come: la Terra Santa tutta della tua
-                // fede (nessuna cristiana fra le tue). TODO(rivedere): il foglio dice
-                // "medio oriente" in senso ampio; qui è HOLY_LAND (4 province).
-                { id: 'ab3-1', tipo: 'crescita', titolo: 'Nessun cristiano in Terra Santa',
-                  tmpl: 'fede', arg: { set: 'HOLY_LAND' },
-                  n: { resistere: 2, avanzare: 4, eccedere: 4, passo: 1 },
-                  testo: n => `Scaccia i cristiani dalla Terra Santa: ${n} sue province della tua fede.`,
-                  check: n => `province di Terra Santa della tua fede ≥ ${n}` },
-                // SCALABILE (regola dell'utente): la regione PERSIA_EST col ratchet,
-                // non l'elenco fisso Semnan/Khorasan. Trabocca nella penisola arabica
-                // per chi tiene già tutto l'altopiano orientale.
-                { id: 'ab3-2', tipo: 'espansione', titolo: 'L’altopiano orientale',
-                  tmpl: 'regione', arg: { set: 'PERSIA_EST', oltre: 'ARABIA' },
-                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
-                  testo: n => `Spingi il Califfato sull’altopiano orientale: possiedi ${pl(n, 'una provincia', 'province')} fra Semnan, Khorasan, Kerman, Mazandaran e Fars.`,
-                  check: n => `province di PERSIA_EST possedute ≥ ${n}`,
-                  nOltre: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  titoloOltre: 'Oltre la Persia, in Arabia',
-                  testoOltre: n => `L’altopiano orientale è già tuo: scendi nella penisola arabica — possiedi ${pl(n, 'una provincia', 'province')} arabiche.`,
-                  checkOltre: n => `province di ARABIA possedute ≥ ${n}` },
-                { id: 'ab3-3', tipo: 'economia', titolo: 'Il tesoro del bazar',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 800, avanzare: 1300, eccedere: 2000, passo: 200 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+                { id: 'ab3-1', tipo: 'espansione', titolo: 'Nessun crociato in Terra Santa', fisso: true,
+                  tmpl: 'regioneSenzaFede', arg: { set: 'HOLY_LAND', famiglia: 'cristiani' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Scaccia i cristiani dalla Terra Santa: nessuna provincia cristiana fra Aleppo, Libano, Siria e Palestina.',
+                  check: () => 'nessuna provincia cristiana in HOLY_LAND' },
+                { id: 'ab3-2', tipo: 'espansione', titolo: 'L’estensione del Califfato', fisso: true,
+                  tmpl: 'provCount', arg: {},
+                  n: { avanzare: 16 },
+                  testo: n => `Estendi il Califfato a ${n} province.`,
+                  check: n => `province ≥ ${n}` },
+                { id: 'ab3-3', tipo: 'economia', titolo: 'Le carovane di Baghdad', fisso: true,
+                  tmpl: 'rottaCommerciale', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Apri una rotta commerciale e mantienila fino a fine ciclo (concludi almeno uno scambio nel ciclo).',
+                  check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
             // Ciclo IV — l'altopiano persiano: il califfato si allunga a
             // oriente. Nessun Ilkhanato da nominare (non è un regno del gioco):

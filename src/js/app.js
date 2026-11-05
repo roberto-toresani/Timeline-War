@@ -311,6 +311,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // l'esito all'apertura del suo turno — stessa logica degli editti.
         if (!Array.isArray(p.commerciStorico)) p.commerciStorico = [];
         if (!Array.isArray(p.commerciAvvisi)) p.commerciAvvisi = [];
+        // Scambi conclusi nel ciclo in corso (§10, template `rottaCommerciale`):
+        // contatore per-ciclo come popCiclo/tassaCiclo, azzerato da closeCycle.
+        if (typeof p.commerciCiclo !== 'number') p.commerciCiclo = 0;
         // EDITTI (GameActions.decree): gli interventi dell'admin che riguardano
         // questo regno. Restano qui finché il giocatore non apre il suo turno e
         // se li vede srotolare — un editto non deve poter passare inosservato.
@@ -5030,6 +5033,13 @@ document.addEventListener('DOMContentLoaded', () => {
             taxDuraTurns: () => (player.tassaCiclo || []).filter(t => t === 'dura').length,
             popTurns: lvl => (player.popCiclo || []).filter(p => p >= lvl).length,
             navalConquests: () => player.conquisteNavali || 0,
+            // Il grado della POLITICA DEL REGNO (§8-bis): −2 Nobiltà forte … +2
+            // Popolo forte. Lo legge il template `politica`.
+            politicaGrade: () => player.politica || 0,
+            // Cavalieri in armi in tutto il regno (§Cavalieri): template `cavalieri`.
+            knightCount: () => paths.reduce((n, p) => n + cavOf(p), 0),
+            // Scambi conclusi in QUESTO ciclo (§7): template `rottaCommerciale`.
+            tradesThisCycle: () => player.commerciCiclo || 0,
             // La famiglia di fede di una provincia QUALUNQUE, anche non mia
             // (template `regioneSenzaFede`: «nessuna provincia musulmana in Iberia»).
             faithFamilyOf: id => {

@@ -563,6 +563,7 @@
             pl.conquisteNavali = 0;
             pl.popCiclo = [];
             pl.tassaCiclo = [];
+            pl.commerciCiclo = 0;
             pl.puntiPrestigio = 0;
             pl.temporanei = {};
             pl.offerte = [];
@@ -1010,6 +1011,7 @@
             // il ciclo nuovo (§10). Le conquiste navali restano — sono cumulative.
             player.popCiclo = [];
             player.tassaCiclo = [];
+            player.commerciCiclo = 0;      // la rotta commerciale si riapre ogni ciclo
             if (snap) esiti.push({
                 regno: player.name, punti: snap.punti, puntiMax: snap.puntiMax, leva: leva,
                 motivo: mossa.motivo, capitolo: player.capitolo, intensita: player.intensita
@@ -2709,6 +2711,11 @@
             conId: mittente.id, conNome: mittente.name,
             dato: off.chiedo, ricevuto: off.offro, turno
         });
+        // Rotta commerciale del ciclo (§10, template `rottaCommerciale`): lo
+        // scambio concluso conta per ENTRAMBI i regni. Contatore per-ciclo come
+        // popCiclo/tassaCiclo, azzerato da closeCycle.
+        mittente.commerciCiclo = (mittente.commerciCiclo || 0) + 1;
+        accettante.commerciCiclo = (accettante.commerciCiclo || 0) + 1;
         // Solo il proponente scopre l'esito a turno chiuso: a lui l'avviso pop-up.
         const av = tradeNotices(mittente);
         av.push({
