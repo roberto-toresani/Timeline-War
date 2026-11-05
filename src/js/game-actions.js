@@ -49,13 +49,40 @@
     }
 
     // Province collegate del regno (§4): serve alla raccolta e all'etichetta in UI.
+    // È l'UNICA fonte della connettività — plancia, bot e obiettivi passano tutti
+    // da qui, così la rete mostrata non diverge mai da quella raccolta.
     function connectedOf(player) {
         const paths = E().ownedPaths(player.name);
         const owned = paths.map(p => p.id);
         const hubs = paths
             .filter(p => E().countPiece(p, 'capitale') > 0 || E().countPiece(p, 'citta') > 0)
             .map(p => p.id);
-        return GR().connected(owned, E().roads(), hubs);
+        return GR().connected(owned, E().roads(), hubs, seaLinksOf(paths, hubs));
+    }
+
+    // ARCHI VIA MARE (§4, regola dell'utente): una provincia con una tua nave si
+    // aggancia alla rete se lo scafo RAGGIUNGE un tuo hub (Città/Capitale) entro la
+    // sua portata (§9.2) — è così che la risorsa di un'isola entra nel raccolto. La
+    // nave fa solo da arco: resta ancorata, nessun carico, ma senza di essa l'isola
+    // non si raccoglie. Basta che veda un hub qualsiasi (scelta dell'utente); si usa
+    // la portata MAGGIORE fra gli scafi ancorati lì. Un hub non ha bisogno dell'arco
+    // (è già collegato di suo), quindi lo si salta come partenza.
+    function seaLinksOf(paths, hubIds) {
+        const hubs = hubIds || [];
+        if (!hubs.length) return [];
+        const hubSet = new Set(hubs);
+        const links = [];
+        paths.forEach(p => {
+            if (hubSet.has(p.id)) return;
+            const hulls = E().ships(p);
+            if (!hulls.length) return;
+            const maxR = hulls.reduce((m, h) => Math.max(m, E().shipRange(h.tipo) || 0), 0);
+            if (!(maxR > 0)) return;
+            const reach = E().seaReach(p.id, maxR);
+            const hub = hubs.find(id => reach.has(id));
+            if (hub) links.push({ a: p.id, b: hub });
+        });
+        return links;
     }
 
     // Paga un costo: monete e scorte dal regno, soldati dalla provincia indicata.

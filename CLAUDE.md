@@ -2355,6 +2355,19 @@ _archive/                materiale legacy/di supporto NON usato dal gioco (git-i
     le migliorie del §6.1 e valgono la baseline neutra `WELFARE_PENDING = 3`.
     La rete di province collegate è quella di `GameActions.connectedOf`: chi ce l'ha già
     la passa come terzo argomento, così non si rifà la BFS due volte per render.
+  - **LE ISOLE SI COLLEGANO VIA NAVE (§4, regola dell'utente)**: una provincia con una
+    tua **nave** si aggancia alla rete della raccolta se lo scafo **raggiunge un tuo hub**
+    (Città/Capitale) entro la sua portata (§9.2) — è così che la risorsa di un'isola entra
+    nel raccolto, visto che le strade richiedono un confine di TERRA e a un'isola non ci
+    arrivano. Basta che la nave veda un hub qualsiasi (scelta dell'utente), e l'hub dev'essere
+    su costa raggiungibile (come il porto-mercato del commercio d'oltremare, §7). La nave fa
+    **solo da arco**: resta ancorata, nessun carico — ma senza di essa l'isola non si
+    raccoglie. Il motore puro `GameRules.connected` accetta ora un 4º argomento `seaLinks`
+    (archi `{a,b}` nella stessa forma delle strade); li calcola `seaLinksOf` in
+    `connectedOf` (serve `E().ships`/`shipRange`/`seaReach`), l'UNICO punto, così plancia,
+    bot e obiettivi non divergono. Finché la griglia di `sea-routes.js` non è pronta
+    (~0,5 s) `seaReach` torna vuoto e l'isola risulta momentaneamente scollegata: si
+    ridipinge da sé quando la griglia arriva, come per gli sbarchi.
 - **SENZA CAPITALE RESTANO SOLO GLI UOMINI DELLE PROVINCE (regola dell'utente)**: un
   regno che ha perso il seggio — o che non l'ha ancora costruito, al turno 1 — continua a
   ricevere la leva della terra (**province ÷ 3**, §5.1) e **nient'altro**: niente monete,

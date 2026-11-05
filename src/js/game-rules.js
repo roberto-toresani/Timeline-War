@@ -434,20 +434,26 @@
 
     // Province COLLEGATE (§4): raggiungibili da una Capitale o Città percorrendo
     // strade fra province dello stesso proprietario. Senza hub non si raccoglie nulla.
-    // Nota: le navi non entrano ancora nella rete (le strade sono l'unico arco
-    // implementato); quando ci saranno, basta aggiungerne gli archi a `links`.
-    function connected(ownedIds, roads, hubIds) {
+    // Le NAVI entrano nella rete come ARCHI via mare (`seaLinks`, regola dell'utente):
+    // una provincia-isola con uno scafo è collegata se la nave raggiunge un tuo hub
+    // entro la sua portata (§9.2). La nave fa solo da arco — resta ancorata, nessun
+    // carico — ma senza di essa la risorsa dell'isola non si raccoglie. Gli archi si
+    // calcolano in game-actions.connectedOf (serve il motore per seaReach/shipRange) e
+    // arrivano qui già pronti, nella stessa forma delle strade: {a, b}.
+    function connected(ownedIds, roads, hubIds, seaLinks) {
         const owned = new Set(ownedIds || []);
         const hubs = (hubIds || []).filter(id => owned.has(id));
         const out = new Set();
         if (!hubs.length) return out;
 
         const adj = {};
-        (roads || []).forEach(r => {
-            if (!owned.has(r.a) || !owned.has(r.b)) return;   // strade verso l'esterno non collegano
+        const addLink = (r) => {
+            if (!owned.has(r.a) || !owned.has(r.b)) return;   // archi verso l'esterno non collegano
             (adj[r.a] = adj[r.a] || []).push(r.b);
             (adj[r.b] = adj[r.b] || []).push(r.a);
-        });
+        };
+        (roads || []).forEach(addLink);
+        (seaLinks || []).forEach(addLink);
 
         const queue = hubs.slice();
         hubs.forEach(id => out.add(id));
