@@ -297,16 +297,16 @@ I capitoli III sono stati riscritti in `js/objectives.js` con gli obiettivi deci
 
 | Regno | tema | P (5) | S (3) | T (2) |
 |---|---|---|---|---|
-| Castiglia | Las Navas de Tolosa | Le città della Reconquista — **2 città** | La frontiera della cristianità — **Granada+Andalusia ≥10** | Verso l'Atlantico — **1 conquista navale** |
-| Francia | Bouvines e il Midi | Le marche del regno — **Aquitaine+Piedmont+Savoy+West_Switzerland** | Il regno di San Luigi — **Pop 4** | La crociata di San Luigi — **≥1 provincia in Terra Santa** |
-| Mori | L'emirato d'Egitto | L'emirato d'Egitto — **tutto l'Egitto + Sinai (6)** | La cittadella del Cairo — **città in Middle_Egypt ≥8** | La prosperità del Nilo — **Pop 4** |
+| Castiglia | Las Navas de Tolosa | Castiglia e Aragona — **2 città** | La frontiera della cristianità — **Granada+Andalusia ≥10** | Nel Mediterraneo — **1 conquista navale** |
+| Francia | Bouvines e il Midi | Le marche del regno — **Aquitaine+Piedmont+Savoy+West_Switzerland** | Il regno di San Luigi — **Pop 4** | Il tramonto dei crociati — **≥1 provincia in Terra Santa** |
+| Mori | L'emirato d'Egitto | L'emirato d'Egitto — **tutto l'Egitto + Sinai (6)** | La cittadella del Cairo — **città in Middle_Egypt ≥8** | Il prestigio Ayyubide — **Pop 4** |
 | Inghilterra | Magna Carta | Le terre del continente — **3 province fuori dall'isola + 1 città ≥6** | La Magna Carta — **politica Nobiltà forte** | La signoria d'Irlanda — **2 province d'Irlanda** |
 | Sacro Impero | L'Italia di Federico II | Federico scende in Italia — **3 di {Lombardy,Venetia,Romagna,Emilia} ≥3** | Le mura degli Asburgo — **1 città** | La Lega Anseatica — **rotta commerciale** |
 | Polonia | La frammentazione | Il rafforzamento interno — **Posen+Silesia+W/E Galicia + 1 città** | L'affrancamento dei villaggi — **politica Popolo forte** | L'ambra del Baltico — **rotta commerciale** |
 | Kievan Rus' | Le invasioni mongole | Le invasioni mongole — **Tartaria+Kazan+Kursk+Chernihiv+Kiev** | Il consenso del popolo — **Pop 5** | La via del Baltico — **provincia del Baltico + nave** |
 | Ungheria | Le fortezze di pietra | Il dominio dei Balcani — **Bosnia+Serbia+Albania+Montenegro ≥3** | La Bolla d'Oro — **politica Nobiltà forte** | I coloni di Béla — **Benessere 3** |
 | Bizantino | Le porte della Grecia | Le porte della Grecia — **Northern_Thrace+Skopia+Albania ≥8** | Le vele verso l'Italia — **2 province Sud Italia + 1 città** | I cavalieri dell'impero — **10 cavalieri** |
-| Abbaside | Il cuore della Mesopotamia | Nessun crociato in Terra Santa — **HOLY_LAND senza cristiani** | L'estensione del Califfato — **16 province** | Le carovane di Baghdad — **rotta commerciale** |
+| Abbaside | Il cuore della Mesopotamia | La vittoria dell'Islam — **HOLY_LAND senza cristiani** | L'estensione del Califfato — **16 province** | Le carovane di Baghdad — **rotta commerciale** |
 
 ### Meccaniche nuove aggiunte per realizzarli
 

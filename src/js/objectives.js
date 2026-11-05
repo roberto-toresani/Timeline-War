@@ -598,7 +598,7 @@
             // si ripopolano; la frontiera con Granada si presidia; la Castiglia
             // affaccia sull'Atlantico (Cádiz, 1262). Obiettivi FISSI (utente).
             { ciclo: 3, epoca: '1200-1299', tema: 'Las Navas de Tolosa', voci: [
-                { id: 'ca3-1', tipo: 'crescita', titolo: 'Le città della Reconquista', fisso: true,
+                { id: 'ca3-1', tipo: 'crescita', titolo: 'Castiglia e Aragona', fisso: true,
                   tmpl: 'cittaCount', arg: {},
                   n: { avanzare: 2 },
                   testo: n => `Ripopola le terre riconquistate: costruisci ${n} città nel tuo regno.`,
@@ -608,7 +608,7 @@
                   n: { avanzare: 10 },
                   testo: n => `Difendi le province di Granada e Andalusia con almeno ${n} uomini ciascuna.`,
                   check: n => `Granada e Andalusia possedute con soldati ≥ ${n}` },
-                { id: 'ca3-3', tipo: 'navale', titolo: 'Verso l’Atlantico', fisso: true,
+                { id: 'ca3-3', tipo: 'navale', titolo: 'Nel Mediterraneo', fisso: true,
                   tmpl: 'conquisteNavali', arg: {},
                   n: { avanzare: 1 },
                   testo: () => 'Esegui con successo una conquista navale.',
@@ -786,7 +786,7 @@
                   n: { avanzare: 4 },
                   testo: n => `Il buon governo di Luigi IX: chiudi il ciclo con una Popolarità di livello ${n}.`,
                   check: n => `Popolarità ≥ ${n}` },
-                { id: 'fr3-3', tipo: 'espansione', titolo: 'La crociata di San Luigi', fisso: true,
+                { id: 'fr3-3', tipo: 'espansione', titolo: 'Il tramonto dei crociati', fisso: true,
                   tmpl: 'regione', arg: { set: 'HOLY_LAND' },
                   n: { avanzare: 1 },
                   testo: () => 'Porta la croce in Oriente: difendi almeno una provincia in Terra Santa.',
@@ -966,7 +966,7 @@
                   n: { avanzare: 8 },
                   testo: n => `Fonda il Cairo: costruisci una città in Medio Egitto e difendila con ${n} uomini.`,
                   check: n => `città in Middle_Egypt con soldati ≥ ${n}` },
-                { id: 'fa3-3', tipo: 'crescita', titolo: 'La prosperità del Nilo', fisso: true,
+                { id: 'fa3-3', tipo: 'crescita', titolo: 'Il prestigio Ayyubide', fisso: true,
                   tmpl: 'popolarita', arg: {},
                   n: { avanzare: 4 },
                   testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
@@ -2201,7 +2201,7 @@
             // Santa, estendere il dominio, e le carovane di Baghdad (la Via della
             // Seta). Obiettivi FISSI (utente).
             { ciclo: 3, epoca: '1200-1299', tema: 'Il cuore della Mesopotamia', voci: [
-                { id: 'ab3-1', tipo: 'espansione', titolo: 'Nessun crociato in Terra Santa', fisso: true,
+                { id: 'ab3-1', tipo: 'espansione', titolo: 'La vittoria dell’Islam', fisso: true,
                   tmpl: 'regioneSenzaFede', arg: { set: 'HOLY_LAND', famiglia: 'cristiani' },
                   n: { avanzare: 1 },
                   testo: () => 'Scaccia i cristiani dalla Terra Santa: nessuna provincia cristiana fra Aleppo, Libano, Siria e Palestina.',
