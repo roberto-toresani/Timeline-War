@@ -23,6 +23,10 @@ Troppo stretto per un impero grande.
 
 ### Modalità A — fino a 3 spostamenti
 - **Fino a 3 spostamenti** per turno.
+- **Tetto di 5 uomini per spostamento** [REGOLA]: ogni singolo spostamento della modalità A porta
+  **al massimo 5 uomini** (fanti + cavalieri — un cavaliere è comunque un'unità). È il contrappeso
+  alla B: A = 3 pacchetti piccoli e manovrabili, B = un unico grande esercito ma sola mossa del
+  turno. Aggregando 3×5 si possono comunque ammassare fino a **15 uomini** in una provincia.
 - **Ogni provincia può partire una volta sola** (non puoi partire due volte dalla stessa
   provincia di partenza).
 - **Una partenza muove solo gli uomini presenti all'INIZIO della fase di spostamento** in quella
@@ -56,12 +60,13 @@ all'ordine dei click. (Scartata la (b) "una provincia che ha ricevuto non può p
 più semplice da spiegare ma dipendente dall'ordine e più restrittiva.)
 
 > Invariante da implementare: per ogni provincia, *truppe uscenti ≤ presidio a inizio fase `sposta`*;
-> ogni provincia parte al massimo una volta; destinazioni ripetibili; massimo 3 spostamenti.
+> ogni provincia parte al massimo una volta; **ogni spostamento porta ≤ 5 uomini**; destinazioni
+> ripetibili; massimo 3 spostamenti.
 
 ### Modalità B — una catena
-- **Una sola armata**, di quanti soldati vuoi, lungo una **catena di province proprie
-  confinanti via terra**, a qualunque distanza (BFS su territorio proprio). È il ritorno
-  della catena, ma come scelta esplicita e non come default.
+- **Una sola armata**, di quanti soldati vuoi (**nessun tetto di uomini**, a differenza della A),
+  lungo una **catena di province proprie confinanti via terra**, a qualunque distanza (BFS su
+  territorio proprio). È il ritorno della catena, ma come scelta esplicita e non come default.
 - Gli intermedi sono solo la **rotta**: i soldati partono da **una** provincia e arrivano in
   **una**, §5 (presidio minimo) rispettato solo agli estremi.
 - **Verso il fronte alleato** la catena attraversa anche le province dell'alleato che concede
