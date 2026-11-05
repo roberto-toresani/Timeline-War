@@ -190,7 +190,7 @@
             bot: 'costruttore',
             fede: 'cristiani',
             amici: ['Regno di Castiglia'],
-            pattoAmico: 'nonBelligeranza',
+            pattoAmico: 'alleanza',
             // Coi Mori mai: la barriera di fede lo direbbe già, ma per il
             // Portogallo è dottrina, non prudenza.
             vietaFede: ['musulmani'],
@@ -201,7 +201,10 @@
                     'Oltre l\'oceano c\'è un mondo intero, e nessuno vi ha ancora piantato una croce.',
                     'Le nostre caravelle andranno dove le carte finiscono.'
                 ],
-                generico: ['Castiglia, che la pace fra noi duri: c\'è oceano a sufficienza per entrambi.'],
+                generico: [
+                    'Castiglia, che la pace fra noi duri: c\'è oceano a sufficienza per entrambi.',
+                    'Il Portogallo onora i suoi debiti, Castiglia. Il mare ci renderà ricchi entrambi.'
+                ],
                 conquista: ['Una nuova terra si apre a occidente. Dio lo vuole.'],
                 risposte: {
                     minaccia: ['Minacciami quanto vuoi, {mittente}: io guardo al mare, non ai tuoi confini.'],
@@ -216,7 +219,8 @@
             // sola: sbarcare su coste libere, in Africa e oltre l'oceano.
             conservatore: true,
             coloniale: true,
-            rotte: ['S', 'W']            // a mezzogiorno l'Africa, a ponente l'oceano (EXPED_DIRS)
+            rotte: ['S', 'W'],           // a mezzogiorno l'Africa, a ponente l'oceano (EXPED_DIRS)
+            levaCiclo: 5
         },
 
         // 1180 — i Bulgari risorgono sul basso Danubio. NON sono un regno
@@ -233,6 +237,9 @@
             mete: ['Bulgaria'],
             pesoMete: 5,
             soloMete: true,
+            amici: ['Impero Bizantino', "Kievan Ru's"],
+            pattoAmico: 'nonBelligeranza',
+            levaCiclo: 5,
             chat: {
                 nemico: [
                     '{nemico}, il Danubio è il nostro confine, non la tua strada.',
@@ -240,7 +247,8 @@
                 ],
                 meta: [
                     'La Bulgaria ai Bulgari. Non chiediamo altro — ma quello lo pretendiamo.',
-                    'Un regno piccolo e saldo vale più di un impero che si sfalda.'
+                    'Un regno piccolo e saldo vale più di un impero che si sfalda.',
+                    'L\'ortodossia ci unisce. Chi ci minaccia troverà amici che non si aspettava.'
                 ],
                 risposte: {
                     minaccia: ['Sono piccolo, {mittente}, ma i miei monti sono ripidi. Provaci.'],
