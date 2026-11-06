@@ -4992,6 +4992,62 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ---------- messaggi privati del Papa ----------
+    // Il Papa scrive privatamente ai regni; i messaggi viaggiano nella collezione
+    // `chat` (m.papa === true, m.to === nome-regno). Questa funzione li srotola come
+    // una pergamena all'apertura del turno del giocatore legittimo, indipendentemente
+    // dal fatto che l'admin li abbia già visti nella console ✝ (risiko_papa_seen è
+    // solo lo stato lato-admin, non conta qui). Il tracking usa localStorage per
+    // non modificare lo stato condiviso di partita: comodità locale di chi guarda.
+    function showPendingPapaMessages(player) {
+        if (!R.showFoundation) return;
+        if (!isPlaying(player)) return;
+        if (!ownsBoard(player)) return;
+
+        const PAPA = 'Il Papa';
+        // Messaggi privati che il Papa ha mandato A questo regno
+        const papaMsgs = chatMessages.filter(m =>
+            m.papa === true && m.to === player.name
+        );
+        if (!papaMsgs.length) return;
+
+        // Tracking: array di timestamp già mostrati, in localStorage per giocatore
+        const lsKey = 'risiko_papa_msg_' + (player.id || player.name);
+        let seen = [];
+        try { seen = JSON.parse(localStorage.getItem(lsKey) || '[]'); } catch (e) {}
+        const seenSet = new Set(seen);
+
+        // Solo i messaggi non ancora mostrati
+        const nuovi = papaMsgs.filter(m => {
+            const k = m.ts || m.id || (m.regno + '|' + m.testo);
+            return !seenSet.has(k);
+        });
+        if (!nuovi.length) return;
+
+        // Segna come visti
+        nuovi.forEach(m => {
+            const k = m.ts || m.id || (m.regno + '|' + m.testo);
+            seenSet.add(k);
+        });
+        try { localStorage.setItem(lsKey, JSON.stringify([...seenSet])); } catch (e) {}
+
+        const primo = nuovi[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(R.turn())
+            : R.turn();
+        R.showFoundation({
+            tipo: 'editto',
+            anno,
+            regno: PAPA,
+            colore: '#7a3a9a',  // viola papale — lo stesso usato nel canale PAPA_CHAN
+            titolo: nuovi.length > 1
+                ? 'Il Santo Padre ti scrive (' + nuovi.length + ' lettere)'
+                : 'Il Santo Padre ti scrive',
+            testo: nuovi.map(m => m.testo || m.msg || '').filter(Boolean).join('\n\n'),
+            nota: ''
+        });
+    }
+
     // ---------- eventi storici (js/events.js) ----------
     // Crociata bandita, orda in arrivo, peste, guerra dichiarata: game-actions
     // (applyEvents/tickEvents via ctx.notify) lascia l'avviso in coda
@@ -6772,6 +6828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // le fondazioni si srotolano dopo render() in run()).
         showPendingEventi(player);
         showPendingEditti(player);
+        showPendingPapaMessages(player);
         showPendingWrecks(player);
         showPendingCommerci(player);
         showPendingPactNotices(player);

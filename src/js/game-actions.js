@@ -2490,6 +2490,7 @@
 
         putSoldiers(player, path, n);
         E().addCav(path, n);
+        E().redrawProvince(path); // data-cav ora aggiornato: ridisegna i cavalieri
         player.cavalieriDaSchierare = pool - n;
         placedAt(player, provId).cavalieri = (placedAt(player, provId).cavalieri || 0) + n;
 
@@ -4107,6 +4108,7 @@
                 putSoldiers(player, from, k);
                 E().addMerc(from, torna.merc);
                 E().addCav(from, torna.cav);
+                E().redrawProvince(from); // data-cav ora aggiornato: ridisegna i cavalieri
                 E().redrawProvince(to);
             }
             if (k < indietro) {
