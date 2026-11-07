@@ -1,0 +1,26 @@
+# File pesanti — mai leggere automaticamente
+data/embedded_map.js
+assets/*.svg
+assets/*.png
+assets/*.jpg
+
+# Partite salvate — git-ignored, niente da leggere
+salvataggi/
+src/_live-copy.json
+
+# Excel obiettivi
+Obiettivi*.xlsx
+*.xlsx
+
+# Archivio docs — solo su richiesta esplicita
+docs/archive/
+
+# Dipendenze driver headless
+driver/node_modules/
+
+# Diagrammi e materiali di progetto
+*.psd
+*.ai
+*.afdesign
+*.afpub
+mappe/

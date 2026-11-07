@@ -1,0 +1,3240 @@
+# RISIKO ONLINE — istruzioni per l'AI
+
+Gioco di strategia tipo Risiko, giocato online su una mappa storica interattiva.
+Questo file descrive **com'è fatto il progetto** e **come lavorarci**. È la fonte di verità
+per qualsiasi agente AI (Claude, ecc.).
+
+## Stack
+- **Frontend**: HTML + CSS + JavaScript vanilla. Nessun framework, nessun build step.
+- **Multiplayer**: Firebase (Firestore per lo stato condiviso, Auth per l'admin).
+- **Hosting**: GitHub Pages (deploy automatico da `.github/workflows/deploy-pages.yml`).
+- Si apre servendo la cartella `src/` come sito statico.
+
+## Struttura
+```
+src/                     l'app di gioco (tutto ciò che viene servito/deployato)
+├─ index.html            EDITOR MAPPA dell'admin (homepage)
+├─ play.html             PLANCIA del giocatore, si apre col link d'invito ?p=CODICE
+├─ css/
+│  ├─ tokens.css         palette e misure in :root (unica fonte dei colori)
+│  ├─ style.css          stile dell'editor (usato anche dalla plancia)
+│  └─ board.css          stile della plancia giocatore
+├─ js/
+│  ├─ app.js             logica di gioco e UI (file principale, comune alle due pagine)
+│  ├─ player-board.js    render della plancia: colonna del turno, fogli del dock, azioni
+│  ├─ game-rules.js      costi (§6), connettività (§4), produzione di turno (§2) — puro
+│  ├─ game-actions.js    UNICO punto che muta lo stato: schiera/costruisci/attacca/turni
+│  ├─ popularity.js      POPOLARITÀ (§8): la formula E il suo rovescio (il piano) — puro
+│  ├─ spies.js           SPIE (§9.3): costo, durata, raggio in province, cosa vedono — puro
+│  ├─ religions.js       RELIGIONI: confessioni, famiglie, blocchi di partenza, scismi — puro
+│  ├─ events.js          EVENTI STORICI datati (crociate, mongoli, peste, Cent'Anni): calendario + ciclo di vita — puro
+│  ├─ chronicles.js       CRONACHE: vignette di colore che scattano sulla SITUAZIONE del regno (marina inglese, feudo francese, teutonici) — puro, nessun effetto
+│  ├─ terrain.js         TERRENO chiuso/aperto: l'esponente della battaglia (§9) — puro
+│  ├─ sea-routes.js      PORTATA DELLE NAVI: quanto lontano si arriva via mare (§9.2) — puro
+│  ├─ doctrines.js       DOTTRINE: il carattere storico dei regni nati per evento (mete, nemici, fede) — puro
+│  ├─ objectives.js     OBIETTIVI (§10): il BINARIO STORICO di ogni regno, template e generatore — puro
+│  ├─ bot.js             regni governati dall'IA: 4 strategie + driver dei turni
+│  ├─ setup.js           "Nuova partita": sorteggio feudi, Capitali, umano vs bot
+│  ├─ start-map.js       MAPPA INIZIALE: salva/ricarica la posizione di partenza
+│  ├─ save-slots.js      ARCHIVIO DI PARTITE: salva/carica/nuova, slot locali con nome — solo admin
+│  ├─ pope-chat.js       ✝ IL PAPA: finestra a parte (editor e plancia) per scrivere in chat come il Papa — solo admin
+│  ├─ kingdom-stats.js   calcoli puri del cruscotto (province, truppe, entrate, rinforzi)
+│  ├─ chronicle.js       calendario (1 turno = 1 decennio) e fondazione delle città — puro
+│  ├─ map-anchors.js     DOVE si posano le cose: ancora di terra e approdo — puro
+│  ├─ map-decor.js       vestizione "carta antica": mare, grana, alone costiero
+│  ├─ battle.js          risoluzione probabilistica delle battaglie (funzione pura)
+│  ├─ sync.js            sincronizzazione multiplayer (Firestore)
+│  └─ firebase-config.js chiavi Firebase + UID admin (placeholder finché non configurato)
+├─ data/
+│  ├─ embedded_map.js    la mappa SVG completa, inline in RAW_SVG_CONTENT
+│  ├─ map_data.js        dati delle province
+│  ├─ city_names.js      provincia → città storica che vi sorge (solo colore)
+│  ├─ historic_battles.js battaglie vere: anno + provincia (solo se verificate)
+│  ├─ start_religions.js  RELIGIONE di partenza: le ECCEZIONI per nome (frontiere di fede)
+│  ├─ province_terrain.js TERRENO di tutte e 628 le province: chiuso | aperto
+│  ├─ start_map.json     la mappa iniziale salvata (nasce al primo 📌 dell'editor)
+│  └─ id_mapping.js      mappatura id SVG ↔ nomi province
+├─ mappe/                CASSAFORTE: la mappa definitiva congelata + il suo visualizzatore
+│  ├─ mappa-definitiva.js   copia congelata di data/start_map.json (non si aggiorna da sola)
+│  └─ mappa-definitiva.html pagina di sola lettura: zoom, regni isolabili, risorse
+├─ _diag-anchors.html    pagina di lavoro: disegna gli ancoraggi di tutte le province
+├─ _diag-roads.html      pagina di lavoro: confronta i disegni possibili di una strada
+├─ _dev-start.html       pagina di lavoro: avvia una partita e dà al regno umano l'invito "dev"
+├─ _dev-drive.js         pagina di lavoro: porta la partita a una fase e apre il cursore d'ordine
+└─ assets/               mappe SVG (world_map*.svg)
+firebase/firestore.rules regole di sicurezza Firestore (da pubblicare nella console Firebase)
+scripts/serve.ps1        server statico locale dependency-free (PowerShell)
+_archive/                materiale legacy/di supporto NON usato dal gioco (git-ignored)
+```
+
+## Come funziona (in breve)
+- La mappa è **embeddata** come stringa in `data/embedded_map.js` (`RAW_SVG_CONTENT`); il fetch
+  di `assets/world_map_optimized.svg` in `app.js` è solo un fallback che di norma non scatta.
+- Lo stato di gioco vive in un unico documento Firestore `games/main`: chiunque lo legge in
+  tempo reale E lo **scrive** (regola dell'utente). In multiplayer ogni giocatore gioca dal
+  proprio browser e scrive le sue mosse; le regole di **turno e fase** le impone
+  `game-actions.js` lato client (un giocatore agisce solo nel suo turno), non `firestore.rules`
+  (`allow write: if true`). I turni sono sequenziali, quindi le scritture dell'intero
+  documento non si accavallano — ma **l'admin non deve modificare la mappa dall'editor
+  durante la partita**, o il suo salvataggio sovrascriverebbe la mossa in corso. `pushState`
+  in `sync.js` non è più protetto da `isAdmin`; l'UID admin (`firebase-config.js`) resta usato
+  solo per i **permessi lato client** — chi muove i bot (`Bot.run`), chi vede l'editor — non
+  per l'enforcement della scrittura. Compromesso: nessuna sicurezza server-side (chi ha un
+  link potrebbe riscrivere lo stato), accettabile tra persone conosciute.
+  - **`MultiplayerSync` ricorda l'ULTIMO snapshot e lo ri-emette** ai listener che si
+    iscrivono dopo la prima consegna (`lastState`/`hasState` in `sync.js`). Senza, c'era
+    una corsa: l'`onSnapshot` iniziale di Firestore scatta appena la pagina si connette,
+    spesso PRIMA che `app.js` registri `applyCloudState` (che gira su `DOMContentLoaded`).
+    Un viewer arrivato "tardi" restava così su "Partita non avviata" coi regni di default
+    (`mergePlayerData` non riceveva mai i dati) finché l'admin non toccava qualcosa —
+    online era il motivo per cui il link d'invito apriva la schermata vuota invece del
+    regno assegnato.
+  - **IL DOCUMENTO CONDIVISO NON PORTA LO STORICO COMPLETO (perf, 2026-10-08)**: i
+    proprietari delle province vivono in `history` (`TURN_HISTORY`, una mappa
+    id→proprietario **per turno**, scritta da `saveCurrentTurnToHistory`), e quello storico
+    **cresce a ogni turno**. `buildSnapshot` lo mette intero nell'autosave locale, nei
+    salvataggi/archivio e nei backup per-turno — ma `saveAutoSave` **snellisce** l'oggetto
+    spedito a `games/main`: `history` ridotto al **solo turno corrente**
+    (`{ [turn]: TURN_HISTORY[turn] }`). Senza, ogni mossa (comprese le decine dei bot)
+    caricava e faceva **riscaricare a OGNI client** un documento che gonfiava fino a
+    ~600 KB a fine partita — la "lentezza che peggiora", peggio da telefono. I proprietari
+    del turno corrente bastano a chi riceve (`loadTurnFromHistory` legge
+    `TURN_HISTORY[currentTurn]`), e **`applyCloudState` FONDE** `data.history` nello storico
+    locale invece di sostituirlo (`Object.assign`), così il documento snello non cancella i
+    turni passati di chi ha già lo storico pieno (reload da localStorage, admin, driver);
+    le voci vecchie restano inerti perché ogni turno è sovrascritto dal suo push prima di
+    essere letto. `applySnapshot` (localStorage/archivio/file, storico pieno) e `loadMap`
+    restano in **sostituzione**. Il restore per-turno legge una **collezione a parte**
+    (`backupTurn`/`getBackup`), non `history`, quindi è indipendente da questo. Chi tocca
+    `saveAutoSave` NON rimetta lo storico intero nel push "per uniformità".
+  - **OGNI SNAPSHOT RICREA I RECORD DEI REGNI** (`mergePlayerData`), quindi chi
+    tiene in mano un record vecchio — la plancia lo cattura aprendo il cursore
+    d'ordine, un bot fra un `yield` e l'altro — muterebbe un oggetto ormai fuori
+    dallo stato (bug della Francia, 2026-10-19: Lebanon presa, presa in sospeso e
+    bottino finiti nel vuoto, nessuna scelta post-invasione). La cura sta
+    nell'unica porta d'ingresso: in coda a `game-actions.js` ogni funzione
+    esportata passa i suoi argomenti da `liveArg`, che scambia un record di regno
+    non più vivo con quello attuale dello stesso id. Chi aggiunge un'azione a
+    `GameActions` è coperto da sé; chi muta un regno **fuori** da lì rilegge il
+    record da `Risiko.players()` invece di fidarsi di uno catturato prima.
+  - **PRESENZA dei giocatori** (collezione Firestore `presence`, un doc per codice
+    d'invito): dice quale regno una PERSONA ha "preso" aprendo il suo link, così l'editor
+    dell'admin mostra sulla scheda del regno "👤 Preso dal giocatore" invece del default
+    "🧑 Admin (nessuna IA)" — l'admin vede che quel regno lo giocherà un umano, non lui
+    (regola dell'utente). È l'UNICO stato scrivibile da un non-admin, perché il player che
+    apre il link admin non è: `firestore.rules` apre `presence` in lettura/scrittura a
+    tutti (non è stato di gioco autorevole — quello resta `games/main`, solo-admin). Il
+    canale vive in `sync.js` (`setPresence`/`onPresenceChange`, con lo stesso replay dello
+    stato); `Risiko.markPresence(player)` lo scrive dalla plancia quando `invitePinned`,
+    **saltando** se chi apre è l'admin (col 👁 curiosa, non prende — attende `authReady`
+    poi controlla `MultiplayerSync.isAdmin`); `applyPresence` in app.js tiene `presenceMap`
+    e ridipinge la palette. Il badge appare solo se il regno **non** è dell'IA (`!p.bot`):
+    con una strategia lo gioca l'IA a prescindere. È **persistente** (scelta dell'utente):
+    preso una volta, resta finché l'admin non cambia. NB: richiede di ripubblicare
+    `firestore.rules` nella console Firebase (la regola `presence` è nuova).
+  - **CHAT fra i giocatori** (collezione Firestore `chat`, un doc per messaggio;
+    proposta dell'utente per rendere viva l'attesa fra i turni): come la presenza
+    NON è stato di gioco autorevole, quindi vive fuori da `games/main` e
+    `firestore.rules` la apre in lettura/scrittura a tutti (`match /chat/{id}` —
+    **va ripubblicata**, come fu per `presence`). Il canale sta in `sync.js`
+    (`onChatChange`/`sendChat`/`clearChat`), con lo **stesso replay** dell'ultimo
+    elenco (chi apre a metà attesa vede lo storico) e un tetto: si leggono solo gli
+    ultimi `CHAT_KEEP` = 300 messaggi (`orderBy('ts','desc').limit(300)` poi
+    rovesciati). L'ordinamento è per `ts` = orologio del **mittente** (basta, e non
+    aspetta il serverTimestamp). **Si azzera a partita nuova**: `GameActions.startGame`
+    chiama `MultiplayerSync.clearChat()` — è il choke point di ogni nuova partita —
+    che cancella la collezione a pagine (batch da 400, il limite è 500). Un messaggio
+    **privato** porta `to`/`toId` (regno destinatario): è un filtro lato client, non un
+    segreto (chi ha il database vede tutto). Senza Firebase (modalità locale) `sendChat`
+    fa l'eco in memoria, così la chat funziona anche offline per le prove.
+    - **UI in `player-board.js` + `play.html`**: pulsante 💬 nel `#board-dock` che apre
+      il foglio `.sheet-chat` in modalità **peek** (come la Diplomazia: la mappa resta
+      visibile e cliccabile a lato — durante l'attesa si chatta guardando i bot). Barra
+      dei **canali** (`#chat-channels`): "🌍 Tutti" + un filo **privato** per ogni regno
+      visibile, esattamente come la diplomazia (`diploKingdomsVisibili`, regola
+      dell'utente): coi regni umani è una chat vera, coi regni-bot è un canale su cui
+      ribattono in personalità (`maybeBotReplyPrivate`, sullo stesso filo). Pallino di
+      non-letti sul dock
+      (`chatSeen` in `localStorage`, chiave `idRegno|canale`, comodità di chi guarda) e per canale.
+      **Il pallino del dock si spegne APRENDO la chat** (chiave `idRegno|dock`), non
+      leggendo ogni canale: i pallini dei canali dicono poi dove guardare. Lo segna
+      letto solo il **legittimo giocatore** (`ownsBoard` in `markChatSeen`): un admin che
+      sbircia col 👁 un regno preso lo lascia acceso (regola dell'utente). Un filo
+      privato che ha già messaggi compare fra i canali anche se quel regno è fuori
+      vista — prima un privato da lontano non si poteva leggere e il pallino restava.
+      Scorciatoia "💬 Messaggio privato" sulla scheda di un regno umano nel foglio 🕊
+      (`relationCard` → `openChatWith`). L'instradamento è per **nome** di regno: il
+      filo fra me e X sono i messaggi in cui uno è `regno` e l'altro `to`.
+    - **✝ IL PAPA (regola dell'utente)**: NON è un regno (niente province, turno,
+      record in `PLAYERS`) — è solo una firma in chat che l'admin presta da una
+      finestra a parte (`js/pope-chat.js`, vedi sotto). Scrive in **privato a
+      qualunque regno**, confini o nebbia non contano, oppure un'**enciclica** sul
+      canale pubblico. Nella plancia ogni regno ha **sempre** il filo "✝ Il Papa"
+      (`PAPA_CHAN` in `chatChannels`, subito dopo "Tutti") e gli risponde lì. Sullo
+      stesso trasporto della chat: un messaggio del Papa è `{regno:'Il Papa',
+      papa:true, to?, toId?}`, uno al Papa `{regno:<regno>, to:'Il Papa', papa:true}`
+      — il filo si instrada per nome come quelli fra regni. `papa:true` fa saltare
+      `handleIncomingChat`: i bot **non** rispondono al Papa né a chi gli scrive.
+      **I regni MUSULMANI non si rivolgono al Papa da soli** (regola dell'utente:
+      Mori, Abbasidi, Selgiuchidi): per loro il filo compare **solo dopo** che il
+      Papa ha scritto a quel regno, e da lì possono rispondere (`papaReachable`).
+      La fede è `Bot.faithFamilyOf` (Capitale → dottrina → maggioranza delle
+      province), la stessa dei patti, quindi vale anche prima della Capitale e
+      segue un regno che cambia fede.
+      **La console è una FINESTRA A PARTE, normalmente CHIUSA** (regola dell'utente):
+      non sta più nel pannello dell'editor. Il modulo costruisce da sé il bottone
+      flottante **✝** (`#pope-fab`, col pallino dei non letti) e la finestra
+      (`#pope-win`), ed è caricato sia in `index.html` sia in `play.html`, così
+      l'admin la apre da PC e da telefono. Si vede solo se `Risiko.isAdmin()` e la
+      pagina **non** ha un `?p=` (la plancia di un giocatore). Il bottone sta in basso
+      a destra nell'editor, in basso a sinistra nella plancia (a destra c'è la colonna
+      del turno) e sopra la barra in fondo nella vista da telefono. Dentro: a sinistra
+      le **schede dei regni** con la loro **relazione con la Santa Sede**, tutta letta
+      da dati che il gioco già tiene — fede di stato (`stateReligionOf`, ripiego
+      `Bot.faithFamilyOf`), come Roma li considera (Figlio della Chiesa / Scismatico /
+      Eretico / Infedele / Pagano, `standing` dalla confessione), se possono scrivere al
+      Papa (la regola di `papaReachable`), chi li governa (IA che non risponde,
+      giocatore, admin), lettere inviate/ricevute, ultimo contatto, non letti — prima le
+      encicliche, poi i regni per contatto più recente; a destra il filo e la riga
+      d'invio. Da telefono (≤820px) è a tutto schermo e a una colonna: elenco, poi il
+      filo con "← Regni". Esc o un clic fuori la chiudono. I non letti stanno in
+      `risiko_papa_seen` in localStorage (comodità dell'admin). Nessuna regola
+      Firestore nuova: è la collezione `chat`.
+    - **`MultiplayerSync` è un `const`, NON sta su `window`** (trappola vera, costata un
+      bug): `sync.js` dichiara `const MultiplayerSync`, e un `const` a livello di script
+      non diventa una proprietà di `window` — il resto del codice lo referenzia infatti
+      **senza** qualificatore (`MultiplayerSync.onPresenceChange`, come app.js). Il codice
+      chat lo aveva gatato su `window.MultiplayerSync` (= `undefined`): sottoscrizione mai
+      avviata, input disabilitato, invio bloccato. Si usa `typeof MultiplayerSync !==
+      'undefined'`, mai `window.MultiplayerSync`.
+- **VOCI E RISPOSTE DEI BOT in chat (regola dell'utente)**: un regno dell'IA non subisce
+  soltanto il suo carattere — lo DICE. Le frasi vengono dalla **dottrina**
+  (`js/doctrines.js`, campo `chat`), non da un elenco generico: i Selgiuchidi si
+  ossessionano con Bisanzio nominandolo, i nordici parlano di Finlandia, l'Orda annuncia
+  la fine del mondo solo quando colpisce. Chi le fa parlare è **`player-board.js`** (sono
+  colore, non una mossa: non stanno in bot.js), e le emette **solo il browser che muove i
+  bot** — gate `R.isAdmin()`, lo stesso di `Bot.run`, così la battuta esce una volta sola.
+  - **Il campo `chat` della dottrina**: liste per categoria — `nemico` (ossessione per il
+    nemico dichiarato, col segnaposto `{nemico}`), `meta`, `generico`, `conquista`,
+    `nemicoVinto` (aver battuto proprio il nemico), e `risposte` (per ribattere a chi
+    scrive: `minaccia`/`pace`/`saluto`/`default` + `nemico` col veleno speciale, col
+    segnaposto `{mittente}`). Chi le fa parlare risolve i segnaposto col regno vero e
+    tace la frase se quel nemico non è in partita.
+  - **SPONTANEE** (`botIntent` all'inizio del turno del bot, `botChatter` dopo una
+    conquista): passano da `botSay`, che tiene il tetto di **una battuta per turno di
+    bot** (`botChatTurn`). `botIntent` palesa il carattere (~30%, le frasi sul nemico
+    pesano doppio — è l'ossessione) e riguarda **solo** i regni con dottrina.
+    `botChatter` reagisce a una conquista **visibile** (rispetta la nebbia: solo se la
+    provincia presa o quella di partenza è `R.isVisible`) e **non nomina mai la
+    provincia**; se ha battuto il nemico dichiarato la frase lo nomina (`nemicoVinto`),
+    se no `conquista`, in mancanza di dottrina la battuta generica `BOT_TAUNTS`.
+  - **REATTIVE** (i dieci regni di partenza sono UMANI e possono sfottere/parlare coi
+    bot): `handleIncomingChat` gira a ogni `onChatChange` e, per ogni messaggio **nuovo,
+    di un umano**, instrada — se è **pubblico** chiama `maybeBotReply` (il regno-IA
+    nominato ribatte a tutti), se è **privato** (`to`) chiama `maybeBotReplyPrivate` (il
+    regno-IA destinatario ribatte sullo STESSO filo, indirizzando al mittente). `mentionedBot`
+    trova il regno-IA nominato (alias tolleranti in `BOT_ALIASES`: "selgiuchidi", "turchi",
+    "orda"… — non il nome ufficiale; ripiego sulle parole del nome), `classifyMessage` deduce
+    il tono a parole chiave (niente NLP), `botReplyLine` sceglie la frase da `risposte` (o dal
+    ripiego generico `REPLY_FALLBACK` per un regno-IA senza tabella). La replica passa da
+    `botEmit` (l'invio col gate admin, SENZA il tetto per-turno: una conversazione non si
+    conta a turni; `toName`/`toId` la rendono privata), con un ritardo di ~0,7-2,2 s perché
+    sembri una risposta.
+  - **I freni che evitano il degenero**: **mai** rispondere a un altro bot (niente
+    botta-e-risposta infinito fra IA); **una** replica per messaggio (`chatAnswered`, seminato con lo storico al primo
+    giro così i bot non rispondono a tutti i messaggi vecchi al caricamento); un **freno
+    globale** (`lastBotReplyAt`, una replica ogni ~4 s) contro lo spam; rispondono **solo**
+    i regni davvero controllati dall'IA (`Bot.isBot`, cioè `player.bot ≠ null`); e l'**Orda
+    tace** (`Doctrines.faithless`: parla solo con la spada, resta il segreto della nebbia
+    finché non colpisce — la sua `chat` ha solo `conquista`, fog-gated).
+  - **Struttura dell'invio, in un posto solo**: `botEmit` (invio + gate `R.isAdmin`) è la
+    base; `botSay` ci aggiunge il tetto per-turno per le battute spontanee; le risposte
+    chiamano `botEmit` diretto. Chi aggiunge una voce nuova passa da lì e non riscrive il
+    gate. NB: perché i bot chiacchierino serve che i regni d'evento abbiano una strategia
+    assegnata (menù `.player-bot` dell'editor) e che il browser dell'admin sia aperto,
+    come per i loro turni.
+- `app.js` gestisce turni, giocatori, selezione province, colori e la UI.
+- **Due pagine, un solo motore**: `play.html` carica lo stesso `app.js` di `index.html` e si
+  dichiara con `<body data-mode="player">`. app.js resta una singola closure e in coda espone
+  `window.Risiko` (poche funzioni: focus del giocatore, province possedute, pedine, popolarità,
+  inquadratura della mappa) più l'hook `Risiko.onRefresh`, a cui `player-board.js` aggancia il
+  render dei pannelli. Chi aggiunge roba alla plancia passa da lì, non spezza app.js in moduli.
+- **Link d'invito**: ogni giocatore ha un campo `invite` (codice) salvato nello stato; l'admin
+  lo copia dal bottone 🔗 sulla scheda del giocatore. Il codice **non è un segreto**: porta al
+  regno giusto, ma la sicurezza vera resta `firestore.rules` (scrittura solo admin). Nella
+  plancia, il link "🛠 Editor" per tornare a `index.html` è visibile solo quando
+  `Risiko.isAdmin()` è vero.
+  - **Il codice si salva sul documento VIVO** (bug del Portogallo, 2026-10-18): il 🔗 e
+    il 👁 della scheda-regno creavano il codice solo nel browser dell'admin e lo
+    affidavano a `saveAutoSave`, che a partita in corso non scrive (l'editor non è lo
+    scrittore del turno): lo snapshot dopo lo cancellava e il link portava a un codice
+    che non esisteva da nessun'altra parte — tipico dei regni nati per evento, che
+    nascono senza codice. Ora passano da `inviteUrlLive` (app.js) →
+    `MultiplayerSync.ensureInvite(id, code)`: transazione che, se il regno ha **già**
+    un codice online, restituisce quello (un link già mandato non deve smettere di
+    funzionare), altrimenti salva il nuovo. In locale o durante un intervento resta il
+    salvataggio normale.
+- **Partita e turni**: l'admin avvia la partita (`#start-game-btn` in `index.html`, chiama
+  `GameActions.beginMatch()`) e passa i turni (`#end-turn-btn`); ogni giocatore ha anche il
+  proprio bottone Fine turno nella plancia. `turnoDi`/`ordine`/`primoDelGiro` vivono in
+  `app.js` ed entrano nel documento di stato — un giocatore può agire solo quando
+  `turnoDi` è il suo id (§2.1, ordine sorteggiato all'avvio e poi FISSO, il primo non ruota).
+- **Partita in DUE TEMPI: prepara → invia i link → Avvia (regola dell'utente)**. Scegliere
+  il tipo di partita NON fa più partire i turni: prima si **prepara**, la partita resta
+  **ferma** finché l'admin non dà il via, così c'è il tempo di distribuire i link d'invito.
+  `GameActions.startGame` è spezzato in `prepareGame` (economia §11, presidio neutrali,
+  reset calendario/fedi/eventi/chat; popola `ordine` lasciando `turnoDi = null`) e
+  `beginMatch` (sorteggia l'ordine, `beginTurn`, salva; se `ordine` è vuoto prepara al
+  volo). `startGame` resta come i due tempi in uno (retro-compat). Lo stato **"preparata ma
+  non avviata" non ha un campo nuovo**: è `ordine` pieno + `turnoDi` null — con `turnoDi`
+  null nessun bot si muove e nessuno agisce. I 4 preset dell'editor (`avviaPartitaIA` →
+  `GameSetup.newGame` → `finalize` → `prepareGame`) ora **preparano soltanto** e i link
+  d'invito sono già su ogni scheda-regno; l'admin regola poi **regno per regno** chi
+  controlla (menu `.player-bot`) e infine preme **🏁 Avvia partita** (`beginMatch`, ordine
+  casuale). Il messaggio d'attesa: editor "⏳ In attesa dell'avvio — N regni pronti"
+  (`renderGameControls`), plancia "In attesa che l'admin avvii la partita"
+  (`player-board.js`, quando `R.ordine().length` e `turnoDi` null). Le pagine di lavoro
+  `_dev-start.html`/`_dev-sim.html` chiamano `beginMatch()` dopo `newGame` per avviare
+  subito.
+- **Presidio minimo (§5)**: una provincia **non resta mai sguarnita**. `GameRules.MIN_GARRISON`
+  (=1) e `GameRules.spendableTroops(n)` sono l'unica fonte della regola: qualunque cosa porti
+  soldati fuori da una provincia lavora sugli **spendibili**, non sui presenti — attacco,
+  spostamento finale, costi in soldati delle costruzioni (Mercato 3, Nave 1,
+  Strada 1 — la Capitale non costa soldati) e persino il ritiro di una recluta appena schierata. Anche la conquista la
+  rispetta dall'altra parte: almeno 1 superstite resta nella provincia presa. Se aggiungi
+  un'azione che sottrae soldati, passa da `spare(path)` in `game-actions.js` e da `spareOf(path)`
+  in `player-board.js`, così il massimo mostrato e quello accettato non divergono.
+- **Capitale: si costruisce, si sposta, si conquista (regola dell'utente)**. I regni
+  **non partono** con una Capitale (setup non ne regala più): la prima si costruisce al
+  turno 1 per **500 monete e 0 uomini** (`GameRules.COSTS.capitale = { monete: 500 }`),
+  scegliendo la provincia. Con le 1000 monete d'avvio è alla portata di tutti (i bot hanno
+  `capitale` in testa a `build:[...]` e la costruiscono da soli se manca). La strada
+  gratuita nasce **dalla costruzione** della Capitale, non più dall'avvio (setup non setta
+  più `stradeGratis`). Costruita una Capitale, la voce **sparisce** dalle costruzioni
+  (`buildGroup` la salta) e al suo posto compare `GameActions.moveCapital` — **spostare** il
+  seggio per altre **500 monete**, con la vecchia sede che diventa **Città**. Il seggio si
+  trasloca **solo su una propria Città** (regola dell'utente: prima si fonda la Città, poi
+  vi si sposta la Capitale — altrimenti spostarla su una provincia qualunque sarebbe troppo
+  facile); la Città di destinazione viene **assorbita** dalla Capitale (`seatCapital` toglie
+  la Città prima di posare il seggio). Conquistando una **Capitale nemica**: se non ne hai una è adozione automatica;
+  se ne hai già una la presa è declassata a Città di default (così `getCapitalPathFor` ne
+  trova sempre **una sola**) e `player.capitalePresa` offre all'umano la **promozione**
+  opzionale (`GameActions.resolveCapital`, la vecchia → Città). I bot non promuovono
+  (`capitalePresa` non si imposta per `winner.bot`). Il trasloco fisico del seggio vive in
+  **un posto solo**, `seatCapital` in `game-actions.js`, chiamato sia da `moveCapital` sia
+  da `resolveCapital`; la regola di conquista sta dentro `applyBattleOutcome`.
+- **Il Mercato non convive con un insediamento (regola dell'utente)**: dove c'è già una
+  Capitale, una Città o una Fortezza non si costruisce un **Mercato**, e per la stessa
+  esclusività non si posa un insediamento dove c'è già un Mercato. Vive nell'**unico**
+  punto delle regole di piazzamento, `canPlacePiece` in `app.js` (usato sia dall'editor sia
+  da `GameActions.build`), accanto all'esclusività Capitale/Città/Fortezza. I bot lo
+  rispettano da sé: `siteFor` in `bot.js` scarta le province con un Mercato quando cerca
+  dove posare un insediamento (e già scartava gli insediamenti quando cerca dove posare il
+  Mercato).
+- **Demolizione (regola dell'utente)**: giustifica l'invasione di una provincia con un
+  Mercato o una Nave quando ne hai già uno tuo — invece di restare un insediamento morto
+  (duplicato, §Mercato qui sopra, o una chiglia in più che non serve), si demolisce e si
+  recupera QUALCOSA. Mai il pieno valore, o conquistare varrebbe più che costruire da zero:
+  **Mercato → 2 uomini + 100 monete. Nave → 1 uomo + 1 Legno.**
+  **Solo la Nave (barca), MAI il Vascello** (regola dell'utente): il Vascello costa 1800
+  monete e serve alle rotte lunghe (§9.2) — recuperarne un decimo con la stessa leva della
+  Nave svaluterebbe l'investimento. `destroyShip` rifiuta `tipo !== 'barca'` a monte, e
+  `demolitionGroup` in `player-board.js` filtra gli scafi della provincia allo stesso modo
+  prima di offrire il bottone: un Vascello ancorato non mostra mai "Demolisci".
+  `GameActions.destroyMarket`/`destroyShip` — solo in fase `costruisci` (come ogni altra
+  voce di questa fase) e solo sulle proprie province: non è un atto di guerra, è
+  amministrazione. Gli uomini recuperati rispettano il tetto d'impilamento (`roomFor`,
+  PIECES.soldato.max): se la provincia è già al completo si perdono, non si spingono oltre.
+  In plancia è un BOTTONE semplice (`demolitionGroup` in `player-board.js`, sotto "Strade",
+  con `actionButton` — lo stesso di "Schiera"/"Ritira"), non una tessera-icona: qui non
+  c'è niente da confrontare o da tenere d'occhio per affordabilità, solo un'azione da un
+  click. Un bottone per ogni Mercato/scafo trovato nella provincia selezionata.
+- **Il turno è a fasi, in quest'ordine**: `schiera → costruisci → attacca → sposta`
+  (`GameActions.PHASES`, campo `player.fase`). Si avanza con `GameActions.nextPhase()`
+  e non si torna indietro. Il vincolo vive in `game-actions.js` (ogni azione chiama
+  `requirePhase`), non solo nella UI: il pannello destro mostra una fase per volta
+  ma è il motore a rifiutare un click fuori tempo. In `play.html` le quattro
+  **cartelle** (`#bp-phases`) sono l'indice di lettura del pannello: vedi
+  "Struttura dei due pannelli" più sotto.
+  - `schiera`: reclute libere e obbligatorie (§5.1). Oltre all'elenco province c'è il
+    **cursore sulla mappa** (`#map-deploy-hud`), un −N+ ancorato alla provincia
+    selezionata; è HTML e non SVG apposta (dentro l'SVG i bottoni scalerebbero con lo
+    zoom), e insegue la provincia con `requestAnimationFrame` perché pan e zoom della
+    mappa non emettono eventi. Coordinate da `Risiko.provinceScreenPos(id)`.
+  - `costruisci`: edifici, navi, strade, reclutamenti (Mercenario, Guarnigione).
+    **Sono TESSERE-ICONA, non un elenco di scritte** (richiesta dell'utente):
+    `buildTile`/`costChips` in `player-board.js`, griglia `.bp-tiles`. Ogni
+    tessera porta la **sagoma vera della pedina** — gli stessi `<symbol>` `#pc-…`
+    che stanno sulla mappa (iniettati in `#pc-defs`), tinti col colore del regno
+    via `color` perché usano `currentColor` — il nome e il costo in **gettoni**
+    (`#res-…` per le risorse, glifi per monete e soldati). Due regole di lettura:
+    **fattibile adesso = tessera accesa** (`.can`, bordo d'oro; `.no` è spenta e
+    in grigio), e **il gettone di ciò che manca è rosso** (`.bt-cost.short`, da
+    `canAfford().missing`, calcolato **sempre** — anche quando il blocco è il
+    posto e non il prezzo). Sulla tessera si scrive il motivo **solo se è il
+    posto** (`opts.nota`, accorciata da `tileNote`): quando è il prezzo lo dicono
+    già i gettoni rossi, e ripeterlo a parole in 112px rifarebbe l'elenco che si
+    voleva togliere. L'effetto completo sta nel `title`; la tabella intera nel
+    pop-up 📜. Anche le **strade** sono tessere (una per vicino, nome della
+    provincia sotto la sagoma; badge ★ e nessun gettone quando sono gratuite).
+    Chi aggiunge una voce costruibile aggiunge la sua sagoma a `BUILD_SYMBOL`
+    (e, se condivide la sagoma con un'altra voce, un bollino in `BUILD_BADGE`).
+  - `attacca`: quanti attacchi si vuole. Si comanda **dalla mappa** (vedi
+    "Comandare dalla mappa"): `Risiko.showAttackArrows(fromId, ids, kind)` disegna
+    frecce animate verso i bersagli, nel gruppo `#attack-arrows` appeso in coda
+    all'SVG (non fra le pedine: `renderPiecesForPath` le cancellerebbe).
+  - **conquista**: vinta una battaglia con più di 1 superstite, `player.conquista` resta
+    aperta e blocca ogni altra azione finché `resolveConquest(player, occupanti)` non
+    decide quanti restano nella provincia presa e quanti rientrano in quella di partenza
+    (almeno 1 deve occupare). A fine turno si chiude d'ufficio lasciandoli tutti lì.
+    **La scelta salta fuori CENTRALE sopra la mappa** (regola dell'utente): la modale
+    `#ui-conquest` (`showConquestPrompt`/`openConquestModal` in `player-board.js`) con lo
+    slider di ripartizione compare da sé dopo la presa, così si decide lì senza cercare la
+    sezione nel pannello. Aspetta che la scena della battaglia finisca (`svg.battle-focus`,
+    ~3,6s) per non piombarci sopra; "Decido dopo" la chiude e lascia il pannello
+    `#bp-conquest` (`renderConquest`, sempre presente) a farla concludere. Si mostra una
+    volta per presa (`conquestPromptFor`, chiave `from>to@turno`).
+    **REGOLA FISSA (utente): dopo ogni conquista con scelta compare SEMPRE in due posti**,
+    la modale centrale E la scheda `#bp-conquest` nella colonna destra — che `renderConquest`
+    **apre da sé** (`revealConquestPanel`, una volta per presa) perché la colonna nasce
+    chiusa; anche "Decido dopo" la porta in vista. Il **Fine turno** della barra in alto
+    (cliccabile anche durante la scena) **non** chiude più la presa d'ufficio: `askEndTurn`
+    riapre la scelta. Niente scelta (e niente pop-up) solo con 1 superstite o dopo uno
+    sbarco (sbarco totale, §9.2).
+  - `sposta`: **un solo** spostamento per turno (`player.spostamentoFatto`), fra due
+    province proprie **confinanti** (regola dell'utente: un solo confine di terra, non
+    più una catena — `GameActions.ownAdjacent`), lasciando almeno 1 soldato alla
+    partenza. **In più, il rinforzo via nave** (regola dell'utente, il caso tipico è
+    dopo uno sbarco): se la partenza ha una nave ancorata, lo spostamento del turno può
+    andare **via mare** verso una **propria** costa — o verso quella di un **ALLEATO**
+    che ti ha aperto il corridoio `rinforzi` (regola dell'utente: un alleato oltremare
+    è proprio quello che ha più bisogno d'essere soccorso) — entro la portata dello
+    scafo (§9.2). È un rinforzo, non un attacco — la meta dev'essere già di uno dei
+    due — e il carico è un tetto oltre al presidio. **Il MEZZO lo sceglie il
+    giocatore, come per l'attacco** (regola dell'utente): via nave si va **anche fra
+    due confinanti**, perché è il modo di portarsi dietro lo scafo. `moveTargets` dà
+    a ogni meta TUTTE le sue strade — `viaTerra` e `scafi` (i tipi che la
+    raggiungono), più `viaMare` = "il mare è l'unica strada" per chi non sceglie (i
+    bot) — e la plancia le filtra col selettore `.bp-vessels` di `renderMove`
+    (stato `moveVessel`, azzerato al cambio di partenza/fase): `moveChoices` in
+    `player-board.js` veste le carte per il mezzo scelto (via terra le confinanti;
+    con una nave quel che QUELLA nave raggiunge, confinanti comprese) ed è l'unica
+    fonte per elenco E mappa (`syncMapOrders`), così accendono le stesse province.
+    Una testa di ponte senza confinanti proprie presceglie da sé la nave
+    (`moveVesselAuto`) invece di mostrare un "via terra" vuoto. `finalMove` va via
+    mare se riceve `scafoVoluto` **oppure** se le province non confinano
+    (`areLandAdjacent`), e sceglie gli scafi con `hullsForLanding` — **come nello
+    sbarco si parte con PIÙ navi dello stesso tipo** (tetto = nº scafi × carico, ne
+    salpano ⌈n/carico⌉ e restano tutte ancorate all'arrivo; verso un alleato rientrano
+    tutte). La plancia (`orderMax`, `renderMove`, `askMove`) usa lo stesso conto.
+    **Verso una provincia tua la nave viaggia con gli uomini** e resta ancorata
+    all'arrivo, come nello sbarco; **verso un porto ALLEATO no**: scarica e torna
+    all'ormeggio di partenza, perché le navi sono di chi possiede la provincia e
+    ancorarla là la regalerebbe. Consuma comunque l'unico spostamento del turno.
+    **Due clic: la partenza e l'arrivo** (regola dell'utente). La partenza NON è più
+    la provincia selezionata — entrando nella fase quella è dove si è chiuso
+    l'attacco, e siccome ogni provincia propria collegata è anche una meta,
+    cliccarne un'altra apriva un ordine invece di cambiare partenza: per liberarsi
+    bisognava passare da una provincia altrui. Ora va **armata apposta**
+    (`moveArmed` in `player-board.js`, letto solo da `moveOriginPath`): finché non
+    lo è, sulla mappa si accendono le province **da cui** si può muovere
+    (`GameActions.moveOrigins`, classe `order-start`) e non sono ordini —
+    non entrano in `orderTargets`, quindi il clic è una normale selezione che le
+    arma. Ricliccare la partenza la libera (c'è anche il bottone "↩ Cambia
+    partenza" nel pannello, perché la scorciatoia sulla mappa nessuno la indovina).
+    `moveArmed` si azzera da sé quando cambia la fase vera (dentro `viewPhase`,
+    accanto a `openFolder`) e all'ingresso in un regno.
+- **Comandare dalla mappa (regola dell'utente)**: attacco e spostamento **non si
+  scelgono da un elenco**, si fanno sulla mappa. Selezionata una provincia propria,
+  le province dove si può andare si **accendono** e cliccandone una si apre lì sopra
+  il **cursore d'ordine** (`#map-order-hud`): quanti uomini, che probabilità, e via.
+  - **Il segno è un RETINO, non un contorno** (scelta dell'utente): i bersagli
+    d'attacco e le mete di spostamento si segnano con righe diagonali nel colore
+    della fase (arancio/oro) **ritagliate dentro** il poligono — una zona segnata
+    come su una carta militare. Il vecchio contorno spesso (1,5 su bordi da 0,25)
+    fra due bersagli confinanti si saldava in una banda doppia che non era di
+    nessuno dei due: confusionario. Il retino sta **dentro** e non sconfina.
+  - Chi accende cosa: `Risiko.markTargets(fromId, ids, kind)` dipinge sullo strato
+    **`#order-marks`** (un `<g>` sopra `#map-group` e sotto i marker appesi in coda,
+    così pedine e risorse restano davanti); `Risiko.clearTargets()` svuota lo strato.
+    `kind` vale `attacca` | `sposta` | `spia` | `partenza`:
+    - `attacca`/`sposta`: **retino** sui bersagli (pattern `#order-hatch-*` +
+      un filo di bordo interno) e un filo d'oro sull'**origine** (`fromId`).
+    - `spia` e `partenza` **non** prendono il retino (sono decine di province): un
+      **tratto** leggero — spie tratteggiate viola (classe CSS `order-spy`),
+      partenze un filo verde sullo strato. `fromId` è null per entrambe.
+    Il clic resta della plancia: lo strato è `pointer-events:none`, quindi passa al
+    path della provincia sotto; la classe `order-clickable` serve solo al cursore.
+  - **I clipPath e i pattern si creano UNA volta** (`orderClip`/`orderHatch`, per id
+    di provincia e per fase) e si riusano: la geometria non cambia mai e markTargets
+    gira a ogni render, anche dopo ogni mossa dei bot (~20 ms di budget in
+    `refreshMapDisplay`). Il pattern è `userSpaceOnUse`, quindi le righe scalano da
+    sé con lo zoom. **Mai dipingere il fill dei path delle province** qui:
+    `refreshMapDisplay` lo riscrive inline a ogni render — per questo il retino vive
+    su uno strato a parte.
+  - **`!important` sui tratti CSS residui** (`board.css`, `order-spy`): metà dei path
+    dell'SVG si porta dietro dalla sorgente uno `style="stroke: rgb(0,0,0)"` in linea,
+    e senza `!important` vince lui.
+  - Il clic sulla mappa è una **selezione** o un **ordine**, e a deciderlo è
+    `orderTargets` (player-board.js), l'indice id→bersaglio dell'ultimo render: se
+    la provincia è accesa il clic apre il cursore, altrimenti sposta la selezione.
+    Così la selezione non si perde a metà di un attacco. Le province accese come
+    **partenza** dello spostamento sono l'eccezione voluta: sono dipinte ma **non**
+    stanno in `orderTargets`, perché lì il clic deve scegliere, non ordinare.
+  - Il cursore si costruisce **una volta** all'apertura e poi si aggiorna
+    (`buildOrderHud` / `syncOrderHud`): ricostruirlo a ogni render lo azzererebbe
+    mentre lo si trascina. Insegue la provincia con `requestAnimationFrame` e resta
+    **dentro la cornice** della mappa (`placeOrderHud` fa clamp su `#map-wrapper`).
+  - **La conferma è una sola**: `askAttack()` la scrive per il cursore e per
+    l'elenco, e `askMove()` fa lo stesso per lo spostamento. Chi arriva da strade
+    diverse deve leggere le stesse parole — comprese le due che non può dedurre:
+    che i soldati mandati a un **alleato** diventano suoi, e che in un porto alleato
+    la nave non resta.
+  - **L'elenco resta**, ma in una cartellina chiusa ("Tutti i bersagli"): serve agli
+    **sbarchi** — un Veliero tocca coste dall'altra parte del mondo e sulla mappa non
+    le trovi — e si apre da sé quando i bersagli superano `ORDER_MAX_MARKS` (24),
+    cioè quando accenderli tutti farebbe luce ovunque e non direbbe più niente.
+- **Struttura della plancia** — impianto voluto dall'utente: **la mappa è il fondo e
+  prende tutto**, durante il turno non si deve scorrere per trovare le cose, e **si
+  deve leggere poco**. Non ci sono più tre colonne che si spartiscono lo schermo:
+  - **Il TURNO è una colonna snella a destra** (`#board-right`, `--turn-col` in
+    `board.css`), aperta e chiusa dalla sua linguetta. Qui ci sta **solo quel che
+    serve ad agire adesso**.
+  - **Tutto quel che si consulta è un PULSANTE del dock** (`#board-dock`, dentro la
+    cornice della mappa) che apre un **foglio a tutta visuale**, uno per volta
+    (`#board-sheets`, `showSheet()` in `player-board.js`): 👑 **Corona** (Popolarità,
+    obiettivi, il tuo regno, i regni in gioco, cosa fa l'IA), 🕊 **Diplomazia**,
+    ⚖ **Mercato**. Esc chiude. Il **foglio della diplomazia è l'unico che non copre
+    tutto** (`.sheet-diplo`, classe `peek`): parla con la mappa — passando sopra la
+    scheda di un regno se ne accendono i confini — e coprirla la renderebbe muta.
+  - **I costi ed effetti sono un POP-UP** (📜 `#bp-costs-pop`), apribile e
+    richiudibile **in qualunque momento**, anche sopra un foglio: non è più una
+    cartella in fondo a un pannello che scorre e che, aperta, resta lì.
+  - **Si parte con la sola mappa**: colonna del turno chiusa, fogli chiusi. Quando
+    tocca a te la linguetta si accende (`.board-tab.now`, la accende `renderTopbar`).
+  - Chi aggiunge **un'azione** la mette nella fase del pannello destro; chi aggiunge
+    **qualcosa da consultare** la mette in un foglio, non in coda al turno.
+  - **`.bp-mini` è un MINIMO, non una misura.** Nasce quadrato per i comandi a una
+    sola icona (⚑ − + dell'elenco province), ma quasi tutti i suoi usi portano
+    un'etichetta di testo ("✓ Accetta", "🏳 Concedi attacco", "🕊 Proponi un
+    patto"). Con `width`/`height` **fissi** a 30px quel testo usciva dal bottone e
+    finiva a scriversi **sopra il riquadro accanto** — è così che le schede della
+    Diplomazia si accavallavano. Ora sono `min-width`/`min-height` + padding:
+    l'icona sola resta 30×30 (glifo e padding stanno sotto il minimo), il testo
+    allarga il bottone. Chi mette un bottoncino con un'etichetta non deve
+    aggiungere un override di larghezza per il suo contenitore.
+  - **Destra, quattro fasce e solo la terza scorre.** In alto il **cruscotto**
+    (`#bp-status`): una riga sola con oro, **province controllate** (col numero dei
+    **rinforzi del prossimo turno** sotto, richiesta dell'utente: è il numero con
+    cui si decide quanto crescere, §5.1 — l'esercito totale e la guardia della
+    Capitale restano nel tooltip, e la guardia debole ≤5 si segna con ⚠ sulla
+    tessera della Capitale), **fede di stato**, più la striscia delle scorte. Non
+    scorre mai — sono i numeri con cui si decide ogni mossa. La scrive `renderArmy`
+    (`bp-soldiers`/`bp-soldiers-cap` sono rimasti gli id, ma ora contano province e
+    rinforzi). Poi le quattro **cartelle delle fasi**
+    (`#bp-phases`, linguette cliccabili) con **una riga** di spiegazione
+    (`#bp-phase-sub`: il nome della fase è già grande sulla linguetta accesa). Poi
+    `#bp-body`, che mostra **solo la cartella aperta**. In fondo, fisso, il bottone
+    di avanzamento.
+  - **La provincia selezionata sta in due righe** (`.bsel-head` + `.bsel-meta`):
+    nome, truppe, e quattro tessere colorate — chi la governa, risorsa, fede,
+    terreno. Erano cinque paragrafi "Chiave: valore" alti 170px.
+    Attenzione: le tessere hanno id **propri** (`bsel-*`). Gli id `p-owner` /
+    `p-resource` / `p-name` / `province-name` restano nascosti in fondo al pannello
+    perché **app.js ci scrive a ogni clic su una provincia** senza controllare che
+    esistano — e quel clic può essere un ordine su un bersaglio, non una selezione:
+    la riga finirebbe per raccontare la provincia sbagliata.
+  - **Nel pannello del turno resta solo `#bp-consult` con l'elenco delle province**
+    (`<details class="bp-fold">` chiusa): da lì si **seleziona** e in fase 1 si
+    schiera con + e −, quindi è un comando, non una lettura. Territorio e rinforzi
+    sono passati al foglio 👑 Corona, i costi al pop-up 📜.
+  - **Aprire una cartella non è agire**: `openFolder` in `player-board.js` decide
+    *cosa si vede*, `player.fase` *cosa si può fare*. Se la cartella aperta non è la
+    fase in corso si sta **sbirciando**: `freeze()` spegne i comandi di quel blocco e
+    `#bp-peek-note` dice perché (col bottone per tornare). `openFolder` si azzera da
+    sé quando la fase vera cambia, così un turno nuovo non si apre su una cartella
+    vecchia. Chi aggiunge un blocco di fase lo mostra in base a `viewPhase(player)`,
+    non a `phase(player)`, e lo aggiunge all'elenco che `render()` congela.
+  - **Il foglio 👑 Corona**, in due colonne: a sinistra Popolarità e obiettivi
+    (`#board-left` + `.bp-crown` — l'id resta perché è lì che app.js inietta il
+    pannello Popolarità e da lì pendono le sue misure in `board.css`), a destra il
+    regno in numeri, i regni in gioco e il registro dell'IA.
+  - **Il pannello del turno si chiude**: la linguetta (`.board-tab`) sta dentro la
+    cornice della mappa, non ai bordi dello schermo, così è sempre allo stesso posto.
+    Chiuso, sparisce e la mappa si prende il suo posto; subito dopo si richiama
+    `Risiko.setViewInsets(0,0)` per reinquadrare.
+  - **I confini coi regni di GIOCATORI sono segnati sulla mappa, sempre**
+    (`Risiko.markBorders` in `app.js`, strato **`#border-marks`** a parte — non
+    `#order-marks`, che `markTargets` azzera a ogni fase). CHI marcare lo decide
+    `syncBorderMarks` in `player-board.js`: di norma solo i regni **non bot** che
+    confinano con te; col foglio 🕊 aperto tutte le frontiere in vista; sotto il
+    mouse di una scheda, solo quella. Le province in nebbia non entrano mai.
+- **Guida della plancia al primo turno (richiesta dell'utente)**: un tour a fumetti
+  (`startTour`/`maybeStartTour` in `player-board.js`, overlay `#ui-tour`, CSS in `board.css`)
+  che indica uno per volta i pezzi della plancia — Fine turno, linguetta, cruscotto, cartelle
+  delle fasi, reclute, comandi dalla mappa, Avanti, dock — con un anello d'oro (`.tour-hole`)
+  attorno al pezzo. **Non copre la visuale** (regola dell'utente): niente velo scuro,
+  `#ui-tour` è `pointer-events:none` e prende i clic solo il fumetto, quindi mappa e plancia
+  restano usabili (zoom, trascinamento, comandi) mentre la guida è aperta; il fumetto senza
+  pezzo da indicare sta in basso al centro, sulla mappa nell'angolo in basso a sinistra. Si
+  avanza col bottone **Continua**. Parte **da solo** al primo turno del regno
+  (`R.turn() <= player.nato`) **a partita avviata** (`turnoDi` non null: con la partita solo
+  preparata non parte; non serve che sia il turno di quel regno) e con nessuna
+  pergamena/conferma/conquista aperta; una volta per **browser** (`localStorage` `risiko_tour_v1`, comodità di chi guarda,
+  non stato di partita). È **obbligatoria** al primo turno (niente Salta/Chiudi, Esc non la chiude ma passa oltre; si segna vista solo arrivando in fondo; un ricaricamento la fa ripartire); il bottone **❓ Guida** della barra compare dal secondo turno (o a guida completata) e la riapre, chiudibile quando si vuole. Se il regno non ha
+  Capitale aggiunge il consiglio di costruirla. Chi aggiunge un pezzo importante alla plancia
+  aggiunge un passo in `buildTourSteps` (`sel` = selettore, `apri` = apre la colonna).
+- **Schieramento (§5.1)**: le reclute di inizio turno sono di due tipi. Le **libere**
+  (province ÷ 3, più il modificatore di Popolarità) vanno dove vuole il giocatore e si
+  possono ritirare/rimettere finché il turno è aperto; le **obbligatorie** (Capitale +1,
+  Città +1, Fortezza +5) possono andare **solo** nella provincia dell'edificio che le ha
+  prodotte, e a fine turno vengono schierate d'ufficio se il giocatore non l'ha fatto.
+  Serbatoi sul record giocatore: `recluteDaSchierare`, `recluteVincolate` (per provincia),
+  `schierateTurno` (cosa si è posato adesso: è l'unica cosa ritirabile).
+  - **Le obbligatorie si posano con un pop-up centrale, a inizio turno** (regola
+    dell'utente): hanno una destinazione sola, quindi non c'è niente da decidere.
+    `showDeployPrompt` in `player-board.js` apre a inizio turno la conferma centrale
+    (`Risiko.confirm`) "Schiera tutti (N)", che chiama `GameActions.deployAllBound` — un
+    click e vanno tutte al loro posto, senza cercarle nel pannello. Una volta per turno
+    (`deployPromptShownFor`, chiave `id@turno`): chi risponde "Li dispongo io" non viene
+    più interrotto, e l'elenco `#bp-bound-list` resta per farlo a mano.
+- **Commerci conclusi: avviso a inizio turno + storico da riproporre** (§7, regola
+  dell'utente). Uno scambio ANDATO A BUON FINE lo conclude l'altro regno, spesso nel suo
+  turno: chi ha mandato la carovana (il **proponente**) non era al tavolo. `recordTrade`
+  in `game-actions.js` (dentro `acceptTrade`, l'unico punto in cui uno scambio si chiude)
+  registra l'affare su **entrambi** i regni dal loro punto di vista (`commerciStorico`:
+  `{conId, conNome, dato, ricevuto, turno}`) e lascia un **avviso** al solo proponente
+  (`commerciAvvisi`, come gli editti — l'accettante l'ha appena fatto lui e vede subito
+  l'esito). `normalizePlayer` inizializza entrambi; tetto `TRADE_LOG_MAX = 20`.
+  - **L'avviso è un pop-up centrale a inizio turno**: `showPendingCommerci` in
+    `player-board.js` srotola la pergamena (`Risiko.showFoundation`, tipo `commercio`)
+    all'apertura del proprio turno, una volta sola (`letto`), cedendo la precedenza a
+    editti e avvisi di mare (una pergamena per volta, `#ui-foundation`).
+  - **Lo storico si RIPROPONE con un click**: la card "Storico degli scambi"
+    (`historyCard` in `renderTrade`) elenca gli scambi conclusi; "↻ Riproponi" ricompila
+    la card "Proponi a un regno" (`tradeUI`) con gli stessi termini verso lo stesso
+    regno. Rifare un affare è un click, non da ricomporre a mano.
+- **Diplomazia: i PATTI, e il fatto che si possono ROMPERE** (§Diplomazia, regola
+  dell'utente: "si può sempre mentire"). Come le richieste di commercio, un regno propone
+  a un altro **visibile** (anche via spia) uno di **cinque** patti di peso diverso. La
+  relazione pura e i **privilegi** stanno in `js/diplomacy.js` (`window.Diplomacy`, come
+  `popularity.js`); le mutazioni **solo** in `game-actions.js`; la UI in `player-board.js`
+  (fatti i **pop-up a inizio turno** e il **pannello Diplomazia** — vedi sotto; resta
+  l'attacco-con-consenso/tradimento **dalla mappa**). Un patto è **mutuo**: `bondPact`/`unbondPact` lo scrivono su **entrambi** i
+  record (`player.patti = [{tipo, con, dal, scad}]`), come `recordTrade`. Proposte come le
+  offerte (`pattiProposte` su chi riceve), avvisi come gli editti (`pattiAvvisi`).
+  - **I cinque patti e i privilegi** (`Diplomacy.GRANTS`): `alleanza` (tutti i privilegi,
+    senza scadenza), `alleanzaTempo` (tutti, dura `Diplomacy.TIMED = 5` turni poi scade),
+    `nonBelligeranza` (solo non-aggressione), `rinforzi` (solo accesso militare), `vista`
+    (solo visione condivisa). I privilegi: `nonAgg` (non ci si attacca), `vista` (§9.2, in
+    `computeVisibleProvinces` il territorio del partner si vede in **piena** visibilità,
+    truppe comprese), `rinforzi` (accesso militare: lo spostamento di fine turno può
+    **inviare rinforzi** a un alleato — `moveTargets` lo segna `alleato:true`,
+    `finalMove` aggiunge i soldati alla provincia del partner **senza** cambiarne
+    proprietario/colore: diventano suoi. Ci si arriva per le stesse due strade con cui
+    si raggiunge una provincia propria — il **confine di terra** o una **nave** ancorata
+    alla partenza (regola dell'utente) — ma non è mai un attacco: la costa dev'essere
+    già dell'alleato, e la nave rientra invece di restare ancorata da lui).
+  - **Solo l'alleanza costa a romperla**: `−1` prestigio (`Diplomacy.BREAK_PRESTIGE`),
+    scalato da `player.puntiPrestigio` (l'unico contatore permanente del §10). Vale sia
+    per l'alleanza piena sia per quella a tempo (`isFullAlliance`/`costsPrestige`); i
+    patti leggeri — non belligeranza, rinforzi, vista — si sciolgono **gratis**, è il
+    loro vantaggio (impegni meno).
+  - **Attacco a un alleato: consenso o tradimento.** In `attack()` (parametro finale
+    `tradimento`) colpire un partner di non-aggressione è bloccato, salvo: (1) il
+    **consenso** del proprietario a quella provincia — `grantAttack` lascia un permesso
+    una-tantum `owner.permessiAttacco = [{chi, prov}]`, l'attacco **non rompe** il patto e
+    consuma il permesso; (2) `tradimento` esplicito — rompe **tutti** i patti col
+    difensore (`breakPact(..., null)`), `−2` se c'era un'alleanza. Il rancore del tradito
+    lo segna già la conquista (`recordGrudge`), non serve raddoppiarlo. Il patto si scioglie
+    al **commit** (battaglia risolta, `silent`), non prima.
+  - **Scadenza gratis**: `expirePacts()` (in `endTurn`, come `expireTrades`) scioglie le
+    alleanze a tempo giunte a `scad`, senza prestigio, avvisando entrambi. `scad = dal +
+    TIMED`; niente zombie.
+  - **`attackTargets` porta la diplomazia sul bersaglio**: `patto` (non-aggressione),
+    `alleanza` (costa prestigio romperla), `consenso` (permesso già concesso) — così la
+    plancia chiede consenso/tradimento invece di attaccare liscio.
+  - **Pop-up a inizio turno (regola dell'utente: come i commerci, ma con un pop-up)**, in
+    `player-board.js` e agganciati in coda a `render()`: `showPendingPactProposals` apre una
+    modale **azionabile** (`Risiko.confirm` con il terzo esito `onNo`) — *"Un araldo alla
+    tua corte"*, **Accetta**/**Rifiuta**, Esc/click-fuori = decidi dopo (la proposta resta
+    in `pattiProposte`, ritorna al render successivo); `showPendingPactNotices` srotola la
+    pergamena (`showFoundation`, tipo `patto`/`tradimento`, *"Un araldo reca notizia/cattive
+    nuove"*) per gli esiti in `pattiAvvisi`, cedendo la precedenza a editti/mare/commerci.
+    Il taglio è quello di un **araldo/messo** che reca la proposta o la notizia.
+  - **Il livello di rapporto** (`Diplomacy.standing(me, altro, ctx)`, puro): non è un
+    campo nuovo dello stato — è la somma dei fatti che il gioco già registra, da −100 a
+    +100, con `why[]` che porta ogni voce e il suo segno. È il punto di vista di `me` su
+    `altro`: legge solo il registro di `me`, quindi non svela niente che il giocatore non
+    sappia già. Chi lo mostra è `renderRelations` (`#bp-relations`, colonna sinistra del
+    foglio 🕊); chi volesse farlo pesare all'IA lo legge da lì, non se lo ricalcola.
+    Le voci, e da dove escono (regola dell'utente: *"sarebbe meglio articolare di più il
+    punteggio di amicizia"*):
+    - i **patti** in essere (`PACT_WEIGHT`, l'alleanza vale 50);
+    - la **FEDE** (regola dell'utente: *"due regni che hanno la stessa religione partono
+      più amici del normale ma non alleati"*): stessa confessione **+18**, fedi sorelle
+      (stessa famiglia — cattolici/ortodossi, sunniti/sciiti) +9, famiglie diverse −10.
+      È l'unica voce che vale **prima di qualsiasi fatto**: due corone della stessa fede
+      partono *Amichevoli*, e un confine senza accordi (−6) le riporta a *Neutrali*.
+      `Alleati` (≥45) resta irraggiungibile senza firmare. Le confessioni arrivano dal
+      chiamante (`ctx.fedeMia`/`ctx.fedeSua` = `Risiko.stateReligionOf`, cioè la fede
+      della **Capitale**): diplomacy.js non guarda la mappa, come popularity.js non la
+      misura. Senza Capitale non c'è fede di stato e la voce non compare;
+    - gli **scambi conclusi** (`commerciStorico`) e i **consensi** concessi;
+    - gli **AIUTI ricevuti** (`aiuti`): i rinforzi che un alleato ti ha mandato al
+      fronte. Vale più di una carovana — sono uomini, non merce;
+    - le **AGGRESSIONI subite** (`aggressioni`, registro nuovo): non solo le province
+      strappate ma anche i **colpi RESPINTI** (regola dell'utente: *"se ci sono stati
+      tentativi di attacchi, invasioni o conquiste passate"*). Il **rancore** resta il
+      registro dei BOT e tiene solo le prede grosse (`grudgeWorth` ≥ 1); questo tiene
+      tutto, perché un esercito arrivato al confine è un fatto diplomatico comunque sia
+      finita. Lo scrive `recordAggression` nell'unico punto in cui una battaglia si
+      risolve (`attack` in game-actions), leggendo la provincia **prima** delle
+      mutazioni. `normalizePlayer` lo semina dal `rancore` nei salvataggi vecchi;
+    - i **patti rotti e traditi** (`pattiAvvisi`) e il **confinare senza accordi**.
+    **Il tempo sbiadisce** (`fade`, serve `ctx.turno`): pieno entro 10 turni, 0,6 entro
+    20, poi 0,35. Serve a far sì che due regni che si sono fatti la guerra tre cicli fa
+    possano tornare a parlarsi — se no il rapporto sarebbe una condanna a vita.
+  - **A COSA SERVE DAVVERO UN'ALLEANZA: chiedere e mandare rinforzi** (regola
+    dell'utente: *"nella meccanica dell'alleanza non si capisce cosa si possa
+    effettivamente fare oltre a concedere uno stato ad un altro regno"*). Il privilegio
+    `rinforzi` apriva una porta sola e stretta — lo spostamento di FINE turno verso un
+    alleato confinante, uno per turno, in concorrenza con la manovra propria. Ora ne ha
+    tre, tutte in `game-actions.js` (unico mutatore):
+    - **CHIEDERE** (`askReinforcements(player, toId, provId)`): un messaggio che dice
+      **dove** servono gli uomini. Vive come le proposte di patto — sul record di chi la
+      riceve (`player.richiesteAiuto`, una richiesta esiste in un posto solo; le proprie
+      si ritrovano con `helpOutbox`, come `tradeOutbox`) — con l'avviso sul canale dei
+      patti (`pattiAvvisi`, tipo `aiuto`). Basta il proprio turno, nessuna fase. Si
+      spegne quando i rinforzi arrivano, con `cancelHelp`, o da sé dopo `HELP_TTL` = 5
+      turni (`expireHelpRequests`, in `endTurn` accanto a `expirePacts`).
+    - **MANDARE, in FASE D'ATTACCO** (`sendReinforcements(player, fromId, toId, n)`,
+      regola dell'utente): sulla provincia di un alleato confinante, al posto di
+      caricare, gli si **marcia in aiuto**. Gli uomini (e la loro quota di ventura, §5.3)
+      entrano nella sua provincia senza cambiarne proprietario né colore — la stessa
+      regola del rinforzo di `finalMove`. **Non consuma** lo spostamento di fine turno e
+      non ha un tetto di volte: il tetto è che quegli uomini **diventano suoi** e non
+      tornano. Solo via terra, solo col privilegio `rinforzi`.
+    - **TRADIRE dalla plancia**: `askAttack` passa finalmente il 7º argomento di
+      `attack`. Prima la plancia non lo passava mai, quindi il motore rifiutava e
+      l'unica strada era sciogliere il patto dal foglio 🕊 e attaccare il turno dopo.
+      Ora la conferma è `danger`, dice che rompe ogni accordo e quanto costa, e il
+      bottone d'oro del cursore diventa rosso (`.moh-go.betray`).
+    Sulla mappa: `attackTargets` porta `rinforzabile` sul bersaglio, il retino di una
+    provincia alleata è **oro** (quello dello spostamento) invece che arancio —
+    `markTargets` accetta ora una voce `{id, kind}` accanto alla stringa — e il cursore
+    d'ordine offre due strade ("🛡 Marcia in aiuto" su una riga sua, "⚔ Tradisci" in
+    rosso). Nel pannello c'è la cartella "🛡 Alleati da rinforzare"; nel foglio 🕊 la
+    riga "🆘 Chiedi rinforzi" (accanto a "Concedi attacco", sono le due cose che si
+    fanno **con** un patto) e la card "Richieste di rinforzi" coi due capi della
+    conversazione. **I bot le usano** (`helpAskPlan`/`helpSendPlan` in bot.js, uno per
+    turno per parte come gli araldi): chiedono dove sono **scoperti** (`survey.scoperta`)
+    all'alleato che **confina** con quella provincia, e mandano quel che avanza
+    (`survey.mobili`) **dopo** gli attacchi — prima la propria guerra, poi gli uomini
+    che restano.
+  - **IL RAPPORTO PESA SULL'ATTACCO — MA LA STORIA PESA DI PIÙ** (regola dell'utente:
+    *"l'IA può combinare i propri obiettivi storici con lo stato di amicizia. Ma i
+    mongoli attaccheranno la Russia anche se ci hanno scambiato qualcosa, e lo stesso
+    vale per i Selgiuchidi contro i cristiani e i bizantini"*). In `bestAttack`
+    (`bot.js`) il punteggio si moltiplica per `relationFactor`: un rapporto **positivo**
+    raffredda l'attacco (fino a `REL_WEIGHT` = 0,6 di sconto, pavimento 0,25), uno
+    **negativo** lo scalda (`REL_SPITE` = 0,35). Non è mai un divieto — un bottino
+    grosso vince comunque — ed è il pezzo che mancava perché la diplomazia si vedesse
+    anche **fuori** dai patti firmati: con la stessa fede, le carovane e i rinforzi
+    ricevuti, un vicino diventa un bersaglio meno appetibile senza che nessuno abbia
+    firmato niente.
+    - **La deroga è il punto**: sul BINARIO STORICO il fattore vale **1**. Un nemico
+      DICHIARATO dalla dottrina (`Doctrines.isEnemy`) e una META della dottrina
+      (`isMeta`, che per l'Orda sono le tappe della **marcia**) si attaccano allo stesso
+      modo qualunque cosa sia successa fra i due regni. Un'orda che si ferma davanti
+      alla Rus' perché ci ha fatto commercio non arriva mai in Europa, e i Selgiuchidi
+      che risparmiano Bisanzio non fanno la storia che devono fare.
+    - Gli **obiettivi** (§10) invece **si combinano**, non derogano: il loro premio è già
+      dentro `premio` (`objectiveAttackWeight`) e regge da sé il raffreddamento. È la
+      differenza fra "questa è la mia storia" (dottrina, deroga) e "questo mi
+      conviene" (obiettivo, si pesa).
+    - Il **carattere** modula quanto pesa: si riusa `s.tradimento` (predone 1 →
+      quasi indifferente ai buoni rapporti, costruttore 0,1 → ci bada molto). Un
+      secondo numero per profilo direbbe la stessa cosa con un altro nome.
+    - `standingWith` **memoizza per chiamata** (`relCache` in `bestAttack`): il
+      punteggio gira su tutte le province per tutti i bersagli, e `standing`
+      ricostruisce le sue liste a ogni lettura.
+  - **Le schede dei regni** (`renderRelations` → `relationCard`, foglio 🕊): una per
+    regno visibile, ordinate dagli amici ai nemici — barra col rapporto (zero al
+    centro), i fatti che lo compongono, i patti in essere e le due scorciatoie
+    ("Proponi a…" prepara il modulo degli araldi, "Vedi il confine" chiude il foglio e
+    inquadra la frontiera). **Le azioni non si sdoppiano**: proporre/accettare/concedere
+    restano negli araldi; lo scioglimento passa dall'unico `breakPactButton`, condiviso.
+  - **Il pannello degli araldi** (`renderDiplomacy`, `#bp-diplomacy`, colonna destra del
+    foglio 🕊, non vincolato a una fase — un araldo si manda in ogni momento del proprio
+    turno): tre card
+    (`bp-trade-card`, stessa veste dei commerci). *Proponi un patto* (select del regno
+    **visibile** via `diploKingdomsVisibili` + select del tipo → `proposePact`); *Patti
+    attivi* raggruppati per regno, con "Sciogli/⚔" (`breakPact`; l'alleanza chiede conferma
+    `danger` per il −2) e, per ogni partner di non-aggressione, il riquadro *Concedi
+    attacco* (select di una propria provincia → `grantAttack`); *Araldi alla porta* (le
+    proposte in arrivo, Accetta/Rifiuta — le stesse del pop-up, qui elencate).
+  - **I bot fanno diplomazia "per bisogno"** (regola dell'utente), in `bot.js`, dentro la
+    fase costruzioni del `turnScript` accanto ai commerci. `diploAnswers` risponde agli
+    araldi arrivati (accetta i patti che convengono: un leggero salvo che il proponente sia
+    una **preda** `isJuicyPrey`; un'alleanza solo se il proponente non è preda ed è forte);
+    `diploProposals` compra pace — un solo araldo per turno — proponendo la **non
+    belligeranza** al vicino-regno più minaccioso su un confine, se non è già in pace, non è
+    preda, e non ha un araldo già in viaggio (`pendingBetween`). La lealtà vive
+    nell'**attacco**: `bestAttack` salta un bersaglio di un partner di non aggressione
+    (`t.patto`) a meno del suo **consenso** (`t.consenso`, gratis) o di un **tradimento**,
+    che dipende dal carattere — `s.tradimento` per profilo (predone 1, opportunista 0.85,
+    espansione 0.4, costruttore 0.1: *"opportunisti a scaglioni"*). Il tradimento sconta lo
+    score (`× s.tradimento − BETRAY_RELUCTANCE`), così si tradisce solo per un bottino che
+    vale molto più di una conquista qualunque; `best.tradimento` diventa il 7º argomento di
+    `attack`. Guerra coordinata di base: `enemyThreat` **non** conta un partner di non
+    aggressione come minaccia (confine tranquillo, niente presidio).
+  - **La GUERRA è la regola, la diplomazia l'eccezione** (regola dell'utente: *"non voglio
+    che i regni AI mandino sempre messaggi di alleanza a tutti quelli che incontrano;
+    essendo un gioco di guerra, si deve fare la guerra"*). In `bot.js`, tre muri prima di
+    qualsiasi patto — proposto **o** accettato:
+    1. **La FEDE** (`faithFamilyOf` + `canDealWith`): fra famiglie diverse non si firma
+       niente. Gli unici patti che scavalcano la fede sono quelli stretti da un **evento**
+       (le crociate: `ctx.pact` in game-actions, che non passa di qui). La famiglia è quella
+       della Capitale (§Religione); senza Capitale vale la fede **dichiarata** dalla dottrina
+       e, in ultimo, la maggioranza delle province — un impero non diventa apolide perché
+       gli hanno preso il seggio.
+    2. **La DOTTRINA** (`js/doctrines.js`): un nemico dichiarato non si tratta mai; un amico
+       storico si tratta sempre, fede o no. L'amicizia basta che la dichiari **una** delle
+       due parti — la Castiglia non ha dottrina, ma il Portogallo la nomina amica e deve
+       poterci firmare anche se ai suoi occhi è solo un vicino debole.
+    3. **Il BISOGNO**, e solo quello: `diploProposals` compra pace **solo** da chi al confine
+       è nettamente più forte (`minaccia ≥ nostra × PACT_NEED`, e almeno `PACT_MIN_THREAT`),
+       non da chiunque passi, e mai oltre **`PACT_MAX` = 2** patti in essere. L'unico patto
+       che un regno cerca senza esservi costretto è quello con l'**amico di dottrina**
+       (`pattoAmico`: alleanza fra Selgiuchidi e Abbasidi, non belligeranza fra Portogallo e
+       Castiglia).
+- **Dottrine (`js/doctrines.js`)**: il **carattere storico** di un regno, sopra la sua
+  strategia. Una strategia di `bot.js` dice COME si gioca; una dottrina dice PERCHÉ e CONTRO
+  CHI, e serve ai regni che nascono per evento (vedi §Eventi). Modulo **puro** indicizzato
+  per NOME di regno; l'unico che lo applica è `bot.js`, e un regno senza dottrina — cioè
+  quasi tutti — non paga niente di tutto questo.
+  - In `bestAttack`: `vietate` chiude una terra (la Danimarca dei nordici), `soloMare` vieta
+    l'espansione via terra (il Portogallo conquista solo sbarcando), `conservatore` vieta di
+    prendersela coi regni salvo nemici e mete, `mete` dà un premio grosso finché la provincia
+    non è tua, `nemici` moltiplica il punteggio. Un **amico** si attacca solo *"se è
+    assolutamente conveniente"*: stesso meccanismo del tradimento con un pedaggio più caro
+    (`FRIEND_DISCOUNT`/`FRIEND_TOLL`), e l'eccezione è la **meta** — è per la Finlandia che
+    Norvegia e Svezia si guarderanno male, e per Aleppo che i Selgiuchidi passeranno sugli
+    Abbasidi.
+  - **La MARCIA** (`marcia`, l'Orda Mongola e i Selgiuchidi): un binario di conquista in
+    **tappe ordinate** `{peso, prov:[…]}`. Le sue province sono `mete` a tutti gli
+    effetti — l'indice della dottrina le appiattisce lì dentro — ma ognuna pesa quanto
+    la SUA tappa, e i pesi dicono la priorità quando due strade sono aperte insieme.
+    `Doctrines.march(regno)` restituisce l'asse in fila: lo usano `js/events.js` (dove
+    cala l'armata di rinforzo dell'Orda) e `marchMove` in bot.js, e resta l'unico posto
+    dove il binario è scritto. `nessunPatto` invece chiude la diplomazia in blocco
+    (bot.js, `canDealWith`).
+  - **`soloMete`: chi segue una storia sola non conquista nient'altro** (regola
+    dell'utente). Non è il `conservatore`, che si limita a non prendersela coi regni: qui
+    si scarta **ogni** bersaglio che non sia una meta (o una tappa di marcia), terre di
+    nessuno comprese. L'unica deroga la mette bot.js: **riprendersi quel che ci è stato
+    strappato** (il rancore), perché difendersi non è espandersi. Lo portano l'**Orda**
+    (che non deve perdere decenni a mangiarsi la Cina alle spalle) e la **Bulgaria** (che
+    vuole la Bulgaria e poi basta).
+  - **La COLONNA** (`marchMove` in bot.js, per chi ha una `marcia`): un'orda che tiene il
+    grosso dell'esercito in Mongolia non arriva in Europa — la conquista porta avanti solo
+    i superstiti della punta, che si assottiglia perché ogni provincia presa ne trattiene
+    almeno uno (§5). Lo spostamento di fine turno — **uno solo, fra province confinanti,
+    come per tutti** — diventa allora la colonna: il grosso avanza di una provincia verso
+    la **punta** (la prima tappa non ancora presa, lo stesso criterio delle ondate), con la
+    direzione data da una BFS di distanze in confini di terra. Dalla Capitale non si
+    sguarnisce (stessa regola di `movePlan`); se non c'è un passo avanti da fare, vale lo
+    spostamento di sempre.
+  - **Coloniale** (oggi il solo Portogallo): la Nave (barca) fa le teste di ponte vicine
+    come per ogni regno costiero, e il **Veliero** apre le **rotte lunghe** (§9.2) —
+    `colonyShipPlan` lo arma, `colonyLaunch` lo fa **salpare PRIMA degli attacchi** (se no
+    `bestAttack` se ne servirebbe come di uno scafo qualunque per il primo sbarco a tiro e la
+    rotta lunga non partirebbe mai), `colonyLandings` sceglie dove scendere fra le coste
+    avvistate. Ciurma minima `COLONY_CREW`, una rotta per volta, e `resourceNeed`/`coinReserve`
+    mettono da parte legname e 4000 monete — ma la riserva scatta solo quando il legname c'è
+    già, se no non si comprerebbe mai il legname con cui rendere il Veliero raggiungibile.
+- **Alias di funzione: `function`, non `const arrow`.** `initMap()` gira in cima alla
+  closure di `app.js` e da lì scende fino al render di risorse e pedine: qualunque
+  helper dichiarato più in basso con `const`/`let` è ancora nella sua **zona morta** e
+  lancia "Cannot access before initialization". L'errore veniva inghiottito dal
+  try/catch di `loadAutoSave`, quindi lo stato salvato non si caricava e la plancia
+  diceva "Partita non avviata" con la partita in corso. Gli alias verso `MapAnchors`
+  (`boundaryPoints`, `pointInPath`, `mainBodyBBox`, `isCoastalProvince`, `seaAnchor`)
+  sono `function` apposta: sono hoistate e il buco non esiste.
+- **Mappa iniziale (`js/start-map.js` + `data/start_map.json`)**: la POSIZIONE DI
+  PARTENZA, dipinta a mano una volta e messa in cassaforte. Tre bottoni nell'editor:
+  🧹 svuota la mappa (pagina bianca), 📌 salva quella dipinta adesso, 🗺 la rimette.
+  È il punto zero delle prove contro l'IA e della partita vera: stessa mappa, stesse
+  condizioni, partite confrontabili. Nel file entrano **solo** proprietari, risorse,
+  pedine, strade e l'anagrafica dei regni (id/nome/colore): tesoro, scorte, reclute,
+  fase, turno e strategie dei bot restano fuori apposta — è una mappa, non una partita
+  salvata. Chi la carica torna a "partita non avviata" al turno 1 e comincia da
+  `⚔️ Gioca con l'IA (mappa attuale)`, che è ciò che fissa l'economia del §11.
+  Motore: `Risiko.scenario.capture()/apply()` in `app.js` (unico punto che conosce
+  `PLAYERS` e le collect/apply dello stato); `start-map.js` fa solo trasporto e UI.
+  **Come ci arriva il file**: `scripts/serve.ps1` accetta una `POST /_start-map` e
+  scrive lui `src/data/start_map.json` — un click e la mappa nasce già dov'è
+  versionata. È l'unica rotta che scrive su disco e scrive sempre e solo quel file
+  (il percorso non arriva mai dalla richiesta). Servito da altro (GitHub Pages) la
+  POST fallisce e si ripiega sul download del browser: il file va copiato a mano in
+  `src/data/`. **Se il server era già acceso quando serve.ps1 è cambiato, va
+  riavviato**, altrimenti il salvataggio ripiega sul download.
+- **ARCHIVIO DI PARTITE (`js/save-slots.js`, regola dell'utente: salvare/caricare/nuova
+  senza interferenze)**: prima esisteva **un solo slot** — la chiave localStorage
+  `antigravity_map_save` e il documento fisso `games/main` su Firestore — quindi preparare
+  o caricare una partita **sovrascriveva** la precedente. L'archivio tiene **partite intere
+  con un nome** in localStorage (chiave `risiko_save_slots`, un oggetto `{id:{name,savedAt,
+  turno,regni,data}}` con `data` = lo snapshot completo): più partite convivono senza
+  cancellarsi. È il terzo dei tre meccanismi di persistenza, da non confondere:
+  - la **MAPPA INIZIALE** (`start-map.js`) è una *posizione di partenza* (proprietari,
+    risorse, pedine, strade, anagrafica regni) — una mappa, non una partita;
+  - il **BACKUP PER TURNO** (app.js/sync.js, `backupTurn`/`restoreTurn`) tiene un decennio
+    alla volta su Firestore, per rimediare a un danno *dentro* una partita;
+  - l'**ARCHIVIO** tiene partite intere, in locale, sul browser dell'admin.
+  - **Un solo percorso di applicazione**: `buildSnapshot()` resta l'unica fotografia dello
+    stato, ed è esposta come `Risiko.snapshot()`. Il caricamento passa per `applySnapshot()`
+    — estratta da `loadAutoSave` apposta, così un load da slot e l'autosave **non possono
+    divergere** — e da `Risiko.loadSnapshot(data)`, che ferma i bot, ridipinge e fa il push
+    **FORZATO** al cloud (`forcePushOnce`): una partita caricata può **arretrare il
+    calendario**, come un ripristino, quindi scavalca la guardia anti-regressione di sync.js.
+  - **Solo admin, solo editor** (scelta dell'utente): il pannello 🗄 *Partite salvate* sta
+    in `index.html` (nome + 💾 Salva; select + 📂 Carica + 🗑; 🆕 Nuova partita). La 🆕
+    riusa `StartMap.load()` (mappa iniziale a "non avviata", con la sua conferma). Ogni voce
+    che abbandona la partita in corso chiede conferma `danger`. Salvare con un nome già
+    esistente **sovrascrive** quello slot (previa conferma), non crea un doppione.
+  - **Il tetto è localStorage** (~5 MB): lo snapshot include tutta la `TURN_HISTORY`, quindi
+    molte partite lunghe possono riempirlo. `writeSlots` intercetta la quota superata e
+    **avvisa** (elimina qualche partita e riprova) invece di fallire in silenzio.
+  - **FILE su disco** (`⬇ Scarica file` / `⬆ Carica da file`, e `⬇` accanto a "🕰
+    Ripristina turno" per scaricare un backup per turno di Firestore): la partita intera
+    come `.json` (`{risiko:1, data: snapshot}`), fuori sia da localStorage sia da
+    Firestore — la copia che sopravvive a tutto. Si ricarica con lo stesso
+    `loadSnapshot`. NB: i vecchi `💾 Save / 📂 Load` in cima all'editor (`saveMap`)
+    esportano solo mappa+regni, **senza** turnoDi/ordine/eventi: non sono una partita.
+  - **CARTELLA `salvataggi/`** (regola dell'utente: un salvataggio per turno in una cartella del progetto): pannello *📁 Cartella salvataggi* dell'editor (`folderSave`/`folderLoad`/`autoTick` in save-slots.js). `scripts/serve.ps1` espone `GET /_saves` (elenco), `GET /_saves/<file>` e `POST /_saves?file=` su `RISIKO ONLINEsalvataggi` (nome validato `[A-Za-z0-9._-]+.json`, niente `..`). **UN SOLO FILE PER TURNO**, `turno-014_1130.json`, che si **SOVRASCRIVE**: se al 15 c'è un bug si ricarica il 14, si rigioca, e il nuovo 15 prende il posto del vecchio. Il salvataggio a mano chiede conferma solo se il file del turno esiste già; quello **automatico** scatta quando `Risiko.turn()` cresce (tutti i regni hanno giocato, ogni 3 s si controlla) e sovrascrive in silenzio, solo verso il server locale e a partita avviata (`ordine` pieno). Serve un editor admin aperto in locale: il motore `driver/` non lo fa. Senza server locale (GitHub Pages) il salvataggio a mano ripiega sul download. Cartella git-ignorata. **Riavviare il server** dopo modifiche a serve.ps1.
+  - **`Risiko.loadSnapshot` è gated `isAdminMode`**: un non-admin non riscrive lo stato
+    condiviso (come da `firestore.rules`), quindi caricare da slot ha senso solo per l'admin.
+- **`src/mappe/` è un'altra cosa**: lì sta la copia **congelata** della mappa definitiva
+  (`mappa-definitiva.js`) con la sua pagina di sola lettura
+  (`mappa-definitiva.html`: zoom/pan propri, regni isolabili dalla legenda, risorse,
+  tooltip con provincia/regno/risorsa/città). `data/start_map.json` è **viva** e il 📌 la
+  riscrive a ogni salvataggio; la copia in `mappe/` cambia solo quando lo si decide, ed è
+  il punto zero a cui tornare. Il gioco non carica niente da quella cartella — la pagina
+  riusa i moduli esistenti (`embedded_map`, `map-anchors`, `map-decor`, icone) e non
+  duplica dati. La copia è un `.js` (`window.MAPPA_DEFINITIVA`) e non un `.json` apposta:
+  così la pagina si apre anche col doppio clic, dove un `fetch` da `file://` sarebbe
+  bloccato. Come rigenerarla: `src/mappe/README.md`.
+- **Partita contro l'IA — due avvii diversi.** Quello NORMALE (`⚔️ Gioca con l'IA`,
+  `GameSetup.newGame()`) **tiene la mappa dipinta nell'editor**: i regni sono quelli
+  che ci sono, con i loro confini; chi non ha una Capitale la riceve nella sua
+  provincia più interna, l'economia torna ai valori del §11 e il calendario al turno 1.
+  Il sorteggio (`🎲 Sorteggia una mappa nuova`, `newGame({mantieniMappa:false})`)
+  **cancella** province, pedine e strade: è l'eccezione, e il dialogo lo dice.
+- **Partita in solitaria — tutti i regni tuoi** (`👥 Gioca tu tutti i regni`,
+  `newGame({tuttiUmani:true})`): stessa mappa e stessa economia della partita normale,
+  ma **nessuna strategia assegnata** (`player.bot = null` per tutti). Serve a PROVARE le
+  regole di apertura: se chi le conosce sblocca tutti e dieci i regni dalla trappola del
+  turno 1 (§8), la trappola è dura ma non cieca. Non è una modalità a parte — è la stessa
+  plancia e lo stesso motore:
+  - **La plancia segue il turno da sé** (`followTurn` in `player-board.js`, chiamata in
+    testa a `render()`): chiuso un turno si entra nel regno successivo passando da
+    `enterKingdom`, come un giocatore qualunque. Quindi la **nebbia resta quella del regno
+    in cui si entra** — giocare dieci regni non vuol dire vedere tutta la mappa in una
+    volta (per quello c'è il 🌍).
+  - **Si riconosce dallo stato, non da un flag**: `soloGame()` guarda se esiste ancora un
+    regno con una strategia. Un flag salvato a parte potrebbe divergere dal `player.bot`
+    che decide chi muove davvero.
+  - **Un cambio regno a mano non viene rimbalzato indietro**: `enterKingdom` segna in
+    `lastFollowed` il turno per cui si è entrati, e `followTurn` riprende a seguire solo
+    quando il turno cambia. Senza, andare a sbirciare un altro regno a metà turno
+    riporterebbe subito alla plancia di prima.
+  - **La plancia si apre senza codice d'invito** (`play.html` liscio): non c'è un regno
+    "tuo", e un link `?p=` incollerebbe la pagina a quel regno anche dopo un
+    ricaricamento (`resolvePlayer`). Senza codice, `boot` entra nel regno di turno.
+- **MODALITÀ SENZA IA: il flag `senzaIA` nello stato (regola dell'utente — baseline
+  stabile per il multiplayer)**. La stessa `tuttiUmani` è anche la modalità multiplayer
+  vera senza bot: ogni regno lo gioca l'admin o un player col proprio `?p=CODICE` (i
+  codici d'invito ci sono già su ogni scheda). Il motivo di stabilità: i bot sono di gran
+  lunga il mutatore di stato più veloce e voluminoso (decine di azioni per turno via
+  `Bot.run`, un solo browser admin a guidarli, il motore headless `driver/` che esiste
+  solo per babysittarli) — toglierli riduce drasticamente la superficie di crash e le
+  corse di scrittura, anche se non corregge i bug del motore condiviso, che restano ma
+  scattano molto meno spesso e in modo riproducibile.
+  - **`tuttiUmani` non basta da solo**: mette `bot=null` sui regni PRESENTI, ma gli
+    EVENTI che generano regni (Orda, Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia)
+    li farebbero comunque nascere governati dall'IA (`spec.bot`), reintroducendo bot a
+    metà partita. Perciò serve un flag **persistente** che sopravviva fino al turno
+    dell'evento: `soloGame()` (che inferisce "niente IA" da "nessun regno ha strategia")
+    è inaffidabile qui, perché uno spawn d'evento romperebbe l'inferenza.
+  - **Il flag `senzaIA`** vive nello stato accanto a `eventi` (app.js: `let senzaIA`,
+    accessori `Risiko.senzaIA()`/`setSenzaIA`, campo in `buildSnapshot`/`applyTurnState`,
+    reset a false in `scenario.apply`). Lo **alza `prepareGame`** — il choke point di ogni
+    partita nuova — dall'opzione `opts.senzaIA`, che `GameSetup.finalize` passa quando
+    `tuttiUmani`; ogni partita "Gioca con l'IA" lo lascia a false. Viaggia nel salvataggio
+    e in pass-through ai client, quindi un reload o un player che riceve lo snapshot sa che
+    la partita non ha bot.
+  - **Chi lo rispetta**: `eventSpawnKingdom` (game-actions) calcola `wantBot =
+    R().senzaIA() ? null : (spec.bot||null)` — i regni d'evento nascono in mano all'admin;
+    e il "grande passo del 1350" dell'Orda (events.js `onRound`) NON le riassegna una
+    strategia (`if (!ctx.senzaIA) orda.bot = …`), letto via `ctx.senzaIA` esposto da
+    `makeEventCtx`. Le ondate di rinforzo dell'Orda (`eventReinforce`) versano comunque le
+    reclute libere: le schiera l'admin che la gioca. Verificato: prepare tutti-umani →
+    `senzaIA=true`, 0 bot su 10, persiste al reload; "Gioca con l'IA" → `senzaIA=false`, 9
+    bot. **La FASE 2 (bug del motore condiviso con partite umane deterministiche) resta da
+    fare.**
+- **Il codice d'invito INCHIODA a un regno solo** (regola dell'utente, e fondamentale nel
+  multiplayer vero: ogni player apre il PROPRIO `?p=CODICE`, quindi ci sono 2+ regni umani
+  e senza questo la plancia dell'uno rimbalzerebbe sul regno dell'altro a fine turno).
+  `resolvePlayer`, quando l'URL `?p=` risolve a un regno, alza il flag `invitePinned`
+  (`player-board.js`); da lì due conseguenze, entrambe volute:
+  - **`followTurn` non segue più i turni altrui** (`if (invitePinned) return false`): la
+    plancia resta ferma sul regno assegnato, che tocchi a lui o a un altro. È l'opposto
+    della solitaria/partita mista, dove `followEnabled()` (2+ umani, MA aperte **senza**
+    codice) fa seguire il giro. Il pin si basa sull'URL, quindi sopravvive a un
+    ricaricamento finché `?p=` resta nella barra.
+  - **La visuale del singolo player non ha "Cambia regno", "🌍 Mappa generale" né
+    "🛠 Editor"** (`syncEditorLink` li nasconde quando `invitePinned`): quel link vale per
+    il suo regno e basta, non deve poterne uscire. Senza codice i tre comandi restano —
+    lì servono a seguire i bot e a passare da un regno all'altro.
+  - **Col codice si aspetta QUEL regno, non si ripiega su nessun altro** (era il bug per
+    cui il link del Bizantino apriva l'Inghilterra). I record dei regni esistono già al
+    primo giro di `boot`, ma i **codici invito arrivano dopo**, con l'autosave (in locale
+    subito, online via Firebase anche dopo un secondo): al primo giro `playerByInvite`
+    tornava `null`, `resolvePlayer` ripiegava sul `sessionStorage` — che teneva il regno
+    di un test precedente — e `boot` entrava lì e **ritornava senza ritentare**. Ora, se
+    c'è un `?p=`, `resolvePlayer` **non guarda mai il sessionStorage**: torna `null`
+    finché il codice non risolve, e `boot` ritenta senza mai toccare il fallback
+    `followEnabled()`. Il sessionStorage resta solo per il caso **senza** codice
+    (solitaria/mista, ricaricamento).
+  - **Col codice non ci si arrende a tempo** (bug di David/Mori, 2026-10-18): prima si
+    ritentava 60 × 120 ms = 7,2 s e poi compariva la scelta del regno con l'elenco di
+    **default** ("Giocatore 1…10") — da telefono, subito dopo un deploy che obbliga a
+    riscaricare codice e mappa, la partita arriva più tardi. Ora, finché lo stato non
+    c'è (nessun regno ha ancora un `invite`), `showInviteWait` mostra "Sto caricando il
+    tuo regno…" e si ritenta ogni 250 ms senza limite; arrivato lo stato, se il codice
+    non risolve dopo ~10 s il link è sbagliato e lo si dice, con la scelta a mano sotto.
+- **Sorteggio della mappa (solo `mantieniMappa:false`)**: `js/setup.js` —
+  sparecchia la mappa, dà a ogni regno 3 province ben distanziate (≥6 confini) — i regni
+  nascono tutti in **Europa, Nord Africa e Arabia**
+  (`GameSetup.REGIONS.europa`: rettangoli sulle coordinate dell'SVG, misurati sulla mappa
+  vera per lasciare fuori Persia, Sudan e Sahel; le province che scavalcano il bordo
+  mappa, tipo Alaska, hanno un bounding box largo quanto il mondo e si scartano dalla
+  larghezza). La Capitale **non** è più regalata: la si costruisce al turno 1 (500 monete,
+  0 uomini), e con essa arriva la prima strada gratuita. Il feudo iniziale confina con una
+  provincia di **pietra** (la prima strada la collega e dà la materia prima per le
+  successive). Poi estrae a sorte il
+  regno **umano** e assegna a tutti gli altri una strategia di `js/bot.js`.
+  I bot **non hanno scorciatoie**: chiamano le stesse funzioni di `game-actions.js` del
+  giocatore, quindi qualsiasi regola nuova vale anche per loro. Il turno di un bot è un
+  **generatore**: ogni `yield` è un'azione già applicata e il driver aspetta `Bot.speed()`
+  ms — serve a poterli guardare, non è una pausa di comodo. La catena parte da
+  `Bot.run()` (dopo il fine turno umano e all'apertura della pagina) e si ferma da sola
+  quando torna il turno di un umano. **Solo chi è admin** muove i bot (`Risiko.isAdmin()`):
+  le scritture di stato restano dell'admin, come da `firestore.rules`.
+  Una strategia in più = una voce in `Bot.STRATEGIES`, non un ramo `if` sparso.
+- **IL MOTORE HEADLESS `driver/` (regola dell'utente: turni fluidi senza babysittare
+  una scheda)**. Far girare i bot da una scheda del browser è fragile: i browser
+  CONGELANO le schede in secondo piano (bot che strisciano/si piantano) e più sessioni
+  admin che guidano insieme si scrivono addosso (turno che rimbalza, mosse annullate). La
+  cura vera è `driver/` (Node + Puppeteer): apre l'editor in un **Chrome headless** su un
+  host sempre acceso, fa il login admin e lascia guidare il codice del gioco — headless =
+  mai in secondo piano, e **un solo** motore. Riusa tutto il codice, **niente Blaze**
+  (parla con lo stesso Firestore). Il `driver/README.md` ha setup e flusso.
+  - **`?nodrive=1`** (`isNoDrive` in app.js, letto da `maybeDriveBots`): un editor aperto
+    così **NON pilota i bot** — li muove il motore. Serve all'admin per **subentrare**:
+    mette un regno su **🧑 Admin** (menu `.player-bot`, `bot=null` → il motore lo salta) e
+    lo gioca a mano dalla sua plancia (👁), senza fare da secondo driver. Regola d'oro:
+    col motore acceso, ogni editor interattivo dell'admin va aperto con `?nodrive=1`, e
+    **niente login admin sulle plance dei giocatori** (una plancia agganciata non guida
+    comunque — `myPinnedPlayerId` in `maybeDriveBots`). Badge d'avviso in `renderGameControls`.
+  - **Robustezza del turno** (contro rimbalzi/doppi conteggi anche fuori dal motore): una
+    **guardia di monotonìa** in ricezione (`lastAppliedRev` nel wrap di `onStateChange`)
+    scarta gli snapshot Firestore con `rev` non superiore all'ultimo applicato (turnoDi non
+    arretra mai), e `beginTurn` è **idempotente per turno globale** (`player.beginStamp`):
+    la produzione (reclute/raccolto/spedizioni/festa) si fa una volta sola. Il `rev` cresce
+    a ogni scrittura riuscita (transazione in `sync.js`).
+  - **SISTEMA MAIL (regola dell'utente)**: quando il turno passa a un giocatore
+    umano il motore gli manda una **mail personalizzata** (testo diverso per
+    regno — `driver/mail-templates.js`, curato a mano per i 10 regni di
+    partenza, ripiego generico per i regni d'evento) col link della plancia e
+    due scorciatoie di **auto-schieramento** ("schiera ai confini e passa il
+    turno", "schiera in Capitale e passa il turno"). Ogni giocatore ha **6 ore**
+    per giocare; scadute, il motore chiude il turno secondo la **preferenza**
+    salvata (`player.autoTurno = 'niente'|'confini'|'capitale'`, di default
+    *niente*: chiude senza schierare — le obbligatorie le posa d'ufficio
+    `endTurn`, le libere restano in serbatoio e si sommano al turno dopo).
+    - **La NOTTE non esiste per il timer** (regola dell'utente): la fascia
+      23:30-8:30 (ora italiana, fuso Europe/Rome fissato anche per il motore in
+      cloud che gira in UTC) è tolta dal conto — un turno aperto alle 23:30
+      comincia a scorrere alle 8:30. Unica fonte `GameRules.turnActiveMs` /
+      `turnTimeLeft` / `isTurnQuietTime` (game-rules.js), usata dal motore
+      (calcolata dentro la pagina) e dal conto alla rovescia della plancia.
+      Anche la **mail** di notte aspetta: il motore la manda al primo battito
+      dopo le 8:30 (`!s.quiet` in driver.js).
+    - **Dove vive lo stato**: `normalizePlayer` in app.js aggiunge tre campi
+      persistenti — `p.email` (editabile dall'editor sulla scheda-regno),
+      `p.autoTurno` (idem, e anche dalla plancia), `p.turnStartedAt` (timbro
+      d'apertura turno). Il timbro è scritto da **`beginTurn`** dopo la
+      guardia idempotente di `beginStamp`, così un rimbalzo non riazzera il
+      cronometro; sopravvive a un salvataggio e a un restart del motore.
+    - **Come esegue l'auto-turno**: `GameActions.autoPlayTurn(playerId, mode)`
+      (esportato) distribuisce le reclute libere secondo `mode` — `capitale`
+      tutte sulla Capitale (`R.getCapitalPathFor`), `confini` round-robin
+      sulle province con almeno un vicino di terra NON mio (le vere frontiere
+      di terra; regno tutto interno → tutte le province) — poi chiama
+      `endTurn`. Bypassa `requirePhase` perché può scattare in qualunque fase
+      (`player.fase = 'sposta'` prima di `endTurn`). Le libere non spese
+      restano in serbatoio.
+    - **Il player può ancora giocare, o pilotare da fuori**: la mail porta
+      `PLAY_BASE_URL?p=CODICE` (plancia normale) e le due scorciatoie
+      `&autoplay=confini|capitale`, intercettate da `player-board.js` in
+      `boot()` — se è davvero il turno di chi ha aperto il link,
+      `GameActions.autoPlayTurn` scatta e la URL viene ripulita del parametro
+      (F5 non ripete l'azione). Se non è più il suo turno (mail letta tardi),
+      viene ignorato in silenzio.
+    - **Chi manda le mail**: il **`driver/` stesso** — un modulo `mailer.js`
+      (nodemailer + Gmail SMTP, app-password) inizializzato una volta per
+      sessione; se `.env` non ha le SMTP_* stampa un avviso e prosegue
+      **senza** mail (il timer 6h continua a funzionare — è comunque il
+      motore a farlo scattare). Setup: `driver/README.md` § "Mail del turno".
+      Il testo dei 10 regni di partenza sta in `driver/mail-templates.js`;
+      chi aggiunge un regno d'evento e vuole un testo su misura lo mette lì
+      (per NOME esatto), altrimenti prende `_default`.
+    - **Il motore in cloud gira A CATENA, non a cron** (bug "non tutti ricevono
+      la mail", 2026-10-04): lo schedule `*/10` di GitHub Actions è solo
+      indicativo e sotto carico salta i giri (quel giorno ne partirono 4 in 24
+      ore) — i turni passati nei buchi non avevano mail. Ora
+      `.github/workflows/motore.yml` fa giri da ~3 ore (`RUN_FOR_MIN: 175`) e
+      l'ultimo passo rilancia il successivo con `gh workflow run` (il
+      workflow_dispatch non è strozzato); il cron `*/20` resta come rete se la
+      catena si spezza. In `driver.js` un invio FALLITO restituisce la
+      prenotazione (`releaseMail`) e si ritenta ogni 5' (`MAIL_RETRY_MS`), e a
+      fine giro si aspettano le mail in volo (`pendingMails`).
+    - **Mail in HTML con due blocchi distinti** (regola dell'utente: chiaro quale
+      link aprire): `compose` in `mail-templates.js` aggiunge al testo del regno
+      il bottone grande **"▶ Gioca il turno"** (stesso link per PC e telefono) e,
+      a parte, il riquadro **"✋ Non puoi giocare?"** con le due scorciatoie
+      `autoplay` e l'avvertenza che chiudono subito il turno. C'è sempre anche la
+      versione testo. I `body` dei regni contengono solo il testo di colore.
+    - **L'e-mail e l'auto-turno si salvano con un RITOCCO MIRATO** (bug 2026-10-12:
+      l'admin cambiò l'indirizzo dei Bizantini e la mail partì al vecchio). Il
+      `change` dei campi `.player-email`/`.player-auto` faceva solo `saveAutoSave`,
+      che online scrive soltanto se l'editor è lo scrittore del turno — quasi mai
+      a partita in corso — e lo snapshot successivo cancellava il cambio.
+      Ora passano anche da `patchPlayerOnline` → `MultiplayerSync.patchPlayer(id,
+      campi)`: transazione sul documento vivo che cambia SOLO quei campi di quel
+      regno (rev+1), senza sovrascrivere la mossa in corso. Un avviso dice se è
+      salvato. Chi aggiunge un altro campo di regia sulla scheda-regno passa di lì.
+    - **Chi rileva il cambio turno e il timeout**: il **heartbeat esistente**
+      del driver (ogni `HEARTBEAT_MS`, 15s) — legge `Risiko.turnoDi()` e i
+      campi del player, dedupla mail e auto-turno per chiave
+      `turno_globale:playerId` (`lastMailedTurn`/`lastAutoTurnKey`, in
+      memoria di sessione), seed al primo giro dopo un (ri)avvio per non
+      duplicare la notifica del turno in corso. Nessun timer separato: un
+      solo battito che fa tutto.
+    - **Le 6h partono dalla CONSEGNA, misurata con l'orologio del MOTORE** (bug dei
+      Mori, 2026-10-18): `turnStartedAt` lo scrive `beginTurn` con l'orologio del
+      dispositivo di **chi chiude il turno precedente**. Il telefono del giocatore
+      francese era indietro di 16 ore e mezza: il turno dei Mori, aperto alle 17:00,
+      risultò aperto "alle 00:29", e il motore nello STESSO battito mandò la mail e
+      lo chiuse d'ufficio (`confini`): il giocatore cliccava il link e trovava il
+      turno dei Selgiuchidi. Ora al primo battito che vede il turno in mano a un
+      Player il motore timbra `player.turnClockAt` (suo orologio) e
+      `player.turnClockFor` (= `beginStamp`, il turno globale) — `normalizePlayer`;
+      ritocco mirato con `MultiplayerSync.patchPlayer` — e in quel battito il
+      timeout **non** scatta. Il cronometro parte da `GameRules.turnClockStart(p)`
+      (il timbro di consegna se è di QUESTO turno, altrimenti `turnStartedAt`), e
+      `GameRules.turnDelivered(p)` dice se la consegna c'è già: lo usano motore e
+      plancia, quindi non divergono. Mai confrontare il timbro del motore con
+      `turnStartedAt`: due orologi diversi.
+    - **Anti-corsa admin**: `autoPlayTurn` non ha un gate esplicito ma è
+      chiamato solo (a) dal driver, che è admin, o (b) dal player col link
+      `?autoplay=`, cioè da chi ha il pin di quel regno — il push allo stato
+      è protetto da `shouldPushState()`/`canWriteForTurn` come per ogni altra
+      azione del turno.
+    - **UI in plancia**: nella topbar (`play.html`, `#board-turn-time` +
+      `#board-auto`, visibili solo quando è il proprio turno) compare "5h
+      42m rimasti" — accende `.low` nell'ultima ora e `.critical` negli
+      ultimi 30' — e il menù della preferenza (che modifica `player.autoTurno`
+      e chiama `R.save()`). Il timer aggiorna ogni 30 s (`turnDeadlineTimer`).
+- **Quello che un bot deve saper fare per non incepparsi** (tutte regole dell'utente,
+  nate guardandoli giocare). Un bot che non sa queste cose non gioca male: **si blocca**,
+  perché a Popolarità 1 non ha più né reclute né risorse con cui rimediare.
+  0. **Dove piantare la Capitale** (`capitalScore`, usata da `siteFor`). Non è una
+     costruzione come le altre: decide due terzi della Popolarità. La Sicurezza si
+     misura sui **suoi** confini (`P_conf = 5 − e`) e il Benessere sulla rete di strade
+     che parte da **lei** (§4), quindi una Capitale in un angolo lascia mezzo regno
+     scollegato per sempre. Il punteggio somma la **protezione** che avrebbe (vale
+     doppio — è l'unica cosa che non si può comprare — con una penalità a sé quando
+     `P_conf` sarebbe **zero**, perché lì la Sicurezza resta dimezzata per sempre), le
+     **risorse raggiungibili attraverso il proprio territorio** scontate per distanza
+     (ogni passo è una strada da costruire; un tipo nuovo e il cibo pesano di più) e in
+     coda gli uomini già presenti meno la pressione nemica. Prima si sceglieva la
+     provincia **con più soldati**, che è quasi sempre quella di frontiera.
+     Il seggio si **trasloca** anche (`capitalPlan` → `GameActions.moveCapital`, 500
+     monete): un regno cresce da una parte sola e la vecchia sede si ritrova sul
+     confine. La soglia è alta apposta (+3 punti pieni) — traslocare per mezzo punto è
+     il modo migliore di non costruire mai nient'altro.
+  1. **La Popolarità prima di tutto.** `popState` in `bot.js` misura i fattori veri
+     (`Risiko.popularityFactors`) e chiede il piano a `Popularity.plan`. Da lì escono
+     tre decisioni: **quanto tassare** (si abbassa quando il popolo mugugna e **risale
+     da sé** appena Sicurezza e Benessere se lo possono permettere — il piano sceglie
+     sempre il livello più redditizio che regge il target), **quanti soldati in
+     Capitale** (`guardWanted`, che ha sostituito il numero fisso `guardiaCapitale`), e
+     **quanto vale una conquista** (`popValueOf`).
+  2. **Conquistare attorno alla Capitale, ma solo se serve davvero.** `popValueOf` pesa
+     ogni bersaglio sulla formula vera e spesso risponde **zero**: con 7 nemiche al
+     confine, `P_conf = 5 − e` resta 0 anche dopo due conquiste. Un bot che desse per
+     scontato il guadagno sprecherebbe due turni di guerra per niente.
+  3. **Annettere cibo e tipi di risorsa nuovi.** Valgono due delle quattro voci del
+     Benessere, cioè un terzo della Popolarità. Conta sia negli attacchi (`popValueOf`)
+     sia nella scelta di **quale strada** costruire (`roadWorth`): prima si ordinava per
+     "ha una risorsa" e un doppione di legno valeva quanto il primo campo di grano.
+     Il bonus si dà solo alle province **collegabili** — una risorsa scollegata non entra
+     né nel Benessere né nel raccolto (§4), e prometterselo sarebbe barare col proprio
+     pronostico.
+  4. **I mercenari restano, ma annacquano l'esercito**: si comprano **solo** per chiudere
+     un attacco che senza di loro non si farebbe (`mercenaryPlan`), mai per averne.
+     Comprarne finché ci sono monete — come facevano — voleva dire bruciare 400-500 monete
+     a turno con 100 di entrate e non arrivare mai né al Mercato (800) né alla Città
+     (1000); ora vorrebbe dire anche tenersi per sempre un esercito di ventura. C'è la
+     **riserva** (`coinReserve`): le monete della prossima costruzione in programma non si
+     toccano. E il conto lo fa `winProbMerc` con la quota che la provincia **avrebbe dopo**
+     l'acquisto — pronosticare coi mercenari contati come sudditi vorrebbe dire comprare
+     per una soglia che poi non si raggiunge.
+  5. **Il Mercato è il modo di non restare bloccati.** Senza pietra niente strade, senza
+     strade niente province collegate, e senza collegamenti Benessere e raccolto restano
+     a zero. `wantsBuild` lo fa costruire quando manca più di un tipo di risorsa e c'è
+     già merce in magazzino da dare in cambio (comprarlo al turno 1 con le scorte a zero
+     è buttare 800 monete). Da lì partono due canali, e i bot li usano tutti e due:
+     - **L'ESTERO** (`bankPlan`, 2:1): il canale sicuro, perché la banca non rifiuta.
+       Cosa comprare lo dice `resourceNeed`, non la scorta più bassa — avere zero Legno
+       non è un problema se il Legno non serve a niente di quel che si vuole costruire,
+       mentre l'Argilla a 1 blocca una Città da mille monete.
+     - **GLI ALTRI REGNI** (`tradePlan`, fino a `TRADE_MAX_PENDING` carovane a turno):
+       si compra da **chi ce l'ha davvero** (il magazzino altrui si legge, non si tira a
+       sorte fra tre magazzini vuoti), pagando con le eccedenze o, se non ce ne sono,
+       in **oro** a prezzo di mercato più un sovrapprezzo — chi vende deve guadagnarci,
+       se no rifiuta. E si **vende** l'eccedenza quando le casse sono vuote. Non si manda
+       una seconda carovana a chi non ha ancora risposto alla prima: la merce offerta è
+       un pegno che parte subito, e un regno umano può lasciarla lì per sempre.
+     - **Il prezzo dipende dal bisogno** (`resourceNeed` → `goodValue`), in tutte e due
+       le direzioni: ricevere l'unica Argilla che manca vale molto, darla via costa
+       altrettanto. Con un prezzo unico per tutto, un mercato non serve a niente.
+  6. **La riserva di monete guarda alla prossima costruzione RAGGIUNGIBILE**
+     (`coinReserve`): quella di cui si hanno già le risorse. Tenere da parte 2000 monete
+     per una Fortezza che non si potrà costruire per venti turni significa non spendere
+     mai niente.
+- **Istinto di sopravvivenza: difendere prima di espandere** (regola dell'utente).
+  Un bot con un invasore alle porte deve mettere al sicuro Capitale e confini PRIMA di
+  andare a conquistare altrove — e allo stesso tempo non deve ammassare uomini inutili
+  in Capitale a marcire. Due leve in `bot.js`, entrambe nate guardandoli perdere:
+  - **`defenseFloor` è il fratello di `raidFloor`**: dove `raidFloor` chiude la porta
+    alle terre di nessuno, questo la chiude a un VICINO-regno in armi. `enemyThreat`
+    misura l'esercito nemico più forte al confine (il massimo degli spendibili §5 dei
+    vicini di un altro regno; le neutrali le conta già `raidFloor`), e `defenseFloor` ne
+    tiene circa i tre quarti (`DEFEND_RATIO = 0.7`) con un tetto (`DEFENSE_CAP = 12`) —
+    perché un pavimento troppo alto è l'altro modo di perdere: tutti a presidiare,
+    nessuno a conquistare. `holdFloor(player, id, salvo)` è il **max** dei due, ed è
+    l'unico numero che `survey` (→ `presidio`/`mobili`/`scoperta`), gli attacchi e gli
+    spostamenti usano come "quanti restano comunque qui". Da lì, gratis: le reclute vanno
+    prima a tappare i confini minacciati, e attacchi/spostamenti non li lasciano scoperti.
+    Il `salvo` è lo stesso di `raidFloor` — il nemico che si sta per attaccare da qui non
+    si conta, se no il regno non contrattaccherebbe mai.
+  - **La guardia della Capitale respira** (`capitalGuard`): in pace resta al livello che
+    ottimizza la Popolarità (`guardWanted`, cioè il piano §8) e gli uomini in più escono
+    a conquistare invece di marcire; con l'invasore al confine sale a `holdFloor` della
+    Capitale. La usano `deployPlan` (la riempie per prima), `bestAttack` (non ne fa mai
+    partire la guardia) e `movePlan` (l'ultimo spostamento del turno rinforza un seggio
+    sotto assedio). È la traduzione diretta di "prima difendere, poi non sprecare".
+- **La vendetta dell'IA (`rancore`, regola dell'utente)**: un regno non dimentica chi gli
+  ha strappato una provincia che CONTAVA. Il torto si registra nell'**unico** punto di
+  conquista — `applyBattleOutcome` in `game-actions.js` (`recordGrudge`) — sul record del
+  regno derubato, e **solo per province preziose**: `grudgeWorth` dà peso 3 a una
+  Capitale, 2 a Città/Fortezza, 1 a una risorsa, **0 a una provincia spoglia** (che quindi
+  non entra nel rancore — la vendetta è per il prezioso o lo strategico). Vive in
+  `player.rancore` come `[{prov, chi, peso, turno}]`, persiste nei salvataggi
+  (`normalizePlayer` lo inizializza) come le spie: serve ai bot, un umano lo ignora.
+  - Si legge la provincia com'era del difensore, PRIMA di cambiarle padrone e costruzioni
+    (una Capitale è ancora Capitale, non già declassata a Città).
+  - `clearGrudge` lo spegne quando la provincia torna al derubato: riprendersela salda il
+    torto. Un solo rancore per provincia (si aggiorna, non si accumula), tetto `GRUDGE_MAX`.
+  - Il bot lo legge con `grudgeAgainst` (`bot.js`): premio d'attacco maggiorato
+    (`× peso × 1.5` in `bestAttack`) per riprendersi ciò che gli è stato tolto, e in
+    schieramento "punta" la lancia si ammassa sul confine adiacente al torto — così la
+    vendetta si vede sulla mappa, non resta un numero. Il rancore **tace** se chi l'ha
+    preso non la tiene più (l'ha persa a sua volta): la vendetta ha smarrito il colpevole.
+- **Espansione via mare: costruire navi e sbarcare** (regola dell'utente). Un regno
+  costiero che ha finito le province a portata di TERRA non deve fermarsi —
+  l'Inghilterra deve passare la Manica, i Mori Gibilterra (e prendersi la Spagna,
+  come nella storia). La macchina d'assalto sapeva già sbarcare (`attackTargets`
+  restituisce i bersagli di mare con `viaMare`/`scafo`/`carico`, §9.2): l'unico pezzo
+  che mancava ai bot era **costruire lo scafo**, quindi `bestAttack` finiva a vuoto e il
+  turno moriva. Tre pezzi in `bot.js`, tutti nati guardando l'Inghilterra bloccarsi
+  sull'isola:
+  - **`shipPlan` arma una Nave** (`barca`, non il Veliero: costa poco — vedi
+    `COSTS.barca`, 3 Legno e 1 soldato — e con portata 12 attraversa gli stretti) sulla
+    costa da cui si raggiungono più **prede oltremare** (`seaPreyFrom`: coste
+    nemiche/neutrali entro portata che la terraferma non tocca), con abbastanza uomini
+    da riempire poi lo scafo. Non se ne arma un'altra se ce n'è già una **pronta a
+    colpire** (`hasReadyShip`): prima si usa quella che c'è. Da lì l'attacco di mare lo
+    fa `bestAttack` da sé, perché ora una nave è ancorata lì.
+  - **`resourceNeed` compra il Legno** quando il regno "vuole il mare" (`wantsSea`): la
+    barca non è in `s.build`, quindi senza questa riga il bisogno di Legno restava zero
+    e un'isola senza foreste non attraversava mai il mare. Con essa, banca e carovane
+    (§7) glielo procurano.
+  - **Lo sbarco vale un premio a sé** in `bestAttack` (`+0.8` sui bersagli `viaMare`):
+    oltremare la Popolarità non conta (la costa presa non è collegata, `popValueOf`
+    tace), ma una testa di ponte è espansione vera — senza il premio un attacco di mare
+    perdeva sempre contro qualsiasi conquista di terra e i bot restavano fermi.
+  - **Solo la Nave, per ora**: il Veliero (4000 monete, portata 170) e le spedizioni
+    oltremare (§9.2, rotte lunghe) restano dell'umano; i bot fanno lo sbarco entro
+    portata, che basta per Manica e Gibilterra.
+- **La personalità "Conservatore" NON esiste più** (regola dell'utente: difensivista e
+  succube). `Bot.STRATEGIES` ha 4 profili — `espansione`, `costruttore`, `opportunista`,
+  `predone` — e `KEYS` li deriva da sé. La difesa non è più una personalità: è
+  l'istinto di sopravvivenza (`holdFloor`/`capitalGuard`) che vale per tutti.
+- **Terre di nessuno presidiate** (regola dell'utente): ogni provincia neutrale ha
+  `GameRules.neutralGarrison(turno)` soldati — 2 nei turni 1-10, 3 nei 11-20, e così via
+  (`NEUTRAL_EVERY = 10`) **fino al tetto di `NEUTRAL_MAX = 6`** (regola dell'utente): dal
+  turno 41 in poi non crescono più. Il 6 è il rovescio della soglia di razzia: 6 uomini ne
+  spendono 5 (§5) e 5 non schiaccia 3-contro-1 due difensori, quindi **una provincia
+  presidiata da 2 uomini non è più razziabile da nessuno per il resto della partita**. Chi
+  alza il tetto alza anche `neutralSafeGarrison`, che è la stessa regola letta al rovescio. `GameActions.garrisonNeutrals()` è l'unico posto che li mette:
+  gira all'avvio partita e alla fine di ogni giro completo, e **alza soltanto** (una
+  provincia conquistata non è più neutrale e esce da sola dal conteggio; una che ha
+  respinto un attacco torna a quota al giro dopo). La crescita è **lenta apposta**: le
+  neutrali sono un attrito, non un avversario in più — a +1 ogni 5 turni diventavano
+  imprendibili a metà partita.
+  - **Le TERRE LONTANE crescono più tardi** (regola dell'utente): perché la conquista
+    navale col Veliero e la marcia dell'Orda attraverso l'Asia non siano troppo dure,
+    Americhe, Asia (Cina, India, Sud-Est asiatico, **corridoio mongolo** compreso) e
+    Africa **sub-sahariana** restano a **2** soldati per tutti i primi **cinque cicli**
+    (fino al turno 50) e salgono a **3** solo dal **sesto** (turno 51), e lì si fermano.
+    Non è un secondo tetto ma un **calendario più lento** per la periferia del mondo —
+    il core (Europa, Mediterraneo, Nord Africa, Arabia, Persia/Mesopotamia, Rus'
+    occidentale) segue la crescita normale. La regola vive in `GameRules`:
+    `isFarProvince(cx, cy)` classifica per **centro del bounding box** in coordinate
+    SVG (quattro zone misurate sulla mappa vera, come i rettangoli di `setup.js` —
+    Egitto, Maghreb, Arabia e Persia restano nel core), e `neutralGarrison(turn, far)`
+    porta il secondo calendario. `garrisonNeutrals` calcola quota e crescita del
+    decennio **per provincia** (via `E().provinceCenter`), non più una sola volta per
+    tutta la mappa. Tocca **solo le neutrali**: un feudo di regno in quelle terre è
+    posseduto e non passa di qui. `neutralSafeGarrison`/`neutralCanRaid` non cambiano —
+    leggono il conteggio vero, quindi bot e razzie si adeguano da soli.
+- **Le neutrali razziano solo a 3 contro 1** (regola dell'utente, §5.4 del design):
+  `GameRules.neutralCanRaid(soldatiNeutrali, difensori)` è l'unica fonte —
+  `spendableTroops(neutrali) ≥ 3 × difensori`, cioè col presidio minimo del §5 servono
+  **4 neutrali contro 1 solo difensore**. Prima bastava 1 uomo in più e le razzie erano
+  continue. Il rovescio è `GameRules.neutralSafeGarrison(soldatiNeutrali)`: quanti uomini
+  chiudono quel confine.
+  - **I bot lo sanno e si presidiano PRIMA** (`raidFloor` in `bot.js`): per ogni provincia
+    calcola il pavimento imposto dalle neutrali confinanti **di fede diversa** (stessa fede
+    = confine tranquillo, non si presidia). `survey` lo porta addosso come `presidio`,
+    `mobili` (quanti possono davvero uscire) e `scoperta` (quanti mancano). Da lì tre cose:
+    `deployPlan` tappa le province scoperte **subito dopo la guardia della Capitale**
+    (costa 1-2 uomini e vale una provincia intera), `bestAttack` e `movePlan` non scendono
+    mai sotto il pavimento, e lo spostamento di fine turno — l'ultima azione prima che le
+    razzie si risolvano — chiude la porta lasciata aperta da un attacco appena vinto.
+  - **`raidFloor(id, salvo)` salta il bersaglio che si sta per attaccare**: se la minaccia
+    è proprio la neutrale che si vuole prendere, tenersi in casa gli uomini per difendersene
+    vorrebbe dire non prenderla mai. Per questo in `bestAttack` il pavimento si ricalcola
+    **per bersaglio**, non una volta per provincia.
+- **INTERVENTI ADMIN A PARTITA IN CORSO, attivi dal turno dopo** (regola dell'utente:
+  poter creare i Cinesi, prendere i Mongoli, ecc. mentre si gioca). Il problema: editor
+  e giocatori scrivono TUTTO il documento `games/main`, quindi un'edita simultanea a una
+  mossa si cancellerebbero a vicenda. Soluzione in `app.js` (nessun tocco a
+  `game-actions.js`): l'admin edita **congelato** e le modifiche entrano al **prossimo
+  cambio turno**.
+  - **`beginIntervention`**: alza `adminIntervening`, fotografa lo stato (`interventionBase`,
+    clone). Da qui `applyCloudState` non applica più lo stato in arrivo (lo mette da parte
+    in `bufferedRemote`) — così le mosse dei giocatori non sovrascrivono i ritocchi
+    dell'admin sullo schermo — e `saveAutoSave` **non** fa `pushState` (i ritocchi non
+    escono). L'admin usa i pennelli, `+Aggiungi`, il menu bot, come sempre.
+  - **`commitIntervention`**: calcola `diffSnapshots(base, adesso)` — i SOLI campi toccati
+    (province: proprietario/pedine/risorsa/fede; regni aggiunti; `bot`/nome/colore cambiati;
+    ordine; strade) — lo tiene in `pendingDiff`, **ripristina lo schermo** sullo stato
+    vivo (`bufferedRemote`) e **subito lo PERSISTE** con `saveAutoSave()`.
+    `cancelIntervention` butta tutto.
+  - **Il `pendingDiff` VIVE NELLO STATO, non solo in memoria** (bug vero: un intervento
+    committato spariva se l'admin ricaricava la pagina prima del cambio turno — la
+    variabile era solo nella closure). `buildSnapshot` porta ora `pendingDiff` e
+    `pendingBaseTurnoDi`, e `applyTurnState` li ri-ADOTTA da ogni stato che li contiene
+    (assente = stato vecchio → si tiene quello in memoria; presente e `null` = già
+    applicato altrove → si azzera). Così il diff sopravvive a un reload E i client
+    non-admin lo **trasportano** in pass-through (una loro mossa non lo cancella più dal
+    documento). Al commit si **timbra** `live.pendingDiff` prima di `applyCloudState(live)`,
+    o l'adozione lo cancellerebbe subito.
+  - **Applicazione al cambio turno — solo l'ADMIN**: `applyCloudState`, quando `turnoDi`
+    cambia rispetto a `pendingBaseTurnoDi` **e `isAdminMode`** (chi guida la partita, come
+    i bot), chiama `applyAdminDiff(pendingDiff)` — che fonde i soli campi toccati sopra lo
+    stato aggiornato (riusa `applyPieceEntry`, `normalizePlayer`, ecc.), azzera il pending e
+    salva (pushando `pendingDiff: null`, che azzera anche gli altri client). La guardia
+    admin serve ora che TUTTI ricevono il diff nello stato: senza, più client lo
+    applicherebbero in concorrenza. Ri-applicarlo è comunque **idempotente** (owner/pedine
+    riscritti agli stessi valori), quindi una corsa fra snapshot non corrompe nulla. Le
+    mosse dei giocatori nel frattempo restano; l'intervento si posa sopra. UI: banner
+    `#intervention-banner` (mostra "⏳ in attesa" anche dopo un reload, `updateInterventionUI`
+    è chiamata in coda a `applyCloudState`) + bottoni `#intervene-btn` /
+    `#intervene-apply-btn` / `#intervene-cancel-btn` (solo admin, solo a partita esistente).
+  - **`beginIntervention` ferma i bot guidati da quel browser** (`Bot.stop` + lease):
+    prima continuavano a muovere sullo schermo congelato e al commit le loro mosse
+    sparivano o finivano nel diff. Ripartono da soli al commit/annullo.
+  - **Chi applica il diff è solo il REGISTA** (`isInterventionApplier`: admin, non
+    plancia, non `?nodrive=1`), e lo applica anche quando il turno passa **dal proprio
+    browser** (hook in `setTurnState`): il proprio push torna come eco e
+    `applyCloudState` lo salta, quindi prima l'intervento aspettava la mossa di un
+    giocatore remoto.
+  - **ONLINE il diff viaggia su un CANALE A SÉ** (doc `presence/admin-intervention`,
+    `MultiplayerSync.setIntervention`/`onInterventionChange`), non dentro `games/main`:
+    un editor `?nodrive=1` non può scrivere lo stato durante il turno di un bot (solo
+    chi tiene il lease), e lo snapshot del motore col suo `pendingDiff:null` cancellava
+    l'intervento in silenzio. Online `applyTurnState` NON adotta più `pendingDiff`
+    dallo stato (lo fa solo offline); il regista lo applica con un push **forzato**
+    (al cambio turno spesso non è lo scrittore del turno) e poi svuota il canale.
+    `appliedInterventions` evita di riapplicarlo se il doc ricompare prima della
+    cancellazione (il lease del driver rinfresca la collezione ogni 3 s).
+    `Risiko.beginIntervention/commitIntervention/cancelIntervention` +
+    `isIntervening`/`hasPendingIntervention`.
+- **🔄 AGGIORNA TUTTI (regola dell'utente)**: dopo un deploy l'admin preme il bottone
+  `#reload-all-btn` dell'editor (visibile solo admin e online) e ogni pagina aperta del
+  gioco — plance e altri editor — mostra "È uscito un aggiornamento…" e si ricarica dopo
+  5 s col codice nuovo. Il canale è un doc della collezione `presence` (`app-reload`,
+  `{ v: timbro, by: sessione }`, `MultiplayerSync.requestReloadAll/onReloadSignal` in
+  sync.js): nessuna regola Firestore da ripubblicare, ed è filtrato via dalla mappa di
+  presenza come `admin-intervention`. Il **primo** timbro che una pagina vede è la sua base
+  e non la ricarica (se no chi apre adesso ripartirebbe in loop); chi manda la richiesta
+  non ricarica sé stesso. **Il motore headless non si ricarica** (`navigator.webdriver`):
+  il suo stato vive nel processo Node, va riavviato a parte. Limite strutturale: funziona
+  solo sulle pagine che hanno già il codice col canale — una pagina vecchia non lo sente.
+  Le mosse non si perdono: ogni azione salva da sé.
+- **L'admin governa la partita dall'editor (regole dell'utente per la partita vera)**.
+  Tre poteri, oltre all'Editto (a partita in corso passa dagli INTERVENTI qui sopra):
+  - **CREARE UN REGNO A PARTITA IN CORSO** (i Maya, i Cinesi a un certo punto): `+
+    Aggiungi giocatore` crea il regno, poi lo si dipinge — proprietario, soldati,
+    risorse — coi pennelli dell'editor, che danno piena libertà su province e truppe.
+    A partita avviata `addPlayer` (app.js) lo **accoda al giro dei turni** (`ordine`),
+    o possiederebbe terra senza giocare mai (stessa regola di `eventSpawnKingdom`); il
+    suo inverso `doRemovePlayer` **lo toglie dall'ordine** (e sistema
+    `primoDelGiro`/`turnoDi`), o resterebbe un id fantasma che `endTurn` cerca di far
+    giocare. Nasce `bot=null` (lo gioca l'admin) finché non gli si assegna una strategia.
+  - **PRENDERE E RIDARE IL CONTROLLO DI UN REGNO** (i player col codice d'invito, e i
+    regni IA come i Mongoli): ogni scheda-giocatore dell'editor ha un menu **`.player-bot`**
+    a **TRE voci** (regola dell'utente): **🧑 Admin (la giochi tu)** · **🔗 Player (link a
+    un altro)** · **🤖 <strategia>** (una di `Bot.KEYS`). **Admin e Player sono lo STESSO
+    stato di gioco** — `p.bot = null`, il turno si ferma e aspetta un umano —: li distingue
+    solo `p.controllo` (`'admin'|'player'|'ai'`, in `normalizePlayer`), un'**etichetta
+    organizzativa** per l'editor (a chi tocca mandare il link), **senza alcun effetto sul
+    motore**. Con `bot=null` `Bot.run` **salta** quel regno e aspetta la mano dell'umano —
+    l'admin lo apre col 👁 (o dal link), un player dal suo `?p=CODICE`; una strategia
+    (`controllo='ai'`) lo ridà all'IA. È l'unico modo pulito di manovrare a mano un bot (se
+    no il driver lo giocherebbe da sé). La voce scelta e il badge "Preso dal giocatore" si
+    aggiornano al volo (`initPalette` nel change handler).
+  - **CAMBIARE GLI OBIETTIVI (§10)**: NON c'è UI. Si modificano i binari in
+    `js/objectives.js`; siccome ogni ciclo rigenera la sua assegnazione dal codice
+    (`closeCycle`/`ensureAssignment`), la modifica vale **dal ciclo successivo** — il
+    ciclo in corso tiene le soglie con cui è cominciato. È il canale con cui l'admin
+    corregge un'incongruenza scoperta in corsa: la chiede, si edita il codice.
+- **Editto (`GameActions.decree`, pannello 📜 nell'editor)**: l'admin non gioca, **crea
+  situazioni**. Un editto sposta truppe fra due province qualsiasi, assegna una provincia,
+  versa o toglie oro e scorte — cose che nessuna regola concede a un giocatore — e passa
+  comunque da `game-actions.js`, perché quello resta l'unico punto che muta lo stato. Da lì
+  due cose vengono gratis: il risultato porta `prov`/`provs`, quindi entra nel registro
+  rispettando la nebbia come ogni altra azione, e il regno colpito riceve un **avviso**.
+  - **Nato per le crociate**: con le portate del §9.2 nessun regno cristiano raggiunge la
+    Terra Santa (serve un Veliero da 4000 monete, più dell'incasso di un ciclo intero). Il
+    giocatore **raduna** l'esercito, l'admin lo **trasporta** per conto del Papa.
+  - **L'avviso si srotola nel turno del giocatore, non subito**: gli editti vivono in
+    `player.editti` (persistono nel salvataggio, `normalizePlayer` li inizializza) e
+    `showPendingEditti` in `player-board.js` li mostra in coda a `render()` **solo se è il
+    suo turno**, con la pergamena di `showFoundation` (tipo `editto`). Visti, si segnano
+    `letto` e si salva: uno si legge una volta sola, ma finché non l'ha visto resta in coda
+    anche dopo un ricaricamento. Più editti in attesa si leggono in una pergamena sola.
+    Il punto è questo: **la mappa non cambia mai di nascosto**.
+  - **I POP-UP LI CONSUMA SOLO IL LEGITTIMO GIOCATORE, non un admin che sbircia** (regola
+    dell'utente, bug 2026-10-13: l'admin entra col 👁 nella plancia di un regno, la
+    pergamena — es. la cronaca "fiere e mercanti" — gli compare e viene segnata
+    letta/salvata, così al giocatore vero non comparirà più). Il guasto è GENERALE: ogni
+    `showPendingXXX` (editti, eventi/scismi, naufragi, commerci, patti+proposte, welfare,
+    leva, cronache) e anche la modale di **conquista** e lo **schieramento d'ufficio**
+    delle obbligatorie segnavano `letto`/`cronacheFatte`/… e facevano `R.save()` nel turno
+    di quel regno **chiunque** stesse guardando la sua board. Ora passano tutti da
+    `ownsBoard(player)` (player-board): consuma solo se **col proprio link**
+    (`invitePinned`) o su un regno che **nessun giocatore ha preso**; se sono un **admin**
+    (`R.isAdmin()`) che sbircia un regno **preso** da un giocatore vero
+    (`R.isTakenByPlayer`, presenza condivisa `presenceMap` + non-IA) la pergamena NON si
+    tocca — resta in coda e compare a LUI al suo turno. Chi aggiunge un pop-up nuovo lo
+    gata con `ownsBoard`, o lo brucerà a chi di dovere.
+  - **L'admin che OSSERVA non decide, nemmeno coi BOTTONI** (regola dell'utente,
+    2026-10-18: l'admin entrava nella plancia, poteva accettare un'alleanza o leggere la
+    chat al posto del giocatore). La struttura resta una sola — l'admin apre la plancia di
+    chiunque col 👁 — ma `ownsBoard` ora considera del giocatore anche un regno affidato a
+    lui dall'editor (**`controllo === 'player'`**, vale da subito, prima ancora che apra il
+    link), non solo uno "preso" via presenza. Su un regno così l'admin è in
+    **osservazione** (`observing(player)` in player-board, esposto come
+    `Risiko.boardObserving()`): (1) `isPlaying` torna **false**, quindi ogni comando della
+    plancia si spegne come fuori turno — reclute, costruzioni, attacchi, araldi
+    (Accetta/Rifiuta), commerci, Fine turno, preferenza delle 6h; le cartelle e i fogli
+    restano navigabili; (2) **`GA()` consegna un Proxy** che fa rifiutare ogni mutatore
+    elencato in `GA_MUTATORS` col messaggio `SPECTATE_MSG` — è la rete sotto a qualunque
+    bottone dimenticato (verificato riattivando a forza un bottone spento: lo stato non
+    cambia); (3) la chat si legge ma l'invio è spento e i non-letti non si spengono
+    (`markChatSeen` passa già da `ownsBoard`); (4) i bottoni Popolarità di app.js
+    (migliorie, tassazione) chiedono `boardObserving()`. Barra in alto: "👁 Osservi —
+    gioca il suo giocatore". Per giocarlo davvero l'admin lo rimette su 🧑 Admin dal menu
+    `.player-bot` dell'editor. Chi aggiunge un mutatore a game-actions usato dalla plancia
+    lo aggiunge a `GA_MUTATORS`. NB: il nome `spectating` in player-board è GIÀ il flag
+    della 🌍 vista generale — non riusarlo.
+  - **Lo sbarco è una BATTAGLIA, non un regalo** (regola dell'utente): le truppe mandate in
+    crociata — Terra Santa, crociate teutoniche, qualunque spedizione — devono **conquistare**
+    la provincia dove scendono. L'editto "truppe" ha due modi: `sbarco` (predefinito) risolve
+    la battaglia vera, col **terreno del difensore** e il bonus delle sue costruzioni (§9),
+    solo senza i vincoli di adiacenza e di carico, perché il trasporto lo fa il Papa; vinta,
+    la provincia è del regno e **dal turno dopo la gestisce lui**; persa, quegli uomini non
+    tornano. `consegna` è l'altro modo: le truppe si posano e basta (rinforzo su provincia
+    propria, o provincia in regalo). L'esito si aggiunge **da sé** al testo dell'editto: il
+    giocatore lo legge nella pergamena, perché è la parte che non può dedurre.
+  - **La regola di conquista vive in un posto solo**: `applyBattleOutcome` — il difensore
+    perde le truppe, le costruzioni restano e cambiano soltanto colore. La chiamano sia
+    `attack` sia lo sbarco dell'editto, così non possono divergere. Non decide la
+    ripartizione dei superstiti (`player.conquista`): quella è solo dell'attacco via terra,
+    perché **lo sbarco è totale** (§9.2) — chi scende resta a terra.
+  - **Anche un editto rispetta il presidio minimo (§5)**: prelevando uomini da una provincia
+    ne resta sempre 1. E le truppe appartengono a chi possiede la **provincia** (come le navi,
+    §9.2): con `consegna` posare soldati su una provincia non del regno non glieli consegna —
+    `decree` lo dice nel messaggio invece di far finta di niente.
+  - **ORO e SCORTE a partita in corso vanno nella coda di 🔧 INTERVIENI e si applicano al
+    CAMBIO TURNO** (bug 2026-10-19: l'admin dava 100 monete alla Francia per conto del Papa e
+    sparivano — `E().save()` online scrive solo se l'editor è lo scrittore del turno, quasi
+    mai a partita in corso, e il primo snapshot cancellava l'editto; regola dell'utente: "come
+    Intervieni, ma per oro e risorse"). L'handler di `#decree-btn` passa `differito: true`
+    quando `turnoDi` non è null; `decree` allora **non tocca lo stato**: valida e restituisce
+    `rinvio = {playerId, delta, notizia}` (`deferDecree`). `queueDecree` (app.js) lo mette
+    in `pendingDiff.decrees` — in un pacchetto già in attesa o in uno nuovo di soli editti
+    (`emptyDiff`, base = `turnoDi` attuale) — e lo spedisce subito sul canale dell'intervento
+    (`setIntervention`, id nuovo a ogni invio) e nell'autosave; durante un intervento aperto
+    resta in `interventionDecrees` e `commitIntervention` lo travasa nel diff. Al cambio turno
+    il regista lo applica in `applyAdminDiff` → `GameActions.applyDecree`: **somma il delta
+    allo stato di quel momento** (mai sotto zero), non il valore visto dall'admin, e accoda
+    la pergamena a `editti`. `applyDecree` è **idempotente**: l'avviso porta `edittoId` e un
+    editto già presente non si somma due volte (il diff degli interventi, fatto di valori
+    assoluti, poteva permettersi di ripresentarsi; un delta no). Un pacchetto di **soli
+    editti** (`decreeOnly`) non blocca "Intervieni": il banner dice quanti editti attendono.
+    A partita non avviata l'editto oro/scorte resta immediato, come prima. Online il regista
+    è il motore `driver/` se acceso: deve girare col codice nuovo, o gli editti restano in coda.
+  - **TRUPPE e PROVINCIA restano immediate**, con lo stesso problema non risolto: online da
+    non-scrittore l'esito dice "⚠ NON salvato online" e rimanda a **🔧 Intervieni sulla
+    partita**, dove proprietari e pedine finiscono nel diff — ma l'**avviso** al regno
+    (`editti`) no, perché il diff delle province non lo porta. Chi li sistema faccia passare
+    anche l'avviso (`decrees` è il posto).
+- **Eventi storici (`js/events.js`)**: il calendario datato della partita (crociate,
+  mongoli, peste, Cent'Anni) sul calendario compresso, gemello di `Religions.SCHISMS`.
+  `events.js` è **puro**: descrittori `{id, turn, fino, tipo, titolo, testo, nota, dato,
+  onStart, onRound, onEnd}` + helper (`startingAt`, `activeAt`, `byId`) + i pianificatori
+  puri (marcia dell'orda, contagio — arriveranno). L'**unico posto che applica** è
+  `game-actions.js`: `applyEvents(turn)` (onStart di chi scatta + onEnd di chi chiude la
+  finestra) e `tickEvents(turn)` (onRound), agganciati in `endTurn` nel blocco `giroFinito`
+  **prima** di scismi/razzie/rifornimenti, così un'orda appena arrivata è già sulla mappa
+  quando le neutrali si ricalcolano.
+  - **L'orchestrazione vive nel descrittore, con `ctx`** (regola dell'utente): `onStart(ctx)`
+    chiama i mutatori di `ctx` (`muster`/`assault`/`pact`/`notify`/`spawnKingdom`/`reinforce`…), che sono
+    funzioni di game-actions — così il set-piece si legge tutto in un posto, ma le scritture
+    restano concentrate. I verbi ancora non serviti sono segnaposto che **falliscono a voce
+    alta** (`eventTodo`): un evento che li usi prima del tempo si vede subito.
+  - **Lo stato che PERSISTE** vive in `R().eventi() = { attivi:[{id,dal,fino,stato}], fatti:[…] }`
+    (accanto a `turnoDi`/`ordine` in app.js, nello snapshot/save, reset in `startGame` e
+    `scenario.apply`). `fatti` è la **guardia anti-doppio-scatto**: uno spawn NON è
+    idempotente. Un **one-shot** (`fino:null`) non entra mai negli `attivi`; solo i ticking
+    (con `fino`) restano e prendono onRound/onEnd. tickEvents salta l'evento nel suo stesso
+    giro di scatto (`rec.dal === turn`).
+  - **Gli avvisi** al giocatore riusano il canale editti: `player.eventiAvvisi` (init in
+    `normalizePlayer`), srotolati da `showPendingEventi` in player-board **in testa** alla
+    catena di pergamene (un evento storico è il titolo del decennio), rispettando la nebbia.
+  - **I bot reagiscono gratis**: un'orda che conquista al confine alza `enemyThreat` →
+    `defenseFloor`/`holdFloor`, la peste che decima entra nei conti da sé. Niente rami `if`.
+  - **Prima Crociata** (`prima-crociata`, turno 11 = ciclo 2, one-shot): al bando, **una
+    sola** oste parte, quella **franca** su **Aleppo** (regola dell'utente: Bisanzio NON ha
+    più la chiamata del Papa — il suo obiettivo storico è cambiato, e Gerusalemme la prende
+    l'Inghilterra nel ciclo 3, vedi **Crociata inglese**). La Francia ha una **`regione`** di
+    candidate — le tre coste di `MED_FR` in `objectives.js`, lo stesso elenco dell'obiettivo
+    fr1 ("raduna N uomini su una costa mediterranea") — e l'oste parte da quella dove il
+    giocatore ha **davvero** ammassato più uomini, non da un punto fisso; se non ne ha
+    preparata nessuna si ripiega sulla provincia più piena del regno. L'oste è **radunata
+    drenando le VERE truppe** del regno (`ctx.muster`: §5 rispettato) — non è evocata. Poi
+    `ctx.assault` la **sbarca all'assalto** (stessa battaglia dello sbarco d'editto:
+    `applyBattleOutcome`, terreno del difensore, nessun vincolo di adiacenza/carico); se la
+    meta è già del regno la rinforza invece di sprecarsi. Vinta → provincia del regno,
+    superstiti di presidio, fede **convertita** (la fede segue la spada) e lock; persa →
+    l'oste è perduta. Con una gamba sola è caduto il vecchio **patto di vista** fra i due
+    crociati (non ci sono più due crociati). Aleppo è neutrale sulla mappa iniziale, ma al
+    turno 11 può essere di un Califfato Abbaside o dell'Emirato dei Mori: l'assalto combatte chi la tiene
+    in quel momento. L'orchestrazione della crociata (raduno → assalto → pergamena) vive in
+    una funzione sola, `crusadeHost` in `events.js`, condivisa con la crociata inglese: **una
+    gamba = una chiamata**.
+  - **Crociata inglese** (`crociata-inglese`, **turno 21 = inizio ciclo 3**, one-shot,
+    regola dell'utente): gli uomini che l'Inghilterra ha radunato a **Home Counties** alla
+    **fine del ciclo 2** (obiettivo in2-2, "La chiamata del Papa") **salpano all'inizio del
+    ciclo 3** e sbarcano all'assalto di **Palestine** (Gerusalemme). È l'Inghilterra, non più
+    Bisanzio, a portare la croce in Terra Santa. Stesso motore della Prima Crociata
+    (`crusadeHost`): `da: 'Home_Counties'` fisso (la stessa provincia che l'obiettivo chiede
+    di riempire; `ctx.muster` drena da lì per primo, poi dal resto del regno se là non
+    bastano — il trasporto è del Papa). L'evento scatta al **passaggio al turno 21** in
+    `endTurn` (dopo `advanceGlobalTurn`, prima che chiunque giochi il ciclo 3), quindi gli
+    uomini vanno radunati **entro il turno 20**. Vinta → provincia inglese, superstiti di
+    presidio, fede convertita; persa → l'oste è perduta. (Al turno 21 scatta **anche**
+    l'invasione mongola: due eventi nello stesso decennio, indipendenti.)
+  - **QUANTI NE IMBARCA IL PAPA: l'oste è quel che TROVA, non un bersaglio esterno**
+    (regola dell'utente, in due tempi: *"se non raduni l'esercito sulla costa, quell'esercito
+    che mandi ad Aleppo da dove lo prendi?"*, poi la regola finale: *"≥ 6 si parte comunque,
+    < 6 non si parte"*). Prima versione (proporzionale all'85% della soglia dell'obiettivo)
+    scartata: anche a misura zero il ripiego di `eventMuster` prendeva comunque una crociata
+    intera dalla provincia più piena del regno — un esercito comparso dal nulla, non l'oste
+    radunata. Ora `eventMuster` (`game-actions.js`) è stato riscritto: prende **solo** dal
+    punto di raduno (`da` fisso, o il migliore fra le candidate di `regione`) e **non
+    ripiega più** sul resto del regno. `o.minimo` (qui `CROCIATA_MINIMO = 6` in `events.js`,
+    mirror dell'ancora `resistere` di fr1/in2-2 — entrambe `resistere: 6`) è la soglia sotto
+    la quale la crociata non muove un uomo; raggiunta, parte **tutto** quel che c'è lì
+    (rispettando il presidio minimo del prelievo, §5 — un solo soldato non basta,
+    `spendableTroops(1)` è già 0), mai una frazione: chi ne ha radunati 6 ne manda 6 (meno
+    la guardia), chi ne ha radunati 40 ne manda 40. `ctx.muster` ha perso il parametro
+    `forza` come bersaglio (resta come tetto opzionale, non usato dalle crociate); la
+    plumbing `ctx.soglia`/`assPrima` introdotta per la versione proporzionale è stata
+    rimossa perché non serviva più a nessuno.
+    **TETTO DI 10 PER LA CROCIATA FRANCESE** (regola dell'utente, turno 10 della partita
+    in corso): `CROCIATA_FORZA = 10` in `events.js`, passato come `forza` (il tetto di
+    `eventMuster`) dalla spedizione di `PRIMA_CROCIATA`. Ne salpano al massimo 10 a
+    prescindere da quanti ce ne siano sulla costa: gli altri restano a casa. Sotto i 6 non
+    parte, fra 6 e 10 parte tutto. **La crociata inglese salpa col 90%** (regola
+    dell'utente): `quota: 0.9` in `CROCIATA_INGLESE`, letta da `eventMuster` come
+    tetto `⌊presenti × 0,9⌋` — 9 radunati a Home Counties → 8 partono, 12 → 10, 20 → 18.
+  - **Il popup della crociata non si perde**: `crusadeHost` avvisa il regno con
+    `ctx.notify` come ogni evento (`player.eventiAvvisi` → `showPendingEventi` →
+    `Risiko.showFoundation`, la pergamena centrale) — vale identico per Francia e
+    Inghilterra, nessuna delle due ha un canale diverso. Mancava solo un'etichetta propria
+    in `FOUNDATION_EYEBROW` (app.js): senza, ricadeva sulla generica "Cronaca del regno" che
+    non segnalava che fosse successo qualcosa di grosso; ora `crociata: 'La Crociata —
+    l'oste giunge in Terra Santa'`.
+  - **Invasione mongola** (`invasione-mongola`, **turno 21 = 1200**, scelta dell'utente:
+    si leva presto apposta, così entra in contatto coi popoli d'Occidente entro
+    quattro o cinque decenni invece di arrivare a partita quasi finita — nelle prove
+    è alle porte d'Europa, fra Aktobe e Khiva, al **terzo** turno): l'Orda
+    **non è scriptata**: nasce un **regno nuovo governato dall'IA** con la strategia
+    `predone` (regola dell'utente, cambiata in corsa: l'Orda deve arrivare, ma il
+    giocatore non deve doverla manovrare in prima persona — prima nasceva `bot:null`,
+    cioè in mano all'admin). `onStart` chiama `ctx.spawnKingdom(...)` con la
+    Mongolia storica — **Urga** (Ulaanbaatar), **Uliastai**, **Buryatia**, tutte neutrali e
+    lontanissime a est — **35 uomini per stato, 20 cavalieri e 15 fanti** (105 in tutto:
+    bastano ad attraversare il corridoio di neutrali fino all'Europa senza sciogliersi).
+    La spec di `spawnKingdom` accetta `cav` accanto a `soldati`/`merc`: è la quota a
+    cavallo DENTRO il totale, posata con `setCav`. Colore `#6b2b2b` (rosso-bruno di
+    steppa, distinto dai 10 regni). **Nessuna pergamena globale**: la nebbia lo
+    tiene segreto finché non arriva ai confini di qualcuno — il corridoio Mongolia→steppe
+    kazake→Volga→Kievan Rus'→Polonia/Ungheria è tutto terra di nessuno, e i vicini si
+    difendono da sé (`enemyThreat`/`holdFloor`).
+    - **Il BINARIO della marcia** (regola dell'utente: l'Orda deve entrare in Europa
+      da **Uralsk**, scendere su **Rostov** e sfondare nel **cuore dell'Europa
+      centrale**) sta nella sua **dottrina** (`js/doctrines.js`, voce `Mongoli`),
+      non in un motore a parte: è il campo `marcia`, tappe **ordinate** con un peso
+      crescente verso occidente — la strada della steppa (Altai→Aktobe) vale 3, la
+      porta d'Europa e il Volga 8, l'Europa centrale 10. Non serve un puntatore di
+      tappa: la geografia le mette già in fila, e il peso dice soltanto che, potendo
+      scegliere, l'Orda va a occidente invece di perdersi in Cina o in Persia.
+      `Doctrines.metaWeight` legge il peso della tappa e **bot.js non cambia di una
+      riga**. In coda al binario c'è l'**ala di Persia** (Khiva→Turkmenia→Khorasan→
+      Mazandaran→Tabriz→Mosul→Baghdad, peso 4: *"verso medio oriente e russia"*),
+      che pesa meno della porta d'Europa apposta — il Volga viene prima — e sta in
+      fondo all'elenco perché le ondate di rinforzo devono continuare a cadere sulla
+      punta **occidentale**. Nemici dichiarati Rus', Ungheria e Polonia (`pesoNemici`), e
+      `nessunPatto: true` — l'Orda non firma niente con nessuno (`canDealWith` in
+      `bot.js`, prima ancora della fede): un'Orda che compra pace dall'Ungheria si
+      ferma proprio dove doveva sfondare.
+      **Non ha religione** (`senzaFede`): non converte niente e la sua fede di stato è
+      quella assimilata dalle terre che tiene — vedi §Religione.
+    - **Fuori dal binario non conquista NIENTE** (`soloMete`, regola dell'utente):
+      niente Cina, niente Corea, niente Siberia. Ogni provincia presa alle spalle è un
+      decennio tolto alla corsa verso occidente — e con `soloMete` i 50 uomini di
+      retrovia non hanno più nulla da attaccare, quindi la **colonna** (`marchMove`) li
+      porta avanti un passo per turno invece di lasciarli marcire in Mongolia.
+    - **Le ONDATE DI CRESCITA** (regola dell'utente: le 75 armate di partenza non
+      bastano ad arrivare in Europa e in Medio Oriente). L'evento **non è più
+      one-shot** (`fino: 100`, la finestra resta aperta) e ogni **5 turni, fino al
+      1350** (`rinforzo: {ogni:5, reclute:10, perProvincia:1, finoAl:35}`) il suo
+      `onRound` chiama `ctx.reinforce` con un bonus in **due parti**: **10 reclute
+      libere** che l'IA schiera dove serve (§5.1, entrano in `recluteDaSchierare`
+      che il bot deploya — non calano sulla punta), e **un uomo su OGNI provincia**
+      posseduto, automaticamente (`perProvincia`), un bonus che **cresce con
+      l'impero**. `eventReinforce` (`game-actions.js`) ha ora due rami: questo
+      (`reclute`/`perProvincia`) e la vecchia ondata concentrata sulla punta
+      (`forza`/`verso`), che l'Orda non usa più ma resta per altri eventi.
+    - **IL GRANDE PASSO DEL 1350** (turno 36, regola dell'utente): finita la marcia,
+      l'Orda **si ferma e diventa STANZIALE** — difensiva e moderata. Al turno 36
+      `onRound` mette `orda.dottrinaSospesa = true` e `orda.bot = 'costruttore'`
+      (`stanziale: {turno:36, bot:'costruttore'}`), una volta sola. Da lì niente più
+      rinforzi. `dottrinaSospesa` la legge **bot.js** nell'UNICO ponte alla dottrina
+      (`doctrineOf`, più `marchTip` che la ripescava per nome): con la dottrina
+      spenta l'Orda gioca come un regno qualunque — nessuna marcia, nessun nemico
+      dichiarato, nessun divieto di patti — e la sola strategia moderata più
+      l'istinto di sopravvivenza (`holdFloor`/`capitalGuard`, che vale per tutti) la
+      rende difensiva. La FEDE resta assimilata (`senzaFede` si legge per nome, non
+      dal flag): una Orda stanziale continua ad assimilare, ed è corretto.
+    L'Orda **non entra nel sorteggio del regno umano** (`NON_SORTEGGIABILI` in
+    `js/setup.js`, regola dell'utente): è un regno d'evento, e se resta
+    sulla mappa da una partita precedente l'estrazione potrebbe darlo al giocatore.
+    La sua strategia gliela dà l'evento (`predone`), non il sorteggio. Chiederla per id
+    (`newGame({umano})`) resta possibile.
+  - **La grazia dell'insediamento (§8) si conta sull'ETÀ DEL REGNO** (regola dell'utente),
+    non su quella del mondo: `Popularity.graceBonus(turno, nato)` e `player.nato`, il turno
+    di fondazione (1 per chi c'è dall'inizio, il turno dell'evento per chi nasce dopo —
+    `eventSpawnKingdom` lo scrive, `setup.finalize` lo riazzera a 1 a partita nuova). Senza,
+    l'Orda del turno 25 — e Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia — nascerebbe
+    a Popolarità 1 (niente strade, niente migliorie) senza i decenni di indulgenza che gli
+    altri hanno avuto al turno 1.
+  - **`spawnKingdom` (il verbo nuovo, `game-actions.eventSpawnKingdom`)**: crea un regno a
+    partita in corso via `R().addKingdom({name,color,bot})` (app.js: come `addPlayer`, ma con
+    nome/colore dati e ritorna il record — `initPalette`/`renderPlayerTabs` guardano l'elemento
+    mancante, quindi vale anche nella plancia), gli posa le province con l'esercito del suo
+    colore (una neutrale è un insediamento; le costruzioni, se ci fossero, restano e cambiano
+    colore come in conquista), e lo **infila in coda all'`ordine`** (attivo dal giro dopo;
+    l'append in fondo non sposta `primoDelGiro`, indice sul prefisso). **`endTurn` rilegge
+    l'ordine VIVO** (`ordAfter = R().ordine()`) prima di ruotare nel blocco `giroFinito`: se
+    no la copia locale catturata a inizio funzione clobbererebbe il regno appena nato.
+    **Dove nasce davvero** (regola dell'utente: un regno nuovo non piove addosso a chi c'è):
+    `soloLibere` scarta le province già di un regno, `ripiego` cerca per ognuna scartata una
+    terra di nessuno **confinante** con quelle di partenza, `minProvince` è la soglia sotto la
+    quale il regno **non nasce affatto** — se il posto è occupato, quella storia non accade.
+    In più `monete`/`scorte` (il Portogallo nasce ricco e col legname) e `annuncio`, la
+    pergamena che va **ai soli confinanti** (chi è lontano non deve saperlo: è la stessa
+    nebbia che tiene segreta l'Orda). Nessuna Capitale in regalo: se la costruiscono da sé.
+    Un regno **con lo stesso nome** già esistente viene RIUSATO invece di essere clonato — il
+    nome è la chiave di dottrine e obiettivi, e due record omonimi le manderebbero in
+    confusione (capita ricaricando la mappa iniziale: il calendario riparte, l'anagrafica no).
+  - **REGNI CHE NASCONO A PARTITA IN CORSO** (regola dell'utente): non sono comparse, sono
+    regni veri governati dall'IA che crescono lentamente di fianco ai giocatori. Il **quando
+    e il dove** stanno in `events.js`, il **carattere** in `js/doctrines.js` (per NOME: i due
+    file devono combaciare).
+    - **Selgiuchidi** (turno 9 = 1080): Tabriz, Urmia, Erzurum, Diyarbakir, 6 uomini l'una,
+      col ripiego su una confinante libera se una è occupata. Hanno una **marcia**
+      (regola dell'utente): sostenere gli Abbasidi nelle crociate, **liberare la Terra
+      Santa dai cristiani**, poi prendere **Costantinopoli** ed entrare in Europa —
+      altopiano e porta di Siria (Ankara, Adana, Aleppo, Deir Ez Zor) peso 4, Terra Santa
+      (Syria, Lebanon, Palestine) **8**, strada di Costantinopoli (Konya, Kastamonu,
+      Hudavendigar, Aydin) 5, **Eastern Thrace 10**, Tracia europea 7. L'ordine in cui ci
+      si arriva lo impone la geografia; i pesi dicono solo cosa viene prima quando due
+      strade sono aperte insieme. Nemico dichiarato **Bisanzio**, amici gli **Abbasidi**
+      (con cui cercano l'**alleanza**, che è anche il corridoio per mandargli uomini al
+      fronte): musulmani convinti, coi cristiani non firmano mai.
+      **LEVA DI DOTTRINA** (regola dell'utente): non avendo un binario storico (§10)
+      non incassano la leva degli obiettivi, quindi la dottrina dichiara
+      `levaCiclo: 5` — **5 reclute libere alla chiusura di ogni ciclo**, versate da
+      `closeCycle` (game-actions.js) nel serbatoio `recluteDaSchierare` come la leva
+      vera, così crescono di pari passo. Il getter è `Doctrines.cycleLevy(nome)`; in
+      `closeCycle` si versa solo se la leva degli obiettivi è 0 (un regno con binario
+      non lo dichiara). I bot la spendono da sé (`deployPlan`).
+    - **Portogallo** (turno 11 = 1100, inizio ciclo 2): Beira, Estremadura (la provincia "Portugal"), Alentejo
+      con 5 uomini, **solo dove è libero** e senza ripiego — occupato il posto, non nasce.
+      Parte con **2000 monete e 3 Legno**: `soloMare` + `conservatore` gli lasciano una cosa
+      sola, sbarcare su **coste libere** (l'Africa con la Nave, l'oceano col Veliero), mai
+      prendere terra ai vicini. Firma con la **Castiglia**, mai coi Mori.
+    - **Bulgaria** (turno 11 = 1100, inizio ciclo 2): nelle province ancora libere fra Moldavia, Bessarabia,
+      Dobrudja e Wallachia (6 uomini); **nessuna libera = non compare**. **Non è un regno
+      espansionista** (regola dell'utente): prende la provincia di **Bulgaria** e poi
+      basta — `soloMete`, quindi nemmeno una terra di nessuno in più; da lì si rafforza,
+      costruisce e commercia. L'unico regno con cui non firma è l'**Ungheria**; con
+      bizantini, russi e chiunque altro tratta.
+    - **Norvegia e Svezia** (turno 24 = 1230): due corone distinte da Western Norway e
+      Gotaland, **10 uomini** a testa (regola dell'utente: con otto non si espandevano
+      affatto — a questo decennio le terre di nessuno ne hanno già quattro) e la **grazia
+      dell'insediamento** come ogni regno d'evento (`player.nato`, §8). Salgono a
+      settentrione, la **Danimarca** (Jutland, Zealand, Scania — danese nel 1230) è terra
+      **vietata**, e sono **amiche** fra loro: l'unica cosa per cui si guarderanno male è
+      la **Finlandia**, che è `meta` di entrambe (l'amicizia non vale su una meta — è così
+      che nasce la corsa).
+- **La Peste Nera (turno 35-39 = 1340-1389, richiesta dell'utente)**: a differenza degli
+  altri eventi non colpisce una geografia — colpisce **ogni regno IN GIOCO**, comprese le
+  corone appena sorte (Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia e l'**Orda**
+  stessa, che nella storia vera fu una delle porte da cui la peste entrò in Europa,
+  l'assedio di Caffa del 1347). Resta attiva 5 decenni — le ondate di ritorno del secondo
+  Trecento — e a ognuno, per ogni regno, il conto è **quante migliorie di SANITÀ (§6.1) ha
+  sulla Capitale**: la stessa lettura 0-5 di `popularityFactors`. `GameRules.plagueTier`
+  (puro) traduce quel numero in un piano:
+  - **0-1 migliorie**: muore gente **in Capitale** (1 uomo) **e** nella provincia più
+    popolosa **esclusa** la Capitale (2 uomini a 0, 1 a 1); le risorse di ENTRAMBE non si
+    raccolgono quel turno.
+  - **2 migliorie**: la Capitale è già al riparo — un uomo solo, nella più popolosa
+    (esclusa la Capitale), risorsa bloccata.
+  - **3 migliorie**: un solo caduto, nella provincia più popolosa di **tutto** il regno
+    (la Capitale non è più esclusa dalla ricerca: può essere lei, se è la più piena) — ma
+    il raccolto non si ferma più.
+  - **4-5 migliorie**: il regno non perde nessuno. Quattro bastano a fermarla.
+  L'orchestrazione (chi colpire, con che testo) sta nel descrittore (`plagueRound` in
+  `js/events.js`, chiamata da `onStart` e da ogni `onRound`), come le crociate; la
+  MUTAZIONE vera è `GameActions.eventDecimate` (dietro `ctx.decimate`): rispetta il
+  presidio minimo (§5, le perdite non svuotano mai una provincia) e i mercenari cadono
+  per primi (§5.3), come in battaglia. **Il blocco della raccolta non è un taglio della
+  rete** (§4): la provincia colpita resta collegata (`turnProduction` la conta lo stesso
+  fra le `collegate`), semplicemente quel turno non dà risorsa — `regno.pesteBlocco`
+  (le province colpite) lo segna `eventDecimate`, lo consuma e lo svuota `beginTurn` alla
+  PROSSIMA produzione di quel regno (un turno di gioco è per-giocatore, l'evento invece
+  scatta una volta per giro: senza questo passaggio in coda, un regno che gioca il suo
+  turno DOPO che l'evento è già scattato perderebbe la raccolta del giro sbagliato o di
+  nessuno). Ogni colpo srotola una pergamena (`tipo:'peste'`, canale `eventiAvvisi` come
+  ogni altro evento storico) che dice DOVE e QUANTI — la prima ("La Morte Nera") annuncia
+  l'epidemia, le successive ("La peste continua") ne raccontano il seguito.
+- **La Festa (§6.1, "Felicità", regola dell'utente): il rovescio POSITIVO della Peste.**
+  Dove la Sanità *previene* un malus (l'evento della Peste), la Felicità *dà* un bonus —
+  ed è voluto che le due indoli siano diverse: un regno deve scegliere fra assicurarsi
+  (Sanità) e godersela (Felicità), perché entrambe le migliorie costano le STESSE 5
+  risorse (§6.1: Pietra/Legno/Argilla/Grano/Bestiame, 3 unità l'una) — costruire tutte e
+  dieci non è mai la mossa più veloce. A differenza della Peste **non è un evento a
+  calendario**: è un privilegio PERMANENTE, sempre valutato, perché la scelta fra le due
+  reste viva per tutta la partita e non solo in una finestra di 5 turni. `GameRules.joyTier`
+  legge le stesse 0-5 migliorie di Felicità sulla Capitale (`popularityFactors`) e decide:
+  - **0-1 migliorie**: nessun privilegio.
+  - **2 migliorie**: **1 tipo di risorsa** scontato di 1 unità su ogni costruzione che lo
+    richieda.
+  - **3 migliorie**: **2 tipi** scontati di 1 unità.
+  - **4-5 migliorie**: gli stessi 2 tipi scontati **più 100 monete di bonus** a ogni
+    acquisto PAGATO, di qualunque tipo (costruzione, strada, reclutamento).
+  - **Quali 2 tipi**: SORTEGGIATI da `beginTurn` una volta a turno (`player.festaRisorse`),
+    non a ogni lettura — se no il prezzo di un tassello cambierebbe a ogni render invece
+    di restare fermo per tutto il turno, e il giocatore non potrebbe pianificare gli
+    acquisti su un prezzo che vede sparire. **Chi chiede UN SOLO tipo di risorsa non
+    sconta MAI** (Strada, Nave/Barca, ogni miglioria §6.1): ridurre l'unico tipo lo
+    azzererebbe — è la stessa ragione per cui l'utente li ha esclusi a parole.
+  - `GameRules.discountedCost(cost, favoriti)` (pura) applica lo sconto; `costFor(type,
+    player)` è l'UNICO punto da cui `build`/`buildRoad`/`recruit` **e** la UI (tasselli,
+    legenda 📜) leggono il prezzo — non possono divergere. `GameActions.payConstruction`
+    (wrapper di `pay`) versa il bonus in monete dopo il pagamento: lo chiamano `build`,
+    `buildRoad` (solo se NON gratuita — una strada gratis non genera un pagamento da
+    premiare), `recruit` e `buildWelfare` (solo la costruzione NUOVA, non la riattivazione
+    di una miglioria dormiente: è manutenzione arretrata, non un acquisto). `moveCapital`
+    non passa mai da `payConstruction`: non costruisce nulla, sposta solo il seggio.
+  - **Le migliorie §6.1 NON sono mai scontate** (un solo tipo di risorsa a testa) **ma
+    contano comunque per il bonus in monete**: costruirne una nuova a Sanità/Felicità 4-5
+    rende comunque le 100 monete, perché è "una costruzione fatta" come le altre.
+  - **Si vede in plancia**: `buildGroup` (player-board.js) mette in testa alle tessere
+    "🎭 Festa di quest'anno: sconto di 1 su X e Y, +100 monete a ogni costruzione pagata" —
+    senza, i gettoni scontati sui tasselli sembrerebbero un errore di conto invece che un
+    privilegio guadagnato.
+- **Cronache storiche (`js/chronicles.js`, richiesta dell'utente)**: le VIGNETTE di
+  colore del regno, da non confondere con gli eventi datati di `events.js`. Un evento
+  scatta a un turno fisso e MUTA la mappa; una cronaca no — è solo una pergamena che
+  racconta un momento della storia del regno quando la sua SITUAZIONE tocca una soglia
+  evocativa: la **marina inglese** quando l'Inghilterra vara il primo Veliero, il **feudo
+  di Francia** quando la corona raduna il dominio, i **cavalieri teutonici** quando l'Impero
+  (o la Polonia, dal lato baltico) erige la prima Fortezza. Modulo **puro** come
+  `objectives.js`: un catalogo `CHRONICLES` di descrittori `{id, regni?, gruppo, min?, max?,
+  quando(c,sit), titolo, testo, nota}` + `Chronicles.pick(sit)`.
+  - **Il predicato legge il contesto-situazione**, cioè `Risiko.objectiveContext(player)` —
+    lo **stesso** metro degli obiettivi (`provCount`, `cityCount`, `fortressCount`,
+    `shipCount(Of)`, `popularity`, `hasMercato`…): una cronaca non ha un lettore suo.
+  - **Non troppo frequenti** (regola dell'utente), garantito da tre leve in `pick`: ogni
+    cronaca **una volta sola** per regno (`player.cronacheFatte`), due cronache dello stesso
+    `gruppo` non capitano al medesimo regno (la **specifica** di un regno viene PRIMA nel
+    catalogo e SOFFOCA la generica dello stesso gruppo — es. la Fortezza dà "teutonici" al
+    Sacro Romano Impero e "corona di pietra" a tutti gli altri), e fra una cronaca e la
+    successiva passano almeno `COOLDOWN` (=5) decenni (`player.cronacaUltima`).
+  - **Le srotola `showPendingCronache`** in `player-board.js`, in coda al `render()` e
+    **ULTIMA** della catena di pergamene: cede a tutte le altre (evento, editto, leva…), è
+    una per turno, ed è valutata solo nel turno del regno che la plancia sta mostrando —
+    così è la **storia privata di chi gioca quel regno** (i bot non renderizzano, quindi non
+    ne consumano). Usa la pergamena `showFoundation` tipo `cronaca` col colore del regno.
+  - Chi aggiunge una vignetta la mette in `CHRONICLES` (specifica prima delle generiche del
+    suo gruppo); nessun'altra modifica serve — i libri mastri sono già in `normalizePlayer`.
+- **Religione (`js/religions.js` + `data/start_religions.js`)**: ogni provincia ha una
+  fede (`data-religione`, come `data-resource`: viaggia negli snapshot accanto a
+  resources/pieces/roads, seminata a `initMap` se assente). La religione **di stato** di
+  un regno è quella della sua **Capitale** (`Risiko.stateReligionOf`) — perdere o
+  spostare la Capitale può cambiare fede all'impero. Al Mille i **cristiani** sono un
+  popolo solo; **sunniti/sciiti** esistono già. L'assegnazione di partenza è in due
+  passi: `RELIGIONS_START` (eccezioni per NOME di provincia, le frontiere fini) e
+  `Religions.faithByRegion` (blocchi rettangolari per coordinate SVG, per tutto il
+  resto). Tre cose ci poggiano, tutte volute dall'utente:
+  - **Obiettivi di prestigio** "conquista N province cristiane/arabe": si ragiona per
+    **famiglia** (`Religions.sameFamily`, `Risiko.provincesByFamily`), non per la singola
+    confessione (cattolici e ortodossi sono entrambi `cristiani`; sunniti/sciiti/wahhabiti
+    `musulmani`).
+  - **Terre di nessuno per fede** (`GameActions.neutralRaids`, a giro finito in `endTurn`,
+    PRIMA del rifornimento neutrale): una provincia neutrale della TUA stessa fede non ti
+    tocca; una di fede diversa razzia il vicino-giocatore più debole **che schiaccia di
+    numero** e, se **vince**, si riprende la provincia — che **torna neutrale**
+    coi superstiti (scelta dell'utente). Le costruzioni restano, come in una conquista.
+    **Soglia (regola dell'utente)**: `GameRules.neutralCanRaid`, cioè **3 attaccanti per
+    ogni difensore** — 4 soldati neutrali (3 spendibili) contro 1 solo difensore è il caso
+    limite. Se non schiaccia nessun confinante di fede diversa, resta ferma. È una razzia
+    su una porta aperta, non un secondo fronte.
+    **UNA SOLA razzia per giro (regola dell'utente)**: tutte le terre di nessuno insieme
+    attaccano una volta sola, quindi non possono strappare più di una provincia a un
+    giocatore nello stesso giro. `neutralRaids` raccoglie tutte le candidate (ogni neutrale
+    pronta col suo bersaglio più debole) e ne estrae **una a sorte** — non l'ordine dei
+    path, se no a colpire sarebbe sempre lo stesso angolo di mappa. Prima ogni neutrale
+    razziava per conto suo e un giro poteva spazzare via mezzo regno.
+    **Una Capitale razziata si declassa a Città**, come una Capitale nemica conquistata:
+    in terra di nessuno non governa più nessuno. Senza questo il regno restava senza
+    seggio ma con la pedina ancora piantata su una provincia neutrale —
+    `getCapitalPathFor` non trovava niente e il regno perdeva Popolarità, raccolto e
+    reclute **per sempre**, senza che nulla lo dicesse. Era il blocco definitivo.
+  - **Scismi (`Religions.SCHISMS`, applicati da `Risiko.applySchisms` in `endTurn`)**:
+    due soli, oggi (Wahhabismo e Vecchi Credenti sono confluiti in sunniti/ortodossi,
+    vedi LEGACY sotto — non sono più scismi a sé). Il **Grande Scisma** resta
+    anticipato al turno 5 (scelta dell'utente, per essere incontrato presto in
+    partita); la **Riforma** è invece al suo **anno vero**, turno 52 = 1510-1519, il
+    decennio delle 95 Tesi di Lutero (1517) — (regola dell'utente, corretto un errore
+    rimasto a lungo: prima scattava al turno 12 = 1110, quattro secoli prima di
+    Lutero). Il turno 52 combacia con il ciclo VI degli obiettivi (§10, "La fede
+    spezzata", 1500-1599), che già dava per scontato — a parole — che la Riforma
+    fosse avvenuta per allora: l'errore era solo nel codice dello scisma, non nel
+    disegno del binario storico. Uno scisma trasforma le province di una fede
+    in un'altra dentro certe regioni ed è una **cronaca GLOBALE**: la pergamena
+    (tipo `scisma`) deve apparire a **tutti**, all'apertura del proprio turno, non
+    solo sul browser che chiude il giro (dove `applySchisms` gira). Perciò
+    `applySchisms` la **accoda a `player.eventiAvvisi` di ogni regno**, come gli
+    eventi storici (`showPendingEventi` in player-board, in testa alla catena di
+    pergamene) — NON chiama più `showFoundation` diretto, che la mostrava a un
+    solo client e una volta sola. Il canale viaggia nel salvataggio/snapshot, così
+    ogni client la riceve. La linea cattolico/ortodosso è diagonale: la fascia meridionale contesa (Balcani,
+    Grecia, Rus' occidentale) va per **nome**, i rettangoli restano solo dove non ci sono
+    cattolici (Anatolia, cuore della Rus'). Chi ritocca i confini di uno scisma **misura i
+    centri veri** delle province (come s'è fatto qui), non li indovina.
+  - **Il vincolo lega alla CORONA, non a un istante** (bug segnalati dall'utente: "la regola
+    si perde nel corso del gioco"). Il vincolo di conquista (`data-fede-conq`) è un aggancio
+    al regno che tiene la provincia, e ogni punto in cui quell'aggancio poteva restare orfano
+    è chiuso — tutti nei posti dove la regola già viveva, non in un guardiano a parte:
+    - **Lo scisma raggiunge la CAPITALE anche se vincolata** (`isCapitalSeat` in
+      `applySchisms`): un seggio può benissimo sedere su terra conquistata (Capitale nemica
+      promossa, o trasloco su una Città di conquista). Se il vincolo valesse anche lì, quel
+      regno resterebbe fuori da ogni scisma per sempre — e con lui tutto l'impero, che via
+      `syncKingdomFaiths` segue la sua Capitale. Era il modo principale in cui la regola si
+      perdeva a metà partita.
+    - **Il riallineamento è IMMEDIATO quando la corona si muove**: `Risiko.syncStateFaiths()`
+      (la stessa passata di `syncKingdomFaiths`, esposta) la chiamano `seatCapital` (quindi
+      `moveCapital` e `resolveCapital`) e la costruzione della **prima** Capitale — da lì in
+      poi il regno ha una fede di stato e le sue province devono seguirla nello stesso
+      istante, non al prossimo giro completo con la mappa che nel frattempo mente.
+    - **Il vincolo si SCIOGLIE quando la provincia perde il padrone**: razzia neutrale
+      (`neutralRaids`), editto che la rende terra di nessuno, regno che nasce su una libera
+      (`eventSpawnKingdom`). Da quando lo scisma guarda il PROPRIETARIO e non più solo il
+      vincolo (vedi sotto), questo passaggio è meno critico di quanto fosse — una neutrale
+      senza `data-owner` torna comunque pura geografia da sola — ma resta corretto tenerlo
+      pulito: `setReligionLock(tp, false)` non lascia il flag `data-fede-conq` a raccontare
+      una conquista che non esiste più.
+    - **L'editto non è una porta di servizio**: `handOver` applica al passaggio di mano senza
+      battaglia (assegna una provincia / consegna in regalo) la stessa regola della conquista
+      — converte alla fede di stato del nuovo padrone e vincola. La fede si legge **prima**
+      del `setOwner`, come in `applyBattleOutcome`, per lo stesso motivo (se la provincia
+      ospita una Capitale, un attimo dopo `getCapitalPathFor` leggerebbe quella).
+    - **Una partita nuova riparte dalle confessioni del Mille**: `Risiko.resetReligions()`
+      (riseminata da `Religions.seedFaith`, vincoli azzerati) chiamata da
+      `GameActions.startGame`, dov'è il calendario a tornare al turno 1. Senza, la partita
+      nuova cominciava nel 1000 con l'Inghilterra **protestante** — la Riforma della partita
+      precedente era rimasta scritta sulla mappa — e gli scismi a calendario non trovavano
+      più niente da spezzare.
+  - **La fede segue la spada (regola dell'utente)**: chi conquista converte. La provincia
+    presa — nemica o neutrale — prende la confessione **esatta** del conquistatore (la sua
+    religione di stato), e vale per **ogni** regno, non solo per i cristiani. Niente
+    Capitale → niente religione di stato → niente conversione.
+    Vive in `convertOnConquest` dentro `applyBattleOutcome`
+    (`game-actions.js`), cioè nell'unico punto della regola di conquista: così vale per
+    l'attacco via terra, per lo sbarco e per lo sbarco d'editto senza tre copie. La fede
+    del vincitore si legge **prima** di applicare la conquista: la Capitale del difensore
+    resta in piedi e cambia colore, quindi subito dopo `stateReligionOf` potrebbe trovare
+    quella e leggere la fede del vinto. `attack` restituisce `conversione` ({da, a, label})
+    e il rapporto di battaglia la mostra (`.bb-faith`).
+  - **CHI NON HA RELIGIONE ASSIMILA quella dei paesi conquistati** (regola dell'utente,
+    oggi i soli **Mongoli**): è il campo `senzaFede` della dottrina (`js/doctrines.js`,
+    `Doctrines.faithless`), e si legge in due punti che sono la stessa regola vista dai
+    due lati. Quel che il regno **impone** conquistando è `imposedFaithOf`
+    (`game-actions.js`): per un regno senza fede è **null**, quindi la provincia presa
+    tiene i suoi dèi e — questo è il punto da non perdere — **non prende nemmeno il
+    vincolo** `data-fede-conq`, che è un aggancio alla fede della corona e sarebbe una
+    conversione differita, fatta dal riallineamento del giro dopo invece che dalla spada.
+    `imposedFaithOf` è ora l'**unica** porta da cui la fede di un conquistatore entra in
+    una provincia: attacco, sbarco, sbarco d'editto, editto che assegna o consegna.
+    Quel che il regno **professa** resta `Risiko.stateReligionOf`, che per un regno senza
+    fede non guarda la Capitale ma le TERRE: la confessione della **maggioranza** delle
+    sue province (`assimilatedFaithOf` in app.js), che cambia da sé man mano che l'impero
+    cambia forma — l'Orda nasce buddhista in Mongolia e diventa sunnita appena il grosso
+    delle sue province lo è. Da lì viene gratis il resto: la famiglia di fede per la
+    diplomazia (`faithFamilyOf` in bot.js) e le razzie delle terre di nessuno, che
+    confrontano fede di **provincia** e non di corona, non cambiano di una riga.
+  - **UN REGNO È COMPATTO IN UN'UNICA FEDE, sempre — non solo sulle conquiste** (regola
+    dell'utente, generalizzata due volte dallo stesso bug): "segue la spada" vuol dire
+    seguire la fede di stato CORRENTE della Capitale, non un valore congelato a un
+    istante. Prima girata: le province **conquistate** restavano indietro quando la fede
+    di stato cambiava più tardi (Rus' conquistava da `cristiani` generico, poi il Grande
+    Scisma spaccava la sua Capitale in `ortodossi` e le terre prese prima restavano sul
+    vecchio `cristiani`, una fede che dopo lo scisma non esiste più in nessun regno).
+    Seconda girata (bug ancora più in fondo, stesso segnalatore): la stessa cosa capitava
+    al territorio **mai conquistato**. La Capitale, in casa propria, non è mai
+    `data-fede-conq` e quindi uno scisma geografico la tocca direttamente — ma le ALTRE
+    province del regno, se non erano mai state conquistate, non avevano **nessun**
+    aggancio alla corona e seguivano ognuna la propria geografia: il Sacro Romano Impero,
+    tutto territorio originario dal turno 1, usciva dalla Riforma con la Capitale (a
+    Franconia, fuori dal rettangolo del Nord Germania) cattolica e Saxony/Anhalt (dentro
+    quel rettangolo) protestanti — tre province mai toccate da una battaglia, tre fedi
+    diverse sotto la stessa corona. Non era un bug di codice ma una scelta di design
+    esplicita (il patchwork religioso della vera Riforma tedesca, "Renania e Baviera
+    restano cattoliche come nella storia"): l'utente, messo di fronte al caso concreto, ha
+    scelto la coerenza sull'ambientazione storica.
+    Ora la geografia decide **solo** per la Capitale (fonte della fede di stato) e per le
+    terre di nessuno (nessuna corona a cui allinearsi, §Scismi sopra) — ogni altra
+    provincia PROPRIA, conquistata o nativa che sia, la insegue. `syncKingdomFaiths`
+    (app.js, ex `syncConquestFaiths`; chiamata da `applySchisms` ad **ogni giro
+    completo**, scisma o no, e da `Risiko.syncStateFaiths()` nello stesso istante in cui
+    la Capitale si costruisce/sposta/promuove) riallinea ogni provincia con un
+    proprietario — che sia o no `data-fede-conq` — alla `stateReligionOf` corrente del
+    suo regno; così anche il disallineamento di una partita già in corso si ripara da
+    solo al giro successivo, senza bisogno di un editto. Chi non ha (più) una Capitale
+    non ha fede di stato e resta come sta. Il flag `data-fede-conq`/`setReligionLock`
+    resta (traccia ancora "questa provincia è stata presa con la spada" per chi lo
+    leggesse in futuro, e viaggia nel salvataggio), ma non è più lui a decidere se una
+    provincia segue la geografia o la corona: decide `data-owner`.
+  - **Vista mappa per fede**: bottone ☩ (plancia `#board-faith`, editor `#faith-view-btn`)
+    → `Risiko.setMapPaint('fede')`. È **solo pittura**: non cambia proprietari, turni o
+    permessi, e rispetta la nebbia. Chi aggiunge un'azione che sposta la Capitale o
+    cambia una fede ricordi che `refreshMapDisplay` ridipinge secondo `mapPaintMode`.
+- **Mercenari: permanenti, ma di ventura (§5.3, §9.0)**. 150 monete, **restano per sempre**
+  (la Guarnigione no: `GameRules.TEMPORARY` contiene solo lei, e chi si recluta sta in
+  `RECRUITABLE`). Un mercenario è un soldato **dappertutto** — presidio §5, spostamenti,
+  costi in soldati: si distingue **solo** nel tiro di battaglia.
+  - **Due effetti, e la separazione è il punto** (`MERC_VALUE = 0.85`, `MERC_SPREAD = 0.25`
+    in `battle.js`, uniche manopole): in linea vale 0,85 soldati — costo piccolo e certo,
+    sposta la **media**; e quel valore scarta di ±0,25 a ogni battaglia — è il prezzo vero,
+    apre la **banda**. `A_eff = (A − m) + m·ρ`, un tiro **per schieramento** (non per uomo),
+    simmetrico anche in difesa (se no presidiare con la ventura sarebbe gratis). Le
+    **perdite** restano sulle truppe reali: sposta la probabilità, non fa vittime extra.
+    Un'armata di ventura non è più debole, è **meno sicura** — 12 contro 8 passa da 69%
+    certo a 62% fra 45 e 73.
+  - **La quota vive sul PATH** (`data-merc`), non sul record del giocatore: le truppe sono
+    di chi possiede la provincia, come le navi. Viaggia negli snapshot (`m` in
+    `collectPieces`), sopravvive a un editto, e non serve un secondo libro mastro.
+    **Invariante**: `data-merc ≤ soldati`. La impone `setMerc`, e `changePiece` la riapplica
+    a ogni calo di soldati — nemmeno il pennello dell'editor può romperla.
+  - **Chi parte e chi cade sta in `game-actions.js`, non nel deposito**: partenze in quota
+    **proporzionale** (`GameRules.mercShare`; poter tenere i sudditi a casa e spedire sempre
+    la ventura vorrebbe dire comprarne il vantaggio senza il difetto), perdite **ai mercenari
+    per primi** (ed è così che la quota si ripulisce da sé). Chi aggiunge un'azione che muove
+    soldati fra province deve muovere anche la quota: `mercLeaving(from, n)` **prima** di
+    togliere i soldati, `E().addMerc(to, …)` all'arrivo.
+  - **Il pronostico non può più essere un numero**: `RisikoBattle.winForecast` restituisce
+    media + banda, e la chiamano sia la plancia sia `bot.js` (`winProbMerc`). `winChance`
+    resta per il caso senza ventura. Il bersaglio porta `merc` addosso come porta `terreno`.
+    Il rapporto di battaglia mostra **quanto hanno reso** (`.bb-merc`): è la sola parte
+    dell'esito che il giocatore non può dedurre.
+- **Cavalieri (regola dell'utente)**: si comprano in fase `costruisci` come Mercenario e
+  Guarnigione (`GameRules.RECRUITABLE`, costo `COSTS.cavaliere` = 50 monete + 1 Bestiame) e
+  si schierano nella provincia d'acquisto; restano per sempre. **Disponibili dal ciclo II**
+  (turno 11 = 1100, regola dell'utente): `GameRules.UNLOCK_TURN`/`isUnlocked`/`unlockLabel` è
+  l'unica fonte — `recruit` rifiuta prima, la tessera resta spenta con "dal ciclo II", e
+  `knightPlan` dei bot non pianifica l'acquisto. Come la ventura sono una
+  **quota dei soldati** sul path (`data-cav`, snapshot `k`, deposito `engine.cav/setCav/addCav`
+  in app.js) — un cavaliere è un soldato dappertutto (presidio §5, costi in soldati, tetto) e
+  si distingue **solo nel tiro di battaglia**. Invariante: `merc + cav ≤ soldati`.
+  - **Le manopole stanno in `battle.js`**: `KNIGHT_VALUE` 1,45 (in campo aperto e SEMPRE in
+    difesa), all'**assalto** il valore lo decidono le mura del difensore (`knightAttackValue(fort)`):
+    `KNIGHT_VS_CITY` 0,9 contro Città/Capitale, `KNIGHT_VS_FORT` 0,7 contro una Fortezza —
+    meno di un fante. **Il terreno pesa su tutto** (regola dell'utente): in terreno `chiuso`
+    ogni valore del cavaliere — attacco, assalto, difesa — si moltiplica per
+    `KNIGHT_TERRAIN.chiuso` 0,75 (1,45 → 1,09). Nessuna banda (valore certo, a differenza
+    della ventura). `resolveBattle` prende `cavA, cavD, terreno` in coda, `winForecast`
+    `cavA, cavD, fort, terreno`: plancia e bot passano da lì, come per mercenari e terreno.
+  - **FANTI E CAVALIERI SONO REPARTI DISTINTI** (regola dell'utente): in attacco, rinforzo
+    ad alleato, spostamento e spedizione il giocatore sceglie **quanti fanti e quanti
+    cavalieri** muovere, e la percentuale è quella dell'armata mista. Il motore accetta
+    l'ordine come numero (comportamento di prima, i bot) o come `{ n, cav }`
+    (`troopOrder` + `orderFail` in game-actions, `cavWanted` di `troopsLeaving`). Lo stesso
+    nella **conquista**: `resolveConquest(player, {n, cav})` = quanti occupano e quanti di
+    loro a cavallo; gli altri rientrano. In plancia: il cursore d'ordine ha **una riga per
+    reparto** quando la partenza ha cavalieri (`squadRowsHtml`/`setSquad`/`squadCav`,
+    `order.fanti/cav/F/C`), la ripartizione della presa (pannello e modale) un cursore per
+    reparto (`conquestSquads`/`conquestControlsHtml`/`wireConquestControls`). Anche gli
+    ELENCHI del pannello (bersagli, destinazioni dello spostamento, spedizione col Veliero)
+    hanno due campi, uno per reparto (`squadInputs`).
+    - **Una regola sola per i due reparti** (`squadSet`, regola dell'utente): si manda solo
+      l'uno, solo l'altro o entrambi, e su una nave **si scambiano il posto** — alzare un
+      reparto oltre il tetto lo prende all'altro, abbassare i cavalieri con la nave piena
+      ridà i posti ai fanti; la fine di ogni leva è il massimo vero di quel reparto. In
+      partenza può restare **un solo cavaliere e nessun fante**: il cavaliere è un'unità
+      (il presidio §5 conta uomini, non reparti).
+  - **Chi parte e chi cade** (`game-actions.js`, un gruppo `{n, merc, cav}`): senza scelta i
+    cavalieri vanno **per primi** (`GameRules.troopsLeaving`), la ventura in quota sui fanti;
+    nelle perdite la ventura cade per prima, poi fanti e cavalieri **in proporzione**
+    (`GameRules.casualtySplit`). Helper `groupLeaving → takeGroup → putGroup`, `survivorsOf`,
+    `loseFromPath`: chi aggiunge un'azione che muove o uccide soldati passa di lì. Nel rientro
+    della conquista senza scelta (`resolveConquest` con un numero) i cavalieri **restano** sulla terra presa. Un calo
+    generico (`changePiece`) toglie i cavalieri per ultimi.
+  - Sulla mappa: pedina propria `#pc-cavaliere` (data/piece_icons.js, scudo **senza croce** —
+    non tutti i regni sono cristiani) accanto ai fanti, disegnata da `renderPiecesForPath`
+    spezzando il conteggio dei soldati. Non sta in `PIECES`. In plancia "· N🐎" accanto alle
+    truppe e alle schede-bersaglio; `cavNote`/`cavLine` dicono quanto vale la carica (anche
+    "frenata dalle mura").
+  - **I bot li comprano e li usano** (`bot.js`): `knightPlan` (fase costruzioni, dopo i
+    mercenari) converte il Bestiame IN ECCESSO in cavalleria — non tocca quello che chiedono
+    le costruzioni di `s.build` né lo `stockFloor` degli obiettivi (`knightReserveBeast`), né
+    l'oro di `coinReserve`; tetto per profilo `s.cavalieri` (espansione 3, costruttore 2,
+    opportunista 2, predone 4). Li posa sulla base del prossimo attacco se lì la carica rende,
+    altrimenti sul confine più minacciato. In attacco `knightsFor` sceglie i reparti come un
+    giocatore: contro le mura o in terreno chiuso partono prima i fanti e solo i cavalieri
+    che servono a fare il numero (il numero **esatto**: il motore prende alla lettera un
+    ordine per reparti e rifiuta "0 cavalieri" se i fanti non bastano — bug visto in
+    simulazione). `winProb` usa la stessa scelta, così pronostico e attacco coincidono.
+- **Terreno (`js/terrain.js` + `data/province_terrain.js`)**: ogni provincia è `chiuso`
+  (monti, gole, foreste, paludi) o `aperto` (pianure, steppe, deserti aperti). Non è un
+  bonus difensivo come le mura — quelle sommano difensori virtuali — ma **quanto conta il
+  numero**: cambia l'ESPONENTE della formula, `P_A = A^k / (A^k + Deff^k)`, con k=1.4 in
+  terreno chiuso, k=2.6 in aperto, k=2 se il modulo non c'è. Decide **la provincia
+  attaccata**: si combatte in casa del difensore. Un 3-contro-1 vale 82% in montagna e 95%
+  in pianura — è la scelta strategica di DOVE attaccare, non solo con quanti.
+  - **È geografia, non stato di partita**: sta in un file di dati e non cambia mai. Non
+    entra negli snapshot, non si dipinge nell'editor, non finisce in `start_map.json`.
+    Su un `<path>` si legge con `terrainKeyOf` (app.js), memoizzato sull'elemento perché
+    la vista-mappa lo chiede a tutte e 628 le province a ogni refresh.
+  - **La formula vive in UN posto solo**: `RisikoBattle.winChance(A, Deff, k)`. Il
+    pronostico della plancia e quello del bot chiamano quella — prima ognuno riscriveva
+    `A²/(A²+D²)` per conto suo, e bastava un ritocco per far mentire la percentuale
+    mostrata al giocatore. Chi aggiunge un pronostico passa da lì.
+  - **Le PERDITE le fa il nemico, non la propria taglia** (regola dell'utente: la Francia
+    perse 6 uomini su 9 e 7 su 15 contro 3 difensori in terreno chiuso). In `resolveBattle`
+    la base delle perdite — del vincitore e dell'attaccante che ripiega — è
+    `min(proprie truppe, forza in uomini del nemico × KILL_TERRAIN)` (chiuso 1,3, aperto 1;
+    mura escluse, spostano la probabilità e non uccidono), poi la frazione legata
+    all'equilibrio `I` va dal **60% al 90%** per chi vince (`WIN_LOSS_MIN`/`WIN_LOSS_MAX`)
+    e dal 50% al 70% per chi ripiega (`ROUT_LOSS_*`) — regola dell'utente, in due tempi: a
+    10% e poi a 35% si perdevano pochissime truppe. Ogni difensore costa ~2/3 di uomo in
+    pianura e ~1 in montagna: 9-contro-3 in montagna ~3 uomini (mai la metà dell'armata),
+    12-contro-6 ~4,5 in pianura e ~6,3 in montagna, 30-contro-10 in pianura ~6,6. I caduti
+    si arrotondano A SORTE (`roundRand`: la parte decimale è la probabilità di un morto in
+    più), così i piccoli numeri non si schiacciano sempre sullo stesso intero.
+    Almeno un caduto se dall'altra parte qualcuno ha combattuto.
+  - **IL LIMITE DI CONQUISTA E I DUE ATTACCHI (regola dell'utente)**: *"non è concepibile che
+    5 uomini ne uccidano 15 in un solo attacco"*. Vale per ogni battaglia, tutto in `battle.js`:
+    - **Limite**: sotto i 2 attaccanti ogni 3 difensori (`CONQUEST_RATIO` = 1,5, in forza
+      effettiva, mura escluse) la provincia non può cadere: `P_A` = 0. `winForecast` applica lo
+      stesso limite (`conquestChance`), quindi la plancia mostra 0%. **Il limite non si spiega
+      in gioco, di proposito** (regola dell'utente: i giocatori lo imparano giocando): nessuna
+      scritta su quanti uomini servono. Chi viene respinto in inferiorità paga di più
+      (`ROUT_OUTNUMBERED`) e fa meno morti (radice di forzaA/forzaD): 5 contro 15 in terreno
+      chiuso costa ~4,1 attaccanti e ~2,8 difensori, e farne più di quanti se ne subiscono
+      capita nel ~6% dei casi (~1% in aperto). Sopra il limite le percentuali non cambiano.
+    - **Due attacchi** con più di 10 uomini per parte (`needsTwoCharges`, conta gli uomini veri):
+      non è una meccanica nuova, è un'azione divisa in due perché chi attacca veda come va. Il
+      primo (`firstCharge`) è un **esito normale, non blocca niente**: perdite per entrambi,
+      nessuna conquista, i superstiti restano nella provincia di partenza; il verdetto è
+      Vittoria se fa più morti di quanti ne subisce (a pari morti, chi perde la quota minore
+      del proprio esercito; a pari quota, Sconfitta). Il secondo è un `resolveBattle` normale:
+      **Conquistata** o **Sconfitta**. Nel frattempo si può fare tutt'altro, e se non si
+      prosegue non c'è niente da chiudere.
+    - **Il segno** è `player.primiAttacchi` = `[{from, to, turno, consenso}]`: vale per la coppia
+      di province e per quel turno (`firstChargeOf`); al turno dopo il difensore si è rinforzato
+      ed è una battaglia nuova. Dopo un secondo attacco respinto si ricomincia dal primo.
+      `consenso` serve perché il permesso una-tantum si consuma al primo attacco e deve valere
+      anche per il secondo. `recordAggression` sostituisce la voce del primo: è una battaglia sola.
+    - **Il tiro del primo attacco è ANTICORRELATO** (`FIRST_SWING`: se va bene a uno va male
+      all'altro). Con perdite simili le proporzioni non cambierebbero mai e fermarsi non avrebbe
+      senso (simulato: nessuno si fermava mai). Così su 20 contro 15 chi prosegue solo con
+      almeno il 50% si ferma una volta su cinque, e chi prosegue sempre conquista quanto prima.
+    - **Chi non può fermarsi fa i due attacchi di seguito** (`resolveFullBattle`, stessi argomenti
+      e campi di `resolveBattle`): sbarchi, spedizioni, editti, crociate, razzie. Chi aggiunge una
+      battaglia senza una provincia a cui tornare passa di lì.
+    - **I bot** non hanno una regola apposta: rivalutano il bersaglio al giro dopo, e il primo
+      attacco non conta in `maxAttacchi` (è metà battaglia; costa uomini, quindi il giro finisce).
+  - **I bersagli portano il terreno con sé**: `GameActions.attackTargets` mette `terreno` e
+    `esponente` su ogni bersaglio, così plancia e bot non se lo ricalcolano (e non possono
+    sbagliarlo). Il risultato di `attack` porta `terreno` per il rapporto di battaglia.
+  - **Vista mappa per terreno**: bottone ⛰ (plancia `#board-terrain`, editor
+    `#terrain-view-btn`) → `Risiko.setMapPaint('terreno')`. `mapPaintMode` ora ha tre
+    valori (`owner` | `fede` | `terreno`) e i due bottoni sono esclusivi: si
+    risincronizzano insieme. È solo pittura e rispetta la nebbia, come la vista per fede.
+  - **Chi ritocca l'assegnazione** legge il criterio in testa a `province_terrain.js`: nel
+    dubbio vince il tratto che ha DECISO le guerre di quel territorio, non la percentuale
+    di rilievo (la Vandea è quasi piatta, ma il bocage l'ha resa inespugnabile).
+- **Portata delle navi (`js/sea-routes.js`)**: quanto lontano arriva una nave si misura
+  **sull'acqua**, non in linea d'aria — e non è pignoleria: dalla Normandia il Languedoc
+  (costa mediterranea, oltre tutta la Francia) è a 16 unità in linea d'aria e le Asturie a
+  22, quindi un cerchio geometrico farebbe attaccare Montpellier a una nave nella Manica.
+  Portate del §9.2 in `SeaRoutes.RANGE` (Nave 12, Veliero 170): chi ne vuole una nuova la
+  aggiunge lì, non sparsa.
+  - **MARI INTERNI vs OCEANI** (regola dell'utente): le portate di `RANGE` sono quelle
+    d'**oceano** (Atlantico, Pacifico, Indiano, Mare del Nord, Manica, Skagerrak). Nei
+    **mari interni** — Mediterraneo con Mar Nero, Baltico (Kattegat compreso), Mar Arabico
+    con Mar Rosso e Golfo Persico, e il Caspio — ogni passo del Dijkstra costa
+    `INNER_COST` = 12/18, quindi la Nave vi arriva a **18**, e una rotta mista paga ogni
+    tratto per quel che è. I bacini sono `INNER_SEAS` in `sea-routes.js`: un riempimento
+    dell'acqua da dei semi che non attraversa i **cancelli** misurati sulla griglia
+    (Gibilterra x<580; ovest dello Jutland e Skagerrak; Mar Arabico chiuso a y>284 e x>858).
+    La maschera `g.inner` si costruisce in `prepare` a griglia pronta, e lì si buttano le
+    portate già memorizzate col ripiego (tutto oceano). **Vale solo per la Nave** (regola
+    dell'utente: il Veliero è già molto forte e resta com'era): `floodWater` pesa i mari
+    solo se il raggio chiesto è entro `RANGE.barca` — il tipo di scafo arriva lì come
+    portata, quindi Veliero e spedizioni (170) restano in unità geometriche.
+    Esempi misurati: Catalogna→Sardegna 12 (era 18), Attica→Calabria 9 (era 13),
+    Attica→Sicilia 13 (era 19). `SeaRoutes.isInnerSea(svg, x, y)` per controllare un punto.
+  - La griglia (celle da 1,5 unità, come `WCELL` di map-anchors) si costruisce **una volta**
+    con due rasterizzazioni dell'SVG su canvas: la prima, tutte le province dello stesso
+    colore e **antialiasing acceso**, dice terra o acqua — i bordi condivisi si fondono e non
+    nascono fessure fasulle in mezzo a un continente; la seconda, un colore per provincia e
+    `shape-rendering: crispEdges`, dice *quale* provincia. Una cella è acqua se **anche un
+    solo** sottocampione è acqua: è così che restano aperti gli stretti veri (Gibilterra è
+    larga ~1 unità). Suez e Panama restano chiusi — verificato: Barcellona→Yemen misura 560
+    (giro dell'Africa), non 230.
+  - **Le isole più piccole di una cella** (Canarie, Egeo, Antille) non riempiono mai una cella
+    di terra e la griglia le perderebbe: si registrano a parte in `g.tiny`, sulle celle
+    d'**acqua** che occupano. Se aggiungi un criterio nuovo alla griglia, ricòrdati di loro.
+  - `reachCached` è obbligatorio nei cicli di render: `refreshMapDisplay` gira dopo ogni
+    azione e ogni mossa di ogni bot, una portata da veliero costa ~30 ms. La geografia non
+    cambia mai, quindi `(provincia, raggio)` è una chiave definitiva.
+  - `prepare()` è **asincrona** (~0,5 s). Finché non ha finito le portate sono vuote: `initMap`
+    la lancia e ridipinge quando arriva. C'è un ripiego punto-per-punto (lento ma identico)
+    se il canvas non risponde, così la portata non dipende mai dal raster.
+- **Scafi (§9.2): le navi non si contano, si elencano.** Ogni nave è una pedina a sé col
+  suo carico di uomini — quel numero va **mostrato** a chi la vede, quindi non può stare in
+  una quantità. Vivono in `data-ships="barca:8,barca:8,vascello:15"` (una voce per scafo, in
+  ordine), non in `data-pieces`. Capienze in `SHIP_CAPACITY` (Nave 8, Veliero 15).
+  - **Il contagio è fermato a monte**: `piecesOf()` sintetizza le voci-nave leggendo
+    `data-ships`, quindi `countPiece(path,'barca')` risponde come sempre e kingdom-stats,
+    game-rules e la plancia non sanno che esistono gli scafi. Chi tocca un carico passa da
+    `Risiko.engine.ships/addShip/removeShip/setShips`; chi conta e basta non cambia nulla.
+    `setPieces` filtra da sé le voci-nave: scriverle lì non fa danno, semplicemente non
+    attecchisce.
+  - **I salvataggi vecchi si migrano da soli**: `applyPieceState` converte un `barca:2`
+    trovato in `data-pieces` in due scafi vuoti. Non serve toccare `start_map.json`.
+  - Sulla mappa si disegna **una pedina per scafo**, **senza numero sopra** (regola
+    dell'utente: il carico nel pallino non serviva — `badge: null` in `renderPiecesForPath`).
+    Il carico resta nei dati e nel pannello; il pallino resta solo sulle spedizioni in mare.
+- **Sbarchi (§9.2)**: in fase `attacca` il bersaglio può essere di terra o di mare, e
+  `GameActions.attackTargets` li restituisce mescolati con `viaMare`, `scafo` e `carico`
+  addosso — la plancia non deve ricalcolare niente. `attack()` capisce da sé di che si
+  tratta: se le due province non confinano via terra cerca uno scafo che copra la
+  distanza, e sceglie il **meno capiente che basti** (non si spreca un Veliero dove
+  arriva una Nave). Il carico è un secondo tetto oltre al presidio minimo del §5.
+  **Si può partire con PIÙ scafi dello stesso tipo** (regola dell'utente: si
+  costruisce una seconda nave proprio per imbarcare di più): `hullsForLanding`
+  raggruppa gli scafi per tipo, sceglie il tipo meno capiente la cui **flotta**
+  basta a caricare gli uomini impegnati e ne fa salpare `num = ⌈engaged/carico⌉` —
+  quanti servono, mai più (non parte una nave vuota). Il tetto del carico diventa
+  perciò **nº scafi × carico**: la plancia lo calcola con `vesselCount(path, tipo)`
+  in `attackGroup`/`orderMax`, il motore lo impone in `attack` e in `finalMove`.
+  **Lo sbarco è la nave stessa**: gli scafi imbarcati lasciano la provincia di partenza
+  e approdano in quella attaccata *comunque vada* — vinta, sono ancorati sulla costa
+  presa e la portata successiva si misura da lì; persa, sono già sulla spiaggia del
+  difensore e diventano suoi senza codice apposta, perché le navi appartengono a chi
+  possiede la provincia. **TUTTI gli scafi che hanno portato uomini condividono la
+  sorte dell'assalto**: sbarcare con due navi e perdere le perde entrambe — non ne resta
+  una in porto (era il bug: con più scafi ancorati, respinti, ne restava uno a casa e
+  sembrava che la nave "non fosse andata distrutta"). Non esiste modo di annullare uno
+  sbarco a metà, ed è voluto.
+  **Lo sbarco è totale**: dopo uno sbarco vinto `player.conquista` NON si apre — la
+  ripartizione fra chi occupa e chi rientra vale solo per le conquiste via terra. Chi
+  scende dalla nave resta a terra; per riportare indietro degli uomini c'è lo spostamento
+  di fine turno. Chi tocca `attack()` non rimetta la conquista sugli sbarchi "per
+  uniformità": è una regola, non una dimenticanza.
+- **Spedizioni oltremare — rotte lunghe del Veliero (§9.2, regola dell'utente)**: oltre
+  allo sbarco entro la portata, in fase `attacca` un **Veliero** può **salpare per una
+  rotta lunga** che NON si conclude nel turno. Si sceglie una **direzione** (uno degli 8
+  punti cardinali) e la nave, in mare aperto, **naviga di turno in turno alla ricerca di
+  una costa**: ogni proprio turno avanza di una portata piena (`advanceExpeditions` in
+  `beginTurn`), scoprendo le coste che le entrano nel raggio, finché il giocatore non
+  decide di **approdare** su una terra avvistata. È una scoperta: la meta è ignota (le
+  portate del §9.2 lasciano fuori mezzo mondo a un Veliero fermo — la rotta lunga è il
+  modo di attraversare un oceano, un decennio per volta). **Solo l'umano** per ora (i bot
+  no, come per le spie).
+  - **Vivono nel record del giocatore**, non su un path: `player.spedizioni =
+    [{id, dir, carico, merc, x, y, turno}]` — sono in mare aperto, fuori da ogni provincia,
+    quindi non hanno un `data-ships` su cui appoggiarsi. `x,y` sono in coordinate SVG.
+    Persistono nel salvataggio come le spie (`normalizePlayer` le inizializza).
+  - **La geometria sta in `sea-routes.js`**, un posto solo: `floodWater` è il Dijkstra
+    sull'acqua condiviso (lo usa anche `distances`); `sail(x,y,dir,range)` avanza alla
+    cella d'acqua raggiungibile entro la portata che va **più lontano nella direzione**
+    voluta (massima proiezione sul versore) **seguendo l'acqua** — gira le penisole, non
+    attraversa la terra, e se è imbottigliata resta ferma; `reachFromPoint(x,y,r)` (e la
+    sua versione cached, obbligatoria nella nebbia) dà le coste che una spedizione ferma
+    lì avvista/raggiunge.
+  - **Le regole stanno in `game-actions.js`**: `launchExpedition` (uomini e nave lasciano
+    la provincia rispettando il presidio §5 e la quota di ventura §5.3, il Veliero sparisce
+    dalla costa), `expeditionTargets` (le coste in vista: `mia`=rinforzo, le altre uno
+    sbarco d'assalto col terreno del difensore), `expeditionLand` (stessa regola di
+    conquista di `attack` via `applyBattleOutcome`; sbarco **totale**, niente
+    `player.conquista`; vinta la nave ancora sulla costa presa, persa è perduta col carico),
+    `steerExpedition` (cambia rotta senza avanzare), `advanceExpeditions` (chiamata da
+    `beginTurn`). L'approdo su costa propria è un rinforzo senza battaglia.
+  - **Naufragi e morìa in mare aperto (regola dell'utente)**: più a lungo una spedizione
+    resta al largo, più il mare la logora. Ogni avanzamento (`advanceExpeditions`)
+    incrementa `exp.turniInMare` e, PRIMA di far rotta, tira il pedaggio: a `t` turni si
+    estrae `r∈[0,1)` e muore il `10%·L` della ciurma, con `L = max(0, t − ⌊r/0.15⌋)`
+    (`wreckTollFraction`, costanti `WRECK_STEP=0.15`/`WRECK_TOLL=0.10`). Ne esce esatta la
+    tabella voluta — `t=1` 15% perde il 10%; `t=2` 30% il 10% e 15% il 20%; a `t=7` la
+    perdita è certa (verificato con Monte Carlo). Le perdite colpiscono i **mercenari per
+    primi** (§5.3), come in battaglia; se portano via tutta la ciurma è il **naufragio** e
+    la spedizione sparisce. Il giocatore lo scopre all'apertura del proprio turno con la
+    pergamena (`showPendingWrecks` in `player-board.js`, tipo `naufragio` di `showFoundation`):
+    gli avvisi vivono in `player.spedizioniAvvisi` come gli editti (`letto` + potatura,
+    `normalizePlayer` li inizializza) — il mare non cambia le cose di nascosto. I bot non
+    lanciano spedizioni, quindi il pedaggio è per ora solo dell'umano.
+  - **La nebbia e il marker sono in `app.js`**: `computeVisibleProvinces` aggiunge alla
+    `haze` le coste avvistate da ogni spedizione del regno che guarda (bandiere, non
+    guarnigioni, come una nave ancorata); `renderExpeditions` disegna una pedina-Veliero al
+    (x,y) col carico nel pallino, **solo** per il regno focalizzato (una spedizione nemica
+    non si vede, come le spie). Primitive del motore: `engine.seaAnchor/sail/reachFromPoint`.
+  - **La UI è in `player-board.js`**: il **lanciatore** (bussola a rosa dei venti + carico)
+    vive sotto la scelta del Veliero in `attackGroup`; le spedizioni **già in mare** hanno
+    un gruppo tutto loro (`expeditionsGroup`), mostrato via `maybeAppendExpeditions` anche
+    **a selezione vuota** (non appartengono a una costa) — con le coste avvistate, la
+    probabilità di sbarco (col terreno) e la bussola per cambiare rotta.
+- **Nebbia leggera (§9.2)**: `computeVisibleProvinces` non torna più un Set ma
+  `{visible, haze, spie}`. `haze` è quel che raggiungono le nostre navi **e dove guardano
+  le nostre spie** (§9.3): la provincia si vede **col colore del proprietario** ma le sue
+  pedine no — dal mare si riconosce la bandiera, non la guarnigione. `spie` è solo il
+  POSTO dove stanno i nostri uomini (per il contorno sulla mappa), non un grado di
+  visibilità in più. Chi legge la nebbia usa `Risiko.isVisible` (che è `visible ∪ haze`);
+  chi mostra **numeri** di truppe deve controllare anche la classe `haze` sul path.
+- **Spie (`js/spies.js`, §9.3)**: 300 monete, **3 turni**, **3 per regno**, bersaglio entro
+  **5 confini** dal proprio territorio e **solo dove non si vede già**. Non è una pedina:
+  non sta sulla mappa, non presidia, non si cattura — vive in `player.spie` come
+  `[{prov, turno}]` e versa nella nebbia leggera che c'è già. Tre cose da sapere:
+  - **La scadenza si calcola, non si salva.** `Spies.active(spie, turno)` filtra a ogni
+    lettura (nebbia, plancia, azione); `beginTurn` pota la lista solo per ordine. Così una
+    spia non può sopravvivere a un salvataggio riaperto tre decenni dopo, e non esiste il
+    caso "una parte del codice l'ha già cancellata e un'altra no".
+  - **Il bersaglio si sceglie DALLA MAPPA**, come attacco e spostamento: il bottone
+    `🕵 Manda una spia` accende con `markTargets(null, ids, 'spia')` le province
+    raggiungibili (`GameActions.spyTargets`) e il clic apre la conferma, non il cursore
+    d'ordine — non c'è niente da contare. È l'unico ordine **senza provincia di partenza**:
+    `openOrder` lo intercetta prima di cercare la selezione. Le mete sono decine e si
+    accendono **tutte** (niente `ORDER_MAX_MARKS`): quel che si illumina è esattamente
+    l'anello di mondo che non vedi ma puoi raggiungere, ed è l'informazione.
+  - **`spyTargets` non dice di chi sono le province**, apposta: è quello che la spia va a
+    comprare. Se finisse nel pannello, il giocatore leggerebbe gratis la cosa che sta
+    pagando. Delle spie **già partite** invece la plancia dice eccome chi governa — quello
+    è il loro rapporto.
+  - **Una spia nemica sul tuo suolo è INVISIBILE (regola dell'utente)**: nessun segno,
+    nessun avviso, nessun controspionaggio. Viene gratis dal modo in cui è fatta la
+    nebbia — il set `spie` esce da `computeVisibleProvinces(focus.name)`, cioè contiene
+    solo le spie di CHI sta guardando, e in vista generale (`focus` null) non si segna
+    niente. Chi tocca `refreshMapDisplay` o la classe `.spied` non la trasformi in un
+    marcatore "per tutti": diventerebbe un avviso di spionaggio, che è un altro gioco.
+    (Lo stato condiviso contiene comunque le spie di tutti, come contiene tutta la mappa:
+    la nebbia è lato client e non è un segreto crittografico.)
+  - I **bot non comprano spie**: leggono lo stato vero della mappa e la nebbia non li
+    riguarda, quindi per loro sarebbero 300 monete buttate. Se un giorno l'IA giocherà a
+    informazione limitata, è lì che la spia entrerà anche per lei.
+- **Popolarità: la formula sta in `js/popularity.js`, non in app.js.** `app.js` misura e
+  basta (`popularityFactors`: nemiche al confine, guardia, generale, varietà, cibo,
+  tassa) e passa i numeri a `Popularity.score`. Stessa scelta di
+  `RisikoBattle.winChance`: una formula sola, chiamata dal pannello del giocatore e
+  dall'IA, che quindi non possono divergere.
+  - **Il rovescio della formula è il PIANO** (`Popularity.plan`), ed è il motivo per cui
+    il modulo esiste: data la situazione, qual è la combinazione più economica di
+    **tassazione** e **guardia della Capitale** che raggiunge il livello voluto? Con la
+    formula chiusa dentro app.js quella domanda non si poteva fare, e i bot restavano a
+    Popolarità 1 per tutta la partita.
+  - **La trappola del turno 1** (verificata coi numeri): la Capitale nasce circondata da
+    neutrali, quindi `P_conf = 0`; con 5 soldati `P_guardia = 0` → Sicurezza **0**. Con
+    una sola strada il Benessere vale **1**. Tassa normale 3 → `(0+1+3)/3` = Popolarità
+    **1**, cioè −2 reclute e −2 risorse: un regno da 3 province raccoglie **zero** e non
+    ha più niente con cui rimediare. Ne esce chi tira due leve che costano quasi nulla:
+    **tassa leggera** (+2 sul terzo componente) e **guardia a 10** (`P_guardia` è a
+    scatti: 5 soldati = 0 punti, 10 = 5, il massimo — parcheggiarne 7 è mezza leva
+    sprecata, 12 sono due buttati). Le due leve **da sole non bastano** (2 e 2), insieme
+    più il primo campo di grano collegato fanno 3. Per questo `plan`, quando il target è
+    fuori portata, sceglie quel che **avvicina** di più (il `potential`, cioè il totale
+    non arrotondato) e non quel che costa meno: al risparmio le scarterebbe entrambe e
+    resterebbe nel pozzo per sempre.
+  - **Per l'umano la trappola resta**, ed è una scelta dell'utente: chi conosce le regole
+    ne esce in 3-4 turni, e il §8 non si tocca.
+  - `GameActions.setTax` è l'unico modo di cambiare tassazione (prima la scriveva il
+    click nella UI): non consuma la fase, vale in tutto il proprio turno, e da lì
+    arrivano gratis il salvataggio e il `prov` per il registro.
+  Due regole dell'utente dentro il calcolo:
+  - **Sicurezza**: nemica al confine della Capitale è **ogni provincia non tua**, terre di
+    nessuno comprese — sono presidiate e razziano, quindi contano come un regno.
+  - **Benessere**: *Risorse* = quanti **tipi diversi** di risorsa sono COLLEGATI (§4),
+    *Cibo* = quante province di **Grano/Bestiame** collegate, fino a 5. Si contano le
+    province, non la raccolta: il ±N di risorse della Popolarità non entra nel Cibo,
+    altrimenti il Benessere si nutrirebbe di sé stesso. *Sanità* e *Felicità* aspettano
+    le migliorie del §6.1 e valgono la baseline neutra `WELFARE_PENDING = 3`.
+    La rete di province collegate è quella di `GameActions.connectedOf`: chi ce l'ha già
+    la passa come terzo argomento, così non si rifà la BFS due volte per render.
+  - **LE ISOLE SI COLLEGANO VIA NAVE (§4, regola dell'utente)**: una provincia con una
+    tua **nave** si aggancia alla rete della raccolta se lo scafo **raggiunge un tuo hub**
+    (Città/Capitale) entro la sua portata (§9.2) — è così che la risorsa di un'isola entra
+    nel raccolto, visto che le strade richiedono un confine di TERRA e a un'isola non ci
+    arrivano. Basta che la nave veda un hub qualsiasi (scelta dell'utente), e l'hub dev'essere
+    su costa raggiungibile (come il porto-mercato del commercio d'oltremare, §7). La nave fa
+    **solo da arco**: resta ancorata, nessun carico — ma senza di essa l'isola non si
+    raccoglie. Il motore puro `GameRules.connected` accetta ora un 4º argomento `seaLinks`
+    (archi `{a,b}` nella stessa forma delle strade); li calcola `seaLinksOf` in
+    `connectedOf` (serve `E().ships`/`shipRange`/`seaReach`), l'UNICO punto, così plancia,
+    bot e obiettivi non divergono. Finché la griglia di `sea-routes.js` non è pronta
+    (~0,5 s) `seaReach` torna vuoto e l'isola risulta momentaneamente scollegata: si
+    ridipinge da sé quando la griglia arriva, come per gli sbarchi.
+- **SENZA CAPITALE RESTANO SOLO GLI UOMINI DELLE PROVINCE (regola dell'utente)**: un
+  regno che ha perso il seggio — o che non l'ha ancora costruito, al turno 1 — continua a
+  ricevere la leva della terra (**province ÷ 3**, §5.1) e **nient'altro**: niente monete,
+  niente raccolto (senza Capitale non c'è una rete a cui collegarsi, §4) e **niente
+  rinforzi di Città o Fortezza**, che nascono da un seggio che non c'è più. Prima non
+  arrivava assolutamente nulla e il regno decapitato restava fermo del tutto.
+  - La regola vive in **`KingdomStats.reinforcements`**, non solo in `turnProduction`,
+    perché quella è anche la formula che la **plancia mostra** nel cruscotto ("rinforzi
+    del prossimo turno"): se divergessero, il giocatore vedrebbe promessi dei rinforzi
+    che poi non arrivano.
+  - **La politica tace e si congela**: senza Capitale non c'è Popolarità da dividere, il
+    Consiglio non siede (`Politics.canIssue`) e il grado resta **dov'era** —
+    `politicsDrift` non scatta. Farlo scivolare verso l'Equilibrio mentre il regno è
+    decapitato sarebbe una decisione presa da nessuno, e il giocatore non avrebbe modo
+    di rimediare finché non ricostruisce il seggio.
+  - **Conseguenza al turno 1**: i regni non partono con una Capitale (la costruiscono per
+    500 monete), e `beginTurn` gira prima che la costruiscano — quindi al primo turno
+    ora arriva una recluta per ogni tre province invece di zero. La trappola del §8 si
+    ammorbidisce di quel tanto.
+- **POLITICA DEL REGNO (`js/politics.js`, §8-bis — regola dell'utente)**: chi sostiene
+  la corona fra la **nobiltà** (che dà appoggio militare) e i **lavoratori** (che danno
+  appoggio alla produzione). La Popolarità **non cambia e resta il motore**: decide
+  **QUANTO** il regno riceve. La politica decide soltanto **COME si divide** fra reclute
+  e raccolto. Modulo **puro** come popularity.js e objectives.js; muta solo
+  game-actions.js; disegna solo player-board.js.
+  - **Le due cose sono indipendenti, ed è il punto.** In una prima versione la politica
+    era una *fetta del bonus* di Popolarità: a Popolarità 3 il bonus è zero, non c'era
+    niente da affettare e tutti e cinque i gradi davano lo stesso risultato — la leva si
+    spegneva da sola al livello più comune della partita, e faceva confondere
+    "Popolarità 3" (regno tiepido) con "Equilibrio" (corona che non favorisce nessuno).
+    Ora lo **spostamento è sempre di uno** (`Politics.SHIFT`), qualunque sia la
+    Popolarità e qualunque sia l'intensità. La riga dell'**Equilibrio è il gioco di
+    oggi**, invariata: un salvataggio vecchio si apre a grado 0 e non si accorge di nulla.
+  - **I 5 gradi** (`player.politica`, da −2 a +2): Nobiltà forte · Pro-nobiltà ·
+    Equilibrio · Pro-popolo · Popolo forte. I simboli sono la **spada** dei signori e il
+    **martello** dei lavoratori, disegnati in SVG nella UI (`POL_GLIFI` in
+    player-board.js; il modulo porta solo il nome del glifo, come le pedine portano
+    quello del loro `<symbol>`). Il martello è **inclinato di 20°**: dritto sembra una T
+    maiuscola. L'Equilibrio è i due simboli **affiancati**, che si spiega da sé meglio di
+    una bilancia. Una falce era stata disegnata e scartata ("sembrava una scimitarra").
+  - **Il privilegio dei gradi estremi non è un numero più grande ma una cosa di natura
+    diversa** (`Politics.perks`): dai signori gli uomini vengono **a cavallo** (1
+    cavaliere ogni 2 turni, nel serbatoio `cavalieriDaSchierare`, solo dal ciclo II), dal
+    popolo arrivano **monete** (+100 a turno, i mercati fioriscono). Senza questo la terra
+    di un regno amatissimo avrebbe reso il **doppio di sé stessa** — era l'obiezione
+    dell'utente, ed è giusta. Il privilegio si **perde a ogni inizio ciclo**, perché il
+    ritorno fa scendere l'estremo a moderato: chi tiene una posizione radicale paga ogni
+    ciclo il buco fra l'inizio e il decreto che ce lo rimette. Non è una regola in più, è
+    una conseguenza del ritorno.
+  - **IL MALUS CHE UN CANALE NON PUÒ PAGARE TRABOCCA SULL'ALTRO** (`Politics.spill`): né
+    le reclute né il raccolto scendono sotto zero, quindi un regno da sei province (2
+    reclute) pagava "−5 reclute" e "−2 reclute" allo stesso modo, cioè tutto quel che
+    aveva. Senza il traboccamento la politica estrema era **gratis** proprio a Popolarità
+    1-2, cioè quando doveva costare. Verificato: con un regno da 2 reclute e 4 risorse di
+    base il totale ricevuto è **identico per tutti e cinque i gradi**, a ogni livello.
+    Chi applica l'effetto passa `base` a `Politics.effect`; chi vuole la tabella astratta
+    (la legenda del pannello) lo omette.
+  - **IL CONSIGLIO DELLA CORONA siede DUE volte per ciclo** (regola dell'utente), e ogni
+    seduta vale **un decreto solo**: l'**apertura** ai turni 1-3 stabilisce l'orientamento
+    del ciclo, la **straordinaria** al turno 7 si convoca per correggere la rotta. A ogni
+    inizio ciclo il grado **torna di un passo** verso l'Equilibrio (`drift`): i favori si
+    dimenticano, quindi i decreti servono anche solo a MANTENERE la politica che si ha.
+    Conseguenza voluta: tenere l'estremo consuma l'apertura e lascia la straordinaria
+    senza nulla da fare, quindi **il prezzo della posizione radicale non è in monete ma
+    nella libertà di reagire a metà ciclo**; chi sta al moderato al turno 7 ha ancora una
+    mossa. L'apertura vale anche nei **primi 3 turni di vita** di un regno nato per evento
+    (§Eventi), come la grazia dell'insediamento.
+  - **I DECRETI** (`Politics.DECREES`, 7): verso la nobiltà *Bandisci un torneo* (200
+    monete + 2 Bestiame), *Corvée per i signori* (+2 Pietra subito, ma una provincia non
+    raccoglie per il ciclo), *Concedi un feudo* (una provincia non raccoglie per il
+    ciclo); verso il popolo *Esenta dalle decime* (300 monete), *Apri i granai* (3 Grano),
+    *Affranca i servi* (−2 uomini, quella provincia rende +1 per il ciclo), *Carta di
+    franchigia* (una Città non paga tasse per 3 turni). Gli effetti di durata vivono in
+    `player.decretiAttivi = [{id, prov, fino}]` e li traduce `Politics.activeEffects` in
+    quel che `turnProduction` deve sapere (`bloccate`/`extra`/`esenti`), in una lettura
+    sola. **La Corvée non era gratis per caso**: nella prima versione era l'unico decreto
+    senza costo *e* che per giunta rendeva, e la simulazione mostrava la corona
+    pro-nobiltà spendere 200 monete in 50 turni contro le 900 di quella pro-popolo.
+  - **L'ASIMMETRIA FRA I DUE LATI È VOLUTA** (regola dell'utente): la strada verso i
+    signori costa **raccolto** (la risorsa scarsa), quella verso il popolo **monete** che
+    il regno rigenera — *"il popolo è la spina dorsale di ogni regno, e supportandolo alla
+    fine i costi rientrano e tutto migliora"*. La strada dei signori si ripaga in
+    **conquista**, non in economia: più uomini e cavalieri, e le province prese producono
+    per sempre. Chi ritrova questa asimmetria nei numeri **non la pareggi**: è il disegno.
+  - **Dove vive**: `setLaw` non esiste — l'unico mutatore è
+    **`GameActions.issueDecree(player, id, provId)`**, che non consuma la fase (come
+    `setTax`: un decreto si emana in qualunque momento del proprio turno). `beginTurn`
+    chiama in quest'ordine `politicsDrift` (idempotente per ciclo via `politicaTimbro`,
+    come `beginStamp` lo è per la produzione), `prunePolicyDecrees` (spegne gli scaduti e
+    quelli su province non più nostre) e poi `policyContext`, che passa tutto a
+    `turnProduction`. **`prepareGame` azzera la politica**, come azzera le fedi: è sul
+    calendario, quindi una partita che riparte dal turno 1 riparte dall'Equilibrio.
+  - **I cavalieri della nobiltà si schierano a parte**: `GameActions.deployKnight`,
+    gemello di `deploy` (stessa fase, stesso tetto d'impilamento, stesso ripensamento),
+    ma li posa come **cavalieri** (§Cavalieri) e non come fanti.
+  - **I bot** (`policyPlan` in bot.js, dentro la fase costruzioni): il grado voluto viene
+    dal **carattere**, non dal conto del turno — predone −2, espansione −1, opportunista
+    0, costruttore +1 — e l'estremo si cerca **solo con un regno contento** (Popolarità ≥
+    4), perché sotto non dà niente di più del moderato e costa un decreto in più ogni
+    ciclo. Poi si emana il primo decreto del verso giusto che si può pagare senza
+    intaccare `coinReserve`. **Va DOPO le costruzioni, non prima**: al turno 1 un regno la
+    Capitale non ce l'ha ancora quando comincia la fase (la costruisce lì), e senza
+    Capitale il Consiglio non siede — messo in testa alla fase il decreto non partiva mai
+    al primo ciclo.
+  - **«Il Consiglio si riunisce» è un POP-UP** (`showPendingCouncil` in player-board.js,
+    regola dell'utente): a inizio di ogni seduta — apertura e straordinaria — una
+    `Risiko.confirm` con **Apri la Corona** / **Più tardi**, **una volta per seduta**
+    (chiave `regno|ciclo|seduta`, quindi le due sedute del ciclo si annunciano entrambe),
+    gated da `ownsBoard`, e non se il decreto della seduta è già stato emanato. Dice anche
+    del **ritorno verso l'Equilibrio** (`player.politicaRitorno = {ciclo, da, a}`, scritto
+    da `politicsDrift`): prima c'era una pergamena a parte per quello, ma due finestre per
+    la stessa riunione erano una di troppo.
+    - **Se c'è un'altra finestra aperta riprova DA SOLO** (700 ms): chiudere una pergamena
+      non ridisegna la plancia, quindi "riprova al render dopo" lasciava il Consiglio muto
+      finché il giocatore non faceva un'altra mossa. Al turno 11 capita sempre — ci sono
+      le pergamene del Grande Scisma e degli eventi.
+    - **`Risiko.confirm` scrive `textContent`: NIENTE tag HTML.** Qui e in `polAskDecree` i
+      `<br>` e i `<b>` si leggevano come testo. Gli a capo sono `
+`, e `#ui-confirm
+      .uc-text` ha ora `white-space: pre-line` perché vengano rispettati.
+  - **La UI sta nel foglio 👑 Corona**, sotto la Popolarità (`renderPolitics`, disegnata
+    solo se il foglio è aperto, come gli obiettivi): un **asse** spada↔martello col segno
+    di dove sei (non sono bottoni: la posizione la spostano i decreti), i **numeri veri**
+    di quest'anno, e tre carte "se il Consiglio spostasse la corona" coi gradi vicini. Le
+    tessere dei decreti riusano la veste delle costruzioni (`.bp-tile`/`.bt-cost`, acceso
+    = fattibile, gettone rosso = quel che manca) e chi chiede una provincia usa quella
+    **selezionata**, come le strade. Il clic si prende per **delega** su `#bp-politics`,
+    perché il pannello si ridisegna in blocco con innerHTML.
+  - **Come si tara senza giocare cento turni**: `node scripts/politics-sim.js` stampa la
+    tabella degli effetti, controlla che il netto sia invariato, mostra la finestra del
+    Consiglio e mette a confronto quattro corone per cinque cicli. Il **prototipo
+    cliccabile** del pannello è `src/_diag-politica.html` (pagina di lavoro, git-ignorata
+    come le altre `_diag-*`), con stato d'avvio da URL: `?pop=5&turno=12&grado=-1`.
+- **Obiettivi di prestigio: il BINARIO STORICO (`js/objectives.js`, §10)**. Gli obiettivi
+  non sono tre righe fisse per (regno, ciclo): ogni regno ha un **binario**, la sequenza
+  dei capitoli della sua storia, e il binario **non è indicizzato per ciclo** ma per dove
+  il regno è arrivato nella PROPRIA storia (`player.capitolo`). **SI AVANZA IN OGNI CASO**
+  (regola dell'utente): a ogni ciclo il capitolo scorre di **uno**, che il precedente sia
+  stato compiuto o no — un capitolo **non si rifà mai e non si arretra mai**. Prima un
+  regno che non completava il Primario restava inchiodato allo stesso capitolo per
+  l'intera partita (la Francia bloccata su fr1, che chiede una costa mediterranea che può
+  non possedere): quel bug è chiuso. Col merito cambia **solo l'INTENSITÀ** con cui si
+  affronta il pezzo successivo — chi ha fatto bene lo prende al respiro pieno
+  (`avanzare`/`eccedere`), chi le ha prese lo prende a intensità minore (`resistere`), ma
+  lo prende. Una conseguenza resta (regola dell'utente): chi corre non trova obiettivi già
+  completati — riceve il pezzo di storia successivo, non un numero più grande a caso.
+  L'adattamento cambia il **passo** e l'**intensità**, mai il soggetto: il filone storico
+  guida tutto.
+  - **Un capitolo = tre voci** (Primario 5 · Secondario 3 · Terziario 2, il §10 intatto:
+    cap 10 per ciclo, handicap puro — i punti non scalano con l'ambizione, il prestigio
+    misura quanto bene hai giocato la TUA posizione, non quanto sei grande).
+  - **Ogni voce è un TEMPLATE + argomenti JSON**, non una closure. I 22 archetipi
+    (`regione`, `provincia`, `provCount`, `guarnigioni`, `oro`, `scorte`, `citta`,
+    `cittaRegione`, `navi`, `naviTipo`, `popolarita`, `benessere`, `tutti`…) coprono
+    tutti e 60 gli obiettivi del foglio e i capitoli lunghi. Ognuno dichiara una
+    `misura(ctx)` e il test è **sempre** `misura ≥ soglia`: è questa uniformità che
+    rende possibile generare, perché la stessa funzione che dice SE è fatto dice anche
+    DOVE SEI. I `SETS` si citano **per nome** (`{set:'IBERIA'}`), così un'assegnazione
+    si serializza e vive nel salvataggio; `hint` li risolve indietro e `bot.js` legge
+    gli stessi `Set` di prima — ma li legge da `ev.items[].hint`, **non** più da un
+    catalogo per nome di regno, che non esiste più.
+  - **Le tre INTENSITÀ** (`resistere` · `avanzare` · `eccedere`) sono lo stesso capitolo
+    a tre scale: l'autore scrive **tre ancore e un passo** per voce, e l'ancora
+    `avanzare` È il numero del foglio Obiettivi.xlsx. L'intensità è una **scala** e si
+    sale o si scende di un gradino per volta (col capitolo che avanza comunque, è l'unica
+    cosa che il merito muove): un gradino per volta consolida invece di far oscillare il
+    regno avanti e indietro.
+  - **La soglia** (`Objectives.soglia`) è tre vincoli insieme: mai sotto l'ancora
+    dell'intensità, mai già completata alla nascita (`misura + passo`), sempre dentro la
+    **banda** fra `resistere` e mezza volta `eccedere` — la banda è il guinzaglio
+    dell'autore, ed è lei a impedire che il generatore derivi lontano dal bilanciamento
+    tarato a mano. Il `+ passo` vale solo per quel che si **conquista o si costruisce**:
+    oro, scorte, Popolarità e Sicurezza sono livelli da **tenere**, e lì la soglia
+    arriva a dove sei e si ferma (se no un tesoro chiederebbe di non spendere mai e una
+    scorta di non costruire mai). Il passo si allunga col **ritmo** del ciclo scorso
+    (`Objectives.ritmoDa`, dalle province) e col gradino (`K_TIER`: al Primario si
+    chiede di fare meglio, al Terziario di reggere).
+  - **Il puntatore** è `Objectives.passo`, puro: avanza il capitolo di **uno** in ogni
+    caso (crollo compreso, dove scende solo l'intensità a `resistere`) e **MAI di più**
+    (regola dell'utente, cambiata due volte). Prima c'era uno scatto extra
+    (`Objectives.superato`, chiamato da `closeCycle`) che faceva SALTARE un capitolo
+    intero quando il regno l'aveva già superato — ma un capitolo con un **gancio
+    storico** non si può far sparire così, soprattutto se un **evento strutturato**
+    dipende proprio da quell'obiettivo (l'Inghilterra II raduna a Home Counties per la
+    `crociata-inglese` del turno 21: se il capitolo veniva saltato, la leva a cui
+    l'evento attinge non esisteva mai). `superato` è **rimossa**: il capitolo non è
+    più saltabile, punto — il numero del ciclo resta solo un freno sul ritardo
+    (`FRENO = 1`: il capitolo non può restare più di uno dietro il ciclo).
+    Un regno che ha corso non riceve il pezzo dopo: riceve lo **stesso** pezzo, reso più
+    duro. Due leve, entrambe in `Objectives.soglia`/`generate`:
+    - **La banda si allunga fino al tetto naturale** invece di ributtare il ratchet
+      sotto quel che il regno ha già (regola dell'utente: *"se ho già 6 uomini a Home
+      Counties l'obiettivo sarà radunarne 15, non 10 — non sparisce"*). Prima `hi` era
+      fissato a `eccedere × 1,2`: un regno con 25 uomini a Home Counties (ancora
+      `eccedere = 14`) si vedeva chiedere solo 17, cioè un obiettivo GIÀ fatto — un
+      premio gratis, non un traguardo. Ora `hi = min(tetto, max(lo, eccedere×1,2,
+      ratchet))`: la banda cresce quanto serve, e resta chiusa solo dal **tetto vero**
+      del template (una regione di 13 non può chiederne 15, la Popolarità si ferma a 5).
+    - **Il traboccamento di regione** (`arg.oltre`, risolto da `withOverflow` dentro
+      `generate`, PRIMA di calibrare le soglie): quando anche il tetto vero è già pieno
+      — la regione è tutta conquistata prima ancora che il capitolo nasca — l'obiettivo
+      non può alzarsi oltre quel tetto, quindi TRABOCCA in una regione storicamente
+      successiva che l'autore ha dichiarato. Una voce `regione` porta tre campi in più,
+      tutti richiesti insieme (senza un testo vero l'obiettivo parlerebbe della regione
+      sbagliata): `oltre` (il nome del SET nuovo), `testoOltre`/`checkOltre` (e
+      opzionalmente `titoloOltre`). Esempio vivo: Castiglia V («Granada cade», unifica
+      IBERIA) porta `oltre: 'MAGHREB'` — se la penisola è già intera, il capitolo parla
+      di spingersi oltre lo Stretto invece di certificare gratis un'Iberia presa da un
+      capitolo precedente. Un binario che non dichiara `oltre` su una voce non ne risente:
+      `withOverflow` la lascia intatta.
+    La **migrazione della partita in corso** vive in `ensureAssignment` (app.js): un
+    salvataggio nato sotto la vecchia regola, con un capitolo rimasto indietro, viene
+    portato avanti fin dove dovrebbe essere (`capitolo = max(capitolo, min(ciclo,
+    nCapitoli))`, mai indietro) e l'assegnazione rigenerata se il suo capitolo non
+    combacia.
+  - **Lo stato sul giocatore**: `capitolo`, `intensita`, `obiettiviCiclo`
+    (l'assegnazione in corso, serializzabile), `cicliStorico` (il registro di
+    performance su cui il puntatore si muove — non esisteva niente del genere,
+    `TURN_HISTORY` conserva solo i proprietari delle province), `obiettiviStorico`,
+    `obiettiviAvvisi`. Inizializzati in `normalizePlayer`, quindi persistono da soli.
+  - **Chiude il ciclo `GameActions.closeCycle`**, nel blocco `giroFinito` di `endTurn`
+    dopo eventi, scismi, razzie e rifornimenti. È l'unico punto che archivia e che muove
+    il puntatore. Prima lo faceva il **render** della plancia (`archiveCyclesIfNeeded`,
+    tolto): dipendeva da chi apriva il pannello e rivalutava i cicli passati sullo stato
+    di ADESSO invece di fotografare la fine del ciclo.
+    **Le assegnazioni si catturano PRIMA di `advanceGlobalTurn`** (`grabAssignments`):
+    da lì in poi il calendario è nel ciclo nuovo, e qualunque render che passi in mezzo
+    — un evento, uno scisma, una razzia ridisegnano tutti — farebbe rigenerare
+    l'assegnazione per il ciclo nuovo, cancellando le soglie con cui il ciclo che si
+    chiude era cominciato. È un bug vero, visto succedere: un ciclo archiviato col
+    numero sbagliato.
+    **Anche la SPUNTA si prende prima** (bug della Francia, 2026-10-19): `grabAssignments(chiuso)`
+    valuta gli obiettivi del ciclo che si chiude a mappa ancora intatta, PRIMA di
+    `applyEvents`. La Prima Crociata del turno 11 drena proprio gli uomini radunati
+    sulla costa che fr1 chiedeva: valutando dopo, la Francia perdeva Primario,
+    prestigio e leva per aver fatto quel che le era chiesto. Profilo e soglie del
+    ciclo nuovo restano calcolati dopo gli eventi, in `closeCycle`.
+  - **`Risiko.objectiveContext`** è il solo ponte fra stato e regole (app.js misura, il
+    modulo puro decide), e `objectivesFor` genera al volo se l'assegnazione manca —
+    salvataggi anteriori al binario, partite già in corso. `archiveObjectives` è l'unico
+    punto che tocca `puntiPrestigio`.
+  - **L'INGHILTERRA è stata il primo binario steso per intero** (capitoli I-VIII). La sua
+    forma è rimasta il modello: II **sbarca** in Francia
+    col raduno a Home Counties sotto (il continente resta leggero apposta — la guerra
+    vera è il IV), III **tiene** le Fiandre più una provincia di `FRANCIA`, IV
+    prende e difende l'Aquitania, V conquista **tutta l'Irlanda** con una Città (il
+    capitolo più caro, ed è la cerniera: è lì che l'esercito lascia il continente, non
+    per una regola che glielo impone) e mette da parte il legno del Veliero, VI-VIII
+    sono una cosa sola in tre tempi — costruire il Veliero, portarlo in America e
+    fondare, portarlo a oriente. Il *cosa* sta in `docs/BINARI_STORICI.md`, i numeri
+    solo in `objectives.js`. Due template nuovi vivono da qui: `naviTipo` (scafi di un
+    tipo solo — un Veliero non è una barca più grande) e `cittaRegione` (una Città
+    dentro una regione: quale provincia lo decide dove approda la nave, quindi il
+    capitolo non può nominarla). `naviTipo` chiede a `objectiveContext` la lettura
+    nuova `shipCountOf(kind)`, che legge `data-ships`.
+  - **Il traboccamento (`arg.oltre`) è esteso a otto regni**, non solo Castiglia: ogni
+    volta che un capitolo chiede di unificare/consolidare una regione ed è **l'ultima**
+    (o l'unica) occasione in cui quel binario la chiede a piena taglia, la voce porta
+    `oltre` più un `nOltre` calibrato a mano — MAI il tetto della regione nuova, quasi
+    sempre gli stessi numeri (abbassati di un gradino) che un **capitolo successivo dello
+    stesso binario** già chiede DAVVERO per quella regione (regola dell'utente: la
+    ponderazione conta più del meccanismo — non si passa da "2-3 province di Spagna" a
+    "tutto il Nordafrica", e non si chiede alla Germania 8 province italiane solo perché
+    ha già la sua massima estensione storica). **Riverificato riga per riga il 2026-09-22**
+    (i docs erano andati fuori sincrono col codice — vedi `docs/BINARI_STORICI.md` §"Un
+    capitolo non si salta mai" per la tabella completa con la voce esatta di ogni riga):
+    17 traboccamenti attivi su 7 regni, non 8 — **Castiglia, Emirato dei Mori e Inghilterra
+    non ne hanno nessuno**, contrariamente a quel che questo paragrafo diceva prima (le
+    coppie Castiglia ANDALUS→IBERIA/IBERIA→MAGHREB e Mori HOLY_LAND→ARABIA non sono mai
+    esistite nel codice). Applicato davvero: Francia (NORMANDY_FR→MED_FR a cap3,
+    →ITALIA_NORD a cap5), Sacro Romano Impero (ITALIA_NORD→ADRIATIC a cap3,
+    AUSTRIA_EST→PANNONIA a cap5 — **non** →BALCANI, e **nessun** GERMANIA→RENO/
+    GERMANIA→AUSTRIA_EST: quelle due non sono mai esistite), Polonia (POLONIA_EST→RUS_NORD
+    a cap2, RUTENIA→RUS_NORD a cap7 — **non** BALTICO→RUS_NORD a cap5), Kievan Rus'
+    (RUS_NORD→EST_RUSSO una sola volta a cap4, CAUCASO→PERSIA a cap5, RUTENIA→POLONIA a
+    cap6, BALTICO_NORD→BALTICO a cap8), Ungheria (ADRIATIC→BALCANI_OVEST a cap2,
+    PANNONIA→BALCANI a cap3, AUSTRIA_EST→ITALIA_NORD a cap5), Bisanzio (GREECE→BALCANI a
+    cap2, BALCANI_OVEST→PANNONIA a cap6 — Bisanzio **non** ne era priva, contrariamente a
+    quel che si credeva), Abbaside (PERSIA_OVEST→PERSIA_EST a cap2, PERSIA_EST→ARABIA a
+    cap3 — **non** MESOPOTAMIA→PERSIA a cap3, mai esistita).
+  - **Tutti e dieci i binari coprono ora i capitoli I-VIII** (regola dell'utente: la
+    storia vera di ogni regno, non solo il modello inglese). Castiglia, Francia, l'Emirato dei Mori,
+    Sacro Romano Impero, Polonia, Kievan Rus', Ungheria e Abbaside sono stati stesi seguendo
+    lo stesso principio dell'Inghilterra e di Bisanzio: **Secondario e Terziario non
+    ripetono il Primario a un numero più alto — preparano quello del capitolo DOPO**
+    (scorte di legno un capitolo prima di dover varare un Veliero, pietra prima di una
+    Fortezza o di una Città, oro prima di una spedizione o di una guerra costosa), e
+    Popolarità/Sicurezza/Benessere ricorrono a intervalli regolari per lo stesso motivo
+    dell'inglese: sono le uniche voci che un regno perde davvero mentre fa la guerra.
+    Il *cosa* di ogni capitolo sta in `docs/BINARI_STORICI.md`, i numeri solo in
+    `objectives.js`. Tre template nuovi servivano ai capitoli tardi: `fede` (vocabolario
+    `converti` — quante province di una regione sono ADESSO della tua famiglia di fede di
+    stato, per conquista o scisma: **solo gli Abbasidi VI** la vivono davvero come
+    CONSEGUENZA dei Safavidi con questo template (`ab6-1`, combinato con `cittaCount`); il
+    Sacro Romano Impero VI, riverificato il 2026-09-22, **non usa `fede`**: le sue tre voci
+    sono `cittaRegioneCount(IMPERO_CENTRO)`/scorte di pietra/`tipiCollegati` — il titolo «La
+    fede spezzata» resta un titolo, non (ancora) un meccanismo),
+    `capitale` (presidia la Capitale ovunque sia ADESSO — **Ungheria VI** (Primario),
+    **Bisanzio VIII** e **Francia IV** (Secondari) — non Polonia VIII: riverificato il
+    2026-09-22 con un giro completo su `Objectives.BINARI`, `po8` non lo usa mai — perché
+    la Capitale si costruisce, si sposta e si conquista e un capitolo non può nominare una
+    provincia fissa) e `fortezza`/`fortezze` (possiedi una / N Fortezze: l'ultima difesa di
+    un binario che finisce sotto assedio, spesso combinato con `capitale` via `tutti`), più
+    `cittaCount`/`cittaRegioneCount` (QUANTE Città, non «una Città»). Regioni condivise fra
+    coppie di regni per raccontare la stessa guerra da due lati — Inghilterra/Francia su
+    `NORMANDY_FR` (i Cent'Anni), Sacro Romano Impero/Francia su `ITALIA_NORD` (le guerre
+    d'Italia), Polonia/Kievan Rus' su `RUTENIA` (non `BALTICO`, che nessuno dei due usa
+    come base: è solo la meta finale del trabocco di Kievan Rus' VIII).
+  - **LA SCALA DELL'AMBIZIONE** (regola dell'utente): *"un obiettivo del ciclo 6 o 7 non
+    può essere una conquista che era fattibile già nei primi cicli"* — l'esempio era il
+    Maghreb dei Mori, due province che confinano con l'Egitto, chieste al ciclo VII.
+    La scala sta scritta in testa a `BINARI` in `objectives.js`: I-II la propria terra ·
+    III-IV la regione confinante · V un teatro intero · VI il primo **cancello di spesa**
+    (Veliero, Fortezza, la seconda o terza Città — quel che i primi cicli non potevano
+    permettersi) · VII-VIII quel che può fare solo un impero (teatri lontani per mare, più
+    Città o Fortezze insieme). Lo strumento è il combinato `tutti`: al VII non si chiede
+    «quella regione» ma «quella regione **e** una Città dentro».
+    - **Il capo del combinato dev'essere la parte SENZA tetto.** Una regione che possiedi
+      già è un `tetto`: la soglia non può crescerci sopra e l'obiettivo nasce **già
+      compiuto**. Quel che scala senza limite sono gli insediamenti da costruire, quindi
+      nei capitoli «tieni quel che hai» il capo è `fortezze`/`cittaCount` e la regione sta
+      fra le richieste fisse, non viceversa. Misurato: con un regno che ha la sua regione
+      d'origine più il teatro vicino, 3 Città e una Fortezza, i primari dei cicli VI-VIII
+      già compiuti alla nascita sono passati da **9 su 30 a 0 su 30**.
+  - **UN CAPITOLO NON PUÒ POGGIARE SU UN EVENTO** (regola dell'utente): *"non usare
+    l'invasione dei mongoli come pretesto centrale per gli obiettivi, perché non è detto
+    che i mongoli arrivino davvero in tempo"*. L'Orda nasce al turno 21 ma deve
+    attraversare mezzo mondo, e se il posto dove dovrebbe comparire è occupato non nasce
+    affatto: un capitolo che chiedesse di fermarla sarebbe compiuto o impossibile per
+    ragioni che non dipendono dal giocatore. I capitoli difensivi chiedono perciò quel che
+    il giocatore **controlla** — presidiare i confini, tenere unito il regno, erigere una
+    Fortezza — e il testo **non nomina mai** un invasore che potrebbe non presentarsi
+    (rinforzare i confini va bene; «resisti all'Orda» no). Vale per ogni potenza che il
+    gioco non mette sulla mappa (Ottomani, Ilkhanato, Timuridi): al più danno il NOME a un
+    capitolo, mai la sua condizione di vittoria. Undici capitoli sono stati riscritti per
+    questo — l'elenco con i titoli vecchi e nuovi è in `docs/BINARI_STORICI.md`. Le
+    **crociate** restano nominate: quell'evento sbarca dritto sulla sua meta invece di
+    attraversare il mondo, e quegli obiettivi chiedono comunque una cosa che dipende dal
+    giocatore (radunare un'oste, possedere N province), non che la crociata riesca.
+  - **Un Terziario non è un obiettivo vecchio rifatto** (regola dell'utente): chiedere al
+    capitolo V «9 province britanniche» a chi al I ne doveva prendere 7 non chiede niente.
+    Il contrappeso a un secolo di guerra sono **Popolarità e Benessere**, e vanno messi
+    **spesso** — sono le sole voci che un regno perde davvero mentre conquista. Perciò
+    esiste il template `benessere` accanto a `popolarita`/`sicurezza`: è la componente
+    del §8 che **non** si compra con la guardia (sale solo collegando risorse e cibo, §4),
+    e `objectiveContext` la espone come `benessere()` leggendo `Popularity.score`. Nel
+    binario inglese ricorrono a III (Popolarità), V e VIII (Benessere). Il `hint`
+    `{welfare:n}` entra in `objectivePopTarget` di `bot.js` come gli altri due.
+  - **IL CAPITOLO II È TARATO A MANO** (regola dell'utente, ritaratura della partita in
+    corso al turno 10): le trenta voci portano `fisso: true` — la soglia è `n.avanzare` a
+    ogni intensità, **senza** calibrazione (`soglia` esce subito), così un «difendi Aleppo
+    con 8» resta 8 anche dopo una crociata che ne sbarca 11. Template nuovi:
+    `regioneSenzaFede` (Castiglia: nessuna provincia musulmana in IBERIA, chiunque la tenga),
+    `migliorie` (§6.1 attive sulla Capitale, `ctx.welfareBuilt`), `naviRegione` (una nave
+    ormeggiata in un elenco di coste — `MED_BIZ` esclude Eastern/Northern Thrace, Bulgaria e
+    Hudavendigar, il cui approdo misurato cade sul Mar Nero), `fuoriRegione` (province fuori
+    dalle isole). `nDa(ctx)` su una voce dà ancore che dipendono dal ciclo prima, letto con
+    `ctx.cicloFatto(ciclo, posizione)` dallo storico che closeCycle archivia PRIMA di
+    generare (Abbasidi: 4 tipi collegati, 3 se il Terziario del ciclo I è mancato).
+    Dettaglio in `docs/BINARI_STORICI.md`.
+  - **Un regno senza binario** (Selgiuchidi, Portogallo, Bulgaria, Norvegia, Svezia,
+    Orda: nascono per evento) resta senza obiettivi, senza rompere niente. Il pool
+    condiviso di riscossa che li raccoglierà non c'è ancora.
+  - **Quel che il puntatore NON risolve**, ed è voluto saperlo: un regno ridotto a una
+    provincia continua a prendere zero. Le soglie scendono fino al pavimento
+    dell'autore, ma «unifica l'isola» resta impossibile per chi ha perso l'isola — non è
+    il numero a essere sbagliato, è l'obiettivo. Servono le **deroghe** (raggiungibilità,
+    binario tematico, pool di ultima spiaggia), che sono il pezzo successivo.
+  - **Come si tarano le curve senza giocare cento turni**: `objectives.js` esporta
+    `module.exports`, quindi gira in Node: `node scripts/binari-sim.js "Regno di
+    Castiglia"` simula tre regni — uno che corre, uno che arranca, uno che crolla —
+    per dieci cicli e stampa capitolo, intensità e le tre
+    soglie generate. È così che si è vista l'oscillazione dell'intensità, che in partita
+    sarebbe costata decine di turni per accorgersene.
+  - **LA LEVA: un obiettivo compiuto vale UOMINI** (regola dell'utente). Il prestigio è una
+    promessa lontana — e oggi per giunta sospesa — quindi un obiettivo paga **subito**, in
+    soldati: tanti uomini quanti erano i suoi punti (5 · 3 · 2, al massimo **10 per ciclo**),
+    versati nelle **reclute libere** e schierabili dal **primo turno del ciclo successivo**
+    (le libere si sommano e non scadono, quindi basta versarle a fine ciclo). È un handicap
+    come il punteggio: dieci uomini sono mezzo ciclo di reclutamento per un regno da sei
+    province, un'inezia per chi ne ha trenta.
+    - Il **conto** è puro (`Objectives.leva(snap)`, `LEVA_PER_PUNTO`); a **versare** gli
+      uomini è `GameActions.closeCycle`, dentro la stessa guardia che archivia il ciclo —
+      così non si paga due volte. **Non** in `archiveObjectives` (app.js): quella la chiama
+      anche la migrazione dei salvataggi vecchi, e un ciclo ricostruito a posteriori non ha
+      mai versato uomini a nessuno; closeCycle timbra la leva sul record che archiveObjectives
+      restituisce (`rec.leva`, per lo storico della plancia).
+    - **IL RECORD DI RIPIEGO NON FA DA TAPPO** (bug segnalato dall'utente: la leva non
+      arrivava mai). Fra `advanceGlobalTurn` e `closeCycle` passano eventi, scismi e
+      razzie, e più d'uno **ridisegna**: il render della plancia rivaluta gli obiettivi
+      (`Risiko.objectivesFor` → `ensureAssignment`), vede il calendario già nel ciclo
+      nuovo e **archivia d'ufficio** quello appena chiuso con `backfillCycles` — la
+      migrazione dei salvataggi vecchi, che uomini non ne versa a nessuno. Quel record
+      provvisorio faceva poi scattare la guardia "ciclo già archiviato" di closeCycle e
+      **la leva non veniva pagata**. Adesso i record di backfill si riconoscono
+      (`rec.backfill`, scritto da `archiveObjectives(player, snap, true)`) e closeCycle
+      **li butta** — punti di prestigio compresi — prima di archiviare la fotografia vera.
+      Chi aggiunge un'altra strada che archivia un ciclo passi di lì: l'unico punto che
+      chiude un ciclo davvero resta closeCycle. (Non si vede a bassa attività: senza
+      scismi e senza province conquistate da riallineare `applySchisms` non ridisegna, e
+      il tappo non nasce — in partita vera nasce quasi sempre.)
+    - **I bot la incassano gratis**: `deployPlan` legge lo stesso serbatoio
+      `recluteDaSchierare`. Nessun ramo `if` in `bot.js`.
+    - **Non compaiono di nascosto**: `player.obiettiviAvvisi` (il canale c'era già,
+      inizializzato e mai usato) e `showPendingLeva` in player-board srotolano la pergamena
+      *"La leva risponde alla corona"* all'apertura del primo turno del ciclo nuovo, **ultima**
+      della fila delle pergamene (evento, editto, naufragio, commercio, patto, manutenzione).
+      Nel foglio 👑 la riga `.bo-leva` dice quanti uomini valgono gli obiettivi **già**
+      compiuti; lo storico segna la leva incassata a ogni ciclo.
+- **Prestigio, regole vive (2026-09-21)**: un solo contatore permanente
+  `player.puntiPrestigio` (mostrato in cima al foglio 👑 Corona da `renderObjectives`).
+  Tre sole fonti (regola dell'utente): **obiettivi del ciclo** (Primario 5, Secondario 3,
+  Terziario 2 — versati da `archiveObjectives` in `closeCycle`); **+1** quando si conquista
+  una **Capitale nemica** (`applyBattleOutcome`, ramo `hadEnemyCapital`, adozione o
+  declassamento è indifferente; il rapporto di battaglia lo mostra via `res.prestigio`);
+  **−1** quando si **rompe un'alleanza** (`breakPact` → `Diplomacy.BREAK_PRESTIGE = 1`,
+  solo `alleanza`/`alleanzaTempo`; i patti leggeri sono gratis, `costsPrestige`). Rimossi:
+  il malus/bonus da Popolarità (`popEffectOf` non ha più il campo `prestigio`), il campo
+  per-ciclo `prestigioCiclo`, i "Punti d'Oro" e la conversione a soglia 10, il vecchio
+  cruscotto `#bp-prestige-block` in `play.html` e la funzione `renderPrestige` in
+  `player-board.js`.
+- **Guardare l'IA non deve costare niente.** Due regole, tutte e due imparate sul
+  campo:
+  1. **Nessuno muove la telecamera tranne il giocatore.** `fitToProvinces` non si
+     chiama più da solo: né sugli attacchi dell'IA, né su quelli del giocatore, né
+     sulla fondazione di una città. Resta solo sul bottone ↺ del rapporto di
+     battaglia (lì l'inquadratura la chiede l'utente) e sul primo ingresso nel
+     proprio regno. La **scena** della battaglia (`playBattleFx`) invece si vede
+     sempre, anche quando attacca l'IA: disegna dove le province già stanno e non
+     sposta niente. Quello che l'IA fa si legge nel **registro** (`#bp-ailog`,
+     `aiLog` in `player-board.js`).
+  3. **Il racconto rispetta la nebbia.** Registro e scena della battaglia mostrano
+     solo azioni che toccano una provincia **visibile**: sotto nebbia il giocatore
+     non deve sapere che un regno dall'altra parte del mondo ha schierato truppe o
+     conquistato qualcosa. La verità sta in `Risiko.isVisible(provId)` /
+     `Risiko.visibleProvinces()` (null = nessuna nebbia → editor o vista generale
+     🌍), aggiornata da `refreshMapDisplay`. Perché funzioni, **ogni azione dice
+     dove è successa**: i risultati di `game-actions.js` portano `prov` (o `provs`,
+     o `fromId`/`toId`). Chi aggiunge un'azione nuova ci metta la provincia, o
+     quell'azione diventerà invisibile — o peggio, una spia.
+  2. **`refreshMapDisplay` gira dopo OGNI azione**, quindi anche dopo ogni mossa
+     di ogni bot: deve restare sui ~20 ms. Costava **1 secondo** perché dentro il
+     ciclo sulle province faceva due `querySelectorAll` sull'intero SVG per
+     trovarne i marker (1256 query a refresh). Ora l'indice dei marker si costruisce
+     in una passata (`markerIndex`) e il ciclo tocca solo `provincePaths()`. Chi
+     aggiunge roba lì dentro non ci metta selettori: si passa dall'indice.
+- **VISTA SEMPLICE DA TELEFONO (regola dell'utente: un turno "semplice e veloce" anche dal
+  telefono)**. Non è un'altra pagina: stesso `play.html`, stesso motore, la classe
+  `body.mobile-lite` cambia solo cosa si vede (blocco in coda a `board.css`). La accende
+  `applyLite` in `player-board.js` quando `liteQuery` (`max-width: 820px` oppure touch fino a
+  1024px) combacia; la scelta a mano (menu ⋯ → 🖥 Versione completa, e 📱 Vista semplice
+  nella barra della completa) sta in `localStorage` `risiko_lite` (comodità di chi guarda).
+  - **Cosa si gioca**: Schiera, Costruisci, Attacca, Sposta, Fine turno — più la **Capitale
+    al primo turno**. Diplomazia, mercato, spie, chat e spedizioni restano alla completa
+    (dock e fogli 🕊/⚖/💬 non si raggiungono). Gli attacchi in lite sono solo via terra
+    (`attackVessel` resta null).
+  - **Costruzioni = cassetto 🔨** (richiesta dell'utente): in fase Costruisci la barra offre
+    "🔨 Costruzioni" (`toggleLiteBuild`, stato `liteBuild`), che accende `body.lite-build`:
+    il **pannello del turno della completa** (`#board-right`) torna visibile come cassetto
+    in fondo alla mappa (max 66%), ridotto a cruscotto compatto + provincia selezionata +
+    tessere/strade/demolizioni (`renderSelected`). Niente codice di costruzione duplicato:
+    stesse tessere, stesso `GameActions.build`. Aperto senza una provincia propria
+    selezionata parte dalla Capitale; si chiude da solo fuori dalla fase (`liteBuild=false`
+    in `renderLite`). Cartelle delle fasi, spie, elenco province e Avanti del pannello sono
+    nascosti nel cassetto (CSS `body.mobile-lite.lite-build`).
+  - **Popolarità e obiettivi = foglio 👑**: il bottone `#board-lite-crown` della barra in
+    alto apre il foglio Corona (`showSheet('corona')`) a tutta scena, una colonna che
+    scorre. È l'unico foglio del dock raggiungibile da telefono.
+  - **`#lite-bar`** (in fondo a `#board-shell`): fase, una riga di cosa fare, scorciatoie e
+    `#lb-next` (Avanti / Fine turno, lo stesso `advanceOrEnd` del bottone della colonna). La
+    disegna `renderLite`, chiamata in `render()` DOPO `syncMapOrders` (così il retino
+    della Capitale da fondare non viene cancellato).
+  - **Scorciatoie di schieramento**: `GameActions.autoDeploy(player, 'confini'|'capitale')`,
+    estratto da `autoPlayTurn` (il pezzo comune è `distributeFree`): solo lo schieramento,
+    il turno resta aperto e le reclute restano ritirabili (`placedAt`).
+  - **Capitale**: `Bot.suggestCapital(player)` (wrapper esportato di `siteFor('capitale')`,
+    cioè `capitalScore`) propone il posto; selezionare un'altra provincia propria lo cambia;
+    la conferma porta la fase a Costruisci se serve e chiama `GameActions.build`.
+  - **Cursori**: il −/+ di schieramento resta sulla provincia (bottoni da 46px, nascosto
+    mentre si sceglie la Capitale); il cursore d'ordine sta fermo in fondo alla mappa, largo
+    quanto lo schermo (`placeOrderHud` non lo insegue in lite). La guida del primo turno ha
+    passi propri (`buildLiteTourSteps`) e il fumetto senza bersaglio va in alto, perché in
+    fondo c'è la barra.
+  - Il menu ⋯ (`#lite-menu`) contiene suono, guida, versione completa e la preferenza
+    delle 6h: `#board-auto` vi viene SPOSTATO (non copiato) da `applyLite`.
+  - **Sul telefono ci si va anche con la versione completa** (menu ⋯ → 🖥): diplomazia, mercato e
+    chat stanno solo lì. Due trappole, costate una segnalazione ripetuta ("non scorre"): (1) la **barra
+    in alto** è una riga da ~1800px e, se allarga la pagina, il dito sposta la pagina invece di scorrere
+    il foglio sotto: da telefono scorre di lato per conto suo (`#board-topbar`, `overflow-x: auto`);
+    (2) a scorrere è il **corpo del foglio** (`.sheet-body`), compresi i fogli a colonna sola, e **niente
+    `:has()` nelle liste di selettori di queste regole**: un browser che non lo conosce scarta la regola
+    intera. Lo scorrimento si prova col dito (`Input.dispatchTouchEvent` via Puppeteer, viewport
+    `isMobile`/`hasTouch`): `scrollTop` assegnato da script funziona anche dove il dito non scorre, e
+    `synthesizeScrollGesture` in headless non muove nemmeno uno scroller di prova.
+  - **La legenda dei confini (`#map-border-key`) da telefono è piccola e sta solo a mappa nuda** (regola
+    dell'utente): `syncBorderKeyCover` accende `.covered` con un foglio, i costi, la colonna del turno o
+    il cursore d'ordine aperti. Soglia uguale a `liteQuery`. Nella vista semplice resta nascosta del tutto.
+- **Navigare la mappa: mouse E dito** (regola dell'utente). `wireMapZoom` gestisce rotella +
+  trascinamento col mouse e, su telefono/tablet, **un dito trascina e due dita pizzicano lo
+  zoom** (handler `touchstart/move/end` sul wrapper). `touch-action: none` su `#map-wrapper`
+  (style.css) toglie al browser scroll e zoom della pagina; un tocco senza movimento resta un
+  click (selezione), dopo un pan il click successivo si sopprime come col mouse. Nessun
+  overlay deve stare sopra la mappa con `pointer-events` attivi, o la si congela.
+- **Zoom e pan devono restare fluidi** (`wireMapZoom` in `app.js`). Cambiare `viewBox`
+  obbliga il browser a ridisegnare la mappa a una risoluzione nuova: tutto ciò che è
+  un **filtro SVG** viene rifatto da capo a ogni tacca di rotella, e ne servono ~29
+  per attraversare l'escursione di zoom. Da qui tre regole:
+  1. Durante una gesture il `viewBox` si riscrive **una volta per frame** (`applySoon`,
+     coalescing su `requestAnimationFrame`), non una per evento. Chi inquadra a
+     comando (fit, reset, insets) usa invece `apply()`, che è sincrono.
+  2. Mentre la mano si muove l'SVG porta la classe `.map-interacting` e l'alone
+     costiero sparisce (regola in `style.css`); torna 140 ms dopo l'ultimo movimento.
+     Sono 628 path clonati dentro due sfocature: è il pezzo più caro della scena.
+  3. **Niente filtri SVG su superfici grandi.** Se serve un effetto steso su tutto il
+     fondale si cuoce in un bitmap una volta sola e si ripete con un `<pattern>`
+     (vedi la grana in `map-decor.js`), non lo si lascia ricalcolare al browser.
+- **Vista generale della plancia**: il bottone 🌍 in `play.html` chiama
+  `Risiko.focusPlayer(null)` — niente focus, niente nebbia, si vede tutta la mappa e si
+  guardano giocare i bot. Non dà permessi: le azioni restano quelle del proprio regno nel
+  proprio turno.
+  - **In vista generale si vede SOLO la mappa** (scelta dell'utente): entrando,
+    `syncPanelsForSpectate` in `player-board.js` chiude il foglio aperto, il pop-up dei
+    costi e la colonna del turno, e spegne i confini segnati (non c'è un "tuo" confine
+    da marcare senza focus). La barra in alto **resta**: è da lì che si torna al regno e
+    si cambia la velocità dell'IA. Uscendo, la colonna del turno torna **come stava**
+    (`rightBeforeSpectate`), così rientrando non si riapre quel che era chiuso a mano.
+- **Dove si posano pedine e navi (`js/map-anchors.js`)**: il centro del bounding box
+  NON è un punto della provincia — su Messico, Norvegia, Cile e su ogni forma a
+  mezzaluna cade in mare o dentro il vicino. `MapAnchors.landAnchor(path)` cerca il
+  punto più *profondo* (il più lontano dal bordo) fra i candidati che stanno davvero
+  dentro il poligono e restituisce `{x, y, r}`, dove `r` è il raggio libero: chi
+  disegna una fila la stringe dentro quel raggio. `MapAnchors.seaAnchor(path)` fa
+  l'equivalente in acqua per le navi: prende i punti di bordo la cui **normale
+  uscente** porta in acqua, li spinge al largo e sceglie il più vicino alla provincia
+  fra quelli con abbastanza acqua libera intorno; se al largo è tutto terra (Baltico,
+  Adriatico, Manica) si riaccosta alla riva invece di rinunciare. "È acqua?" si chiede
+  a **tutte** le province tramite un indice per bounding box (`landIndex`), non ai soli
+  vicini di terra: era da lì che le navi finivano sopra una provincia non confinante.
+  - **I laghi non sono mare** (scelta dell'utente): niente navi sul lago Ciad, sui laghi
+    finlandesi, sui Grandi Laghi o nella fessura fra due province mal ritagliate. Il
+    discrimine è la **stazza** dello specchio d'acqua: `waterIsSea` allaga (BFS) la
+    macchia d'acqua su una griglia di `WCELL` e si ferma appena supera `SEA_CELLS` celle
+    — chi arriva al tetto è mare, chi si chiude prima è lago. Il verdetto vale per tutte
+    le celle visitate, quindi ogni specchio d'acqua si paga una volta per l'intera
+    mappa. Da qui discende `isCoastal`: **costiera = ha un approdo vero**, ed è la
+    stessa risposta che usa `canPlacePiece` per accettare o rifiutare una nave. Con le
+    soglie attuali il Caspio passa per mare (è grande) e i Grandi Laghi no: se serve
+    cambiare, si tocca `SEA_CELLS`, non si aggiungono elenchi di eccezioni.
+  - **Il LATO dell'ormeggio** (regola dell'utente): `SEA_SIDE` in `map-anchors.js` dice a
+    certe province su due mari da che parte varare le navi. Oggi Thessalia, Attica e
+    Peloponnese ormeggiano sul lato **egeo/mediterraneo** (normale uscente verso est,
+    `nx > SIDE_MIN`), mai sulla costa occidentale della penisola. Se nessun punto di costa
+    guarda da quella parte vale la regola di sempre. È solo il posto del disegno: la
+    portata (§9.2) si misura dalla provincia.
+  - **Anticollisione**: ogni approdo assegnato si registra in `svg.__seaSpots` con il
+    proprio ingombro; i successivi preferiscono i punti liberi e, se il posto migliore è
+    comunque occupato, `shiftAway` scivola al largo o lungo la costa finché le navi non
+    si sovrappongono più. Nei mari stretti lo zero non esiste e si tiene il meno peggio.
+  Tutto è memoizzato sull'elemento `<path>` e ricalcolato solo al ricaricamento della
+  mappa. Verifica: `http://localhost:5500/_diag-anchors.html` disegna gli ancoraggi di
+  tutte le province (verde = dentro, rosso = fuori, blu = approdo) e conta gli errori;
+  `?zoom=Provence`, `?only=Mexico,Sonora`, `?pieces=1` per guardare le pedine vere.
+- **Elenco province = `provincePaths()`**: l'alone costiero di `map-decor.js` è un clone di
+  `#map-group` con gli id rimossi ma con la stessa classe `state`. Chi cerca le province
+  con `querySelectorAll('path.state')` prende anche quello: prima finiva nel grafo dei
+  confini come nodo `""` confinante con tutto il mondo. Usa `provincePaths()` (app.js) o
+  `Risiko.engine.allPaths()`, mai il selettore crudo. Il seed iniziale in `initMap`
+  usava ancora il selettore crudo e ridipingeva di sabbia i 628 path dell'alone: si
+  vedeva solo togliendo la feColorMatrix del filtro. Se aggiungi un ciclo sulle
+  province e l'alone cambia colore, hai trovato lo stesso errore.
+  `provincePaths()` è **memoizzata** (la query costava ~1,5 ms e gira decine di volte
+  per clic) e restituisce una copia: chiamarla spesso non costa più niente.
+- **I confini di terra sono geometrici, con un elenco di ECCEZIONI** (regola
+  dell'utente, 2026-10-17: "Posen e Mazovia non confinano"). `computeNeighborGraph`
+  dichiara confinanti due province se i loro vertici di bordo cadono in celle vicine
+  di una griglia da 0,32 — cioè fino a ~0,8 unità di distanza. Così passavano per
+  confini due difetti: le **punte** che si sfiorano in un incrocio a quattro (Posen–
+  Mazovia, i Four Corners americani…) e le **briciole** di Tabriz (sotto-tracciati di
+  area zero sparsi dentro Urmia, Diyarbakir, Mosul, Erzurum). `landNotAdjacent()` in
+  app.js le toglie da `NEIGHBORS_LAND` (33 coppie, ognuna guardata sulla mappa), e
+  da lì Sicurezza (§8, nemiche al confine della Capitale), nebbia, attacchi,
+  spostamenti, strade e bot si ricalcolano da soli. **Gli stretti** (Gibilterra,
+  Messina, Bosforo, Kerch, Corsica–Sardegna, Øresund…) restano confini di terra: sono
+  una scelta di gioco ancora da fare, non un errore di disegno. Come si trova un caso
+  nuovo: non basta la distanza fra vertici (le briciole sono a 0,04) — si controlla
+  che entrambe le province siano davvero **riempite** (`isPointInFill`) attorno ai
+  punti di contatto, poi si guarda a occhio.
+- **Lentezza segnalata dai giocatori (2026-10-02), tre rimedi da non perdere**: la cache
+  di `provincePaths()` qui sopra; i **fogli del dock si disegnano solo se aperti** (in
+  `render()` di player-board: obiettivi, regni, registro IA, araldi, commerci — chi
+  aggiunge una sezione a un foglio la mette dietro lo stesso controllo su `openSheet`);
+  e durante zoom/pan `.map-interacting` spegne l'antialiasing dei bordi delle province
+  (`shape-rendering: optimizeSpeed !important`, style.css): il contorno era la voce più
+  cara di ogni frame.
+- **Mai `window.confirm`/`alert`**: nel pannello d'anteprima (e in iframe sandboxati) il
+  browser chiude d'ufficio il dialogo nativo e `confirm()` torna sempre `false` — l'azione
+  non parte e sembra un bug del gioco. Usa `Risiko.confirm({title, text, ok, tone}, onYes)`
+  (`askConfirm` in `app.js`), che è DOM nostro.
+- **Scena della battaglia**: `Risiko.playBattleFx(info)` in `app.js` disegna l'attacco
+  sulla mappa (carica, impatto, scossa, numeri dei caduti) usando l'oggetto che
+  `GameActions.attack` restituisce; il CSS sta in `style.css` ed è disattivato da
+  `prefers-reduced-motion`. Il rapporto di battaglia nel pannello destro è
+  `renderBattle()` in `player-board.js`. **La scheda è OPZIONALE e non si apre mai da
+  sola** (regola dell'utente): `#bp-battle-title` è un pulsante ("▸/▾ Ultima battaglia —
+  vinta/persa") che appare solo se c'è una battaglia da rivedere, e il riquadro
+  `#bp-battle` resta chiuso finché non lo si apre (stato `battleOpen`, che `run()` azzera
+  a ogni nuova battaglia — non deve saltare fuori). La **scena** sulla mappa
+  (`playBattleFx`) invece parte sempre: è l'azione, non un rapporto.
+  - **La scena si deve VEDERE, e l'esito arriva DOPO** (regola dell'utente). I tempi
+    stanno in **un posto solo**, `BATTLE_FX_MS` (5,2 s) + `BATTLE_FX_SETTLE` (0,9 s di
+    respiro) in `app.js`, esposti come `Risiko.battleFxBusy()` / `Risiko.battleFxMs()`:
+    chi mostra un pop-up dopo una battaglia **chiede**, non indovina un numero suo. Le
+    misure CSS in `style.css` (carica 1 s, scossa 0,7 s, caduti 2,5 s) sono l'altra metà
+    degli stessi secondi — chi tocca l'una guardi l'altra o le due si sfasano.
+    Nell'ordine: carica (tre lame sfalsate, non una), impatto a 1 s, caduti a 1,25 s,
+    verdetto **staccato** a 1,75 s. Il messaggio in basso (`showNotice`) esce col
+    verdetto, non col click: prima diceva com'era finita mentre le lame correvano ancora.
+  - **Una presa appena fatta non apre la modale al primo render**: `attack()` salva e
+    ridisegna la plancia **prima** di restituire il risultato, quindi in quel render la
+    scena non è ancora partita e `battleFxBusy()` direbbe di no. `showConquestPrompt`
+    (player-board) lascia passare un battito (`conquestSeen`) e ricontrolla: a quel punto
+    aspetta la fine della scena come deve.
+- **Il suono della battaglia (`js/audio.js`, richiesta dell'utente)**: appena l'attacco è
+  commissionato si sentono le **urla**. `playBattleFx` chiama
+  `RisikoAudio.battleCry({scala})` con la scala presa dagli uomini impegnati: è l'unico
+  aggancio, quindi vale anche per gli attacchi dei bot e per il ↺ del rapporto.
+  - **Niente file audio**: il grido è sintetizzato con WebAudio, come la grana della carta
+    si cuoce in un canvas (`map-decor.js`). Nessun asset da servire, nessuna CDN.
+  - **Una folla NON è rumore** (imparato sbagliando: la prima versione, rumore filtrato che
+    gonfiava e calava, suonava come il **mare**). Il grido è fatto di **gole**: corno di
+    guerra, due colpi di tamburo, una **salva** compatta di 5-8 voci all'unisono e poi una
+    **folla sfasata** che continua — è lo sfasamento a fare la massa —, infine l'acciaio.
+    Ogni gola ha attacco **consonantico** (30 ms di rumore, la "R" di RAAAH), tre
+    **formanti** di /a/ aperta e un **rasp** (waveshaper): un urlo è una voce forzata.
+  - **L'interruttore è di chi guarda**: `#board-sound` nella barra della plancia, stato in
+    `localStorage`, non nello stato di partita (come la velocità dell'IA). Il contesto
+    audio si apre al primo clic o tasto: i browser non lo lasciano nascere prima.
+  - Come si verifica senza sentire: si rirende `battleCry` in un `OfflineAudioContext` e si
+    misurano picco e **zero-crossing rate** per finestra — nell'attacco deve stare in banda
+    vocale (~700-1600 Hz). Se sale a 4-5 kHz nei primi 0,5 s, è tornato a essere rumore.
+- **Calendario e fondazione delle città**: un turno è un **decennio** e la partita
+  comincia dal **turno 1** = 1000-1009 (`Chronicle.FIRST_TURN`; app.js parte da lì e
+  `resetHistory()` ci riporta). Chi conta i turni per un ciclo o per una soglia usa
+  `turno − 1`, non `turno`.
+  Il calendario sta tutto in `js/chronicle.js` (`YEAR_ZERO`, `yearOfTurn`): `app.js` legge
+  da lì per la targhetta dell'anno, non ricalcola `1000 + turno*10`. Quando si costruisce
+  una **Città** (o una **Capitale**, `Chronicle.foundCapital`),
+  `GameActions.build` allega al risultato un oggetto `fondazione`
+  (`Chronicle.foundCity`) e la plancia srotola la pergamena `Risiko.showFoundation(info)`
+  (in `app.js`, CSS `#ui-foundation` in `style.css`): "Anno Domini 1142 — nella provincia
+  di Home Counties nasce la città di Londra". Il nome vero della città viene da
+  `data/city_names.js` (provincia → città); se la provincia non è in tabella vale il suo
+  stesso nome (mezzo mondo si chiama già come la sua città). L'anno **non è casuale**: è un
+  hash di provincia+turno dentro il decennio, così non serve salvarlo nello stato e la
+  stessa fondazione dà sempre lo stesso anno. È **solo colore**: nessuna regola dipende da
+  qui, e se `chronicle.js` non c'è la Città si costruisce lo stesso.
+- **Eco storica delle battaglie**: se nella provincia attaccata (o in quella di partenza),
+  **dentro il decennio di quel turno**, si è combattuta davvero una battaglia, `attack`
+  allega `cronaca` (`Chronicle.battleEcho`) e la plancia srotola la stessa pergamena in
+  variante rossa (`.uf-battaglia`), dopo la scena della battaglia (~3,9s) per non coprirla.
+  Il corpus è `data/historic_battles.js`, chiuso a chiave: **entra solo ciò che è
+  verificato**, cioè anno e campo di battaglia accertati *e* sito che cade senza ambiguità
+  dentro quella provincia. L'abbinamento sito → provincia è stato controllato due volte
+  (nome della regione storica + riproiezione delle coordinate reali dentro l'SVG con
+  `isPointInFill`); le battaglie a cavallo di due province di questa mappa o in regioni che
+  la mappa non distingue sono state **scartate** e sono elencate nell'intestazione del file.
+  Chi aggiunge una riga usa lo stesso metro: nel dubbio non si aggiunge. Attenzione: la
+  chiave è il **nome** della provincia, non l'id SVG (`Northern_Serbia` → "Serbia",
+  `Estremadura` → "Portugal").
+- **Misura delle icone e tono della Capitale (regola dell'utente, 2026-10-14)**: pedine e
+  icone-risorsa sono state ridotte del 25% per non sovrapporsi. La misura ha **tre leve**
+  (`PIECE_SIZE`/`_MIN`/`_FIT`, `RES_SIZE`/`_MIN`/`_FIT` in app.js): nelle province piccole
+  decide il fattore `_FIT`, quindi chi ritocca le misure le scala **tutte e tre**, o
+  in Europa non cambia quasi niente. Il pallino del numero sta in `BADGE_R`. La provincia
+  della **Capitale** prende `capitalTone(colore)` in `refreshMapDisplay` — stessa tinta,
+  più satura e un po' più scura in HSL (non mescolata col nero: il giallo diventerebbe
+  oliva) — solo nella vista per proprietario e **non in nebbia leggera**, dove le pedine
+  sono nascoste e il tono svelerebbe il seggio.
+  **Dove si posa l'icona-risorsa** (`markerAnchor` → `resourceSpot`): non più in un
+  angolo del riquadro, ma nel punto più vicino al centro del corpo principale che non
+  tocca la **zona delle pedine** (la fila attorno a `MapAnchors.landAnchor`, pallino
+  compreso; evitata a ogni costo per una pedina, se c'è spazio per due). **Il vincolo
+  che viene prima di tutto è che l'icona stia TUTTA nella sua provincia** (regola
+  dell'utente: un'icona che sborda sembra della vicina — il grano di Hail pareva in
+  Siria), controllato su 16 punti del bordo. Poi, nell'ordine: non toccare le pedine
+  anche rimpicciolendo l'icona (`RES_SHRINK`, fino al 62%); se non basta, toccarle il
+  meno possibile restando dentro; negli isolotti, il punto più profondo con l'icona
+  stretta finché ci sta. La zona è fissa —
+  le pedine non si spostano dall'ancora — quindi la risorsa (e le strade che la
+  schivano) non salta di posto a ogni mossa. Memoizzato su `path.__resAnchor`.
+- **Aspetto della mappa**: `js/map-decor.js` veste l'SVG appena caricato (chiamato da
+  `initMap` in `app.js`). Agisce **solo su elementi statici** — il `rect#svg-background`
+  (mare) e una copia congelata di `#map-group` che fa da alone costiero — perché
+  `app.js` riscrive `fill` su ogni provincia a ogni refresh: qualsiasi effetto messo lì
+  verrebbe cancellato. La silhouette dell'alone è clonata e non un `<use>` apposta: un
+  `<use>` segue il gruppo vivo e costringe a ripassare il filtro a ogni ricolorazione
+  (+80ms per refresh, misurati). Il colore delle terre neutre è `--province-neutral`.
+  La **feColorMatrix** in testa al filtro `#decor-coast` non è ornamentale: la copia
+  congelata conserva `class="state"`, quindi un selettore crudo altrove le riscrive
+  addosso il fill delle province. Finché è il filtro a imporre la tinta, l'alone resta
+  blu qualunque cosa gli finisca dentro — toglierla lo fa diventare color sabbia.
+  La **grana della carta** NON è più un `feTurbulence`: un filtro si ricalcola a ogni
+  cambio di scala, cioè a ogni scatto di rotella, e steso su tutto il fondale era la
+  voce più cara dello zoom. Ora `bakeGrain()` cuoce una volta sola una piastrella
+  256×256 di rumore frattale (ciclica sui bordi, ottava più fitta a piena ampiezza come
+  in feTurbulence) e la ripete con un `<pattern>`: zoomare costa quanto scalare
+  un'immagine. Il filtro resta nei `defs` solo come ripiego se il canvas non risponde.
+  Gli **ornamenti** (rosa dei venti, cartiglio, velieri, serpente marino, onde, nomi
+  latini di oceani e mari) stanno nel gruppo `#decor-ornaments`, sopra il mare e sotto le
+  terre, con `pointer-events: none`. Le loro coordinate sono state scelte su acqua
+  libera misurando l'occupazione reale delle province: se la mappa cambia vanno
+  rimisurate, non indovinate. Per spegnerli: `#decor-ornaments { display: none; }`.
+  I **nomi delle acque** sono la tabella `WATERS` in `map-decor.js` (testo, centro,
+  corpo, spaziatura, rotazione, classe): stesso font delle province ('Cinzel', ereditato
+  dal gruppo), oceani su due righe in tondo, mari più piccoli in corsivo. Stando sotto le
+  terre, un nome che sborda viene coperto dalla costa invece di galleggiarci sopra — ma
+  la posizione va comunque **misurata**: si campiona la mappa a griglia con
+  `isPointInFill` (terra/acqua) e si controlla che il riquadro del testo cada in acqua.
+  È così che sono stati piazzati tutti (≤3% di terra sotto il testo, e solo isolotti).
+  Mar Rosso, Golfo Persico, Caspio, Mare del Nord e Baltico **non hanno nome apposta**:
+  su questa mappa sono corridoi da 8-15 unità e un nome che ci stia dentro non si legge.
+- **Come si disegna una strada (scelta dell'utente)**: è un **cancello aperto** — due
+  trattini scuri che tagliano il confine di traverso, col varco in mezzo — e nient'altro.
+  Non è una carreggiata: deve dire "queste due province sono agganciate" e poi sparire
+  dalla vista, perché sulla mappa comandano pedine, città e risorse. Il selciato di
+  ciottoli che c'era prima era grande il doppio e rubava l'occhio.
+  - **L'inclinazione viene dal CONFINE, non dai centri delle province.** `roadPlacement`
+    (app.js) trova i punti dove i due bordi si toccano e ne prende l'asse principale
+    (PCA): la strada gli sta perpendicolare, quindi l'orientamento segue da sé il tipo
+    di confine — trattini verticali su un confine orizzontale e viceversa. La direzione
+    centro-A → centro-B, che si usava prima, su un confine a L punta altrove e la strada
+    finisce di sbieco o dentro una provincia.
+  - **La direzione del confine non si stima: si CAMMINA.** I punti di contatto nascono
+    nell'ordine in cui si percorre il bordo di A, quindi dal punto di posa si scorre
+    l'array avanti e indietro finché non si è percorso `ROAD_TANGENT_R` (1,6 unità per
+    lato) e si prende la corda fra i due estremi. Una PCA su una nuvola di punti
+    sbagliava di 5-18°: presa su tutto il confine dà la corda di un arco, presa su un
+    raggio piccolo prende la frastagliatura del bordo. Col cammino lo scarto dalla
+    perpendicolare sta sotto i 2° e il segno cade a **0,03-0,06 unità dal confine**
+    (prima 0,23-0,35). Il cammino si interrompe se due contatti consecutivi distano
+    più di 1,5: lì il confine è in due tronconi e saltare darebbe una direzione
+    inventata.
+  - **`ROAD_TANGENT_R` non è la misura della strada**: è quanto confine si guarda per
+    capire com'è girato, ed è una proprietà della geografia. Resta 1,6 anche se la
+    strada si rimpicciolisce — legarlo a `roadSpan` fu l'errore della prima versione.
+  - **Misure (scelta dell'utente: piccole)**: `roadSpan` dà 1,5-2,4 unità su province
+    che ne misurano dieci, spessore ~0,4. Sono decine di segni su una mappa già piena:
+    il difetto da temere è l'affollamento, non l'invisibilità. Chi le vuole diverse
+    tocca **solo** `roadSpan` — e le prova prima col cursore "misura" della pagina di
+    diagnostica, che monta le stesse formule.
+  - **La strada SCIVOLA per non finire sotto un'icona-risorsa** (`freeRoadIndex`): un
+    punto del confine vale l'altro, quindi se il mezzo è coperto si cerca il primo
+    libero scorrendo i contatti alternativamente di qua e di là (fino a 40 per lato),
+    e la posa si ricalcola lì con `roadPoseAt`. Se è tutto occupato si tiene il mezzo:
+    meglio coperta che spostata a caso. Per questo `renderResourceMarkers` chiama
+    `renderRoads` in coda — cambiate le icone, le strade vanno rifatte o resterebbero
+    sotto quelle nuove.
+    - **Le PEDINE non entrano nello schivamento, ed è voluto**: si muovono a ogni turno
+      e una strada che le evitasse salterebbe di posto a ogni mossa. Una strada è un
+      punto fermo della mappa; le risorse si assegnano nell'editor e poi stanno ferme.
+    - L'indice dei riquadri (`resourceBoxIndex`) si costruisce **una volta** per
+      `renderRoads`: una `querySelectorAll` per strada portava il render da 2 a 15 ms,
+      lo stesso errore che faceva costare un secondo a `refreshMapDisplay`.
+  - **Costa, quindi si memoizza**: cercare i contatti fra due bordi è O(n·m) e `renderRoads`
+    gira a ogni applicazione di stato. Il risultato sta su `A.__roadGeom[B.id]` (la
+    geografia non cambia mai) e i punti di bordo si ritagliano prima sulla sovrapposizione
+    dei due riquadri (Nunavut: 3520 punti → 343). A caldo 9 strade costano 2 ms; a freddo
+    ~37 ms per strada nel caso peggiore (le province più grandi del mondo). Le province
+    che scavalcano il bordo mappa (Alaska) hanno un riquadro largo quanto il mondo e il
+    ritaglio non le tocca: c'è il ripiego sui punti interi.
+  - Confronto visivo delle alternative: `http://localhost:5500/_diag-roads.html`
+    (bottoni/tasti 0-4, cursore "misura", `?all=1` per la prova di affollamento,
+    `?vb=x,y,w,h` per zoomare, **`?debug=1`** per vedere in magenta i punti di confine
+    trovati dal calcolo e in ciano il punto di posa — è così che si controlla se una
+    strada sta davvero sul confine, invece di dedurlo da un bordo spesso mezzo pixel).
+    La pagina accoppia le province per sovrapposizione dei riquadri, quindi filtra da
+    sé le coppie che si toccano appena (≥8 contatti, ≥2 unità di confine): nel gioco
+    non esistono, perché `areLandAdjacent` le rifiuta.
+- **IL BOTTINO DI CONQUISTA: 50 monete per provincia presa** (regola dell'utente).
+  L'incentivo che mancava alla guerra: il prestigio è sospeso e la Popolarità premia solo
+  le conquiste **attorno alla Capitale** (§8, `popValueOf`), quindi una provincia lontana
+  e spoglia non pagava niente. L'importo sta in `GameRules.CONQUEST_BOUNTY` — premio
+  **fisso**, non un saccheggio proporzionato alla preda, così anche una provincia povera
+  vale la marcia. Lo versa `applyBattleOutcome` in `game-actions.js`, cioè l'**unico**
+  punto della regola di conquista: da lì vale per l'attacco di terra, lo sbarco, l'approdo
+  di una spedizione e lo sbarco d'editto senza quattro copie, e i **bot** lo incassano
+  senza un ramo apposta (le loro monete entrano da sé in `coinReserve` e nei piani di
+  costruzione). L'importo si appende al risultato della battaglia (`res.bottino`, che i
+  chiamanti già portano in giro) e riemerge come campo `bottino` sui risultati di
+  `attack`/`expeditionLand`/editto: il messaggio lo dice e il rapporto di battaglia lo
+  mostra sulla riga `.bb-loot`. Non lo prendono le **razzie delle terre di nessuno**
+  (`neutralRaids`): non passano da applyBattleOutcome e una neutrale non ha casse.
+- **Regola di conquista (confermata dall'utente, non nel design doc originale)**: le
+  costruzioni **non vengono rase** quando una provincia cambia proprietario — restano,
+  cambiano solo colore. Una strada sparisce solo quando **entrambe** le province che
+  collega sono passate a un colore diverso dal suo (`pruneRoadsTouching` in
+  `game-actions.js`). Vedi `docs/GAME_DESIGN.md` §9.
+
+## Avvio in locale
+Doppio clic su `avvia.bat` (apre il browser e avvia il server), oppure da terminale:
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve.ps1 -Root src -Port 5500
+```
+Poi apri http://localhost:5500/ . (Esiste anche `.claude/launch.json` con la config "risiko".)
+**L'AI ha il permesso permanente di aprire e usare il gioco nel browser** (avviare il server,
+navigare, cliccare, leggere console/rete, fare screenshot): non deve chiederlo ogni volta —
+vedi `rules and behaviours.md` §4.
+`scripts/shot.ps1` cattura uno screenshot con Chrome headless (profilo usa e getta, nessuna
+dipendenza dal pannello di anteprima): è il modo per guardare una pagina a una dimensione
+qualsiasi. `-Url ... -Width 1600 -Height 1000` → stampa il path del PNG.
+**Fotografare la PLANCIA in headless** vuole due passi, perché in headless non si clicca e
+il profilo usa e getta parte senza partita salvata: serve un profilo **persistente**
+(`--user-data-dir` fisso) e le due pagine di lavoro. Prima `_dev-start.html`, che carica la
+mappa iniziale, avvia la partita contro l'IA e dà al regno umano il codice d'invito `dev`;
+poi `_dev-play.html?p=dev&fase=attacca` (copia di `play.html` con `_dev-drive.js` in coda),
+che porta il turno alla fase chiesta, seleziona una provincia utile e apre il cursore
+d'ordine (`&apri=0` per vedere solo i bersagli accesi). `_dev-play.html` va **rigenerato da
+`play.html`** ogni volta che si tocca la plancia, se no fotografa la versione vecchia.
+Lo stato resta nel profilo: prima di ogni scatto si ripassa da `_dev-start.html`, altrimenti
+la partita è dove l'ha lasciata lo scatto precedente e le fasi non tornano indietro.
+**Desktop + vista semplice da telefono**: la plancia completa è per desktop; sotto ~820px
+(o touch fino a 1024px) si accende da sé la **vista semplice** (`body.mobile-lite`, vedi
+"Vista semplice da telefono" sopra). Per provarla in headless: Puppeteer (`driver/node_modules`)
+con viewport 390×844, `isMobile`/`hasTouch`. Nota per i test: `_dev-start.html` prepara e
+avvia ma il giro dei bot va avviato a mano (`Risiko.driveBots()`), e una plancia col codice
+d'invito non li muove.
+`scripts/serve.ps1` gestisce ogni richiesta in try/catch: un errore su una richiesta non
+deve mai spegnere il server.
+
+## Convenzioni / cose da sapere
+- I file in `_archive/` sono materiale vecchio (script Python di generazione mappa, txt di
+  debug, immagini di bandiere/risorse non usate, versioni di test). Non caricarli nel gioco;
+  usali solo come riferimento. Non sono committati.
+- `DEV_ADMIN_BYPASS = true` in `js/app.js` dà a tutti i permessi admin: è **solo per test**,
+  va rimesso a `false` prima del rilascio.
+- **MODALITÀ SOLO-LOCALE per lo sviluppo — `?local=1`** (`forceLocal` in `sync.js`): il
+  server locale (`scripts/serve.ps1`) serve `firebase-config.js` **configurato** su
+  `timeline-war` (il progetto di PRODUZIONE), quindi una partita di prova aperta in locale
+  scrive sul database live e ne riceve lo stato — le prove si accavallano col gioco vero e
+  il `turnoDi` locale viene sovrascritto da quello del cloud. Per provare **senza toccare
+  la produzione**: aprire l'editor/plancia con `?local=1`. `MultiplayerSync` calcola
+  `forceLocal` da quel parametro (memorizzato in `sessionStorage` come `risiko_local_only`,
+  così sopravvive alla navigazione editor↔plancia; si spegne con `?local=0`) e forza
+  `isConfigured=false`: Firebase non si connette, lo stato vive **solo** in `localStorage`
+  (`antigravity_map_save`), e ogni guardia `if (isConfigured)` ricade nel comportamento in
+  memoria. Poiché è una sandbox a scheda singola, `forceLocal` **concede anche l'admin**
+  (`MultiplayerSync.localOnly` letto da app.js accanto a `DEV_ADMIN_BYPASS`; `isAdmin`
+  inizializzato a `forceLocal` in sync.js, così i punti che leggono `MultiplayerSync.isAdmin`
+  diretto — es. il gate di `saveAutoSave` — si comportano da admin). Sul deploy vero nessuno
+  passa `?local=1`, quindi il multiplayer resta pieno.
+- **Attenzione, scritture verso la produzione**: qualunque test che chiami `newGame`/
+  `beginMatch`/`startGame` (o prema i bottoni partita) in locale **senza** `?local=1`
+  invia lo stato a `games/main` su `timeline-war`. La guardia anti-regressione di sync.js
+  (transazione col `rev`) rifiuta alcune scritture con `failed-precondition` (le 400 in
+  console), ma la **preparazione** può comunque atterrare sul cloud e sovrascrivere una
+  partita in corso. Usare sempre `?local=1` per le prove.
+- `firebase-config.js` contiene placeholder `INSERISCI_...`: finché non c'è un vero progetto
+  Firebase, il multiplayer resta in modalità locale (nessuna sync). **Oggi NON è più un
+  placeholder**: è configurato su `timeline-war` (vedi `?local=1` qui sopra).
+- Le chiavi Firebase nel client **non sono segrete**: la sicurezza è data da `firestore.rules`.
+- **Mai leggere per intero** `assets/world_map.svg` e `data/embedded_map.js` (~1,3 MB / ~325k
+  token: sfondano il contesto). Accesso sempre mirato: Grep per `id`/nome provincia + Edit
+  sulla sola porzione. Dettaglio: vedi `rules and behaviours.md` §8-10.
+
+## Regole e comportamenti dell'AI
+Segui sempre `rules and behaviours.md` (regole su risposte, sintesi, domande, commit e
+screenshot). È la fonte di verità per il modus operandi.
+
+## Deploy
+Push su `main` → GitHub Pages pubblica il contenuto di `src/`.
