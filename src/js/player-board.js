@@ -4196,9 +4196,9 @@ document.addEventListener('DOMContentLoaded', () => {
         card.className = 'bp-trade-card';
         card.innerHTML = '<div class="bp-trade-head">Proponi a un regno</div>';
 
-        const altri = R.players().filter(p => p.id !== player.id && R.ownedPaths(p.name).length);
+        const altri = tradeKingdomsDisponibili(player);
         if (!altri.length) {
-            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun altro regno con cui trattare.</div>');
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun altro regno con cui trattare — condividi un confine di terra per aprire una rotta commerciale.</div>');
             return card;
         }
         if (!tradeUI.verso || !altri.some(p => p.id === tradeUI.verso)) tradeUI.verso = altri[0].id;
@@ -5179,14 +5179,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // concedere a un partner di attaccare una propria provincia. Le proposte in
     // arrivo hanno già il pop-up a inizio turno; qui restano elencate per
     // decidere con calma. Nessun vincolo di fase: basta il proprio turno.
+    // §2A ciclo 3: regni con cui si può commerciare — confinano adesso OPPURE
+    // hanno confinato negli ultimi CONFINE_TTL turni. I commerci richiedono
+    // contatto fisico: non basta la visibilità o la conoscenza diplomatica.
+    const CONFINE_TTL = 5;
+    function tradeKingdomsDisponibili(player) {
+        const turnoCorrente = R.turn ? R.turn() : 0;
+        return R.players().filter(p => {
+            if (p.id === player.id) return false;
+            if (!R.ownedPaths(p.name).length) return false;
+            const ultimoT = player.ultimoConfine && player.ultimoConfine[p.id];
+            if (!ultimoT) return false;
+            return (turnoCorrente - ultimoT) <= CONFINE_TTL;
+        });
+    }
+
     function diploKingdomsVisibili(player) {
-        // I regni che questo giocatore VEDE: quelli con almeno una provincia
-        // visibile (in vista generale/editor la nebbia è nulla e si vedono tutti).
+        // §3 ciclo 3: i regni raggiungibili diplomaticamente sono quelli che si
+        // VEDONO (nebbia normale) PIÙ quelli che si sono mai CONOSCIUTI (hanno
+        // condiviso un confine di terra almeno una volta). Una volta conosciuto,
+        // un regno resta raggiungibile per araldi e chat privata — anche se il
+        // confine è cambiato o il regno è lontano nella nebbia.
         const noFog = !R.visibleProvinces || !R.visibleProvinces();
+        const conosciuti = new Set(Array.isArray(player.regniConosciuti) ? player.regniConosciuti : []);
         return R.players().filter(p => {
             if (p.id === player.id) return false;
             const paths = R.ownedPaths(p.name);
             if (!paths.length) return false;
+            if (conosciuti.has(p.id)) return true;
             return noFog || paths.some(pt => R.isVisible(pt.id));
         });
     }

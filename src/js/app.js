@@ -471,6 +471,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!p.obiettiviCiclo || !Array.isArray(p.obiettiviCiclo.items)) p.obiettiviCiclo = null;
         if (!Array.isArray(p.cicliStorico)) p.cicliStorico = [];
         if (!Array.isArray(p.obiettiviAvvisi)) p.obiettiviAvvisi = [];
+        // REGNI CONOSCIUTI (§3 ciclo 3): regni con cui si è mai condiviso un
+        // confine di terra. Una volta conosciuto, il regno resta raggiungibile
+        // diplomaticamente (araldi, chat privata) anche senza visibilità diretta.
+        if (!Array.isArray(p.regniConosciuti)) p.regniConosciuti = [];
+        // ULTIMO CONFINE (§2A ciclo 3): {altroId: turno} — l'ultimo turno in cui
+        // questo regno e quello indicato condividevano un confine di terra.
+        // Serve a `tradeKingdomsDisponibili`: si può commerciare con chi confina
+        // adesso O con chi ha confinato negli ultimi CONFINE_TTL turni.
+        if (!p.ultimoConfine || typeof p.ultimoConfine !== 'object' || Array.isArray(p.ultimoConfine)) p.ultimoConfine = {};
         return p;
     }
 

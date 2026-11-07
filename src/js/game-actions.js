@@ -1071,6 +1071,31 @@
             expirePacts();
             // ...e i gridi d'aiuto rimasti senza risposta si spengono (§Diplomazia).
             expireHelpRequests();
+            // Aggiorna ULTIMO CONFINE (§2A ciclo 3) e REGNI CONOSCIUTI (§3 ciclo 3):
+            // per ogni coppia di regni che condivide un confine di terra ADESSO,
+            // registra il turno corrente (ancora quello precedente all'avanzamento)
+            // e aggiungi entrambi ai rispettivi regniConosciuti — una volta conosciuto,
+            // il regno resta raggiungibile diplomaticamente per sempre.
+            (function aggiornaConfini() {
+                const turn = turnoPrima;
+                const pls = R().players().filter(p => R().ownedPaths(p.name).length);
+                for (let i = 0; i < pls.length; i++) {
+                    for (let j = i + 1; j < pls.length; j++) {
+                        const a = pls[i], b = pls[j];
+                        const pathsA = R().ownedPaths(a.name);
+                        const pathsB = R().ownedPaths(b.name);
+                        const confinano = pathsA.some(pa =>
+                            pathsB.some(pb => R().areLandAdjacent ? R().areLandAdjacent(pa.id, pb.id)
+                                : (window.NEIGHBORS_LAND && window.NEIGHBORS_LAND[pa.id] && window.NEIGHBORS_LAND[pa.id].includes(pb.id))));
+                        if (confinano) {
+                            a.ultimoConfine[b.id] = turn;
+                            b.ultimoConfine[a.id] = turn;
+                            if (!a.regniConosciuti.includes(b.id)) a.regniConosciuti.push(b.id);
+                            if (!b.regniConosciuti.includes(a.id)) b.regniConosciuti.push(a.id);
+                        }
+                    }
+                }
+            })();
             // Le terre di nessuno di fede diversa razziano PRIMA del rifornimento,
             // così colpiscono a piena forza (§ religione).
             razzie = neutralRaids(R().turn());
