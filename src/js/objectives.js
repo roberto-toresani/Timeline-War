@@ -605,7 +605,7 @@
                   check: n => `città ≥ ${n}` },
                 { id: 'ca3-2', tipo: 'espansione', titolo: 'La frontiera della cristianità', fisso: true,
                   tmpl: 'province', arg: { ids: ['Granada', 'Andalusia'] },
-                  n: { avanzare: 10 },
+                  n: { avanzare: 13 },
                   testo: n => `Difendi le province di Granada e Andalusia con almeno ${n} uomini ciascuna.`,
                   check: n => `Granada e Andalusia possedute con soldati ≥ ${n}` },
                 { id: 'ca3-3', tipo: 'navale', titolo: 'Nel Mediterraneo', fisso: true,
