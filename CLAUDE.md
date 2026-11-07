@@ -103,28 +103,55 @@ Queste regole si applicano a OGNI modifica — leggerle prima di toccare il codi
 
 ## Come navigare la documentazione
 
-Leggi **solo** il file pertinente alla task. Non aprire docs/ files per compiti di pura sintassi o se la risposta sta già nel sorgente.
+**Tre sezioni distinte. Aprire solo quella richiesta.**
 
-| Compito / area | File da leggere |
+---
+
+### 📖 SEZIONE REGOLE
+Per ogni domanda su meccaniche, simulazioni, nuove funzionalità: carica sempre `docs/regole/MASTER.md` + la sotto-sezione pertinente.
+
+| Domanda / area | File da aprire |
 |---|---|
-| Meccaniche di gioco: turni, fasi, conquista, presidio, Capitale, neutrali | `docs/MECCANICHE_GIOCO.md` |
-| Popolarità, commercio, risorse, produzione, Festa §6.1, Politica | `docs/ECONOMIA_POPOLARITA.md` |
-| Diplomazia, patti, alleanze, standing, religione, fede, scismi | `docs/DIPLOMAZIA_RELIGIONE.md` |
-| UI plancia, fogli dock, cursori, modale conquista, tour, mobile | `docs/UI_PLANCIA.md` |
-| Mappa, grafica, strade, render, terreno, navi, ancoraggi, ottimizzazioni | `docs/MAPPA_GRAFICA.md` |
-| Multiplayer, Firebase, sync, interventi admin, presenza, chat, save slots | `docs/MULTIPLAYER_SYNC.md` |
-| Bot/IA, strategie, dottrine, driver headless, mail, timer 6h | `docs/BOT_DRIVER.md` |
-| Eventi storici, obiettivi §10, binari, cronache, spie, spedizioni, mercenari, cavalieri, portata navi, sbarchi | `docs/EVENTI_OBIETTIVI.md` |
-| Regole complete del gioco (§1–§11) | `docs/GAME_DESIGN.md` |
-| Numeri esatti degli obiettivi per regno | `docs/BINARI_STORICI.md` |
-| Versione integrale precedente di questo file | `docs/archive/CLAUDE_ORIGINALE.md` |
+| Contesto fasi turno, formule, costanti (sempre) | `docs/regole/MASTER.md` |
+| Attacchi, difese, invasioni, truppe, Capitale, neutrali | `docs/regole/ATTACCHI_TRUPPE.md` |
+| Popolarità, benessere, politica, tassazione | `docs/regole/POPOLARITA_POLITICA.md` |
+| Diplomazia, patti, alleanze, standing, fede, scismi | `docs/regole/DIPLOMAZIA_FEDE.md` |
+| Mercati, commerci, carovane, banca, rotte | `docs/regole/MERCATI_COMMERCI.md` |
+| Obiettivi §10, binari storici, strategie bot, dottrine | `docs/regole/OBIETTIVI_BOT.md` |
+| Raccolta, risorse, produzione, mercenari, cavalieri, bonus/malus | `docs/regole/RISORSE_ECONOMIA.md` |
+| Eventi storici, crociate, Peste, Mongoli, spie, spedizioni | `docs/regole/EVENTI.md` |
+| Regole complete (§1–§11) | `docs/GAME_DESIGN.md` |
+| Numeri esatti obiettivi per regno | `docs/BINARI_STORICI.md` |
+
+---
+
+### 🎨 SEZIONE DESIGN
+**Non aprire mai automaticamente.** Solo se il task riguarda esplicitamente mappa, grafica, UI o layout.
+
+| Area | File |
+|---|---|
+| Mappa SVG, render pedine, terreno, navi, nebbia, strade | `docs/design/MAPPA_GRAFICA.md` |
+| UI plancia, fogli dock, cursori, modale conquista, tour, mobile | `docs/design/UI_PLANCIA.md` |
+
+---
+
+### 💾 SEZIONE SALVATAGGI E SYNC
+**Solo su richiesta esplicita** (interventi admin, tornare indietro di un turno, problemi di sync).
+
+| Area | File |
+|---|---|
+| Firebase, sync, turni, interventi admin, save slots, multiplayer | `docs/sync/MULTIPLAYER_SYNC.md` |
+| Partite salvate | `salvataggi/` (git-ignored, non aprire) |
+| Versione originale CLAUDE.md | `docs/archive/CLAUDE_ORIGINALE.md` |
+
+---
 
 ### File da NON aprire mai automaticamente
-- `data/embedded_map.js` (1.3 MB)
+- `data/embedded_map.js` (1.3 MB, ~325K token)
 - `salvataggi/*.json`
 - `Obiettivi*.xlsx`
-- `docs/CRONOLOGIA_STORICA.md` (storia antica, non serve al codice)
-- `docs/archive/*` (solo se esplicitamente richiesto)
+- `docs/CRONOLOGIA_STORICA.md`
+- `docs/archive/*` (solo su richiesta esplicita)
 - `driver/node_modules/**`
 
 ## Deploy
