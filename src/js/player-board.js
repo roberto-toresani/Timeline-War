@@ -487,13 +487,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? 'Tocca una provincia a righe per attaccarla.'
                 : 'Tocca una tua provincia di confine: i bersagli si accendono a righe.');
         } else if (f === 'sposta') {
-            if (player.spostamentoFatto) {
-                setText('lb-hint', 'Spostamento fatto. Puoi chiudere il turno.');
+            const _rimLite = player.spostamentiRimasti || 0;
+            if (_rimLite <= 0) {
+                setText('lb-hint', 'Spostamenti esauriti. Puoi chiudere il turno.');
             } else if (moveOriginPath(player)) {
                 setText('lb-hint', 'Ora tocca la meta (a righe d\'oro).');
                 liteButton(acts, '↩ Cambia partenza', '', () => { moveArmed = false; render(); });
             } else {
-                setText('lb-hint', 'Un solo spostamento: tocca la provincia di partenza (filo verde), o chiudi il turno.');
+                const _infoLite = _rimLite > 1 ? _rimLite + ' spostamenti rimasti' : 'Un spostamento rimasto';
+                setText('lb-hint', _infoLite + ': tocca la provincia di partenza (filo verde), o chiudi il turno.');
             }
         }
     }
@@ -2393,8 +2395,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Niente testo: la provincia di partenza è già evidente (è
                 // questa) e la strada da seguire la dice renderMove qui sotto,
                 // una volta sola. Ripeterlo qui era rumore.
-                if (player.spostamentoFatto) {
-                    actions.innerHTML = '<div class="bp-empty-hint">Lo spostamento del turno è già stato fatto.</div>';
+                if (!player.spostamentiRimasti || player.spostamentiRimasti <= 0) {
+                    actions.innerHTML = '<div class="bp-empty-hint">Gli spostamenti del turno sono esauriti.</div>';
                 }
                 break;
         }
@@ -2779,7 +2781,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return all.filter(t => t.scafi.indexOf(moveVessel) >= 0)
                 .map(t => Object.assign({}, t, { viaMare: true, scafo: moveVessel, carico: cap }));
         }
-        return all.filter(t => t.viaTerra)
+        return all.filter(t => t.viaTerra || t.viaCatena)
             .map(t => Object.assign({}, t, { viaMare: false, scafo: null, carico: null }));
     }
 
@@ -3584,9 +3586,15 @@ document.addEventListener('DOMContentLoaded', () => {
             box.innerHTML = '<div class="bp-empty-hint">Non è il tuo turno.</div>';
             return;
         }
-        if (player.spostamentoFatto) {
-            box.innerHTML = '<div class="bp-empty-hint">Spostamento già fatto: se ne fa uno solo per turno. ' +
-                'Puoi chiudere il turno.</div>';
+        const _rimMove = player.spostamentiRimasti || 0;
+        if (_rimMove <= 0) {
+            const _cicloRm = Math.floor((R.turn() - 1) / 10);
+            const _msgDone = player.tipoSpostamento === 'B'
+                ? 'Hai usato lo spostamento a catena (Tipo B). Puoi chiudere il turno.'
+                : (_cicloRm >= 2
+                    ? 'Tutti e 3 gli spostamenti Tipo A (5 uomini max) sono stati usati. Puoi chiudere il turno.'
+                    : 'Spostamento già fatto. Puoi chiudere il turno.');
+            box.innerHTML = '<div class="bp-empty-hint">' + _msgDone + '</div>';
             return;
         }
 
@@ -3616,10 +3624,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const targets = moveChoices(player, path);
 
+        const _hintExtra = Math.floor((R.turn() - 1) / 10) >= 2 && player.tipoSpostamento !== 'A'
+            ? ' In alternativa puoi usare lo <b>spostamento a catena ⛓</b> (un\'armata su qualsiasi tua provincia collegata).'
+            : '';
         box.insertAdjacentHTML('beforeend',
             '<div class="bp-hint map-hint">Parti da <b>' + R.provinceLabel(path) + '</b>: se ne muovono <b>' +
             mobili + '</b> su ' + available + '. Le province dove possono arrivare sono ' +
-            '<b>accese sulla mappa</b>: cliccane una e decidi lì quanti partono.</div>');
+            '<b>accese sulla mappa</b>: cliccane una e decidi lì quanti partono.' + _hintExtra + '</div>');
 
         // ---- CON CHE COSA SI PARTE (regola dell'utente, come per l'attacco) ----
         // Via terra i confinanti; con una nave quel che quella nave raggiunge,
@@ -3702,8 +3713,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? Math.min(mobili, R.engine.shipCapacity(t.scafo) * Math.max(1, vesselCount(path, t.scafo)))
                 : mobili;
             const nota = t.troops + ' già lì' + (t.alleato ? ' · 🛡 ' + (t.owner || 'alleato') : '') +
-                (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '');
-            const ico = t.viaMare ? '⚓ ' : t.alleato ? '🛡 ' : '→ ';
+                (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '') +
+                (t.viaCatena ? ' · ⛓ catena' : '');
+            const ico = t.viaMare ? '⚓ ' : t.viaCatena ? '⛓ ' : t.alleato ? '🛡 ' : '→ ';
             body.appendChild(actionButton(ico + t.label, nota, null, () => {
                 const s = pick.fit(tetto);
                 askMove(player, path, t, s.n, null, s.cav);
@@ -4747,7 +4759,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // sono selezioni, non ordini — quindi il clic segue la strada normale e
         // le arma. È l'unico modo perché il primo clic della fase sia già
         // quello buono invece dell'eredità dell'attacco appena chiuso.
-        if (inFase && f === 'sposta' && !player.spostamentoFatto && !moveOriginPath(player)) {
+        if (inFase && f === 'sposta' && (player.spostamentiRimasti || 0) > 0 && !moveOriginPath(player)) {
             const origini = GA().moveOrigins(player);
             R.clearAttackArrows();
             R.markTargets(null, origini.map(t => t.id), 'partenza');
@@ -4768,7 +4780,7 @@ document.addEventListener('DOMContentLoaded', () => {
             scelti = attackVessel
                 ? targets.filter(t => t.viaMare && t.scafi.indexOf(attackVessel) >= 0)
                 : targets.filter(t => !t.viaMare);
-        } else if (f === 'sposta' && !player.spostamentoFatto && spareOf(path)) {
+        } else if (f === 'sposta' && (player.spostamentiRimasti || 0) > 0 && spareOf(path)) {
             scelti = moveChoices(player, path);
         }
 

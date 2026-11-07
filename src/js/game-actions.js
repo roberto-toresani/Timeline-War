@@ -569,7 +569,8 @@
             pl.offerte = [];
             pl.spie = [];
             pl.fase = PHASES[0];
-            pl.spostamentoFatto = false;
+            pl.spostamentiRimasti = 1;
+            pl.tipoSpostamento = null;
             pl.conquista = null;
             // Partita nuova: nessun turno globale ancora aperto (idempotenza di
             // beginTurn). Senza, un beginStamp di una partita vecchia potrebbe
@@ -803,7 +804,9 @@
         // Il turno riparte sempre dalla prima fase, con lo spostamento di nuovo
         // disponibile e nessuna conquista in sospeso.
         player.fase = PHASES[0];
-        player.spostamentoFatto = false;
+        const _cicloSp = Math.floor((turnoGlobale - 1) / 10);
+        player.spostamentiRimasti = _cicloSp >= 2 ? 3 : 1;
+        player.tipoSpostamento = null;
         player.conquista = null;
         player.capitalePresa = null;
 
@@ -4141,6 +4144,24 @@
         return new Set(E().landNeighbors(fromId).filter(id => owned.has(id)));
     }
 
+    // BFS su territorio proprio via terra: tutte le province raggiungibili
+    // attraverso una catena di confini di terra, senza limite di distanza.
+    // Usato dallo spostamento a catena (Tipo B, Ciclo III).
+    function ownReachable(player, fromId) {
+        const owned = new Set(E().ownedPaths(player.name).map(p => p.id));
+        if (!owned.has(fromId)) return new Set();
+        const visited = new Set([fromId]);
+        const queue = [fromId];
+        while (queue.length) {
+            const cur = queue.shift();
+            E().landNeighbors(cur).forEach(id => {
+                if (owned.has(id) && !visited.has(id)) { visited.add(id); queue.push(id); }
+            });
+        }
+        visited.delete(fromId);
+        return visited;
+    }
+
     // Ogni meta porta TUTTE le strade con cui ci si arriva (regola dell'utente,
     // come per l'attacco: il mezzo lo sceglie il giocatore): `viaTerra` se
     // confina, `scafi` = i tipi di nave ancorati alla partenza che la
@@ -4162,12 +4183,13 @@
             alleato: !!rec.alleato,
             scafi: rec.scafi.slice(),
             scafo: rec.scafi.length ? rec.scafi[rec.scafi.length - 1] : null,
-            carico: rec.scafi.length ? E().shipCapacity(rec.scafi[rec.scafi.length - 1]) : null
+            carico: rec.scafi.length ? E().shipCapacity(rec.scafi[rec.scafi.length - 1]) : null,
+            viaCatena: !!rec.viaCatena
         });
         const recs = new Map();
         const recOf = (id, alleato) => {
             let rec = recs.get(id);
-            if (!rec) { rec = { viaTerra: false, scafi: [], alleato: !!alleato }; recs.set(id, rec); }
+            if (!rec) { rec = { viaTerra: false, scafi: [], alleato: !!alleato, viaCatena: false }; recs.set(id, rec); }
             return rec;
         };
 
@@ -4189,6 +4211,16 @@
         ownAdjacent(player, fromId).forEach(id => {
             if (E().path(id)) recOf(id, false).viaTerra = true;
         });
+
+        // Via catena (Ciclo III, Tipo B): BFS attraverso territorio proprio via terra.
+        // Disponibile solo se non si è già usato uno spostamento Tipo A in questo turno.
+        const _cicloCatena = Math.floor((R().turn() - 1) / 10) >= 2;
+        if (_cicloCatena && player.tipoSpostamento !== 'A') {
+            ownReachable(player, fromId).forEach(id => {
+                if (recs.has(id)) return; // già raggiungibile via terra adiacente
+                if (E().path(id)) { recOf(id, false).viaCatena = true; }
+            });
+        }
 
         // CORRIDOIO (§Diplomazia, privilegio 'rinforzi' — o un'alleanza, che lo
         // comprende): si possono INVIARE rinforzi a una provincia ALLEATA
@@ -4253,7 +4285,9 @@
 
     function finalMove(player, fromId, toId, n, scafoVoluto) {
         const turnErr = requirePhase(player, 'sposta'); if (turnErr) return turnErr;
-        if (player.spostamentoFatto) return fail('Lo spostamento di fine turno si fa una volta sola: l\'hai già fatto.');
+        if (!player.spostamentiRimasti || player.spostamentiRimasti <= 0)
+            return fail('Hai già usato tutti gli spostamenti di questo turno.');
+        const _cicloPrevisto = Math.floor((R().turn() - 1) / 10) >= 2;
 
         const from = E().path(fromId), to = E().path(toId);
         if (!from || !to) return fail('Provincia sconosciuta.');
@@ -4282,7 +4316,20 @@
         // confinanti (regola dell'utente: il mezzo lo sceglie lui, ed è il modo
         // di portarsi dietro lo scafo); senza, si prende il meno capiente che
         // basti (non si sciupa un Veliero dove arriva una Nave).
-        const viaMare = !!scafoVoluto || !E().areLandAdjacent(fromId, toId);
+        // Tipo B (catena BFS): non adiacente, stesso territorio, nessun limite di uomini.
+        const _viaCatena = _cicloPrevisto && !scafoVoluto && toMine && !E().areLandAdjacent(fromId, toId)
+            && ownReachable(player, fromId).has(toId);
+        // Tipo A: adiacente di terra o via nave; massimo 5 uomini dal ciclo III.
+        if (!_viaCatena) {
+            if (player.tipoSpostamento === 'B')
+                return fail('Hai già usato lo spostamento a catena (Tipo B) questo turno.');
+            if (_cicloPrevisto && n > 5)
+                return fail('Gli spostamenti Tipo A dal ciclo III portano al massimo 5 uomini.');
+        } else {
+            if (player.tipoSpostamento === 'A')
+                return fail('Hai già usato uno spostamento singolo (Tipo A) questo turno; non puoi usare la catena.');
+        }
+        const viaMare = !!scafoVoluto || (!_viaCatena && !E().areLandAdjacent(fromId, toId));
         let scafo = null;
 
         const mobili = spare(from);
@@ -4360,10 +4407,17 @@
         }
         E().redrawProvince(from);
         E().redrawProvince(to);
-        player.spostamentoFatto = true;
+        if (_viaCatena) {
+            player.spostamentiRimasti = 0;
+            player.tipoSpostamento = 'B';
+        } else {
+            player.spostamentiRimasti = (player.spostamentiRimasti || 1) - 1;
+            if (!player.tipoSpostamento) player.tipoSpostamento = 'A';
+        }
 
         E().refresh();
         E().save();
+        const _rimasti = player.spostamentiRimasti;
         const testa = allyTo
             ? n + (n === 1 ? ' soldato inviato' : ' soldati inviati') + (viaMare ? ' via nave' : '') +
               ' in rinforzo a ' + allyTo.name + ' (' + R().provinceLabel(to) + '): ora sono suoi.' +
@@ -4372,7 +4426,10 @@
             : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') +
               (viaMare ? (flotta && flotta.num > 1 ? ' con ' + flotta.num + ' navi' : ' via nave') : '') +
               ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.';
-        return done(testa + ' Lo spostamento del turno è speso.', { fromId, toId });
+        const _spostMsg = _rimasti > 0
+            ? (' Puoi ancora spostare ' + _rimasti + (_rimasti === 1 ? ' volta.' : ' volte.'))
+            : ' Lo spostamento del turno è speso.';
+        return done(testa + _spostMsg, { fromId, toId });
     }
 
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista

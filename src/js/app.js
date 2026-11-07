@@ -295,7 +295,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Fase del turno (§2): schiera → costruisci → attacca → sposta. Uno stato
         // salvato prima delle fasi riparte dallo schieramento, che è corretto.
         if (!p.fase) p.fase = 'schiera';
-        if (typeof p.spostamentoFatto !== 'boolean') p.spostamentoFatto = false;
+        // Migrazione da spostamentoFatto (bool) a spostamentiRimasti (counter).
+        if (p.spostamentiRimasti === undefined) {
+            p.spostamentiRimasti = p.spostamentoFatto ? 0 : 1;
+        }
+        if (p.tipoSpostamento === undefined) p.tipoSpostamento = null;
         if (p.conquista === undefined) p.conquista = null;
         // Capitale nemica appena presa, in attesa che il giocatore decida se
         // promuoverla a Capitale ufficiale o lasciarla Città (§Capitale). Di
