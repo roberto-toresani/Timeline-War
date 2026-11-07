@@ -1,4 +1,9 @@
 # File pesanti — mai leggere automaticamente
+docs/GAME_DESIGN.md
+docs/BINARI_STORICI.md
+driver/package-lock.json
+
+
 data/embedded_map.js
 assets/*.svg
 assets/*.png
