@@ -2,6 +2,7 @@
 docs/GAME_DESIGN.md
 docs/BINARI_STORICI.md
 driver/package-lock.json
+src/_live-copy.json
 
 
 data/embedded_map.js
