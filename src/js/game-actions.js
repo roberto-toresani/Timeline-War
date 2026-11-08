@@ -3614,7 +3614,17 @@
             }
         }
 
-        const defTroops = E().countPiece(to, 'soldato');
+        // DIFESA COMBINATA (§Diplomazia): i corpi di spedizione parcheggiati su
+        // `to` difendono INSIEME alla guarnigione dell'ospite, come un solo stack.
+        // Si sommano ai difensori — soldati, ventura e cavalieri — e il terreno e
+        // le mura (dell'ospite) contano una volta sola. Senza corpi i totali sono
+        // zero e tutto il percorso resta identico a prima.
+        const corpiQui = corpsOn(toId);
+        const corpSold = corpiQui.reduce((s, c) => s + (c.corpo.soldati || 0), 0);
+        const corpMerc = corpiQui.reduce((s, c) => s + (c.corpo.merc || 0), 0);
+        const corpCav  = corpiQui.reduce((s, c) => s + (c.corpo.cav || 0), 0);
+        const hostTroops = E().countPiece(to, 'soldato');
+        const defTroops = hostTroops + corpSold;
         const fort = GR().defenceBonus(unitsOf([to]));
         const difensore = E().owner(to) || 'Neutrale';
         const fromLabel = R().provinceLabel(from), toLabel = R().provinceLabel(to);
@@ -3625,7 +3635,7 @@
         // CAVALIERI: partono per primi; quelli del difensore valgono 1,45 in casa.
         const gruppo = groupLeaving(from, engaged, ordA.cav);
         const mercImp = gruppo.merc, cavImp = gruppo.cav;
-        const mercDif = E().merc(to), cavDif = E().cav(to);
+        const mercDif = E().merc(to) + corpMerc, cavDif = E().cav(to) + corpCav;
         // I DUE ATTACCHI (§9): via terra, con più di 10 uomini per parte, il primo è
         // un esito intermedio. Uno sbarco non si può fermare a metà (§9.2), quindi
         // li fa tutti e due di seguito.
@@ -3702,8 +3712,13 @@
         // chi non conquista la spiaggia è perduto con la nave, niente ritorno.
         const superstitiRitorno = (!res.attackerWins && !viaMare) ? res.attackerSurvivors : 0;
         const ritorno = superstitiRitorno > 0 ? survivorsOf(gruppo, engaged - superstitiRitorno) : null;
+        // Se la provincia CADE, i corpi di spedizione cadono con lei: nessun
+        // superstite (modello a difesa combinata). Se REGGE, le perdite si
+        // ripartiscono in proporzione fra guarnigione e corpi. applyBattleOutcome
+        // tocca solo la guarnigione dell'ospite (hostTroops), mai i corpi.
         if (res.attackerWins) {
-            conversione = applyBattleOutcome(player, to, res, defTroops, arrivati);
+            corpiQui.forEach(c => removeCorps(c.owner, c.corpo.id));
+            conversione = applyBattleOutcome(player, to, res, hostTroops, arrivati);
             // CONQUISTA VIA NAVE (§10, richiesta dell'utente): uno sbarco vinto
             // conta come conquista navale, cumulativa nella partita — la leggono i
             // template `conquisteNavali` (Polonia C3, Mori C5).
@@ -3732,7 +3747,12 @@
                     : ' La nave è ora ancorata lì: la prossima portata si misura da quella costa.') : '') +
                 (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
         } else {
-            applyBattleOutcome(player, to, res, defTroops, 0);
+            if (corpiQui.length) {
+                // La guarnigione dell'ospite e i corpi spartiscono le perdite.
+                splitDefenderLosses(to, corpiQui, hostTroops, corpSold, defTroops - res.defenderSurvivors);
+            } else {
+                applyBattleOutcome(player, to, res, defTroops, 0);
+            }
             if (ritorno) putGroup(from, ritorno);
             const caduti = engaged - superstitiRitorno;
             msg = intermedio
@@ -4457,6 +4477,193 @@
         return done(testa + _spostMsg, { fromId, toId });
     }
 
+    // ========== CORPI DI SPEDIZIONE (§Diplomazia) ==========
+    // L'invio di un'armata su una provincia di un ALLEATO al fronte: le truppe
+    // RESTANO di questo regno (colore e proprietà), parcheggiate su suolo altrui
+    // in `player.corpiSpedizione`, non in data-pieces della provincia ospite —
+    // l'invariante "le truppe sono del proprietario della provincia" è intatta.
+    // È il movimento di Tipo B usato diversamente: esclusivo con ogni altro
+    // spostamento del turno. La destinazione dev'essere una provincia alleata
+    // che CONFINA con un regno nemico (non neutrale): serve un fronte attivo.
+
+    // La provincia `provId` dell'alleato confina con un regno nemico? (un terzo
+    // regno vero, né il mittente né l'ospite, e non terra neutrale.)
+    function isFrontier(provId, playerName, allyName) {
+        return E().landNeighbors(provId).some(nid => {
+            const np = E().path(nid);
+            if (!np) return false;
+            const own = E().owner(np);
+            return own && own !== 'Neutrale' && own !== playerName && own !== allyName;
+        });
+    }
+
+    // Il corpo marcia da `fromId` (tua) a `toId` (dell'alleato) lungo una catena
+    // di terra che attraversa SOLO territorio tuo o dell'alleato.
+    function corpsReachable(playerName, allyName, fromId, toId) {
+        const passable = id => {
+            if (id === toId) return true;
+            const p = E().path(id);
+            const o = p && E().owner(p);
+            return o === playerName || o === allyName;
+        };
+        const visited = new Set([fromId]);
+        const queue = [fromId];
+        while (queue.length) {
+            const cur = queue.shift();
+            if (cur === toId) return true;
+            E().landNeighbors(cur).forEach(id => {
+                if (!visited.has(id) && passable(id)) { visited.add(id); queue.push(id); }
+            });
+        }
+        return false;
+    }
+
+    // Provincia PROPRIA più vicina a `fromProv` (BFS a livelli sul grafo di terra):
+    // dove rientra un corpo richiamato.
+    function nearestOwnProvince(playerName, fromProv) {
+        const visited = new Set([fromProv]);
+        let queue = [fromProv];
+        while (queue.length) {
+            const next = [];
+            for (const cur of queue) {
+                for (const nid of E().landNeighbors(cur)) {
+                    if (visited.has(nid)) continue;
+                    visited.add(nid);
+                    const np = E().path(nid);
+                    if (np && E().owner(np) === playerName) return nid;
+                    next.push(nid);
+                }
+            }
+            queue = next;
+        }
+        return null;
+    }
+
+    // Guardia comune: il corpo usa il movimento di Tipo B, esclusivo con tutto.
+    function corpsMoveGate(player) {
+        const turnErr = requirePhase(player, 'sposta'); if (turnErr) return turnErr;
+        if (player.tipoSpostamento === 'A')
+            return fail('Hai già usato uno spostamento singolo (Tipo A) questo turno; il corpo di spedizione usa lo spostamento a catena.');
+        if (player.tipoSpostamento === 'B' || !player.spostamentiRimasti || player.spostamentiRimasti <= 0)
+            return fail('Hai già speso lo spostamento di questo turno.');
+        return null;
+    }
+
+    function sendCorps(player, fromId, toId, n, scafoVoluto) {
+        const gateErr = corpsMoveGate(player); if (gateErr) return gateErr;
+        const from = E().path(fromId), to = E().path(toId);
+        if (!from || !to) return fail('Provincia sconosciuta.');
+        if (fromId === toId) return fail('Partenza e arrivo sono la stessa provincia.');
+        if (E().owner(from) !== player.name) return fail('Il corpo parte da una tua provincia.');
+        const allyName = E().owner(to);
+        if (allyName === player.name) return fail('Il corpo di spedizione va su suolo ALLEATO, non tuo.');
+        const ally = R().players().find(pl => pl.name === allyName);
+        if (!ally || !D().allowsReinforce(player, ally))
+            return fail('Il corpo va su una provincia di un alleato (serve un patto di alleanza o rinforzi).');
+        if (!isFrontier(toId, player.name, allyName))
+            return fail(R().provinceLabel(to) + ' non è al fronte: il corpo va su una provincia alleata che confina con un nemico.');
+        if (!corpsReachable(player.name, allyName, fromId, toId))
+            return fail('Nessuna catena di terra, nel tuo territorio o in quello dell\'alleato, arriva a ' + R().provinceLabel(to) + '.');
+
+        const mobili = spare(from);
+        const ordM = troopOrder(n);
+        n = ordM.n;
+        if (!(n > 0)) return fail('Indica quanti soldati inviare.');
+        const ordErrM = orderFail(from, ordM); if (ordErrM) return ordErrM;
+        if (!mobili) return garrisonFail(from);
+        if (n > mobili)
+            return fail('Da ' + R().provinceLabel(from) + ' puoi inviarne al massimo ' + mobili + ': uno resta sempre a presidiare.');
+
+        const g = groupLeaving(from, n, ordM.cav);
+        takeGroup(from, g);
+        consumePlaced(player, fromId, n);
+
+        const id = 'cs' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+        player.corpiSpedizione.push({
+            id, prov: toId, alleato: allyName,
+            soldati: g.n, cav: g.cav || 0, merc: g.merc || 0
+        });
+
+        E().redrawProvince(from);
+        player.spostamentiRimasti = 0;
+        player.tipoSpostamento = 'B';
+        E().refresh();
+        E().save();
+        return done(g.n + (g.n === 1 ? ' soldato inviato' : ' soldati inviati') +
+            ' come corpo di spedizione a ' + allyName + ' (' + R().provinceLabel(to) +
+            '): restano sotto il tuo comando.', { fromId, toId });
+    }
+
+    function recallCorps(player, corpoId) {
+        const gateErr = corpsMoveGate(player); if (gateErr) return gateErr;
+        const lista = Array.isArray(player.corpiSpedizione) ? player.corpiSpedizione : [];
+        const idx = lista.findIndex(c => c.id === corpoId);
+        if (idx < 0) return fail('Corpo di spedizione non trovato.');
+        const corpo = lista[idx];
+        const dest = nearestOwnProvince(player.name, corpo.prov);
+        if (!dest) return fail('Non hai più province dove far rientrare il corpo: resta al fronte.');
+        const to = E().path(dest);
+        putGroup(to, { n: corpo.soldati, cav: corpo.cav || 0, merc: corpo.merc || 0 });
+        E().setArmyColor(to, player.color);
+        E().redrawProvince(to);
+        lista.splice(idx, 1);
+        player.spostamentiRimasti = 0;
+        player.tipoSpostamento = 'B';
+        E().refresh();
+        E().save();
+        return done('Il corpo di spedizione rientra a ' + R().provinceLabel(to) +
+            ' e si rifonde nella guarnigione.', { toId: dest });
+    }
+
+    // I corpi di spedizione (di chiunque) che stanno su una certa provincia ospite.
+    function corpsOn(provId) {
+        const out = [];
+        R().players().forEach(pl => {
+            (pl.corpiSpedizione || []).forEach(c => {
+                if (c.prov === provId) out.push({ owner: pl, corpo: c });
+            });
+        });
+        return out;
+    }
+
+    // Toglie un corpo dal record del suo regno (caduto o rientrato).
+    function removeCorps(owner, corpoId) {
+        if (!owner || !Array.isArray(owner.corpiSpedizione)) return;
+        const i = owner.corpiSpedizione.findIndex(c => c.id === corpoId);
+        if (i >= 0) owner.corpiSpedizione.splice(i, 1);
+    }
+
+    // Perdite su un corpo di spedizione: la ventura cade per prima (§5.3); se il
+    // corpo si azzera, sparisce dal record del suo regno.
+    function applyCorpsLoss(owner, corpo, loss) {
+        if (loss <= 0) return;
+        const mercLost = Math.min(corpo.merc || 0, loss);
+        corpo.merc = (corpo.merc || 0) - mercLost;
+        corpo.soldati = Math.max(0, (corpo.soldati || 0) - loss);
+        if ((corpo.cav || 0) > corpo.soldati) corpo.cav = corpo.soldati;
+        if (corpo.soldati <= 0) removeCorps(owner, corpo.id);
+    }
+
+    // Difesa combinata (§Diplomazia): se il fronte REGGE, le perdite del difensore
+    // si ripartiscono in proporzione fra la guarnigione dell'ospite e i corpi di
+    // spedizione presenti (ventura per prima in ciascuno). La guarnigione la toglie
+    // loseFromPath; i corpi li sfoltisce applyCorpsLoss.
+    function splitDefenderLosses(to, corpiQui, hostTroops, corpSold, totalLosses) {
+        const totalDef = hostTroops + corpSold;
+        if (totalDef <= 0 || totalLosses <= 0) return;
+        let remaining = Math.min(totalLosses, totalDef);
+        let hostLoss = Math.min(Math.round(totalLosses * hostTroops / totalDef), hostTroops, remaining);
+        loseFromPath(to, hostLoss);
+        remaining -= hostLoss;
+        corpiQui.forEach((c, i) => {
+            const size = c.corpo.soldati || 0;
+            const last = i === corpiQui.length - 1;
+            const loss = last ? remaining : Math.min(Math.round(totalLosses * size / totalDef), size, remaining);
+            applyCorpsLoss(c.owner, c.corpo, loss);
+            remaining -= loss;
+        });
+    }
+
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista
     // NON la distrugge da sola: sparisce solo quando ENTRAMBE le province che
     // collega sono passate a un colore diverso da quello della strada (l'utente
@@ -4844,6 +5051,7 @@
         askReinforcements, cancelHelp, sendReinforcements, helpInbox, helpOutbox, expireHelpRequests,
         conquestPending, resolveConquest,
         moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
+        sendCorps, recallCorps, corpsOn, isFrontier,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool,

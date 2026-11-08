@@ -417,6 +417,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // direzione che segue e il carico. Persistono nel salvataggio come le spie.
         if (!Array.isArray(p.primiAttacchi)) p.primiAttacchi = [];   // §9, i due attacchi
         if (!Array.isArray(p.spedizioni)) p.spedizioni = [];
+        // CORPI DI SPEDIZIONE (§Diplomazia): [{id, prov, alleato, soldati, cav, merc}]
+        // — armate di QUESTO regno parcheggiate su suolo alleato al fronte. Le truppe
+        // restano sue (colore e proprietà), non entrano in data-pieces della provincia
+        // ospite: struttura parallela come spie/spedizioni, serializzata col record.
+        if (!Array.isArray(p.corpiSpedizione)) p.corpiSpedizione = [];
         // AVVISI DI MARE (§9.2): naufragi e morìa dell'equipaggio in mare aperto,
         // in coda finché il giocatore non li ha letti — stessa logica degli editti,
         // così un naufragio non si perde se la pagina si ricarica prima del turno.
