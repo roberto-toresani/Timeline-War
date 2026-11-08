@@ -49,6 +49,17 @@ Accordo permanente fra due Mercati di regni diversi. Genera un **tubo ricorrente
 - 1 Mercato → max **1 rotta verso lo stesso regno**, max **2 rotte totali** verso regni diversi.
 - Con più Mercati (province diverse) si possono aprire più rotte.
 
+### Prerequisiti per creare una rotta
+Per poter proporre una rotta dalla sezione Mercato devono essere soddisfatte **tutte e cinque** le condizioni:
+
+1. **Hai almeno un Mercato.**
+2. **L'altro regno ha almeno un Mercato.**
+3. **Avete un patto `commercio preferenziale`** — è il requisito diplomatico minimo; l'alleanza non è necessaria, ma non impedisce le rotte.
+4. **Esiste un corridoio di terra** tra i due Mercati (BFS trova un percorso); se il mare separa completamente i due Mercati, in v1 la rotta non si può creare.
+5. **Il cap del Mercato non è esaurito**: max 2 rotte totali per Mercato, max 1 verso lo stesso regno.
+
+Se tutte le condizioni sono soddisfatte, nella sezione Mercato compare il pulsante per proporre la rotta; l'altro regno deve accettare (araldo, come i patti).
+
 ### Ciclo di vita
 - **Proposta via araldo** (come i patti): entrambi devono avere un Mercato, entrambi accettano, si scelgono le merci.
 - Persiste finché un capo la scioglie o il corridoio rimane interrotto N turni.

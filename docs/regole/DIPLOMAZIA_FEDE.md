@@ -3,7 +3,7 @@
 ## 5 tipi di patto (`Diplomacy.GRANTS`)
 1. **Non-belligeranza**: nessun attacco reciproco.
 2. **Alleanza**: abilita rinforzi e le condivisioni diplomatiche (vedi sotto); nessuna condivisione è automatica.
-3. **Commercio preferenziale**: sconto sulle carovane reciproche.
+3. **Commercio preferenziale**: sconto sulle carovane reciproche + **prerequisito per le rotte commerciali inter-regno** (vedi `MERCATI_COMMERCI.md § Prerequisiti`).
 4. **Vassallaggio**: il vassallo cede risorse, il signore protegge.
 5. **Tregua**: pausa temporanea (N turni), poi scade.
 
