@@ -4664,6 +4664,125 @@
         });
     }
 
+    // ---------- COMANDO DEL CORPO (§Diplomazia) ----------
+    // Al proprio turno il corpo è un'armata di B a tutti gli effetti, solo che
+    // parte da suolo alleato. Colpisce una provincia NEMICA adiacente alla base
+    // ospite — mai l'ospite stesso (niente pugnalata dall'interno). Risolve in un
+    // colpo solo come uno sbarco (resolveFullBattle): vinto, la provincia è una
+    // testa di ponte di B; perso, i superstiti ripiegano nel corpo.
+
+    // Le mete che un corpo può colpire: le province adiacenti alla base che non
+    // sono tue né dell'ospite.
+    function corpsAttackTargets(player, corpoId) {
+        const corpo = (player.corpiSpedizione || []).find(c => c.id === corpoId);
+        if (!corpo) return [];
+        return E().landNeighbors(corpo.prov)
+            .map(id => E().path(id)).filter(Boolean)
+            .filter(p => { const o = E().owner(p); return o !== player.name && o !== corpo.alleato; })
+            .map(p => ({ id: p.id, label: R().provinceLabel(p), troops: E().countPiece(p, 'soldato') }));
+    }
+
+    function corpsAttack(player, corpoId, toId, rng, tradimento) {
+        const turnErr = requirePhase(player, 'attacca'); if (turnErr) return turnErr;
+        const corpo = (player.corpiSpedizione || []).find(c => c.id === corpoId);
+        if (!corpo) return fail('Corpo di spedizione non trovato.');
+        const to = E().path(toId);
+        if (!to) return fail('Provincia sconosciuta.');
+        if (toId === corpo.prov) return fail('Il corpo non può attaccare la provincia che lo ospita.');
+        if (E().owner(to) === corpo.alleato) return fail('Un corpo di spedizione non attacca il proprio ospite.');
+        if (E().owner(to) === player.name) return fail('Non puoi attaccare te stesso.');
+        if (!E().areLandAdjacent(corpo.prov, toId))
+            return fail('Il corpo può colpire solo una provincia adiacente alla sua base.');
+
+        // Non aggressione (§Diplomazia), come l'attacco normale: col consenso o
+        // tradendo si può colpire comunque.
+        const difRegno = R().players().find(p => p.name === E().owner(to));
+        const pattoNonAgg = !!(difRegno && D().grantsNonAggression(player, difRegno));
+        const consenso = pattoNonAgg && difRegno ? (consentIndex(difRegno, player.id, toId) >= 0) : false;
+        if (pattoNonAgg && !consenso && !tradimento) {
+            return fail('Hai un patto con ' + difRegno.name + ': serve il suo consenso per colpire ' +
+                R().provinceLabel(to) + ', oppure devi tradire.');
+        }
+
+        const engaged = corpo.soldati || 0;
+        if (!(engaged > 0)) return fail('Il corpo non ha truppe da impegnare.');
+        const mercImp = corpo.merc || 0, cavImp = corpo.cav || 0;
+
+        // Il bersaglio può a sua volta ospitare corpi nemici: difendono con lui.
+        const corpiBersaglio = corpsOn(toId);
+        const corpSoldB = corpiBersaglio.reduce((s, c) => s + (c.corpo.soldati || 0), 0);
+        const corpMercB = corpiBersaglio.reduce((s, c) => s + (c.corpo.merc || 0), 0);
+        const corpCavB = corpiBersaglio.reduce((s, c) => s + (c.corpo.cav || 0), 0);
+        const hostTroopsB = E().countPiece(to, 'soldato');
+        const defTroops = hostTroopsB + corpSoldB;
+        const fort = GR().defenceBonus(unitsOf([to]));
+        const terreno = terrainOf(to);
+        const mercDif = E().merc(to) + corpMercB, cavDif = E().cav(to) + corpCavB;
+        const toLabel = R().provinceLabel(to);
+        const difensore = E().owner(to) || 'Neutrale';
+
+        const res = RisikoBattle.resolveFullBattle(engaged, defTroops, fort, rng, terrainExp(to),
+            mercImp, mercDif, cavImp, cavDif, terreno);
+        if (!res) return fail('Nessuna battaglia possibile.');
+
+        // Tradimento senza consenso: rompe il patto. Col consenso si consuma il
+        // permesso una-tantum e il patto resta.
+        if (pattoNonAgg && difRegno) {
+            const ci = consentIndex(difRegno, player.id, toId);
+            if (ci >= 0) difRegno.permessiAttacco.splice(ci, 1);
+            else breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
+        }
+        recordAggression(difRegno, to, player.name, res.attackerWins ? 'presa' : 'respinto');
+
+        const gruppo = { n: engaged, merc: mercImp, cav: cavImp };
+        const arrivati = res.attackerWins ? survivorsOf(gruppo, res.losses) : null;
+
+        let msg, conversione = null;
+        if (res.attackerWins) {
+            // I corpi nemici sul bersaglio cadono con la provincia.
+            corpiBersaglio.forEach(c => removeCorps(c.owner, c.corpo.id));
+            // La provincia diventa di B (testa di ponte): i superstiti la presidiano.
+            conversione = applyBattleOutcome(player, to, res, hostTroopsB, arrivati);
+            // Il corpo si è trasferito nella provincia presa: consumato.
+            removeCorps(player, corpo.id);
+            msg = 'Il corpo di spedizione conquista ' + toLabel + ': ' + res.attackerSurvivors +
+                (res.attackerSurvivors === 1 ? ' superstite' : ' superstiti') +
+                ' (testa di ponte, ora tua).' +
+                (conversione ? ' La provincia si converte alla tua fede: ' + conversione.label + '.' : '');
+        } else {
+            // Difesa combinata sul bersaglio (se ospita corpi).
+            if (corpiBersaglio.length) {
+                splitDefenderLosses(to, corpiBersaglio, hostTroopsB, corpSoldB, defTroops - res.defenderSurvivors);
+            } else {
+                applyBattleOutcome(player, to, res, defTroops, 0);
+            }
+            // I superstiti ripiegano nel corpo (resta sulla base ospite).
+            const surv = res.attackerSurvivors;
+            if (surv > 0) {
+                const rit = survivorsOf(gruppo, engaged - surv);
+                corpo.soldati = rit.n; corpo.merc = rit.merc; corpo.cav = rit.cav;
+                msg = toLabel + ' ha retto: il corpo perde ' + (engaged - surv) +
+                    (engaged - surv === 1 ? ' uomo, ' : ' uomini, ') + surv +
+                    (surv === 1 ? ' ripiega' : ' ripiegano') + ' sulla base. Al difensore restano ' +
+                    res.defenderSurvivors + '.';
+            } else {
+                removeCorps(player, corpo.id);
+                msg = toLabel + ' ha retto: il corpo di spedizione è distrutto. Al difensore restano ' +
+                    res.defenderSurvivors + '.';
+            }
+        }
+
+        E().redrawProvince(to);
+        E().redrawRoads();
+        E().refresh();
+        E().save();
+        return done(msg, {
+            conversione, battle: res, fromId: corpo.prov, toId, toLabel,
+            attaccante: player.name, difensore, coloreAttaccante: player.color,
+            conquistata: res.attackerWins, corpoAttacco: true
+        });
+    }
+
     // Una strada appartiene al colore di chi l'ha costruita (road.c). Una conquista
     // NON la distrugge da sola: sparisce solo quando ENTRAMBE le province che
     // collega sono passate a un colore diverso da quello della strada (l'utente
@@ -5051,7 +5170,7 @@
         askReinforcements, cancelHelp, sendReinforcements, helpInbox, helpOutbox, expireHelpRequests,
         conquestPending, resolveConquest,
         moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
-        sendCorps, recallCorps, corpsOn, isFrontier,
+        sendCorps, recallCorps, corpsOn, isFrontier, corpsAttack, corpsAttackTargets,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool,
