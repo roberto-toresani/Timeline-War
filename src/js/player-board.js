@@ -2358,15 +2358,24 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         if (!mine) {
-            // CORPO DI SPEDIZIONE (§Diplomazia): se qui c'è un tuo corpo e sei in
-            // fase d'attacco, da questa provincia alleata lo comandi.
-            const corpoQui = isPlaying(player) && !player.conquista && viewPhase(player) === 'attacca'
+            // CORPO DI SPEDIZIONE (§Diplomazia): una provincia alleata dove hai un
+            // corpo la tratti come tua — in attacco scegli dove colpire, in
+            // spostamento se richiamare gli uomini. Basta cliccarla sulla mappa.
+            const corpoQui = isPlaying(player) && !player.conquista
                 ? (player.corpiSpedizione || []).find(c => c.prov === path.id)
                 : null;
             if (corpoQui) {
-                actions.innerHTML = '';
-                actions.appendChild(corpsCommandGroup(player, corpoQui));
-                return;
+                const vp = viewPhase(player);
+                if (vp === 'attacca') {
+                    actions.innerHTML = '';
+                    actions.appendChild(corpsCommandGroup(player, corpoQui));
+                    return;
+                }
+                if (vp === 'sposta') {
+                    actions.innerHTML = '';
+                    actions.appendChild(corpsRecallGroup(player, corpoQui));
+                    return;
+                }
             }
             actions.innerHTML = '<div class="bp-empty-hint">Non è tua. Per attaccarla, seleziona una tua provincia confinante.</div>';
             maybeAppendExpeditions(player, actions);
@@ -2818,6 +2827,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     t.troops + ' già lì', null, () => askCorpsAttack(player, corpo, t)));
             });
         }
+        return g;
+    }
+
+    // RITIRO DEL CORPO (§Diplomazia): cliccando sulla mappa, in fase spostamento,
+    // la provincia alleata dove sta un tuo corpo, compare qui il richiamo — i
+    // soldati rientrano alla tua provincia più vicina.
+    function corpsRecallGroup(player, corpo) {
+        const g = document.createElement('div');
+        g.className = 'bp-act-group';
+        const ospite = R.engine.path(corpo.prov);
+        const dove = ospite ? R.provinceLabel(ospite) : corpo.prov;
+        g.insertAdjacentHTML('beforeend', '<div class="bp-hint">↩ <b>Corpo di spedizione</b>: ' +
+            corpo.soldati + (corpo.soldati === 1 ? ' soldato' : ' soldati') +
+            (corpo.cav ? ' (' + corpo.cav + ' cav.)' : '') + ' a ' + dove +
+            ', ospite di ' + corpo.alleato + '. Puoi richiamarlo a casa.</div>');
+        g.appendChild(actionButton('↩ Ritira il corpo',
+            'rientra alla tua provincia più vicina', null, () => {
+                R.confirm({
+                    title: 'Ritirare il corpo da ' + dove + '?',
+                    text: 'Il corpo rientra alla tua provincia più vicina e si rifonde nella guarnigione. ' +
+                        'È lo spostamento a catena del turno: dopo non se ne fanno altri.',
+                    ok: '↩ Ritira'
+                }, () => { closeOrder(); run(GA().recallCorps(player, corpo.id)); });
+            }));
         return g;
     }
 
@@ -3307,36 +3340,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, () => { closeOrder(); run(GA().corpsAttack(player, corpo.id, t.id)); });
     }
 
-    // Il pannello dei corpi di spedizione al fronte, in cima alla fase SPOSTA:
-    // elenca i corpi e offre il RITIRO (uno spostamento a catena). Il comando
-    // d'attacco invece si prende cliccando il corpo sulla mappa (corpsCommandGroup).
-    function renderCorpsPanel(box, player) {
-        const corpi = (player.corpiSpedizione || []);
-        if (!corpi.length) return;
-        const wrap = document.createElement('div');
-        wrap.className = 'bp-corps-panel';
-        wrap.insertAdjacentHTML('beforeend',
-            '<div class="bp-hint">↩ I tuoi corpi di spedizione al fronte</div>');
-        corpi.forEach(c => {
-            const ospite = R.engine.path(c.prov);
-            const dove = (ospite ? R.provinceLabel(ospite) : c.prov) + ' · ospite ' + c.alleato;
-            const forza = c.soldati + (c.soldati === 1 ? ' soldato' : ' soldati') +
-                (c.cav ? ' (' + c.cav + ' cav.)' : '');
-            wrap.insertAdjacentHTML('beforeend',
-                '<div class="bp-corps-head"><b>' + forza + '</b> a ' + dove + '</div>');
-            wrap.appendChild(actionButton('↩ Ritira il corpo',
-                'rientra alla tua provincia più vicina', null, () => {
-                    R.confirm({
-                        title: 'Ritirare il corpo da ' + (ospite ? R.provinceLabel(ospite) : c.prov) + '?',
-                        text: 'Il corpo rientra alla tua provincia più vicina e si rifonde nella guarnigione. ' +
-                            'È lo spostamento a catena del turno: dopo non se ne fanno altri.',
-                        ok: '↩ Ritira'
-                    }, () => { closeOrder(); run(GA().recallCorps(player, c.id)); });
-                }));
-        });
-        box.appendChild(wrap);
-    }
-
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
     // La formula NON si riscrive qui: chiama battle.js, così il pronostico e la
     // battaglia vera non possono divergere (mura + terreno del bersaglio, §9).
@@ -3691,10 +3694,6 @@ document.addEventListener('DOMContentLoaded', () => {
             box.innerHTML = '<div class="bp-empty-hint">' + _msgDone + '</div>';
             return;
         }
-
-        // CORPI DI SPEDIZIONE (§Diplomazia): il ritiro è uno spostamento a catena,
-        // quindi vive qui, in cima alla fase sposta, finché il movimento è libero.
-        renderCorpsPanel(box, player);
 
         // Primo clic: la partenza. Finché non è scelta il pannello non racconta
         // nessuna provincia — quella selezionata è l'eredità della fase
