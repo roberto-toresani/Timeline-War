@@ -94,6 +94,8 @@ La provincia resta di A. Il corpo **non entra in `data-pieces`** della provincia
 
 **Comando (turno di B)**: il corpo è un'armata di B a tutti gli effetti, parcheggiata su suolo alleato. Le armate muovibili di B = truppe nelle province di B **+** corpi su province alleate. Una mossa / un attacco per turno (§1 standard).
 
+**UX — la provincia alleata si tratta come tua**: dove hai un corpo, clicchi la provincia sulla mappa e agisci come se fosse tua — in fase **attacca** scegli il bersaglio adiacente, in fase **sposta** scegli se ritirare gli uomini. Comandi **solo il tuo corpo**: la guarnigione dell'alleato resta sua (difende insieme, ma non la muovi tu).
+
 **Base di proiezione**: dalla provincia ospite B può attaccare **qualunque** provincia nemica adiacente (A fa da base). Un corpo **non può attaccare il proprio ospite** (niente pugnalata dall'interno — il tradimento resta quello di confine). Se ad A non sta bene, rompe l'alleanza e il corpo diventa sconfinamento da ritirare.
 
 **Conquista**: la provincia presa **va a B** (testa di ponte sua), con la ripartizione conquista di B.
