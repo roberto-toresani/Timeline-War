@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'deploy', 'undeploy', 'deployBound', 'deployAllBound', 'autoDeploy', 'autoPlayTurn',
         'nextPhase', 'endTurn', 'build', 'buildRoad', 'buildWelfare', 'moveCapital', 'recruit',
         'destroyMarket', 'destroyShip', 'attack', 'sendReinforcements', 'finalMove',
+        'sendCorps', 'recallCorps', 'corpsAttack',
         'resolveConquest', 'resolveCapital', 'launchExpedition', 'expeditionLand',
         'steerExpedition', 'sendSpy', 'setTax', 'tradeWithBank', 'proposeTrade', 'acceptTrade',
         'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact',
@@ -2357,6 +2358,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         if (!mine) {
+            // CORPO DI SPEDIZIONE (§Diplomazia): se qui c'è un tuo corpo e sei in
+            // fase d'attacco, da questa provincia alleata lo comandi.
+            const corpoQui = isPlaying(player) && !player.conquista && viewPhase(player) === 'attacca'
+                ? (player.corpiSpedizione || []).find(c => c.prov === path.id)
+                : null;
+            if (corpoQui) {
+                actions.innerHTML = '';
+                actions.appendChild(corpsCommandGroup(player, corpoQui));
+                return;
+            }
             actions.innerHTML = '<div class="bp-empty-hint">Non è tua. Per attaccarla, seleziona una tua provincia confinante.</div>';
             maybeAppendExpeditions(player, actions);
             return;
@@ -2783,6 +2794,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return all.filter(t => t.viaTerra || t.viaCatena)
             .map(t => Object.assign({}, t, { viaMare: false, scafo: null, carico: null }));
+    }
+
+    // COMANDO DEL CORPO DI SPEDIZIONE (§Diplomazia): cliccando sulla mappa la
+    // provincia alleata dove sta un tuo corpo, in fase d'attacco compare qui il
+    // comando — colpisce un nemico adiacente alla base. È roba tua su suolo altrui.
+    function corpsCommandGroup(player, corpo) {
+        const g = document.createElement('div');
+        g.className = 'bp-act-group';
+        const ospite = R.engine.path(corpo.prov);
+        g.insertAdjacentHTML('beforeend', '<div class="bp-hint">⚔ <b>Corpo di spedizione</b>: ' +
+            corpo.soldati + (corpo.soldati === 1 ? ' soldato' : ' soldati') +
+            (corpo.cav ? ' (' + corpo.cav + ' cav.)' : '') + ' a ' +
+            (ospite ? R.provinceLabel(ospite) : corpo.prov) + ', ospite di ' + corpo.alleato +
+            '. Colpisci un nemico adiacente; per ritirarlo, vai in fase Spostamento.</div>');
+        const targets = GA().corpsAttackTargets(player, corpo.id);
+        if (!targets.length) {
+            g.insertAdjacentHTML('beforeend',
+                '<div class="bp-empty-hint">Nessun nemico adiacente alla base da colpire.</div>');
+        } else {
+            targets.forEach(t => {
+                g.appendChild(actionButton('⚔ Attacca ' + t.label,
+                    t.troops + ' già lì', null, () => askCorpsAttack(player, corpo, t)));
+            });
+        }
+        return g;
     }
 
     function attackGroup(player, path) {
@@ -3243,6 +3279,64 @@ document.addEventListener('DOMContentLoaded', () => {
         }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, troopArg(n, cav), navale ? t.scafo : undefined)); });
     }
 
+    // INVIARE UN CORPO DI SPEDIZIONE (§Diplomazia): come un rinforzo, ma le truppe
+    // RESTANO tue e le comandi tu. Solo su una provincia alleata al fronte.
+    function askSendCorps(player, path, t, n, cav) {
+        R.confirm({
+            title: 'Inviare un corpo di spedizione a ' + t.label + '?',
+            text: squadText(n, cav, ' soldato', ' soldati') + (n === 1 ? ' marcia ' : ' marciano ') +
+                'sul fronte di ' + (t.owner || 'un alleato') + ' a ' + t.label +
+                ', ma RESTANO sotto il tuo comando: al tuo turno puoi attaccare il nemico adiacente ' +
+                'o richiamarli, e difendono insieme alla guarnigione alleata. ' +
+                'È lo spostamento a catena del turno: dopo non se ne fanno altri.',
+            tone: 'war',
+            ok: '⚔ Invia il corpo'
+        }, () => { closeOrder(); run(GA().sendCorps(player, path.id, t.id, troopArg(n, cav))); });
+    }
+
+    // COMANDARE UN CORPO ALL'ATTACCO (§Diplomazia): dal fronte ospite colpisce
+    // una provincia nemica adiacente. Vinto → testa di ponte tua; perso → ripiego.
+    function askCorpsAttack(player, corpo, t) {
+        R.confirm({
+            title: 'Il corpo attacca ' + t.label + '?',
+            text: 'Il corpo di spedizione (' + corpo.soldati + (corpo.soldati === 1 ? ' uomo' : ' uomini') +
+                ') colpisce ' + t.label + '. Se vince, la provincia diventa tua (una testa di ponte); ' +
+                'se perde, i superstiti ripiegano sulla base. Risolve in un colpo solo.',
+            tone: 'war',
+            ok: '⚔ Attacca'
+        }, () => { closeOrder(); run(GA().corpsAttack(player, corpo.id, t.id)); });
+    }
+
+    // Il pannello dei corpi di spedizione al fronte, in cima alla fase SPOSTA:
+    // elenca i corpi e offre il RITIRO (uno spostamento a catena). Il comando
+    // d'attacco invece si prende cliccando il corpo sulla mappa (corpsCommandGroup).
+    function renderCorpsPanel(box, player) {
+        const corpi = (player.corpiSpedizione || []);
+        if (!corpi.length) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'bp-corps-panel';
+        wrap.insertAdjacentHTML('beforeend',
+            '<div class="bp-hint">↩ I tuoi corpi di spedizione al fronte</div>');
+        corpi.forEach(c => {
+            const ospite = R.engine.path(c.prov);
+            const dove = (ospite ? R.provinceLabel(ospite) : c.prov) + ' · ospite ' + c.alleato;
+            const forza = c.soldati + (c.soldati === 1 ? ' soldato' : ' soldati') +
+                (c.cav ? ' (' + c.cav + ' cav.)' : '');
+            wrap.insertAdjacentHTML('beforeend',
+                '<div class="bp-corps-head"><b>' + forza + '</b> a ' + dove + '</div>');
+            wrap.appendChild(actionButton('↩ Ritira il corpo',
+                'rientra alla tua provincia più vicina', null, () => {
+                    R.confirm({
+                        title: 'Ritirare il corpo da ' + (ospite ? R.provinceLabel(ospite) : c.prov) + '?',
+                        text: 'Il corpo rientra alla tua provincia più vicina e si rifonde nella guarnigione. ' +
+                            'È lo spostamento a catena del turno: dopo non se ne fanno altri.',
+                        ok: '↩ Ritira'
+                    }, () => { closeOrder(); run(GA().recallCorps(player, c.id)); });
+                }));
+        });
+        box.appendChild(wrap);
+    }
+
     // Probabilità di vittoria dell'attaccante col numero di truppe scelto.
     // La formula NON si riscrive qui: chiama battle.js, così il pronostico e la
     // battaglia vera non possono divergere (mura + terreno del bersaglio, §9).
@@ -3598,6 +3692,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // CORPI DI SPEDIZIONE (§Diplomazia): il ritiro è uno spostamento a catena,
+        // quindi vive qui, in cima alla fase sposta, finché il movimento è libero.
+        renderCorpsPanel(box, player);
+
         // Primo clic: la partenza. Finché non è scelta il pannello non racconta
         // nessuna provincia — quella selezionata è l'eredità della fase
         // precedente e non c'entra più (vedi moveOriginPath).
@@ -3720,6 +3818,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const s = pick.fit(tetto);
                 askMove(player, path, t, s.n, null, s.cav);
             }));
+            // CORPO DI SPEDIZIONE (§Diplomazia): se la meta è una provincia alleata
+            // AL FRONTE (confina con un nemico), si può inviare un corpo che RESTA
+            // tuo invece del rinforzo-che-fonde. Solo via terra in v1.
+            if (t.alleato && !t.viaMare && GA().isFrontier(t.id, player.name, t.owner)) {
+                body.appendChild(actionButton('⚔ Corpo di spedizione a ' + t.label,
+                    'resta tuo, lo comandi tu al fronte', null, () => {
+                        const s = pick.fit(tetto);
+                        askSendCorps(player, path, t, s.n, s.cav);
+                    }));
+            }
         });
     }
 
