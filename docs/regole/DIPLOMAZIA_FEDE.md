@@ -2,7 +2,7 @@
 
 ## 5 tipi di patto (`Diplomacy.GRANTS`)
 1. **Non-belligeranza**: nessun attacco reciproco.
-2. **Alleanza**: condivisione visione + rinforzi.
+2. **Alleanza**: abilita rinforzi e le condivisioni diplomatiche (vedi sotto); nessuna condivisione è automatica.
 3. **Commercio preferenziale**: sconto sulle carovane reciproche.
 4. **Vassallaggio**: il vassallo cede risorse, il signore protegge.
 5. **Tregua**: pausa temporanea (N turni), poi scade.
@@ -18,10 +18,39 @@
 - `sendReinforcements(from, to, qty)`: alleato invia (costa un'azione costruzione).
 - **Tradire**: inviare truppe e poi attaccare → standing crolla a minimo.
 
+## Condivisioni diplomatiche (opt-in, richiedono consenso)
+
+Le condivisioni non scattano automaticamente con l'alleanza: devono essere **richieste** da A e **accettate** da B. Rimangono attive finché uno dei due le revoca o l'alleanza si rompe.
+
+**Condividi vista** (`shareVision`): B vede tutte le province di A con i loro dati (truppe, risorse, fede). Uso tattico: coordinare difese, valutare rinforzi.
+
+**Mostra fronte** (`shareFront`): A indica a B un avversario X. B vede quali province di A confinano con province di X (il "fronte"). Prerequisito necessario per l'invio di un corpo di spedizione: B deve sapere dov'è il fronte per poter scegliere la provincia destinazione. A può aprire fronti diversi con alleati diversi (uno per avversario).
+
+Entrambe le condivisioni sono **unidirezionali**: A condivide con B, non viceversa. Per la reciprocità, B deve fare una richiesta speculare ad A.
+
 ## Standing (`Diplomacy.standing`)
 - Numero −100 / +100 per coppia di regni.
 - `why[]`: lista motivi (tradimento, patto rispettato, aiuto...); si sfuma nel tempo (`fade`).
 - Standing basso blocca nuovi patti anche se fede compatibile.
+- `ctx`: `{ confinanti, turno, fedeMia, fedeSua, truppe_confine }` — passato dal chiamante.
+
+### Criteri di standing
+
+| # | Criterio | Delta |
+|---|---|---|
+| 1 | Patti attivi firmati | variabile (il più pesante) |
+| 2 | Stessa fede | +18 |
+| 2 | Fedi sorelle (Catt/Ort, Sunn/Sciita) | **−15** (rivali: si contendono le stesse anime) |
+| 2 | Fedi di famiglie diverse | −10 |
+| 3 | Scambi commerciali conclusi | +7 cadauno, cap +28 |
+| 3b | Rotta commerciale instaurata (≥1 scambio) | +10 fisso |
+| 4 | Rinforzi ricevuti (aiuti) | pesato per età, cap +27 |
+| 5 | Consensi di passaggio concessi | +4 cadauno, cap +8 |
+| 6 | Province prese in guerra | −(6 + 5×peso) × fade, cap −50 |
+| 6 | Attacchi respinti | −5 × fade, cap −20 |
+| 7 | Patti traditi / rotti da lui | −30 / −14 cadauno |
+| 8 | Confinano senza accordi | −6 |
+| 8b | Confini armati (>6 truppe al confine, senza accordi) | −8 aggiuntivi |
 
 ## Bot e diplomazia
 - **Fede blocca prima**: famiglie di fede diverse non firmano (`canDealWith`).
@@ -46,3 +75,51 @@
 - **Riforma** (turno 52): nascita Protestanti dal blocco cattolico.
 - Scismi applicati da `applyEvents` → `syncKingdomFaiths` → `syncStateFaiths`.
 - Dopo uno scisma, patti tra fedi ora incompatibili restano in vigore ma non si rinnovano.
+
+## Corpi di spedizione
+
+Meccanica avanzata (v1 solo umani): B invia un'armata su una provincia di A (alleato con patto alleanza/rinforzi). Le truppe **mantengono colore e proprietà di B** e sono **comandate da B al suo turno**.
+
+### Architettura — struttura parallela sul mittente
+```
+B.corpiSpedizione = [{ id, prov, alleato:'A', soldati, cav, merc }]
+```
+La provincia resta di A. Il corpo **non entra in `data-pieces`** della provincia ospite (l'invariante "truppe appartengono al proprietario della provincia" è preservata). I punti del motore che devono leggere i corpi: combattimento, render, turno di B.
+
+### Ciclo di vita
+
+**Invio** (fase **sposta**, movimento tipo B): l'invio di un corpo di spedizione **è** il movimento di tipo B — l'unica grande mossa che attraversa più province. Usarlo esclude qualsiasi altro spostamento quel turno (sia il tipo B normale, sia i 3 spostamenti tipo A). La destinazione deve essere una provincia di A che **confina con un regno nemico** (non con neutrali): serve cioè che esista un fronte attivo. Il corpo arriva al turno 1, è usabile dal turno 2.
+
+**Ospitalità / difesa**: il corpo difende **sempre insieme** alla guarnigione di A (anche nel turno di A). Non conta per il presidio minimo di A né per la sua produzione/§8.
+
+**Comando (turno di B)**: il corpo è un'armata di B a tutti gli effetti, parcheggiata su suolo alleato. Le armate muovibili di B = truppe nelle province di B **+** corpi su province alleate. Una mossa / un attacco per turno (§1 standard).
+
+**Base di proiezione**: dalla provincia ospite B può attaccare **qualunque** provincia nemica adiacente (A fa da base). Un corpo **non può attaccare il proprio ospite** (niente pugnalata dall'interno — il tradimento resta quello di confine). Se ad A non sta bene, rompe l'alleanza e il corpo diventa sconfinamento da ritirare.
+
+**Conquista**: la provincia presa **va a B** (testa di ponte sua), con la ripartizione conquista di B.
+
+**Ritiro (richiamo immediato)**: il corpo rientra nella provincia di B **più vicina** e si rifonde nella guarnigione. Costa come la **modalità B dello spostamento di fine turno** (l'unica grande mossa): quel turno occupa tutto il movimento ed è **esclusivo con i 3 spostamenti modalità A**. L'invio non ha questo vincolo; solo il ritiro è prezzato come modalità B.
+
+### Difesa e perdite
+Sul fronte condiviso le due armate si **sommano**: soldati di A + soldati di B, con le rispettive ventura e cavalieri; terreno e mura sono quelli della provincia ospite, contati una volta sola. La somma vale anche per il limite di conquista e per la soglia dei due attacchi (§9).
+- **Difesa che regge**: perdite ripartite in **proporzione** (ventura per prima in ciascuno).
+- **Provincia che cade**: cadono guarnigione di A **e** corpo di B — nessun superstite. È il prezzo dell'impegno oltreconfine.
+
+### §8 / Sicurezza
+Il corpo di B non cambia la Sicurezza di A (la proprietà delle province non cambia).
+
+### Bot (v1)
+Comandare un corpo è **solo umano** (come spie/spedizioni). I bot continuano a usare `sendReinforcements` (fusione classica). Un umano può mandare un corpo da un alleato-bot (il bot ospita, l'umano comanda).
+
+### Render
+Pedine di B sulla provincia di A disegnate col **colore di B** + coccarda "corpo di spedizione". Visibili a B e a chi vede le truppe di quella provincia (confine / `vista` / spia).
+
+### Punti di impatto nel motore
+| File | Cosa cambia |
+|---|---|
+| `game-actions.js` | invio crea entry in `corpiSpedizione`; turno B include corpi come armate mossibili |
+| `battle.js` | difensori = `data-pieces`(A) + corpi di B su quella prov |
+| `game-actions.js` (attacco) | origine attacco/movimento ammessa anche su provincia altrui (solo per corpi) |
+| `game-rules.js` / `kingdom-stats.js` | corpi esclusi da presidio/produzione/§8 di A |
+| `sync.js` | `corpiSpedizione` serializzato nel documento Firestore |
+| `refreshMapDisplay` | render con colore B + coccarda |

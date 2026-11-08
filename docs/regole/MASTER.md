@@ -35,6 +35,13 @@ Isole: solo via nave (`seaLinksOf`). `pesteBlocco` blocca raccolta per 1 turno.
 | Turno mongoli / grande passo | 21 / 36 |
 | Peste Nera | turni 35–39 |
 
+## Corpi di spedizione (v1 solo umani)
+`B.corpiSpedizione = [{ id, prov, alleato, soldati, cav, merc }]` — struttura parallela su B, mai in `data-pieces`.
+Difesa combinata A+B; provincia cade → nessun superstite. Conquista → testa di ponte di B.
+Invio = movimento tipo B (esclusivo con tutto il movimento del turno). Destinazione: solo province di A che confinano con un nemico (no neutrali).
+Ritiro = richiamo immediato, costo modalità B (esclusivo con 3 spostamenti modalità A).
+→ dettagli: `DIPLOMAZIA_FEDE.md § Corpi di spedizione`
+
 ## Gotcha obbligatori
 - **`?local=1` sempre** in locale — punta Firebase PRODUZIONE senza.
 - **Mai `window.confirm/alert`** → `Risiko.confirm({title,text,ok,tone}, onYes)`.

@@ -2071,11 +2071,20 @@
         if (!D() || !D().standing || !other) return 0;
         const k = other.name;
         if (cache.has(k)) return cache.get(k);
+        const truppe_confine = !viaMare ? (() => {
+            const svg = R().svg ? R().svg() : null;
+            if (!svg) return 0;
+            return (R().ownedPaths ? R().ownedPaths(other.name) : [])
+                .filter(p => (R().engine.landNeighbors(p.id) || [])
+                    .some(nid => R().engine.owner(R().engine.path(nid)) === player.name))
+                .reduce((s, p) => s + parseInt(p.getAttribute('data-pieces') || 0, 10), 0);
+        })() : 0;
         const st = D().standing(player, other, {
             confinanti: !viaMare,
             turno: R().turn(),
             fedeMia: R().stateReligionOf ? R().stateReligionOf(player) : null,
-            fedeSua: R().stateReligionOf ? R().stateReligionOf(other) : null
+            fedeSua: R().stateReligionOf ? R().stateReligionOf(other) : null,
+            truppe_confine
         });
         cache.set(k, st.score);
         return st.score;

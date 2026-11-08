@@ -5330,15 +5330,23 @@ document.addEventListener('DOMContentLoaded', () => {
         // (è puro come popularity.js: riceve i numeri, non guarda la mappa).
         const miaFede = R.stateReligionOf ? R.stateReligionOf(player) : null;
         visibili
-            .map(p => ({
-                p,
-                st: D.standing(player, p, {
-                    confinanti: (confini[p.id] || []).length > 0,
-                    turno: R.turn(),
-                    fedeMia: miaFede,
-                    fedeSua: R.stateReligionOf ? R.stateReligionOf(p) : null
-                })
-            }))
+            .map(p => {
+                const borderProvIds = confini[p.id] || [];
+                const truppe_confine = borderProvIds.reduce((sum, nid) => {
+                    const np = R.engine.path(nid);
+                    return sum + (np ? parseInt(np.getAttribute('data-pieces') || 0, 10) : 0);
+                }, 0);
+                return {
+                    p,
+                    st: D.standing(player, p, {
+                        confinanti: borderProvIds.length > 0,
+                        turno: R.turn(),
+                        fedeMia: miaFede,
+                        fedeSua: R.stateReligionOf ? R.stateReligionOf(p) : null,
+                        truppe_confine
+                    })
+                };
+            })
             .sort((a, b) => b.st.score - a.st.score)     // prima gli amici, in fondo i nemici
             .forEach(({ p, st }) =>
                 box.appendChild(relationCard(player, p, st, (confini[p.id] || []), myTurn)));

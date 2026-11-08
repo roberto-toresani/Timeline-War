@@ -145,7 +145,7 @@
     // guerra di tre cicli fa non deve condannare due regni per sempre.
     //
     // `ctx` porta quel che il modulo puro non può leggere da sé:
-    //   { confinanti, turno, fedeMia, fedeSua }
+    //   { confinanti, turno, fedeMia, fedeSua, truppe_confine }
     // — le fedi sono le religioni di STATO (Risiko.stateReligionOf), cioè quelle
     // delle due Capitali: diplomacy.js non guarda la mappa, come popularity.js
     // non la misura.
@@ -186,9 +186,10 @@
     // appena sopra la soglia), ma 'Alleati' resta irraggiungibile senza firmare
     // qualcosa — e un confine senza accordi le riporta comunque a 'Neutrali'.
     // Fedi sorelle (cattolici/ortodossi, sunniti/sciiti: stessa FAMIGLIA,
-    // confessione diversa) valgono metà; fedi di famiglie diverse sono un
-    // sospetto di partenza, non un'ostilità.
-    const FAITH_SAME = 18, FAITH_KIN = 9, FAITH_ALIEN = -10;
+    // confessione diversa) sono rivali: si contendono le stesse anime e hanno
+    // dispute teologiche profonde. Fedi di famiglie diverse sono un sospetto
+    // di partenza, non un'ostilità.
+    const FAITH_SAME = 18, FAITH_KIN = -15, FAITH_ALIEN = -10;
 
     // GLI AIUTI RICEVUTI: ogni drappello che un alleato ti ha mandato al fronte
     // (§Diplomazia, rinforzi). Vale più di una carovana — sono uomini, non merce.
@@ -249,6 +250,12 @@
         const scambi = (Array.isArray(me.commerciStorico) ? me.commerciStorico : [])
             .filter(h => String(h.conId) === String(other.id)).length;
         add(cap(scambi * 7, 28), scambi === 1 ? '1 scambio concluso' : scambi + ' scambi conclusi');
+        // 3b. Rotta commerciale instaurata: un accordo formale fra Mercati vale
+        //     oltre i singoli scambi — c'è un corridoio aperto.
+        //     (player.rotteCommerciali popolato quando le rotte inter-regno saranno implementate)
+        const hasRoute = Array.isArray(me.rotteCommerciali) &&
+            me.rotteCommerciali.some(r => String(r.conId) === String(other.id));
+        if (hasRoute) add(10, 'rotta commerciale instaurata');
 
         // 4. GLI AIUTI: i rinforzi che ti ha mandato al fronte. Sono la cosa più
         //    cara che un alleato possa darti — uomini che poteva tenersi.
@@ -294,6 +301,9 @@
         //    che si guardano. Vale poco, ma vale.
         if (opts.confinanti && !pactsWith(me, other.id).length) {
             add(-6, 'confinate senza accordi');
+            // 8b. Confini armati: oltre la tensione passiva, una forza pesante
+            //     al confine è una minaccia non dichiarata.
+            if ((opts.truppe_confine || 0) > 6) add(-8, 'confini armati');
         }
 
         const score = Math.max(-100, Math.min(100, why.reduce((s, w) => s + w.delta, 0)));
