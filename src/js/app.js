@@ -1910,6 +1910,88 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // CORPI DI SPEDIZIONE (§Diplomazia): le armate di un regno parcheggiate su
+    // suolo ALLEATO. Non vivono in data-pieces (sono del mittente, non dell'ospite):
+    // si disegnano a ogni refresh come le spedizioni, col COLORE del mittente e una
+    // coccarda (anello) che le distingue da una guarnigione. Stanno in una fila
+    // sotto la guarnigione dell'ospite — "una guarnigione in più".
+    function drawCorps(svg, path, corpi) {
+        const bb = mainBodyBBox(path);
+        if (!bb) return;
+        const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
+        const size = Math.max(PIECE_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * PIECE_FIT, PIECE_SIZE));
+        const colorOf = new Map(PLAYERS.map(p => [p.name, p.color]));
+        const cy = a.y + size * 1.35;     // sotto la fila della guarnigione
+        const gapR = 0.25, n = corpi.length;
+        const totalW = n * size + (n - 1) * size * gapR;
+        const step = size * (1 + gapR);
+        const startX = a.x - totalW / 2;
+        corpi.forEach((entry, i) => {
+            const color = colorOf.get(entry.owner.name) || PIECE_INK;
+            const x = startX + i * step, y = cy - size / 2;
+            const add = (el) => {
+                el.setAttribute('class', 'corps-marker');
+                el.setAttribute('pointer-events', 'none');
+                el.style.color = color;
+                svg.appendChild(el);
+            };
+            // La coccarda: un anello nel colore del mittente attorno alla pedina.
+            const ring = document.createElementNS(SVG_NS, 'circle');
+            ring.setAttribute('cx', x + size / 2); ring.setAttribute('cy', y + size / 2);
+            ring.setAttribute('r', size * 0.64);
+            ring.setAttribute('fill', 'none');
+            ring.setAttribute('stroke', color);
+            ring.setAttribute('stroke-width', size * 0.14);
+            add(ring);
+            const use = document.createElementNS(SVG_NS, 'use');
+            use.setAttribute('href', '#pc-soldato');
+            use.setAttributeNS(XLINK_NS, 'href', '#pc-soldato');
+            use.setAttribute('x', x); use.setAttribute('y', y);
+            use.setAttribute('width', size); use.setAttribute('height', size);
+            add(use);
+            const bx = x + size * 0.84, by = y + size * 0.16, br = size * BADGE_R;
+            const circ = document.createElementNS(SVG_NS, 'circle');
+            circ.setAttribute('cx', bx); circ.setAttribute('cy', by); circ.setAttribute('r', br);
+            circ.setAttribute('fill', '#fff');
+            circ.setAttribute('stroke', PIECE_INK);
+            circ.setAttribute('stroke-width', size * 0.07);
+            add(circ);
+            const t = document.createElementNS(SVG_NS, 'text');
+            t.setAttribute('x', bx); t.setAttribute('y', by);
+            t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('dominant-baseline', 'central');
+            t.setAttribute('font-size', br * 1.4);
+            t.setAttribute('font-weight', 'bold');
+            t.setAttribute('font-family', 'sans-serif');
+            t.setAttribute('fill', 'currentColor');
+            t.textContent = entry.corpo.soldati;
+            add(t);
+        });
+    }
+
+    // Si vedono: a chi li possiede (è roba sua), e a chi vede le TRUPPE della
+    // provincia ospite — non in nebbia (fog) né in nebbia leggera (haze).
+    function renderCorps(svg, focus, visible, hazed) {
+        svg.querySelectorAll('.corps-marker').forEach(m => m.remove());
+        const byProv = new Map();
+        PLAYERS.forEach(pl => {
+            (pl.corpiSpedizione || []).forEach(c => {
+                if (focus) {
+                    const own = pl.id === focus.id;
+                    const seeProv = (!visible || visible.has(c.prov)) && !(hazed && hazed.has(c.prov));
+                    if (!own && !seeProv) return;
+                }
+                if (!byProv.has(c.prov)) byProv.set(c.prov, []);
+                byProv.get(c.prov).push({ owner: pl, corpo: c });
+            });
+        });
+        if (!byProv.size) return;
+        provincePaths(svg).forEach(path => {
+            const corpi = byProv.get(path.id);
+            if (corpi) drawCorps(svg, path, corpi);
+        });
+    }
+
     // Snapshot { provinceId: { t:"soldato:3,citta:1", c:"#e6194B" } } delle province con figure.
     function collectPieces(svg) {
         const out = {};
@@ -4637,6 +4719,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // ogni refresh perché la loro posizione cambia di turno in turno e non
         // vivono su un path (niente marker persistente da limitare a mostrare).
         renderExpeditions(svg);
+        // I corpi di spedizione (§Diplomazia) stanno su suolo altrui, non in
+        // data-pieces: anch'essi si ridisegnano a ogni refresh, col colore del
+        // mittente e la coccarda, rispettando la nebbia del focus.
+        renderCorps(svg, focus, visible, hazed);
 
         renderPopularityPanel();
         renderGameControls();
