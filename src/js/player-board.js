@@ -495,7 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setText('lb-hint', 'Ora tocca la meta (a righe d\'oro).');
                 liteButton(acts, '↩ Cambia partenza', '', () => { moveArmed = false; render(); });
             } else {
-                const _infoLite = _rimLite > 1 ? _rimLite + ' spostamenti rimasti' : 'Un spostamento rimasto';
+                const _infoLite = _rimLite > 1 ? 'Ne hai ancora ' + _rimLite : 'Ne hai ancora 1';
                 setText('lb-hint', _infoLite + ': tocca la provincia di partenza (filo verde), o chiudi il turno.');
             }
         }
@@ -3687,10 +3687,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (_rimMove <= 0) {
             const _cicloRm = Math.floor((R.turn() - 1) / 10);
             const _msgDone = player.tipoSpostamento === 'B'
-                ? 'Hai usato lo spostamento a catena (Tipo B). Puoi chiudere il turno.'
+                ? 'Uno spostamento a lungo raggio usato. Puoi chiudere il turno.'
                 : (_cicloRm >= 2
-                    ? 'Tutti e 3 gli spostamenti Tipo A (5 uomini max) sono stati usati. Puoi chiudere il turno.'
-                    : 'Spostamento già fatto. Puoi chiudere il turno.');
+                    ? 'Tutti e 3 gli spostamenti usati. Puoi chiudere il turno.'
+                    : 'Spostamento usato. Puoi chiudere il turno.');
             box.innerHTML = '<div class="bp-empty-hint">' + _msgDone + '</div>';
             return;
         }
@@ -6901,6 +6901,139 @@ document.addEventListener('DOMContentLoaded', () => {
         run(GA().deployAllBound(player));
     }
 
+    // ---------- 📣 AGGIORNAMENTI: il giornale del ciclo ----------
+    // (richiesta dell'utente) I pop-up facevano perdere le notizie: comparivano
+    // una volta e sparivano. Questo pannello a sinistra tiene a vista TUTTE le
+    // notizie del ciclo in corso — diplomazia, editti, terre cadute, tradimenti,
+    // mercato, leva — e si svuota da sé a ogni nuovo ciclo (ogni 10 turni),
+    // perché mostra solo le voci col turno dentro il ciclo corrente.
+    //
+    // È un LETTORE puro: non consuma né segna letto nulla (quello lo fanno i
+    // pop-up con `letto`). Attinge agli stessi registri che il regno già tiene
+    // sul proprio record, così non serve ricablare chi li produce in
+    // game-actions.js. I pallini sul dock (chat/mercato/diplomazia) restano:
+    // questo è in aggiunta, non al loro posto.
+    function cycleStartTurn(turn) { return Math.floor((turn - 1) / 10) * 10 + 1; }
+
+    function collectUpdates(player) {
+        const turn = R.turn ? R.turn() : 0;
+        if (!turn || !player) return [];
+        const from = cycleStartTurn(turn);
+        const out = [];
+        // seq tiene l'ordine di inserimento per spareggiare le voci dello stesso
+        // turno (gli array sono già in ordine cronologico di arrivo).
+        let seq = 0;
+        const add = (turno, ico, cat, text, bad) => {
+            if (!text) return;
+            if ((turno || 0) < from) return;
+            out.push({ turno: turno || 0, seq: seq++, ico, cat, text, bad: !!bad });
+        };
+        const provLabel = id => {
+            const p = R.engine && R.engine.path && R.engine.path(id);
+            return p ? R.provinceLabel(p) : id;
+        };
+
+        // Editti dell'admin
+        (player.editti || []).forEach(e => {
+            const t = (e.titolo && e.titolo !== 'Editto') ? e.titolo : '';
+            const body = e.testo || t || 'Editto promulgato.';
+            add(e.turno, '📜', 'Editto', t && e.testo ? (t + ' — ' + e.testo) : body);
+        });
+
+        // Eventi storici e cronache del decennio
+        (player.eventiAvvisi || []).forEach(a => {
+            add(a.turno, '📰', 'Cronaca', a.titolo || a.testo);
+        });
+
+        // Diplomazia e tradimenti
+        (player.pattiAvvisi || []).forEach(a => {
+            const patto = pactLabel(a.patto);
+            let ico = '🕊', cat = 'Diplomazia', bad = false, text = '';
+            switch (a.tipo) {
+                case 'accettato': text = a.conNome + ' ha accettato: ' + patto.toLowerCase() + ' in vigore.'; break;
+                case 'rotto': text = a.conNome + ' ha sciolto ' + patto.toLowerCase() + ' con te.'; break;
+                case 'tradito': ico = '⚔'; cat = 'Tradimento'; bad = true;
+                    text = a.conNome + ' ti ha TRADITO: ha infranto ' + patto.toLowerCase() + ' e ti ha attaccato.'; break;
+                case 'scaduto': text = 'Scaduto il patto con ' + a.conNome + ' (' + patto.toLowerCase() + ').'; break;
+                case 'consenso': text = a.conNome + ' ti concede di attaccare ' + provLabel(a.prov) + '.'; break;
+                case 'aiuto': text = a.conNome + ' chiede rinforzi a ' + provLabel(a.prov) + '.'; break;
+                case 'rinforzi': text = a.conNome + ' ha mandato ' + (a.uomini || 0) +
+                    (a.uomini === 1 ? ' uomo' : ' uomini') + ' a ' + provLabel(a.prov) + '.'; break;
+            }
+            add(a.turno, ico, cat, text, bad);
+        });
+
+        // Terre cadute e attacchi respinti (registro delle aggressioni subite)
+        (player.aggressioni || []).forEach(a => {
+            if (a.esito === 'presa') add(a.turno, '🔥', 'Terra persa',
+                a.chi + ' ha conquistato ' + provLabel(a.prov) + '.', true);
+            else add(a.turno, '🛡', 'Attacco respinto',
+                'Respinto ' + a.chi + ' a ' + provLabel(a.prov) + '.');
+        });
+
+        // Mercato: carovane concluse
+        (player.commerciAvvisi || []).forEach(a => add(a.turno, '⚖', 'Mercato',
+            'Accordo con ' + a.conNome + ': dato ' + GR().goodsText(a.dato) +
+            ', ricevuto ' + GR().goodsText(a.ricevuto) + '.'));
+
+        // Leva: gli uomini versati dagli obiettivi a fine ciclo
+        (player.obiettiviAvvisi || []).forEach(a => {
+            if (a.leva) add(a.turno, '🎖', 'Leva', 'La leva risponde: ' + a.leva +
+                (a.leva === 1 ? ' uomo' : ' uomini') + ' dalle imprese del ciclo.');
+        });
+
+        // Capitale: migliorie civiche crollate
+        (player.welfareAvvisi || []).forEach(a => {
+            const crolli = (a.eventi || []).filter(ev => ev.esito === 'crollata').length;
+            if (crolli) add(a.turno, '🏛', 'Capitale', crolli +
+                (crolli === 1 ? ' opera della Capitale è crollata.' : ' opere della Capitale sono crollate.'), true);
+        });
+
+        // Mare: naufragi e morìa delle spedizioni
+        (player.spedizioniAvvisi || []).forEach(a => add(a.turno, '🌊', 'Mare',
+            a.tipo === 'totale' ? 'Una tempesta ha inghiottito una spedizione.'
+                : 'Il mare si è preso ' + a.morti + (a.morti === 1 ? ' uomo' : ' uomini') + ' di una spedizione.'));
+
+        // Più recenti in cima; a parità di turno, l'ultimo arrivato prima.
+        out.sort((x, y) => (y.turno - x.turno) || (y.seq - x.seq));
+        return out;
+    }
+
+    function renderUpdates(player) {
+        const box = $('board-updates');
+        if (!box) return;
+        const turn = R.turn ? R.turn() : 0;
+        // Partita non avviata (turno 0): niente giornale.
+        if (!turn) { box.style.display = 'none'; return; }
+        box.style.display = '';
+        setText('bu-cycle', 'ciclo ' + (Math.floor((turn - 1) / 10) + 1));
+
+        const list = $('bu-list');
+        if (!list) return;
+        const items = collectUpdates(player);
+        if (!items.length) {
+            list.innerHTML = '<div class="bu-empty">Ancora nessun aggiornamento in questo ciclo.</div>';
+            return;
+        }
+        // HTML con parti statiche; i testi (nomi di regno inclusi) vanno via
+        // textContent, come in renderChat: non si concatena testo dei dati.
+        list.innerHTML = items.map(it =>
+            '<div class="bu-item' + (it.bad ? ' bad' : '') + '">' +
+                '<span class="bu-item-ico">' + it.ico + '</span>' +
+                '<div class="bu-item-body">' +
+                    '<span class="bu-item-cat"></span>' +
+                    '<span class="bu-item-text"></span>' +
+                '</div>' +
+            '</div>'
+        ).join('');
+        const cats = list.querySelectorAll('.bu-item-cat');
+        const txts = list.querySelectorAll('.bu-item-text');
+        items.forEach((it, i) => {
+            if (cats[i]) cats[i].textContent = it.cat;
+            if (txts[i]) txts[i].textContent = it.text;
+        });
+    }
+
     function render() {
         // In solitaria la plancia segue il turno: se è cambiato regno, enterKingdom
         // ha già rifatto il render e questo va lasciato cadere.
@@ -6955,6 +7088,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderRelations(player);
         renderChat(player);
         syncDockBadges(player);
+        renderUpdates(player);
         renderConquest(player);
         renderCapitalChoice(player);
         renderBattle();

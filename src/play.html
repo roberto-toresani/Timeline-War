@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=101">
-    <link rel="stylesheet" href="css/board.css?v=141">
+    <link rel="stylesheet" href="css/board.css?v=142">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -106,6 +106,14 @@
             <div id="map-wrapper">
                 <div id="svg-container">Caricamento mappa…</div>
 
+                <!-- ---------- COLONNA DI SINISTRA (rail) ----------
+                     (richiesta dell'utente) A sinistra, sotto i pulsanti del dock,
+                     c'è ora la sezione AGGIORNAMENTI. Dock e aggiornamenti vivono
+                     nella stessa colonna in flex: il dock in alto, il giornale del
+                     ciclo sotto che si prende tutta l'altezza rimasta. Così non
+                     servono più numeri magici per posizionare il pannello. -->
+                <div id="board-rail">
+
                 <!-- ---------- DOCK: i pannelli come pulsanti ----------
                      Sta DENTRO la cornice della mappa, sempre nello stesso posto,
                      sempre visibile. Ogni pulsante apre un foglio a tutta visuale
@@ -139,6 +147,26 @@
                         <span class="dock-ico">📜</span><span class="dock-lab">Costi</span>
                     </button>
                 </div>
+
+                <!-- ---------- 📣 AGGIORNAMENTI ----------
+                     (richiesta dell'utente) Il vecchio sistema di pop-up faceva
+                     perdere le notizie: comparivano una volta e sparivano. Qui
+                     invece resta un GIORNALE del ciclo — diplomazia, editti, terre
+                     cadute, tradimenti, mercato, leva — sempre a vista. Si svuota
+                     da sé a ogni nuovo ciclo (ogni 10 turni): mostra solo le
+                     notizie del ciclo in corso. I pop-up e i pallini su chat,
+                     mercato e diplomazia restano: questo è in più, non al posto.
+                     Lo riempie renderUpdates in player-board.js. -->
+                <div id="board-updates" style="display:none;">
+                    <header class="bu-head">
+                        <span class="bu-ico">📣</span>
+                        <span class="bu-title">Aggiornamenti</span>
+                        <span class="bu-cycle" id="bu-cycle">ciclo 1</span>
+                    </header>
+                    <div class="bu-list" id="bu-list"></div>
+                </div>
+
+                </div><!-- /#board-rail -->
 
                 <!-- Linguetta del pannello del turno: l'unica rimasta, sta nella
                      cornice della mappa e non balla quando la colonna si chiude. -->
@@ -594,7 +622,7 @@
     <script src="js/app.js?v=133"></script>
     <script src="js/game-actions.js?v=136"></script>
     <script src="js/bot.js?v=135"></script>
-    <script src="js/player-board.js?v=144"></script>
+    <script src="js/player-board.js?v=145"></script>
     <!-- ✝ Il Papa: la finestra dell'admin, solo senza codice d'invito (js/pope-chat.js). -->
     <script src="js/pope-chat.js?v=3"></script>
 </body>

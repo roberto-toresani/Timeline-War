@@ -4471,9 +4471,11 @@
             : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') +
               (viaMare ? (flotta && flotta.num > 1 ? ' con ' + flotta.num + ' navi' : ' via nave') : '') +
               ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.';
-        const _spostMsg = _rimasti > 0
-            ? (' Puoi ancora spostare ' + _rimasti + (_rimasti === 1 ? ' volta.' : ' volte.'))
-            : ' Lo spostamento del turno è speso.';
+        const _spostMsg = _viaCatena
+            ? ' Uno spostamento a lungo raggio: puoi chiudere il turno.'
+            : _rimasti > 0
+                ? (' Ne hai ancora ' + _rimasti + '.')
+                : ' Puoi chiudere il turno.';
         return done(testa + _spostMsg, { fromId, toId });
     }
 
