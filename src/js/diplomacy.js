@@ -186,10 +186,10 @@
     // appena sopra la soglia), ma 'Alleati' resta irraggiungibile senza firmare
     // qualcosa — e un confine senza accordi le riporta comunque a 'Neutrali'.
     // Fedi sorelle (cattolici/ortodossi, sunniti/sciiti: stessa FAMIGLIA,
-    // confessione diversa) sono rivali: si contendono le stesse anime e hanno
-    // dispute teologiche profonde. Fedi di famiglie diverse sono un sospetto
-    // di partenza, non un'ostilità.
-    const FAITH_SAME = 18, FAITH_KIN = -15, FAITH_ALIEN = -10;
+    // confessione diversa) condividono radici e si riconoscono: +15.
+    // Fedi di famiglie diverse (es. cristiani vs musulmani) partono da
+    // un'ostilità di fondo: −15.
+    const FAITH_SAME = 18, FAITH_KIN = 15, FAITH_ALIEN = -15;
 
     // GLI AIUTI RICEVUTI: ogni drappello che un alleato ti ha mandato al fronte
     // (§Diplomazia, rinforzi). Vale più di una carovana — sono uomini, non merce.
