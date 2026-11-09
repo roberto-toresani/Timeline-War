@@ -4305,7 +4305,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const altri = tradeKingdomsDisponibili(player);
         if (!altri.length) {
-            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun altro regno con cui trattare — condividi un confine di terra per aprire una rotta commerciale.</div>');
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Nessun altro regno con cui trattare — devi confinare di terra oppure avere un patto diplomatico.</div>');
             return card;
         }
         if (!tradeUI.verso || !altri.some(p => p.id === tradeUI.verso)) tradeUI.verso = altri[0].id;
@@ -5286,18 +5286,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // concedere a un partner di attaccare una propria provincia. Le proposte in
     // arrivo hanno già il pop-up a inizio turno; qui restano elencate per
     // decidere con calma. Nessun vincolo di fase: basta il proprio turno.
-    // §2A ciclo 3: regni con cui si può commerciare — confinano adesso OPPURE
-    // hanno confinato negli ultimi CONFINE_TTL turni. I commerci richiedono
-    // contatto fisico: non basta la visibilità o la conoscenza diplomatica.
+    // Si può commerciare con un regno se:
+    //   1. Confinano via terra ADESSO
+    //   2. Hanno confinato negli ultimi CONFINE_TTL turni
+    //   3. C'è almeno un patto diplomatico attivo
     const CONFINE_TTL = 5;
     function tradeKingdomsDisponibili(player) {
         const turnoCorrente = R.turn ? R.turn() : 0;
+        const myPaths = R.ownedPaths(player.name);
+        const D = window.Diplomacy;
         return R.players().filter(p => {
             if (p.id === player.id) return false;
             if (!R.ownedPaths(p.name).length) return false;
+            // 1. Confinano ADESSO?
+            const theirPaths = R.ownedPaths(p.name);
+            const confinanoOra = myPaths.some(pa =>
+                theirPaths.some(pb =>
+                    R.engine.areLandAdjacent ? R.engine.areLandAdjacent(pa.id, pb.id)
+                        : (window.NEIGHBORS_LAND && window.NEIGHBORS_LAND[pa.id] &&
+                           (window.NEIGHBORS_LAND[pa.id].has
+                               ? window.NEIGHBORS_LAND[pa.id].has(pb.id)
+                               : window.NEIGHBORS_LAND[pa.id].includes(pb.id)))));
+            if (confinanoOra) return true;
+            // 2. Han confinato di recente?
             const ultimoT = player.ultimoConfine && player.ultimoConfine[p.id];
-            if (!ultimoT) return false;
-            return (turnoCorrente - ultimoT) <= CONFINE_TTL;
+            if (ultimoT && (turnoCorrente - ultimoT) <= CONFINE_TTL) return true;
+            // 3. Patto diplomatico attivo?
+            if (D && D.pactsWith(player, p.id).length) return true;
+            return false;
         });
     }
 
