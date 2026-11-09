@@ -4499,6 +4499,89 @@
         });
     }
 
+    // MOSTRA FRONTE (§Diplomazia): un alleato A apre a B il proprio confine con un
+    // nemico X. È il prerequisito perché B possa inviare un corpo lì. La provincia
+    // `provId` di A è su un fronte che A ha aperto a `allyId` (B)? Cioè confina con
+    // un nemico X che sta in `A.frontiMostrati` per quell'alleato.
+    function onSharedFront(ally, allyId, provId) {
+        const nemici = (ally.frontiMostrati || [])
+            .filter(f => String(f.a) === String(allyId))
+            .map(f => f.nemico);
+        if (!nemici.length) return false;
+        return E().landNeighbors(provId).some(nid => {
+            const np = E().path(nid);
+            return np && nemici.indexOf(E().owner(np)) >= 0;
+        });
+    }
+
+    // I regni nemici che `player` CONFINA e che quindi può aprire come fronte a un
+    // alleato: terzi regni veri (né player né l'alleato destinatario, non neutrali).
+    function frontEnemies(player, allyId) {
+        const ally = R().players().find(p => String(p.id) === String(allyId));
+        const seen = new Set();
+        E().ownedPaths(player.name).forEach(p => {
+            E().landNeighbors(p.id).forEach(nid => {
+                const np = E().path(nid);
+                if (!np) return;
+                const own = E().owner(np);
+                if (own && own !== 'Neutrale' && own !== player.name && (!ally || own !== ally.name)) {
+                    seen.add(own);
+                }
+            });
+        });
+        return Array.from(seen);
+    }
+
+    // Apre (concessione unilaterale) il fronte col nemico `nemicoName` a un alleato.
+    function showFront(player, allyId, nemicoName) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const ally = R().players().find(p => String(p.id) === String(allyId));
+        if (!ally) return fail('Alleato sconosciuto.');
+        if (!D().allowsReinforce(player, ally))
+            return fail('Puoi aprire un fronte solo a un alleato (patto di alleanza o rinforzi).');
+        if (frontEnemies(player, allyId).indexOf(nemicoName) < 0)
+            return fail('Non confini con ' + nemicoName + ': non c\'è un fronte da mostrare.');
+        if (!Array.isArray(player.frontiMostrati)) player.frontiMostrati = [];
+        const esiste = player.frontiMostrati.some(f => String(f.a) === String(allyId) && f.nemico === nemicoName);
+        if (esiste) return fail('Hai già aperto questo fronte a ' + ally.name + '.');
+        player.frontiMostrati.push({ a: allyId, nemico: nemicoName });
+        E().refresh(); E().save();
+        return done('Hai mostrato a ' + ally.name + ' il tuo fronte con ' + nemicoName +
+            ': ora può inviarti un corpo di spedizione su quelle province.', { prov: homeId(player) });
+    }
+
+    // Revoca il fronte mostrato.
+    function hideFront(player, allyId, nemicoName) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        if (!Array.isArray(player.frontiMostrati)) player.frontiMostrati = [];
+        const i = player.frontiMostrati.findIndex(f => String(f.a) === String(allyId) && f.nemico === nemicoName);
+        if (i < 0) return fail('Questo fronte non era aperto.');
+        player.frontiMostrati.splice(i, 1);
+        const ally = R().players().find(p => String(p.id) === String(allyId));
+        E().refresh(); E().save();
+        return done('Hai chiuso il fronte con ' + nemicoName + ' a ' + (ally ? ally.name : 'quell\'alleato') + '.',
+            { prov: homeId(player) });
+    }
+
+    // I nemici per cui `player` ha aperto un fronte all'alleato `allyId`.
+    function frontsShownTo(player, allyId) {
+        return (player.frontiMostrati || [])
+            .filter(f => String(f.a) === String(allyId))
+            .map(f => f.nemico);
+    }
+
+    // B può inviare un corpo sulla provincia alleata `provId`? (alleanza + fronte
+    // aperto che copre quella provincia.) Usato dalla UI per mostrare il bottone.
+    function canSendCorpsTo(player, provId) {
+        const to = E().path(provId);
+        if (!to) return false;
+        const allyName = E().owner(to);
+        if (!allyName || allyName === 'Neutrale' || allyName === player.name) return false;
+        const ally = R().players().find(pl => pl.name === allyName);
+        if (!ally || !D().allowsReinforce(player, ally)) return false;
+        return onSharedFront(ally, player.id, provId);
+    }
+
     // Il corpo marcia da `fromId` (tua) a `toId` (dell'alleato) lungo una catena
     // di terra che attraversa SOLO territorio tuo o dell'alleato.
     function corpsReachable(playerName, allyName, fromId, toId) {
@@ -4562,8 +4645,9 @@
         const ally = R().players().find(pl => pl.name === allyName);
         if (!ally || !D().allowsReinforce(player, ally))
             return fail('Il corpo va su una provincia di un alleato (serve un patto di alleanza o rinforzi).');
-        if (!isFrontier(toId, player.name, allyName))
-            return fail(R().provinceLabel(to) + ' non è al fronte: il corpo va su una provincia alleata che confina con un nemico.');
+        if (!onSharedFront(ally, player.id, toId))
+            return fail(allyName + ' non ti ha aperto un fronte su ' + R().provinceLabel(to) +
+                ': deve prima mostrarti il suo fronte col nemico da qui (sezione Diplomazia).');
         if (!corpsReachable(player.name, allyName, fromId, toId))
             return fail('Nessuna catena di terra, nel tuo territorio o in quello dell\'alleato, arriva a ' + R().provinceLabel(to) + '.');
 
@@ -5173,6 +5257,7 @@
         conquestPending, resolveConquest,
         moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
         sendCorps, recallCorps, corpsOn, isFrontier, corpsAttack, corpsAttackTargets,
+        showFront, hideFront, frontEnemies, frontsShownTo, canSendCorpsTo,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
         connectedOf, unitsOf, snapshotOf, isMyTurn,
         boundPool, boundTotal, placedPool,

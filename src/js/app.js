@@ -422,6 +422,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // restano sue (colore e proprietà), non entrano in data-pieces della provincia
         // ospite: struttura parallela come spie/spedizioni, serializzata col record.
         if (!Array.isArray(p.corpiSpedizione)) p.corpiSpedizione = [];
+        // FRONTI MOSTRATI (§Diplomazia): [{a: idAlleato, nemico: nomeNemico}] — i
+        // fronti che QUESTO regno ha aperto a un alleato: "mostro a `a` il mio
+        // confine col nemico `nemico`". È il prerequisito perché l'alleato possa
+        // inviare qui un corpo di spedizione. Concessione unilaterale, revocabile.
+        if (!Array.isArray(p.frontiMostrati)) p.frontiMostrati = [];
         // AVVISI DI MARE (§9.2): naufragi e morìa dell'equipaggio in mare aperto,
         // in coda finché il giocatore non li ha letti — stessa logica degli editti,
         // così un naufragio non si perde se la pagina si ricarica prima del turno.

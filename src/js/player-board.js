@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'deploy', 'undeploy', 'deployBound', 'deployAllBound', 'autoDeploy', 'autoPlayTurn',
         'nextPhase', 'endTurn', 'build', 'buildRoad', 'buildWelfare', 'moveCapital', 'recruit',
         'destroyMarket', 'destroyShip', 'attack', 'sendReinforcements', 'finalMove',
-        'sendCorps', 'recallCorps', 'corpsAttack',
+        'sendCorps', 'recallCorps', 'corpsAttack', 'showFront', 'hideFront',
         'resolveConquest', 'resolveCapital', 'launchExpedition', 'expeditionLand',
         'steerExpedition', 'sendSpy', 'setTax', 'tradeWithBank', 'proposeTrade', 'acceptTrade',
         'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact',
@@ -3818,9 +3818,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 askMove(player, path, t, s.n, null, s.cav);
             }));
             // CORPO DI SPEDIZIONE (§Diplomazia): se la meta è una provincia alleata
-            // AL FRONTE (confina con un nemico), si può inviare un corpo che RESTA
-            // tuo invece del rinforzo-che-fonde. Solo via terra in v1.
-            if (t.alleato && !t.viaMare && GA().isFrontier(t.id, player.name, t.owner)) {
+            // su un FRONTE che l'alleato ti ha aperto (mostra fronte), puoi inviare
+            // un corpo che RESTA tuo invece del rinforzo-che-fonde. Solo via terra.
+            if (t.alleato && !t.viaMare && GA().canSendCorpsTo(player, t.id)) {
                 body.appendChild(actionButton('⚔ Corpo di spedizione a ' + t.label,
                     'resta tuo, lo comandi tu al fronte', null, () => {
                         const s = pick.fit(tetto);
@@ -5562,6 +5562,42 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         card.appendChild(pacts);
+
+        // --- MOSTRA FRONTE (§Diplomazia): a un alleato puoi aprire il tuo confine
+        // con un nemico, così lui può inviarti un corpo di spedizione su quelle
+        // province. Concessione unilaterale, un clic per aprire/chiudere. Compare
+        // solo per gli alleati (patto di alleanza o rinforzi) e nel tuo turno. ---
+        if (D.allowsReinforce(player, altro)) {
+            const nemici = GA().frontEnemies(player, altro.id);
+            const aperti = new Set(GA().frontsShownTo(player, altro.id));
+            const fronts = document.createElement('div');
+            fronts.className = 'rel-fronts';
+            if (!nemici.length && !aperti.size) {
+                fronts.innerHTML = '<div class="rel-fronts-hint">Non confini con nessun nemico: nessun fronte da mostrare a ' +
+                    altro.name + '.</div>';
+            } else {
+                fronts.innerHTML = '<div class="rel-fronts-hint">⚔ Mostra a ' + altro.name +
+                    ' un tuo fronte: potrà inviarti un corpo di spedizione lì.</div>';
+                // L'unione di nemici confinanti ora + fronti già aperti (un nemico
+                // potrebbe non confinare più ma restare aperto finché non lo chiudi).
+                const tutti = Array.from(new Set(nemici.concat(Array.from(aperti))));
+                tutti.forEach(nome => {
+                    const on = aperti.has(nome);
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'bp-mini rel-front' + (on ? ' on' : '');
+                    b.textContent = (on ? '✓ ' : '+ ') + nome;
+                    b.title = on ? 'Chiudi il fronte con ' + nome : 'Apri il fronte con ' + nome + ' a ' + altro.name;
+                    if (!myTurn) b.disabled = true;
+                    b.addEventListener('click', () => {
+                        run(on ? GA().hideFront(player, altro.id, nome)
+                               : GA().showFront(player, altro.id, nome));
+                    });
+                    fronts.appendChild(b);
+                });
+            }
+            card.appendChild(fronts);
+        }
 
         // --- scorciatoie: nessuna azione nuova, solo il ponte con gli araldi ---
         const acts = document.createElement('div');

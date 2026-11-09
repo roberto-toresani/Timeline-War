@@ -2973,6 +2973,15 @@ svg path.state.spied {
 /* patti in essere, come gettoni; ognuno col suo "rompi" */
 .rel-pacts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
 
+/* MOSTRA FRONTE (§Diplomazia): i fronti aperti a un alleato */
+.rel-fronts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; align-items: center; }
+.rel-fronts-hint { flex: 1 1 100%; font-size: .85em; opacity: .85; margin-bottom: 2px; }
+.rel-front.on {
+    border-color: var(--gold-bright, #e8b530);
+    background: var(--btn-face-hover);
+    color: var(--gold-bright, #e8b530);
+}
+
 .rel-pact {
     display: flex;
     align-items: center;

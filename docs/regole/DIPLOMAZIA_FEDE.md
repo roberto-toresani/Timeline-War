@@ -2,7 +2,7 @@
 
 ## 5 tipi di patto (`Diplomacy.GRANTS`)
 1. **Non-belligeranza**: nessun attacco reciproco.
-2. **Alleanza**: abilita rinforzi e le condivisioni diplomatiche (vedi sotto); nessuna condivisione è automatica.
+2. **Alleanza**: concede non-aggressione, **vista** (automatica) e **rinforzi**; i rinforzi sono anche il requisito per ospitare un corpo di spedizione (serve poi che l'alleato apra il fronte — vedi sotto).
 3. **Commercio preferenziale**: sconto sulle carovane reciproche + **prerequisito per le rotte commerciali inter-regno** (vedi `MERCATI_COMMERCI.md § Prerequisiti`).
 4. **Vassallaggio**: il vassallo cede risorse, il signore protegge.
 5. **Tregua**: pausa temporanea (N turni), poi scade.
@@ -18,15 +18,14 @@
 - `sendReinforcements(from, to, qty)`: alleato invia (costa un'azione costruzione).
 - **Tradire**: inviare truppe e poi attaccare → standing crolla a minimo.
 
-## Condivisioni diplomatiche (opt-in, richiedono consenso)
+## Condivisioni diplomatiche
 
-Le condivisioni non scattano automaticamente con l'alleanza: devono essere **richieste** da A e **accettate** da B. Rimangono attive finché uno dei due le revoca o l'alleanza si rompe.
+**Mostra fronte** (`showFront` / `hideFront`, dato `player.frontiMostrati = [{a, nemico}]`): A apre a un alleato B il proprio confine con un avversario X. È una **concessione unilaterale** — A clicca e apre, nessuna accettazione di B — **revocabile** in ogni momento (`hideFront`). Si fa dalla **sezione Diplomazia**, nella scheda dell'alleato: un bottone per ogni nemico che A confina.
+- **Prerequisito obbligatorio del corpo di spedizione**: B può inviare un corpo su una provincia di A **solo** se A le ha aperto il fronte col nemico che quella provincia confina (`canSendCorpsTo`). Senza fronte aperto, l'invio è rifiutato.
+- A può aprire fronti diversi (nemici diversi) allo stesso alleato, e lo stesso fronte a più alleati.
+- Unidirezionale: A apre a B, non viceversa.
 
-**Condividi vista** (`shareVision`): B vede tutte le province di A con i loro dati (truppe, risorse, fede). Uso tattico: coordinare difese, valutare rinforzi.
-
-**Mostra fronte** (`shareFront`): A indica a B un avversario X. B vede quali province di A confinano con province di X (il "fronte"). Prerequisito necessario per l'invio di un corpo di spedizione: B deve sapere dov'è il fronte per poter scegliere la provincia destinazione. A può aprire fronti diversi con alleati diversi (uno per avversario).
-
-Entrambe le condivisioni sono **unidirezionali**: A condivide con B, non viceversa. Per la reciprocità, B deve fare una richiesta speculare ad A.
+**Condivisione vista**: oggi la vista sulle province dell'alleato arriva **automaticamente** col privilegio `vista` dell'alleanza (`sharesVision` / `GRANTS.alleanza`), non come condivisione opt-in separata. (Una "condividi vista" esplicita e opt-in resta un'estensione futura.)
 
 ## Standing (`Diplomacy.standing`)
 - Numero −100 / +100 per coppia di regni.
@@ -88,7 +87,7 @@ La provincia resta di A. Il corpo **non entra in `data-pieces`** della provincia
 
 ### Ciclo di vita
 
-**Invio** (fase **sposta**, movimento tipo B): l'invio di un corpo di spedizione **è** il movimento di tipo B — l'unica grande mossa che attraversa più province. Usarlo esclude qualsiasi altro spostamento quel turno (sia il tipo B normale, sia i 3 spostamenti tipo A). La destinazione deve essere una provincia di A che **confina con un regno nemico** (non con neutrali): serve cioè che esista un fronte attivo. Il corpo arriva al turno 1, è usabile dal turno 2.
+**Invio** (fase **sposta**, movimento tipo B): l'invio di un corpo di spedizione **è** il movimento di tipo B — l'unica grande mossa che attraversa più province. Usarlo esclude qualsiasi altro spostamento quel turno (sia il tipo B normale, sia i 3 spostamenti tipo A). Serve un **patto di alleanza o rinforzi** con l'ospite A, **e** che A ti abbia **aperto il fronte** con il nemico su quella provincia (vedi *Mostra fronte*): senza fronte aperto l'invio è rifiutato. Il corpo arriva al turno 1, è usabile dal turno 2.
 
 **Ospitalità / difesa**: il corpo difende **sempre insieme** alla guarnigione di A (anche nel turno di A). Non conta per il presidio minimo di A né per la sua produzione/§8.
 
