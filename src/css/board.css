@@ -496,6 +496,16 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 /* Le notizie brutte (terre cadute, tradimenti) si fanno notare. */
 .bu-item.bad .bu-item-cat { color: var(--danger); }
 
+/* Non letta: il pop-up d'inizio turno non è mai comparso. Si può aprire col
+   clic — pallino d'oro accanto alla categoria e sfondo al passaggio. */
+.bu-item.unread { cursor: pointer; }
+.bu-item.unread .bu-item-cat::after {
+    content: ' \2022';
+    color: var(--gold);
+}
+.bu-item.unread .bu-item-text { color: var(--parchment); }
+.bu-item.unread:hover { background: rgba(255, 255, 255, .06); }
+
 .dock-btn {
     position: relative;
     display: flex;

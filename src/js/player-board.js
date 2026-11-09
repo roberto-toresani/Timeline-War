@@ -6959,10 +6959,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // seq tiene l'ordine di inserimento per spareggiare le voci dello stesso
         // turno (gli array sono già in ordine cronologico di arrivo).
         let seq = 0;
-        const add = (turno, ico, cat, text, bad) => {
+        // src = l'oggetto avviso nel registro del regno (ha `.letto`): serve per
+        // sapere se la voce è stata letta e per riaprire la sua pergamena al clic.
+        // titolo/tipo/ptesto vestono quella pergamena (R.showFoundation).
+        const add = (turno, ico, cat, text, bad, src, titolo, tipo, ptesto) => {
             if (!text) return;
             if ((turno || 0) < from) return;
-            out.push({ turno: turno || 0, seq: seq++, ico, cat, text, bad: !!bad });
+            out.push({
+                turno: turno || 0, seq: seq++, ico, cat, text, bad: !!bad,
+                src: src || null,
+                letto: src ? !!src.letto : true,
+                titolo: titolo || cat,
+                tipo: tipo || 'evento',
+                ptesto: ptesto || text
+            });
         };
         const provLabel = id => {
             const p = R.engine && R.engine.path && R.engine.path(id);
@@ -6973,12 +6983,14 @@ document.addEventListener('DOMContentLoaded', () => {
         (player.editti || []).forEach(e => {
             const t = (e.titolo && e.titolo !== 'Editto') ? e.titolo : '';
             const body = e.testo || t || 'Editto promulgato.';
-            add(e.turno, '📜', 'Editto', t && e.testo ? (t + ' — ' + e.testo) : body);
+            add(e.turno, '📜', 'Editto', t && e.testo ? (t + ' — ' + e.testo) : body,
+                false, e, e.titolo || 'Editto', 'editto', e.testo || body);
         });
 
         // Eventi storici e cronache del decennio
         (player.eventiAvvisi || []).forEach(a => {
-            add(a.turno, '📰', 'Cronaca', a.titolo || a.testo);
+            add(a.turno, '📰', 'Cronaca', a.titolo || a.testo,
+                false, a, a.titolo || 'Cronaca del decennio', a.tipo || 'evento', a.testo || a.titolo);
         });
 
         // Diplomazia e tradimenti
@@ -6996,39 +7008,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'rinforzi': text = a.conNome + ' ha mandato ' + (a.uomini || 0) +
                     (a.uomini === 1 ? ' uomo' : ' uomini') + ' a ' + provLabel(a.prov) + '.'; break;
             }
-            add(a.turno, ico, cat, text, bad);
+            add(a.turno, ico, cat, text, bad, a, bad ? 'Tradimento' : 'Diplomazia', 'evento');
         });
 
-        // Terre cadute e attacchi respinti (registro delle aggressioni subite)
-        (player.aggressioni || []).forEach(a => {
-            if (a.esito === 'presa') add(a.turno, '🔥', 'Terra persa',
-                a.chi + ' ha conquistato ' + provLabel(a.prov) + '.', true);
-            else add(a.turno, '🛡', 'Attacco respinto',
-                'Respinto ' + a.chi + ' a ' + provLabel(a.prov) + '.');
-        });
+        // Nota: gli attacchi subiti o respinti (player.aggressioni) NON entrano
+        // qui: non hanno mai avuto una pergamena d'inizio turno (nessun `.letto`).
+        // Il feed rispecchia SOLO i pop-up — richiesta dell'utente.
 
         // Mercato: carovane concluse
         (player.commerciAvvisi || []).forEach(a => add(a.turno, '⚖', 'Mercato',
             'Accordo con ' + a.conNome + ': dato ' + GR().goodsText(a.dato) +
-            ', ricevuto ' + GR().goodsText(a.ricevuto) + '.'));
+            ', ricevuto ' + GR().goodsText(a.ricevuto) + '.', false, a, 'Mercato', 'evento'));
 
         // Leva: gli uomini versati dagli obiettivi a fine ciclo
         (player.obiettiviAvvisi || []).forEach(a => {
             if (a.leva) add(a.turno, '🎖', 'Leva', 'La leva risponde: ' + a.leva +
-                (a.leva === 1 ? ' uomo' : ' uomini') + ' dalle imprese del ciclo.');
+                (a.leva === 1 ? ' uomo' : ' uomini') + ' dalle imprese del ciclo.',
+                false, a, 'La leva risponde', 'evento');
         });
 
         // Capitale: migliorie civiche crollate
         (player.welfareAvvisi || []).forEach(a => {
             const crolli = (a.eventi || []).filter(ev => ev.esito === 'crollata').length;
             if (crolli) add(a.turno, '🏛', 'Capitale', crolli +
-                (crolli === 1 ? ' opera della Capitale è crollata.' : ' opere della Capitale sono crollate.'), true);
+                (crolli === 1 ? ' opera della Capitale è crollata.' : ' opere della Capitale sono crollate.'),
+                true, a, 'Capitale', 'evento');
         });
 
         // Mare: naufragi e morìa delle spedizioni
         (player.spedizioniAvvisi || []).forEach(a => add(a.turno, '🌊', 'Mare',
             a.tipo === 'totale' ? 'Una tempesta ha inghiottito una spedizione.'
-                : 'Il mare si è preso ' + a.morti + (a.morti === 1 ? ' uomo' : ' uomini') + ' di una spedizione.'));
+                : 'Il mare si è preso ' + a.morti + (a.morti === 1 ? ' uomo' : ' uomini') + ' di una spedizione.',
+            false, a, 'Il mare', 'evento'));
 
         // Più recenti in cima; a parità di turno, l'ultimo arrivato prima.
         out.sort((x, y) => (y.turno - x.turno) || (y.seq - x.seq));
@@ -7053,8 +7064,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         // HTML con parti statiche; i testi (nomi di regno inclusi) vanno via
         // textContent, come in renderChat: non si concatena testo dei dati.
+        // Le voci non lette (il pop-up d'inizio turno non è mai comparso) sono
+        // cliccabili: aprono la loro pergamena.
         list.innerHTML = items.map(it =>
-            '<div class="bu-item' + (it.bad ? ' bad' : '') + '">' +
+            '<div class="bu-item' + (it.bad ? ' bad' : '') + (it.letto ? '' : ' unread') + '">' +
                 '<span class="bu-item-ico">' + it.ico + '</span>' +
                 '<div class="bu-item-body">' +
                     '<span class="bu-item-cat"></span>' +
@@ -7064,10 +7077,40 @@ document.addEventListener('DOMContentLoaded', () => {
         ).join('');
         const cats = list.querySelectorAll('.bu-item-cat');
         const txts = list.querySelectorAll('.bu-item-text');
+        const rows = list.querySelectorAll('.bu-item');
         items.forEach((it, i) => {
             if (cats[i]) cats[i].textContent = it.cat;
             if (txts[i]) txts[i].textContent = it.text;
+            const row = rows[i];
+            if (row && !it.letto && it.src) {
+                row.title = 'Apri il messaggio';
+                row.addEventListener('click', () => openUpdatePergamena(player, it));
+            }
         });
+    }
+
+    // Riapre come pergamena (#ui-foundation, la stessa dei pop-up) una voce del
+    // feed non ancora letta. Segna `letto` solo il legittimo proprietario — come
+    // i pop-up automatici — così la voce esce dal non-letto anche dopo reload.
+    function openUpdatePergamena(player, it) {
+        if (!it || !R.showFoundation) return;
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(it.turno || R.turn())
+            : (it.turno || R.turn());
+        R.showFoundation({
+            tipo: it.tipo || 'evento',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: it.titolo || it.cat,
+            testo: it.ptesto || it.text,
+            nota: ''
+        });
+        if (it.src && ownsBoard(player)) {
+            it.src.letto = true;
+            R.save();
+            renderUpdates(player);
+        }
     }
 
     function render() {
