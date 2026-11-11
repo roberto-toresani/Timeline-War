@@ -5136,14 +5136,22 @@ document.addEventListener('DOMContentLoaded', () => {
         try { seen = JSON.parse(localStorage.getItem(lsKey) || '[]'); } catch (e) {}
         const seenSet = new Set(seen);
 
-        // Solo i messaggi non ancora mostrati
+        // Solo i messaggi non ancora mostrati, e SOLO del ciclo corrente: una
+        // lettera dei cicli passati (o senza data) non srotola più una pergamena
+        // a schermo — resta in Chat (col pallino) e la si legge quando si vuole.
+        // Così l'arretrato del Papa non interrompe il turno 12 decenni dopo.
+        // (regola dell'utente)
+        const curTurn = R.turn ? R.turn() : 0;
+        const cycleFrom = cycleStartTurn(curTurn);
         const nuovi = papaMsgs.filter(m => {
             const k = m.ts || m.id || (m.regno + '|' + m.testo);
-            return !seenSet.has(k);
+            if (seenSet.has(k)) return false;
+            if (!m.turno || m.turno < cycleFrom) return false;
+            return true;
         });
         if (!nuovi.length) return;
 
-        // Segna come visti
+        // Segna come visti SOLO quelli che srotoliamo: i vecchi restano in Chat.
         nuovi.forEach(m => {
             const k = m.ts || m.id || (m.regno + '|' + m.testo);
             seenSet.add(k);
@@ -5151,9 +5159,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try { localStorage.setItem(lsKey, JSON.stringify([...seenSet])); } catch (e) {}
 
         const primo = nuovi[0];
+        // La data è quella in cui il Papa ha scritto (m.turno), non quella di
+        // oggi: una lettera arretrata non deve sembrare di questo turno. (bug
+        // segnalato dall'utente: pergamena del ciclo 2 stampata "1220")
+        const annoTurno = primo.turno || curTurn;
         const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
-            ? Chronicle.yearOfTurn(R.turn())
-            : R.turn();
+            ? Chronicle.yearOfTurn(annoTurno)
+            : annoTurno;
         R.showFoundation({
             tipo: 'editto',
             anno,
