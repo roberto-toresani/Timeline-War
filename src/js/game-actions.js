@@ -4232,7 +4232,10 @@
             scafi: rec.scafi.slice(),
             scafo: rec.scafi.length ? rec.scafi[rec.scafi.length - 1] : null,
             carico: rec.scafi.length ? E().shipCapacity(rec.scafi[rec.scafi.length - 1]) : null,
-            viaCatena: !!rec.viaCatena
+            viaCatena: !!rec.viaCatena,
+            // Meta raggiunta SOLO come corpo di spedizione a lunga gittata (fronte
+            // alleato lontano): niente rinforzo-che-fonde a distanza, solo il corpo.
+            soloCorpo: !!rec.soloCorpo
         });
         const recs = new Map();
         const recOf = (id, alleato) => {
@@ -4308,6 +4311,19 @@
                 });
             });
         }
+
+        // CORPO DI SPEDIZIONE A LUNGA GITTATA (§Diplomazia): le province di un
+        // alleato su un fronte che lui ti ha APERTO (mostra fronte), raggiungibili
+        // per catena di terra attraverso territorio AMICO (tuo + alleati), anche se
+        // NON confinano con la partenza. Es.: Bulgaria da Banat fino ad Aktobe sul
+        // fronte mongolo di Kievan Rus. A distanza si manda SOLO il corpo (resta
+        // tuo, lo comandi tu), non il rinforzo-che-fonde.
+        corpsFrontTargets(player, fromId).forEach(id => {
+            if (recs.has(id)) return;              // adiacente: già gestito sopra
+            const rec = recOf(id, true);
+            rec.viaCatena = true;
+            rec.soloCorpo = true;
+        });
 
         const out = [];
         recs.forEach((rec, id) => out.push(card(E().path(id), rec)));
@@ -4585,25 +4601,56 @@
         return onSharedFront(ally, player.id, provId);
     }
 
-    // Il corpo marcia da `fromId` (tua) a `toId` (dell'alleato) lungo una catena
-    // di terra che attraversa SOLO territorio tuo o dell'alleato.
-    function corpsReachable(playerName, allyName, fromId, toId) {
+    // CORRIDOIO AMICO: tutte le province raggiungibili da `fromId` per catena di
+    // terra attraverso territorio AMICO — tuo, o di un alleato che ti concede i
+    // rinforzi. Senza limite di distanza: è la strada del corpo di spedizione a
+    // lunga gittata. Lista e validazione leggono questo stesso insieme, così non
+    // possono divergere.
+    function corpsCorridorReach(player, fromId) {
         const passable = id => {
-            if (id === toId) return true;
-            const p = E().path(id);
-            const o = p && E().owner(p);
-            return o === playerName || o === allyName;
+            const p = E().path(id); if (!p) return false;
+            const o = E().owner(p);
+            if (o === player.name) return true;
+            const other = R().players().find(pl => pl.name === o);
+            return !!(other && D().allowsReinforce(player, other));
         };
+        const reached = new Set();
         const visited = new Set([fromId]);
         const queue = [fromId];
         while (queue.length) {
             const cur = queue.shift();
-            if (cur === toId) return true;
             E().landNeighbors(cur).forEach(id => {
-                if (!visited.has(id) && passable(id)) { visited.add(id); queue.push(id); }
+                if (visited.has(id)) return;
+                visited.add(id);
+                if (passable(id)) { reached.add(id); queue.push(id); }
             });
         }
-        return false;
+        return reached;
+    }
+
+    // Le province-fronte alleate raggiungibili come corpo di spedizione a lunga
+    // gittata da `fromId`: su un fronte che l'alleato ti ha aperto, dentro il
+    // corridoio amico, e NON già adiacenti (quelle le gestisce il corridoio base,
+    // che lì offre sia il rinforzo-che-fonde sia il corpo).
+    function corpsFrontTargets(player, fromId) {
+        // Via rapida: se nessun alleato mi ha aperto un fronte, non c'è nulla da
+        // cercare — il caso comune non paga la BFS.
+        const anyFront = R().players().some(pl =>
+            (pl.frontiMostrati || []).some(f => String(f.a) === String(player.id)) &&
+            D().allowsReinforce(player, pl));
+        if (!anyFront) return [];
+        const out = [];
+        corpsCorridorReach(player, fromId).forEach(id => {
+            const p = E().path(id); if (!p) return;
+            const owner = E().owner(p);
+            if (!owner || owner === player.name) return;
+            const ally = R().players().find(pl => pl.name === owner);
+            if (!ally || !D().allowsReinforce(player, ally)) return;
+            if (!onSharedFront(ally, player.id, id)) return;
+            if (E().areLandAdjacent(fromId, id)) return;
+            out.push(id);
+        });
+        return out;
     }
 
     // Provincia PROPRIA più vicina a `fromProv` (BFS a livelli sul grafo di terra):
@@ -4651,8 +4698,8 @@
         if (!onSharedFront(ally, player.id, toId))
             return fail(allyName + ' non ti ha aperto un fronte su ' + R().provinceLabel(to) +
                 ': deve prima mostrarti il suo fronte col nemico da qui (sezione Diplomazia).');
-        if (!corpsReachable(player.name, allyName, fromId, toId))
-            return fail('Nessuna catena di terra, nel tuo territorio o in quello dell\'alleato, arriva a ' + R().provinceLabel(to) + '.');
+        if (!corpsCorridorReach(player, fromId).has(toId))
+            return fail('Nessuna catena di terra amica (tua o di un alleato) arriva a ' + R().provinceLabel(to) + '.');
 
         const mobili = spare(from);
         const ordM = troopOrder(n);

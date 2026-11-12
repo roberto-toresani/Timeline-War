@@ -3825,10 +3825,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 (t.viaMare ? ' · ⚓ via nave, max ' + tetto : '') +
                 (t.viaCatena ? ' · ⛓ catena' : '');
             const ico = t.viaMare ? '⚓ ' : t.viaCatena ? '⛓ ' : t.alleato ? '🛡 ' : '→ ';
-            body.appendChild(actionButton(ico + t.label, nota, null, () => {
-                const s = pick.fit(tetto);
-                askMove(player, path, t, s.n, null, s.cav);
-            }));
+            // Meta-fronte alleata lontana (soloCorpo): niente rinforzo-che-fonde a
+            // distanza, si offre solo il corpo di spedizione qui sotto.
+            if (!t.soloCorpo) {
+                body.appendChild(actionButton(ico + t.label, nota, null, () => {
+                    const s = pick.fit(tetto);
+                    askMove(player, path, t, s.n, null, s.cav);
+                }));
+            }
             // CORPO DI SPEDIZIONE (§Diplomazia): se la meta è una provincia alleata
             // su un FRONTE che l'alleato ti ha aperto (mostra fronte), puoi inviare
             // un corpo che RESTA tuo invece del rinforzo-che-fonde. Solo via terra.

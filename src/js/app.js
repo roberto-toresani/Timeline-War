@@ -4809,6 +4809,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     visible.add(path.id);
                 });
             });
+
+            // VISTA DEL FRONTE CONDIVISO (§Diplomazia): quando un alleato ti APRE
+            // un fronte con un nemico (mostra fronte), condividere il fronte vuol
+            // dire condividere la VISTA del fronte — vedi in pieno le province di
+            // quel nemico che toccano la linea aperta. È ciò che ti serve poi per
+            // scegliere dove mandare il corpo di spedizione.
+            PLAYERS.forEach(ally => {
+                if (ally === me || !Diplomacy.allowsReinforce(me, ally)) return;
+                const nemici = (ally.frontiMostrati || [])
+                    .filter(f => String(f.a) === String(me.id))
+                    .map(f => f.nemico);
+                if (!nemici.length) return;
+                svg.querySelectorAll(`path[data-owner="${ally.name}"]`).forEach(ap => {
+                    (NEIGHBORS_LAND[ap.id] || []).forEach(nid => {
+                        const np = document.getElementById(nid);
+                        if (np && nemici.indexOf(np.getAttribute('data-owner')) >= 0) visible.add(nid);
+                    });
+                });
+            });
         }
 
         haze.forEach(id => { if (visible.has(id)) haze.delete(id); });
