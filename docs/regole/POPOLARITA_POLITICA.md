@@ -25,11 +25,14 @@ Asse **nobiltà ↔ popolo**: ogni scelta sposta l'ago.
 - Popolo: costo reclute ridotto (apposta), produzione maggiore, meno toleranza militare.
 `player.politica` = valore corrente dell'asse; impatta `popularityFactors`.
 
-## Festa §6.1
-`joyTier(player)`: livello festa (0-3) in base a produzione e popolarità.
-`discountedCost(player, tipo)` / `costFor(player, tipo)`: sconto costruzioni durante festa.
-`payConstruction`: applica il costo scontato.
-La festa si attiva automaticamente se le condizioni sono soddisfatte al momento della costruzione.
+## Festa / Malcontento §6.1
+`joyTier(felicita)`: legge le **migliorie di Felicità sulla Capitale (0-5)** — non produzione/popolarità — e piega i costi del turno, **dentro il prezzo** (`costFor`), mai come rimborso: un acquisto non può far crescere il tesoro.
+- **0-1 Malcontento**: +100 monete sulle costruzioni in monete, +1 su **1 risorsa sorteggiata a turno** (`festaMalusRes`) per quelle senza monete (turno con Pietra → Strada = 2 Pietre).
+- **2**: niente.
+- **3**: sconto −1 su 1 tipo di risorsa sorteggiato. **4**: su 2 tipi.
+- **5**: come 4 + −50 monete sugli acquisti grandi (Città, Fortezza, Mercato, Vascello; la Nave no, non costa monete).
+
+Lo sconto di risorsa non tocca mai i costi a un solo tipo (Strada, Nave, migliorie §6.1). `beginTurn` sorteggia i tipi scontati una volta a turno → `player.festaRisorse` / `festaMalus` / `festaBonusGrandi`. `payConstruction` paga e basta (il costo è già piegato da `costFor`).
 
 ## Impatto Peste Nera (turni 35-39)
 `plagueTier`: 0-1 → morti in Capitale e provincia più popolosa, blocco raccolta.

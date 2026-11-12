@@ -376,13 +376,25 @@ cadono ogni decennio (Capitale e/o provincia più popolosa) e se il raccolto di 
 salta quel turno. Sotto le 2 migliorie l'epidemia è pesante, a 3 resta un colpo solo senza
 fermare il raccolto, a 4-5 il regno non perde nessuno.
 
-**Perché costruire Felicità: la Festa.** Il rovescio positivo, e permanente (non un evento
-a calendario): `GameRules.joyTier` legge le stesse 0-5 migliorie di Felicità e concede, da
-2 in su, uno sconto di 1 unità su 1-2 tipi di risorsa (sorteggiati a ogni turno) per ogni
-costruzione che li richieda — tranne quelle con un solo tipo di risorsa (Strada, Nave,
-le stesse migliorie §6.1), che non scontano mai. Da 4 migliorie in su si aggiungono anche
-100 monete per ogni acquisto pagato. Sanità e Felicità costano le stesse 5 risorse: è una
-scelta fra assicurarsi e godersela, non una somma comoda di entrambe.
+**Perché costruire Felicità: la Festa (e il suo rovescio, il Malcontento).** Permanente, non
+un evento a calendario: `GameRules.joyTier` legge le stesse 0-5 migliorie di Felicità e piega
+i costi di costruzione del turno, **dentro il prezzo** (`GameRules.costFor`), non come rimborso
+dopo il pagamento — così un acquisto non può mai far crescere il tesoro. Per soglia:
+
+| Migliorie Felicità | Effetto sulle costruzioni del turno |
+|---|---|
+| **0-1** | **Malcontento**: costano di più — **+100 monete** su quelle in monete, **+1 su una risorsa sorteggiata a turno** per quelle senza monete (es. il turno in cui esce Pietra, una Strada costa 2 Pietre). |
+| **2** | Niente. |
+| **3** | Sconto di **1 unità** su **1 tipo** di risorsa (sorteggiato a ogni turno). |
+| **4** | Sconto di **1 unità** su **2 tipi** di risorsa (sorteggiati). |
+| **5** | Come 4, **più −50 monete** sugli acquisti grandi (Città, Fortezza, Mercato, Vascello). |
+
+Lo sconto di risorsa non tocca mai le costruzioni con **un solo tipo** di risorsa (Strada, Nave,
+le migliorie §6.1 stesse): ridurre l'unico tipo lo azzererebbe. Lo sconto in monete del tier 5
+vale solo sugli acquisti grandi **che le monete le hanno** (la Nave non costa monete, quindi non
+ne riceve: uno sconto in monete su un acquisto senza monete sarebbe oro regalato). Le migliorie
+§6.1 restano del tutto fuori dalla Festa (né sconto né malus). Sanità e Felicità costano le stesse
+5 risorse: è una scelta fra assicurarsi e godersela, non una somma comoda di entrambe.
 
 ---
 

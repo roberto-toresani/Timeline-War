@@ -97,17 +97,14 @@
         });
     }
 
-    // Come pay(), ma per un ACQUISTO vero — una costruzione, una strada, una
-    // miglioria NUOVA, un reclutamento (§Felicità, "Festa"): se la Festa di
-    // questo turno (GameRules.joyTier, letto dalla Felicità come plagueTier
-    // legge la Sanità) dà un bonus in monete a questa soglia, lo versa qui,
-    // nell'unico punto che tocca entrambi. NON lo chiamano: moveCapital (non
-    // costruisce nulla di nuovo, sposta il seggio), la riattivazione di una
-    // miglioria dormiente (è manutenzione arretrata, non una costruzione), e
-    // le strade GRATUITE (non c'è alcun pagamento a cui affiancare un premio).
+    // Come pay(), per gli ACQUISTI veri (costruzione, strada, miglioria NUOVA,
+    // reclutamento). Il privilegio/malus della Festa (§Felicità) è ormai dentro
+    // il COSTO (GameRules.costFor), non un rimborso dopo il pagamento: così il
+    // tesoro non può mai crescere pagando (il vecchio bug). Resta una funzione a
+    // sé solo per marcare nel codice "acquisto nuovo" vs la manutenzione, che
+    // paga con pay() diretto.
     function payConstruction(player, cost, path) {
         pay(player, cost, path);
-        if (player.festaCostruzioneBonus > 0) player.monete += player.festaCostruzioneBonus;
     }
 
     // Sorteggia `n` tipi di risorsa DISTINTI fra i 5 di GameRules.RES — i "tipi
@@ -735,18 +732,23 @@
         // FELICITÀ (§6.1, "Festa" — regola dell'utente, simmetrica alla Peste ma
         // di segno opposto): quante migliorie di Felicità il regno ha sulla
         // Capitale (0-5, stessa lettura di popularityFactors) decide il piano di
-        // oggi (GameRules.joyTier). Si sorteggiano i TIPI di risorsa scontati
-        // sulle costruzioni di questo turno (`festaRisorse`, letto da
-        // GameRules.costFor) e il bonus in monete per ogni acquisto pagato
-        // (`festaCostruzioneBonus`, versato da payConstruction) — un tiro solo
-        // a inizio turno, non a ogni costruzione: così il prezzo mostrato sui
-        // tasselli resta STABILE per tutto il turno invece di cambiare a ogni
-        // render.
+        // oggi (GameRules.joyTier). Da qui escono i tre campi che GameRules.costFor
+        // legge per piegare i prezzi del turno: `festaRisorse` (tipi di risorsa
+        // scontati, tier 3-5), `festaMalus` (regno scontento, tier 0-1) e
+        // `festaBonusGrandi` (−50 monete sugli acquisti grandi, tier 5). I tipi
+        // scontati si sorteggiano UNA volta a inizio turno, non a ogni costruzione,
+        // così il prezzo sui tasselli resta STABILE invece di ballare a ogni render.
         const attiveFelicita = capital ? E().welfare(capital).filter(e => !e.dormant).map(e => e.key) : [];
         const felicita = GR().welfareCount(attiveFelicita, 'felicita');
         const festa = GR().joyTier(felicita);
-        player.festaRisorse = festa ? pickResources(festa.favoriti) : [];
-        player.festaCostruzioneBonus = festa ? festa.bonusCostruzione : 0;
+        player.festaRisorse     = (festa && festa.favoriti) ? pickResources(festa.favoriti) : [];
+        player.festaMalus       = !!(festa && festa.malus);
+        // Scontento (tier 0-1): la risorsa rincarata di 1 sulle costruzioni senza
+        // monete — sorteggiata UNA volta a turno (come festaRisorse), così il
+        // prezzo resta stabile fra un render e l'altro.
+        player.festaMalusRes    = player.festaMalus ? pickResources(1)[0] : null;
+        player.festaBonusGrandi = (festa && festa.bonusGrandi) || 0;
+        delete player.festaCostruzioneBonus;   // ritirato: la Festa ora vive nel costo
 
         player.monete += prod.monete;
         GR().RES.forEach(k => { player.scorte[k] += prod.risorse[k]; });
@@ -1953,9 +1955,10 @@
                 { prov: cap.id });
         }
 
-        // Una sola risorsa (§6.1): la Festa non la sconta mai (§Felicità, chi
-        // chiede un tipo solo non sconta — altrimenti si azzererebbe), ma
-        // costruirla vale comunque il bonus in monete al suo tier.
+        // Una sola risorsa (§6.1): le migliorie restano del tutto fuori dalla
+        // Festa — né sconto né malus (passano da welfareCost, non da costFor):
+        // scontare l'unico tipo lo azzererebbe, e rincararle creerebbe un
+        // circolo vizioso (per uscire dallo scontento costruisci Felicità).
         const cost = GR().welfareCost(key);
         // Non costano soldati: il presidio minimo non c'entra (soldiersHere = 0).
         const afford = GR().canAfford(player, cost, 0);
@@ -2126,10 +2129,10 @@
 
         const gratis = (player.stradeGratis || 0) > 0;
         if (!gratis) {
-            // Un solo tipo di risorsa (pietra): la Festa non la sconta mai
-            // (§Felicità), ma pagarla vale comunque il bonus in monete al suo
-            // tier — GRATIS non passa di qui, non c'è alcun pagamento da premiare.
-            const cost = GR().COSTS.strada;
+            // Un solo tipo di risorsa (pietra): la Festa non la SCONTA mai
+            // (§Felicità), ma lo SCONTENTO del tier 0-1 la rincara — costFor lo
+            // sa (una Strada arriva a 2 Pietre). GRATIS non passa di qui.
+            const cost = GR().costFor('strada', player);
             const afford = GR().canAfford(player, cost, spare(A));
             if (!afford.ok) return fail('Non puoi permettertela: ' + GR().missingText(afford.missing) + '.');
             payConstruction(player, cost, A);

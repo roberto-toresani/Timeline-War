@@ -641,22 +641,31 @@
         return PLAGUE_TIERS[s];
     }
 
-    // FELICITÀ ("Festa" — regola dell'utente, simmetrica alla Peste/Sanità ma di
-    // segno opposto): quante migliorie di Felicità (§6.1) ha il regno sulla
-    // Capitale — stessa lettura 0-5 — decide il privilegio di OGGI sulle
-    // costruzioni. `favoriti` è quanti TIPI di risorsa (su GameRules.RES, 5 in
-    // tutto) sono scontati questo turno — SORTEGGIATI da game-actions.beginTurn,
-    // non decisi qui: questa è solo la tabella dei tier, come PLAGUE_TIERS.
-    // `bonusCostruzione` sono le monete restituite a ogni acquisto PAGATO
-    // (costruzione, strada, miglioria nuova, reclutamento) da 4 migliorie in su.
-    // `null` = ancora nessun privilegio (0-1 migliorie).
+    // Costruzioni "grandi" che ricevono lo SCONTO in monete del tier 5 (§6.1). La
+    // Nave non c'è di proposito: non costa monete, e uno sconto in monete su un
+    // acquisto senza monete sarebbe oro regalato (il vecchio bug della Festa).
+    const FESTA_GRANDI = new Set(['citta', 'fortezza', 'mercato', 'vascello']);
+    const FESTA_MALUS_MONETE  = 100;   // sovrapprezzo 0-1 sulle costruzioni in monete
+    const FESTA_BONUS_GRANDI  = 50;    // sconto tier 5 sugli acquisti grandi
+
+    // FELICITÀ ("Festa" — regola dell'utente, simmetrica alla Peste/Sanità): le
+    // migliorie di Felicità (§6.1) sulla Capitale, lette 0-5 come plagueTier,
+    // decidono il privilegio — o il MALUS — di OGGI sulle costruzioni:
+    //   0-1  SCONTENTO → le costruzioni costano di PIÙ: +100 monete su quelle in
+    //        monete, +1 su UNA risorsa sorteggiata a turno su quelle senza monete.
+    //   2    niente.
+    //   3    sconto di 1 unità su 1 tipo di risorsa sorteggiato.
+    //   4    sconto di 1 unità su 2 tipi di risorsa sorteggiati.
+    //   5    come 4, PIÙ 50 monete di sconto sugli acquisti grandi (FESTA_GRANDI).
+    // `favoriti` è quanti TIPI di risorsa (su RES) sono scontati — SORTEGGIATI da
+    // game-actions.beginTurn, non qui. `malus`/`bonusGrandi` sono il resto del tier.
     const JOY_TIERS = [
-        null,                                   // 0 migliorie
-        null,                                   // 1
-        { favoriti: 1, bonusCostruzione: 0 },   // 2
-        { favoriti: 2, bonusCostruzione: 0 },   // 3
-        { favoriti: 2, bonusCostruzione: 100 }, // 4
-        { favoriti: 2, bonusCostruzione: 100 }  // 5
+        { malus: true },                                  // 0 migliorie
+        { malus: true },                                  // 1
+        { favoriti: 0 },                                  // 2 (niente)
+        { favoriti: 1 },                                  // 3
+        { favoriti: 2 },                                  // 4
+        { favoriti: 2, bonusGrandi: FESTA_BONUS_GRANDI }  // 5
     ];
     function joyTier(felicita) {
         const s = Math.max(0, Math.min(5, Math.floor(felicita || 0)));
@@ -684,16 +693,37 @@
         return changed ? out : cost;
     }
 
-    // Il costo EFFETTIVO di `type` per QUESTO giocatore: la tabella COSTS,
-    // scontata secondo la Festa del suo turno (player.festaRisorse, §Felicità).
-    // Senza player (o senza Festa attiva) torna il costo pieno. Unico punto da
-    // cui build/strade/reclutamento E la UI leggono il prezzo, così i due non
-    // possono divergere — le migliorie §6.1 restano su `welfareCost` (un solo
-    // tipo di risorsa: la Festa non le tocca mai, vedi `discountedCost`).
+    // Il costo EFFETTIVO di `type` per QUESTO giocatore: la tabella COSTS piegata
+    // dalla Festa del suo turno (§Felicità). Tre regole, mutuamente esclusive per
+    // tier (beginTurn ne attiva una sola):
+    //   MALUS (player.festaMalus, tier 0-1) → costa di PIÙ: +100 monete se il
+    //     costo ha monete, altrimenti +1 su UNA risorsa sorteggiata a inizio
+    //     turno (player.festaMalusRes), e solo se il costo la richiede — i
+    //     soldati non si toccano (non sono una risorsa). Un costo a un tipo solo
+    //     (Strada, Nave) è rincarato nei turni in cui esce proprio quel tipo.
+    //   SCONTO (player.festaRisorse, tier 3-5) → -1 su 1-2 tipi sorteggiati, mai
+    //     se il costo ha un solo tipo di risorsa (vedi discountedCost).
+    //   BONUS GRANDI (player.festaBonusGrandi, tier 5) → -50 monete sugli acquisti
+    //     grandi (FESTA_GRANDI) che le monete le hanno.
+    // Il privilegio vive QUI, nel prezzo, non come rimborso dopo il pagamento:
+    // così un acquisto non può mai far crescere il tesoro (il vecchio bug). Unico
+    // punto da cui build/strade/reclutamento E la UI leggono il costo, così non
+    // divergono — le migliorie §6.1 restano su `welfareCost`, fuori dalla Festa.
     function costFor(type, player) {
         const base = COSTS[type];
-        if (!base) return base;
-        return discountedCost(base, player && player.festaRisorse);
+        if (!base || !player) return base;
+        if (player.festaMalus) {
+            const out = Object.assign({}, base);
+            if (out.monete > 0) out.monete += FESTA_MALUS_MONETE;
+            else if (player.festaMalusRes && out[player.festaMalusRes] > 0) out[player.festaMalusRes] += 1;
+            return out;
+        }
+        let out = discountedCost(base, player.festaRisorse);
+        if (player.festaBonusGrandi > 0 && FESTA_GRANDI.has(type) && base.monete > 0) {
+            if (out === base) out = Object.assign({}, base);
+            out.monete = Math.max(0, out.monete - player.festaBonusGrandi);
+        }
+        return out;
     }
 
     // TIMER DEL TURNO (sistema mail, regola dell'utente): 6 ore per giocare,

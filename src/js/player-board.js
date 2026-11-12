@@ -2605,13 +2605,25 @@ document.addEventListener('DOMContentLoaded', () => {
         // FESTA (§Felicità): se questo turno c'è uno sconto o un bonus attivo lo
         // si dice qui, in testa alle tessere — altrimenti i gettoni scontati
         // sembrerebbero un errore di conto invece che un privilegio guadagnato.
-        if ((player.festaRisorse || []).length || player.festaCostruzioneBonus > 0) {
-            const nomiRisorse = (player.festaRisorse || []).map(k => GR().RES_LABEL[k] || k);
+        const festaRis = (player.festaRisorse || []);
+        if (player.festaMalus || festaRis.length || player.festaBonusGrandi > 0) {
             const pezzi = [];
-            if (nomiRisorse.length) pezzi.push('sconto di 1 su ' + nomiRisorse.join(' e '));
-            if (player.festaCostruzioneBonus > 0) pezzi.push('+' + player.festaCostruzioneBonus + ' monete a ogni costruzione pagata');
+            if (player.festaMalus) {
+                const nomeMalus = player.festaMalusRes ? (GR().RES_LABEL[player.festaMalusRes] || player.festaMalusRes) : null;
+                pezzi.push('regno scontento: le costruzioni costano di più (+100 monete su quelle in monete' +
+                    (nomeMalus ? ', +1 ' + nomeMalus + ' su quelle senza monete' : '') + ')');
+            }
+            if (festaRis.length) {
+                const nomiRisorse = festaRis.map(k => GR().RES_LABEL[k] || k);
+                pezzi.push('sconto di 1 su ' + nomiRisorse.join(' e '));
+            }
+            if (player.festaBonusGrandi > 0) {
+                pezzi.push('−' + player.festaBonusGrandi + ' monete sugli acquisti grandi (Città, Fortezza, Mercato, Vascello)');
+            }
+            const icona  = player.festaMalus ? '😠' : '🎭';
+            const titolo = player.festaMalus ? 'Malcontento di quest\'anno' : 'Festa di quest\'anno';
             g.insertAdjacentHTML('beforeend',
-                '<div class="bp-empty-hint bp-festa">🎭 Festa di quest\'anno: ' + pezzi.join(', ') + '.</div>');
+                '<div class="bp-empty-hint bp-festa">' + icona + ' ' + titolo + ': ' + pezzi.join(', ') + '.</div>');
         }
 
         const grid = tileGrid();

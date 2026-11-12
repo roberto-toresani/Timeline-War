@@ -354,14 +354,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // Il ritorno di questo ciclo verso l'Equilibrio ({ciclo, da, a}), per
         // dirlo nel pop-up del Consiglio. null = niente è scivolato.
         if (p.politicaRitorno === undefined) p.politicaRitorno = null;
-        // FELICITÀ (§6.1, "Festa"): il privilegio di QUESTO turno —
-        // `festaRisorse` (1-2 tipi di risorsa scontati sulle costruzioni,
-        // GameRules.costFor) e `festaCostruzioneBonus` (monete restituite a ogni
-        // acquisto pagato, GameActions.payConstruction). Sorteggiati da
-        // `beginTurn` a ogni turno del regno, dalla Felicità sulla Capitale —
-        // non devono sopravvivere a un salvataggio più di un turno.
+        // FELICITÀ (§6.1, "Festa"): il privilegio — o il malus — di QUESTO turno,
+        // tutto dentro il costo (GameRules.costFor): `festaRisorse` (1-2 tipi di
+        // risorsa scontati, tier 3-5), `festaMalus` (regno scontento, tier 0-1:
+        // costruzioni più care) e `festaBonusGrandi` (−50 monete sugli acquisti
+        // grandi, tier 5). Sorteggiati da `beginTurn` a ogni turno del regno dalla
+        // Felicità sulla Capitale — non sopravvivono a un salvataggio più di un turno.
         if (!Array.isArray(p.festaRisorse)) p.festaRisorse = [];
-        if (typeof p.festaCostruzioneBonus !== 'number') p.festaCostruzioneBonus = 0;
+        if (typeof p.festaMalus !== 'boolean') p.festaMalus = false;
+        if (typeof p.festaMalusRes !== 'string') p.festaMalusRes = null;
+        if (typeof p.festaBonusGrandi !== 'number') p.festaBonusGrandi = 0;
         // CRONACHE STORICHE (js/chronicles.js): le VIGNETTE di colore che scattano
         // quando la situazione del regno tocca una soglia evocativa (la marina
         // inglese, il feudo francese, i cavalieri teutonici). Nessun effetto sulla
