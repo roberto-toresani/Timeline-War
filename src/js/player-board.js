@@ -5310,7 +5310,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- diplomazia: il PANNELLO (§Diplomazia) ----------
     // (regola dell'utente) Come i commerci, ma per i PATTI: proporre a un regno
-    // VISIBILE (anche via spia), vedere i patti attivi e romperli/tradirli,
+    // con cui CONFINI davvero (vederlo da spia o nave NON basta), vedere i patti attivi e romperli/tradirli,
     // concedere a un partner di attaccare una propria provincia. Le proposte in
     // arrivo hanno già il pop-up a inizio turno; qui restano elencate per
     // decidere con calma. Nessun vincolo di fase: basta il proprio turno.
@@ -5346,19 +5346,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function diploKingdomsVisibili(player) {
-        // §3 ciclo 3: i regni raggiungibili diplomaticamente sono quelli che si
-        // VEDONO (nebbia normale) PIÙ quelli che si sono mai CONOSCIUTI (hanno
-        // condiviso un confine di terra almeno una volta). Una volta conosciuto,
-        // un regno resta raggiungibile per araldi e chat privata — anche se il
-        // confine è cambiato o il regno è lontano nella nebbia.
-        const noFog = !R.visibleProvinces || !R.visibleProvinces();
+        // §3 ciclo 3 (regola dell'utente, rev.): i regni raggiungibili
+        // diplomaticamente sono SOLO quelli con cui si CONFINA DAVVERO — di terra,
+        // adesso o in passato (regniConosciuti) — più quelli con cui c'è un patto
+        // attivo. VEDERE un regno (nebbia, spia o nave) NON apre la diplomazia:
+        // scorgerne i territori da lontano non li rende confinanti, e spia/barca
+        // non devono sbloccare araldi e chat privata con chi non tocchi davvero.
+        const D = window.Diplomacy;
         const conosciuti = new Set(Array.isArray(player.regniConosciuti) ? player.regniConosciuti : []);
+        const myPaths = R.ownedPaths(player.name);
+        const adiacenti = (aId, bId) => R.engine.areLandAdjacent
+            ? R.engine.areLandAdjacent(aId, bId)
+            : (window.NEIGHBORS_LAND && window.NEIGHBORS_LAND[aId] &&
+               (window.NEIGHBORS_LAND[aId].has
+                   ? window.NEIGHBORS_LAND[aId].has(bId)
+                   : window.NEIGHBORS_LAND[aId].includes(bId)));
         return R.players().filter(p => {
             if (p.id === player.id) return false;
             const paths = R.ownedPaths(p.name);
             if (!paths.length) return false;
+            // 1. Già conosciuti (hanno condiviso un confine di terra almeno una volta)
             if (conosciuti.has(p.id)) return true;
-            return noFog || paths.some(pt => R.isVisible(pt.id));
+            // 2. Patto diplomatico attivo
+            if (D && D.pactsWith(player, p.id).length) return true;
+            // 3. Confinano di terra ADESSO (prima che l'avanzamento turno li registri)
+            return myPaths.some(pa => paths.some(pb => adiacenti(pa.id, pb.id)));
         });
     }
     // ============================================================
