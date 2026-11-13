@@ -170,6 +170,10 @@
     // Baltico orientale (Sacro Romano Impero C4): «una provincia baltica tra
     // Tallin, Tartu, Riga e Courland» — possederne almeno una.
     const BALTICO_EST = new Set(['Talinn', 'Tartu', 'Riga', 'Courland']);
+    // La via del Baltico (Kievan Rus' C3, obiettivo terziario — regola dell'utente):
+    // sul Baltico vale QUALSIASI delle cinque, non solo la costa prussiana. Set a
+    // sé per non toccare BALTICO, usato da altri obiettivi.
+    const BALTICO_RUS = new Set(['Talinn', 'Tartu', 'Riga', 'Courland', 'East_Prussia']);
     // Cuore dell'impero (Sacro Romano Impero C6): «fonda 2 città tra Austria,
     // Bohemia e Franconia».
     const IMPERO_CENTRO = new Set(['Austria', 'Bohemia', 'Franconia']);
@@ -230,7 +234,7 @@
         MAGHREB, ITALIA_NORD, GERMANIA, AUSTRIA_EST, RENO, BALTICO, POLONIA, POLONIA_EST, PANNONIA,
         BALCANI, BALCANI_OVEST, RUTENIA, BALTICO_NORD, RUS_NORD, EST_RUSSO, CAUCASO, SIBERIA, MESOPOTAMIA,
         PERSIA, PERSIA_OVEST, PERSIA_EST, ARABIA,
-        BALTICO_EST, IMPERO_CENTRO, SICILIA_CRETA, BALCANI_HU, MED_BIZ, AFRICA_CE, AFRICA,
+        BALTICO_EST, BALTICO_RUS, IMPERO_CENTRO, SICILIA_CRETA, BALCANI_HU, MED_BIZ, AFRICA_CE, AFRICA,
         AMERICA_CENTRO, AMERICA_SUD
     };
 
@@ -1678,10 +1682,10 @@
                   testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
                   check: n => `Popolarità ≥ ${n}` },
                 { id: 'ru3-3', tipo: 'navale', titolo: 'La via del Baltico', fisso: true,
-                  tmpl: 'naviRegione', arg: { set: 'BALTICO' },
+                  tmpl: 'naviRegione', arg: { set: 'BALTICO_RUS' },
                   n: { avanzare: 1 },
-                  testo: () => 'Affacciati sul mare: conquista una provincia del Baltico e costruiscivi una nave.',
-                  check: () => 'una provincia di BALTICO con una nave ancorata' }
+                  testo: () => 'Affacciati sul mare: conquista una provincia del Baltico — Tallinn, Tartu, Riga, Courland o Prussia Orientale — e costruiscivi una nave.',
+                  check: () => 'una provincia fra Tallinn/Tartu/Riga/Courland/Prussia Orientale con una nave ancorata' }
             ] },
             // Ciclo IV — raccogliere le terre russe: Mosca diventa il fulcro
             // attorno a cui la Rus’ settentrionale si ricompone per intero.

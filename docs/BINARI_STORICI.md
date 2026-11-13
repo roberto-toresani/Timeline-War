@@ -505,6 +505,7 @@ morto, non un errore, ma da sapere prima di scrivere un capitolo nuovo che le di
 | **PERSIA_EST** *(non nella versione precedente di questo doc)* | Semnan, Khorasan, Kerman, Mazandaran, Fars | Abbaside III, Secondario (trabocca verso ARABIA), meta di trabocco di Abbaside II |
 | **ARABIA** | Nejd, Yemen, Oman *(3 province: Nejd mancava nella versione precedente di questo doc)* | Abbaside IV (base)/V (una Città qui), meta di trabocco di Abbaside III — **non** usata dall'Emirato dei Mori |
 | **BALTICO_EST** *(non nella versione precedente di questo doc)* | Talinn, Tartu, Riga, Courland | Sacro Romano Impero IV |
+| **BALTICO_RUS** *(nuovo, regola utente)* | Talinn, Tartu, Riga, Courland, East_Prussia | Kievan Rus' III (terziario `ru3-3` "La via del Baltico": una provincia qui con una nave ancorata) |
 | **IMPERO_CENTRO** *(non nella versione precedente di questo doc)* | Austria, Bohemia, Franconia | Sacro Romano Impero VI (Città qui) |
 | **SICILIA_CRETA** *(non nella versione precedente di questo doc)* | Sicily, Crete | Emirato dei Mori III |
 | **AFRICA_CE** *(non nella versione precedente di questo doc)* | Eritrea, Somaliland, Kenya, Zanzibar, Tanganyika, Mocambique, Uganda | Abbaside V (via mare, dentro un `tutti`) |
