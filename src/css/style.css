@@ -658,6 +658,46 @@ svg path.battle-held { animation: battle-held-flash .55s ease-out 3; }
     .battle-fx.fx-verdict { opacity: 1; animation: none; }
 }
 
+/* ============================================================
+   CONQUISTA A INCHIOSTRO (#5). Il clone del poligono preso, col colore del
+   vincitore, svelato da un cerchio di clip che cresce dal lato dell'assalto.
+   Il raggio finale lo passa app.js in `--conq-r` (unità mappa).
+   ============================================================ */
+/* L'inchiostro è il colore dell'invasore (coloreAttaccante): sotto la provincia
+   vera ha già quella tinta, quindi l'overlay si posa esatto senza schiarire né
+   "sparare". Opacità appena sotto 1 così la posa è morbida, non un lampo. */
+.battle-fx.conq-ink { opacity: .88; }
+.conq-ink-clip {
+    r: 0;
+    animation: conq-ink-grow .9s cubic-bezier(.25, .7, .35, 1) forwards;
+}
+@keyframes conq-ink-grow { to { r: var(--conq-r, 60px); } }
+
+/* ============================================================
+   MARCIA DELLO SPOSTAMENTO (#6). Fanti fantasma che scivolano dalla partenza
+   all'arrivo (dx/dy da app.js) e svaniscono; una scia tenue dà la direzione.
+   ============================================================ */
+.move-fx.fx-march {
+    fill: currentColor;
+    opacity: 0;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, .55));
+    animation: fx-march-run .85s cubic-bezier(.4, 0, .5, 1) forwards;
+}
+@keyframes fx-march-run {
+    0%   { opacity: 0;   transform: translate(0, 0); }
+    15%  { opacity: .95; }
+    82%  { opacity: .95; }
+    100% { opacity: 0;   transform: translate(var(--dx, 0), var(--dy, 0)); }
+}
+.move-fx.move-trail { animation: fx-fade .55s ease-out .5s forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+    /* niente marcia né inchiostro animato: la provincia cambia colore e basta */
+    .move-fx { display: none; }
+    .conq-ink-clip { animation: none; r: var(--conq-r, 60px); }
+    .battle-fx.conq-ink { animation: none; opacity: 0; }
+}
+
 #game-board {
     display: flex;
     flex-direction: row;
@@ -747,6 +787,73 @@ svg path.battle-held { animation: battle-held-flash .55s ease-out 3; }
    uno scatto per ogni tacca di rotella. La classe la mette e la toglie
    `wireMapZoom` in app.js, 140 ms dopo l'ultimo movimento. */
 svg.map-interacting #decor-coast-layer { display: none; }
+/* Il rilievo (ombra bruna delle terre) sparisce durante la gesture per lo
+   stesso motivo dell'alone: è un clone sfocato di mille path che il browser
+   ricalcolerebbe a ogni tacca di zoom. A mappa ferma torna da sé. */
+svg.map-interacting #decor-relief-layer { display: none; }
+
+/* ============================================================
+   VITA DELLA CARTA (#1 onde, #2 velieri/serpente). Animazioni LEGGERE e lente,
+   solo su gruppi INTERNI (map-decor.js) così il transform d'ogni ornamento non
+   viene sovrascritto. Sotto `prefers-reduced-motion: reduce` non partono: la
+   query qui è `no-preference`, quindi chi chiede meno moto vede la carta ferma.
+   ============================================================ */
+@media (prefers-reduced-motion: no-preference) {
+    .decor-wave-bob {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: decor-bob 7s ease-in-out infinite;
+    }
+    /* un filo di sfasamento fra le onde, o respirerebbero tutte all'unisono */
+    .decor-wave:nth-of-type(2n) .decor-wave-bob { animation-duration: 8.4s; animation-delay: -2.1s; }
+    .decor-wave:nth-of-type(3n) .decor-wave-bob { animation-duration: 6.2s; animation-delay: -3.7s; }
+
+    .decor-ship-sway {
+        transform-box: fill-box;
+        transform-origin: 50% 82%;
+        animation: decor-rock 6s ease-in-out infinite;
+    }
+    .decor-serpent-swim {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: decor-undulate 9s ease-in-out infinite;
+    }
+}
+@keyframes decor-bob { 50% { transform: translateY(1.6px); } }
+@keyframes decor-rock {
+    0%, 100% { transform: rotate(-1.5deg) translateY(0); }
+    50%      { transform: rotate(1.5deg) translateY(-0.6px); }
+}
+@keyframes decor-undulate {
+    0%, 100% { transform: translateY(0) rotate(-1deg); }
+    50%      { transform: translateY(1.8px) rotate(1deg); }
+}
+
+/* ============================================================
+   FUMO DEGLI INSEDIAMENTI (#4). Marker-pedina (nebbia e dimming lo seguono), ma
+   con un grigio suo: `fill` esplicito, non `currentColor`, così il colore-armata
+   non lo tinge. La salita è in unità mappa, passata da app.js in `--rise`.
+   ============================================================ */
+.settle-smoke .smoke-puff {
+    fill: #5e564a;
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+    .settle-smoke .smoke-puff { animation: smoke-rise 3.3s ease-out infinite; }
+}
+@keyframes smoke-rise {
+    0%   { opacity: 0;   transform: translate(0, 0) scale(.5); }
+    22%  { opacity: .42; }
+    70%  { opacity: .22; }
+    100% { opacity: 0;   transform: translate(0, calc(var(--rise, 6px) * -1)) scale(1.35); }
+}
+/* A moto ridotto: un solo sbuffo fermo e tenue, non una colonna congelata. */
+@media (prefers-reduced-motion: reduce) {
+    .settle-smoke .smoke-puff { opacity: .18; }
+    .settle-smoke .smoke-puff:not(:first-child) { display: none; }
+}
 /* Il contorno delle province (0,25 su 1,2 MB di tracciato, ogni confine
    ripassato due volte) era la voce più cara di ogni frame di zoom e pan: con
    l'antialiasing spento il frame costa circa un terzo (misurato in Chrome

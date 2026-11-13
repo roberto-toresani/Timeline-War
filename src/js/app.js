@@ -1789,6 +1789,43 @@ document.addEventListener('DOMContentLoaded', () => {
                 drawPieceRow(svg, path, ships, l.x, l.y, sizeBase, Math.min(bb.w * 0.9, l.r * 2.2), color, fogged);
             }
         }
+
+        // FUMO DEGLI INSEDIAMENTI: dove sorge una Capitale, una Città o una
+        // Fortezza, un filo di fumo sale e si dissolve — segnale che lì vive
+        // gente, e un po' di vita sulla mappa fra un turno e l'altro. Solo il
+        // CSS lo anima (reduced-motion lo lascia fermo); è un marker-pedina come
+        // gli altri, così la nebbia lo nasconde e il colore-armata non lo tinge
+        // (il fumo ha un suo grigio, non `currentColor`).
+        if (countPiece(path, 'capitale') || countPiece(path, 'citta') || countPiece(path, 'fortezza')) {
+            const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
+            drawSmoke(svg, path, a.x, a.y - sizeBase * 0.55, sizeBase, fogged);
+        }
+    }
+
+    // Tre sbuffi di fumo che salgono in colonna sopra un insediamento, sfalsati
+    // nel tempo così il filo pare continuo. Misure legate alla pedina (sizeBase)
+    // perché il fumo deve rimpicciolirsi dove le province sono strette.
+    function drawSmoke(svg, path, cx, cy, sizeBase, fogged) {
+        const g = document.createElementNS(SVG_NS, 'g');
+        g.setAttribute('class', 'piece-marker settle-smoke');
+        g.setAttribute('data-prov', path.id);
+        g.setAttribute('pointer-events', 'none');
+        g.setAttribute('transform', `translate(${cx.toFixed(2)},${cy.toFixed(2)})`);
+        if (fogged) g.style.display = 'none';
+        const r = Math.max(0.5, sizeBase * 0.2);
+        const rise = (sizeBase * 1.7).toFixed(2) + 'px';
+        [0, 1, 2].forEach(i => {
+            const c = document.createElementNS(SVG_NS, 'circle');
+            c.setAttribute('class', 'smoke-puff');
+            c.setAttribute('cx', 0);
+            c.setAttribute('cy', 0);
+            c.setAttribute('r', (r * (1 + i * 0.12)).toFixed(2));
+            c.setAttribute('fill', '#5e564a');
+            c.style.setProperty('--rise', rise);
+            c.style.animationDelay = (i * 1.05).toFixed(2) + 's';
+            g.appendChild(c);
+        });
+        svg.appendChild(g);
     }
 
     // Disegna una fila di figure centrata su (cx,cy), rimpicciolita per stare in maxW.
@@ -6421,10 +6458,145 @@ document.addEventListener('DOMContentLoaded', () => {
             esito.textContent = info.conquistata ? 'CONQUISTATA' : vinta ? 'VITTORIA' : 'SCONFITTA';
         }, 1750);
 
+        // 5) CONQUISTA A INCHIOSTRO: se la provincia cade, il colore del
+        //    vincitore si "versa" su di essa allargandosi dal lato da cui è
+        //    entrato l'assalto. Parte con l'impatto; sotto, la provincia vera ha
+        //    già il colore nuovo, quindi quando il clone sparisce con la scena
+        //    non c'è stacco.
+        if (info.conquistata) {
+            battleLater(() => inkConquest(svg, to, A, B, info.coloreAttaccante), 1150);
+        }
+
         battleLater(() => {
             to.classList.remove('battle-hit', 'battle-held');
             clearBattleFx();
         }, BATTLE_FX_MS);
+    }
+
+    // ============================================================
+    // CONQUISTA A INCHIOSTRO (#5) e MARCIA DELLO SPOSTAMENTO (#6).
+    // Stessa filosofia della scena di battaglia: overlay puri in SVG+CSS, sopra
+    // la mappa dov'è già, che si tolgono da soli. Non toccano né le pedine vere
+    // né refreshMapDisplay.
+    // ============================================================
+
+    let inkSeq = 0;
+    // Clone INERTE del poligono conquistato, riempito del colore del vincitore e
+    // svelato da un cerchio di clip che cresce dal punto d'ingresso.
+    function inkConquest(svg, toPath, A, B, color) {
+        if (!svg || !toPath || !B) return;
+        const bb = mainBodyBBox(toPath);
+        const diag = bb ? Math.hypot(bb.w, bb.h) : (B.r * 3);
+        // Punto d'ingresso: dal centro della preda verso l'attaccante, sul bordo
+        // — così l'inchiostro entra dal lato dell'assalto, non dal centro.
+        let ex = B.x, ey = B.y;
+        if (A) {
+            const dx = A.x - B.x, dy = A.y - B.y, d = Math.hypot(dx, dy) || 1;
+            ex = B.x + dx / d * (B.r * 0.9);
+            ey = B.y + dy / d * (B.r * 0.9);
+        }
+        const cid = 'conq-clip-' + (++inkSeq);
+        const clip = document.createElementNS(SVG_NS, 'clipPath');
+        clip.id = cid;
+        clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+        clip.setAttribute('class', 'battle-fx');
+        const circ = document.createElementNS(SVG_NS, 'circle');
+        circ.setAttribute('cx', ex.toFixed(2));
+        circ.setAttribute('cy', ey.toFixed(2));
+        circ.setAttribute('r', 0);
+        circ.setAttribute('class', 'conq-ink-clip');
+        circ.style.setProperty('--conq-r', (diag * 1.1).toFixed(1) + 'px');
+        clip.appendChild(circ);
+        svg.appendChild(clip);
+
+        const clone = toPath.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        // Niente class="state": provincePaths non deve mai pescarlo, e
+        // refreshMapDisplay non deve riscrivergli il fill.
+        clone.setAttribute('class', 'battle-fx conq-ink');
+        clone.removeAttribute('filter');
+        clone.setAttribute('fill', color || '#caa44a');
+        clone.style.fill = color || '#caa44a';
+        clone.setAttribute('pointer-events', 'none');
+        clone.setAttribute('clip-path', 'url(#' + cid + ')');
+        svg.appendChild(clone);
+
+        // Si toglie da solo (la provincia vera sotto ha già il colore nuovo).
+        // In una battaglia anche clearBattleFx lo spazza via con la scena: un
+        // doppio remove su un nodo già tolto non fa danno.
+        setTimeout(() => { clone.remove(); clip.remove(); }, 2200);
+    }
+
+    // Versione pubblica, per una conquista fuori dalla scena di battaglia.
+    function playConquestFx(info) {
+        const svg = mapSvg();
+        if (!svg || !info || !info.toId) return;
+        const to = document.getElementById(info.toId);
+        if (!to) return;
+        const B = provinceCenter(to);
+        const A = info.fromId ? provinceCenter(document.getElementById(info.fromId)) : null;
+        inkConquest(svg, to, A, B, info.coloreAttaccante);
+    }
+
+    let moveTimers = [];
+    function clearMoveFx() {
+        moveTimers.forEach(clearTimeout);
+        moveTimers = [];
+        const svg = mapSvg();
+        if (svg) svg.querySelectorAll('.move-fx').forEach(el => el.remove());
+    }
+
+    // MARCIA: una piccola colonna di fanti scivola dalla partenza all'arrivo. Il
+    // colore lo ricava dalle pedine già arrivate (pieceColorOf della meta), così
+    // un rinforzo a un alleato marcia col colore dell'alleato. Overlay puro: le
+    // pedine vere refreshMapDisplay le ha già messe a destinazione.
+    function playMoveFx(fromId, toId) {
+        const svg = mapSvg();
+        if (!svg) return;
+        const fromP = document.getElementById(fromId), toP = document.getElementById(toId);
+        if (!fromP || !toP) return;
+        const A = MapAnchors.landAnchor(fromP) || provinceCenter(fromP);
+        const B = MapAnchors.landAnchor(toP) || provinceCenter(toP);
+        if (!A || !B) return;
+        clearMoveFx();
+        injectPieceDefs(svg);
+        const col = pieceColorOf(toP) || '#caa44a';
+        const size = Math.max(PIECE_SIZE_MIN, PIECE_SIZE * 0.92);
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const px = -dy / len, py = dx / len;     // versore perpendicolare: sfalsa la colonna
+
+        // Scia tenue nella direzione della marcia.
+        const trail = document.createElementNS(SVG_NS, 'line');
+        trail.setAttribute('x1', A.x.toFixed(2)); trail.setAttribute('y1', A.y.toFixed(2));
+        trail.setAttribute('x2', B.x.toFixed(2)); trail.setAttribute('y2', B.y.toFixed(2));
+        trail.setAttribute('stroke', col);
+        trail.setAttribute('stroke-width', Math.max(0.6, size * 0.14).toFixed(2));
+        trail.setAttribute('stroke-linecap', 'round');
+        trail.setAttribute('stroke-dasharray', '1 3');
+        trail.setAttribute('class', 'move-fx move-trail');
+        trail.setAttribute('pointer-events', 'none');
+        svg.appendChild(trail);
+
+        [-1, 0, 1].forEach((off, i) => {
+            const ox = px * off * size * 0.7, oy = py * off * size * 0.7;
+            const use = document.createElementNS(SVG_NS, 'use');
+            use.setAttribute('href', '#pc-soldato');
+            use.setAttributeNS(XLINK_NS, 'href', '#pc-soldato');
+            use.setAttribute('x', (A.x - size / 2 + ox).toFixed(2));
+            use.setAttribute('y', (A.y - size / 2 + oy).toFixed(2));
+            use.setAttribute('width', size.toFixed(2));
+            use.setAttribute('height', size.toFixed(2));
+            use.setAttribute('class', 'move-fx fx-march');
+            use.setAttribute('pointer-events', 'none');
+            use.style.color = col;
+            use.style.setProperty('--dx', dx.toFixed(1) + 'px');
+            use.style.setProperty('--dy', dy.toFixed(1) + 'px');
+            use.style.animationDelay = (i * 90) + 'ms';
+            svg.appendChild(use);
+        });
+        moveTimers.push(setTimeout(clearMoveFx, 1200));
     }
 
     // ============================================================
@@ -6612,6 +6784,10 @@ document.addEventListener('DOMContentLoaded', () => {
         countPiece,
         playBattleFx,
         clearBattleFx,
+        // Conquista a inchiostro (#5) e marcia dello spostamento (#6).
+        playConquestFx,
+        playMoveFx,
+        clearMoveFx,
         // Quanto dura la scena (e quanto si aspetta ancora prima di un pop-up):
         // la plancia non deve indovinarlo con un numero suo.
         battleFxBusy,

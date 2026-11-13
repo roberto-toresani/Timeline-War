@@ -69,6 +69,21 @@
                 <feMergeNode in="near"/>
             </feMerge>
         </filter>
+
+        <!-- RILIEVO DELLE TERRE: un'ombra bruna, sfocata e scostata, sotto le
+             province vere. Dà alle terre l'aria di essere sollevate dalla carta
+             invece che incollate. La matrice appiattisce la copia a un bruno
+             scuro tenendone l'alpha; la sfocatura ne fa un alone morbido. Come
+             l'alone costiero è un clone INERTE: si calcola una volta, non entra
+             nei frame di zoom (map-decor spegne il layer durante le gesture). -->
+        <filter id="decor-relief" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+            <feColorMatrix type="matrix"
+                values="0 0 0 0 0.13
+                        0 0 0 0 0.10
+                        0 0 0 0 0.06
+                        0 0 0 0.85 0"/>
+            <feGaussianBlur stdDeviation="2.3"/>
+        </filter>
     `;
 
     /* ------------------------------------------------------------------
@@ -185,15 +200,21 @@
     // Veliero visto di lato. Le vele sono quadre e gonfie di vento (il lato
     // sinistro dritto sull'albero, il destro panciuto): a questa scala una vela
     // triangolare piccola si legge come una macchia, una quadra no.
+    // Il contenuto sta in un gruppo interno `decor-ship-sway`: è lì che il CSS
+    // appende il dondolio. Il gruppo esterno porta posizione e scala (transform
+    // attribute) — un'animazione CSS sullo stesso nodo lo sovrascriverebbe e la
+    // nave schizzerebbe nell'origine. Vale per onde e serpente allo stesso modo.
     function ship(x, y, s, flip) {
         return `
         <g class="decor-ship" transform="translate(${x},${y}) scale(${flip ? -s : s},${s})">
+          <g class="decor-ship-sway">
             <path d="M-26,-3 h52 q-7,13 -26,13 q-19,0 -26,-13 z" stroke-width=".8"/>
             <path d="M-26,-3 h52" stroke-width="1.4" fill="none"/>
             <path d="M0,-3 V-40" stroke-width="1.4" fill="none"/>
             <path d="M-15,-37 q17,7 30,0 v13 q-13,7 -30,0 z" opacity=".6"/>
             <path d="M-17,-20 q19,8 34,0 v12 q-15,8 -34,0 z" opacity=".45"/>
             <path d="M0,-40 l14,4 -14,4 z" opacity=".85"/>
+          </g>
         </g>`;
     }
 
@@ -202,6 +223,7 @@
     function seaSerpent(x, y, s) {
         return `
         <g class="decor-serpent" transform="translate(${x},${y}) scale(${s})">
+          <g class="decor-serpent-swim">
             <path d="M0,0 q14,-20 28,0 M34,0 q14,-20 28,0 M68,0 q14,-20 28,0"
                   fill="none" stroke-width="3.4" stroke-linecap="round"/>
             <!-- collo che si alza dall'ultima gobba, poi la testa. Serve che si
@@ -216,6 +238,7 @@
                 <path d="M-4,-2 l-10,-6 11,1 z" opacity=".55"/>
                 <circle cx="16" cy="-2" r="1.6" class="decor-eye"/>
             </g>
+          </g>
         </g>`;
     }
 
@@ -223,8 +246,10 @@
     function waves(list) {
         return list.map(([x, y, s]) => `
         <g class="decor-wave" transform="translate(${x},${y}) scale(${s || 1})">
+          <g class="decor-wave-bob">
             <path d="M0,0 q7,-6 14,0 q7,6 14,0" fill="none" stroke-width="1.6" stroke-linecap="round"/>
             <path d="M6,7 q7,-6 14,0 q7,6 14,0" fill="none" stroke-width="1.6" stroke-linecap="round"/>
+          </g>
         </g>`).join('');
     }
 
@@ -371,6 +396,19 @@
         // getElementById e i selettori di app.js.
         halo.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
         land.before(halo);
+
+        // 4. RILIEVO: un'ombra bruna delle terre, scostata in basso a destra e
+        //    sfocata, infilata FRA l'alone costiero e le terre vere. Dà alle
+        //    province l'aria di essere sollevate dalla pergamena. Stesso patto
+        //    dell'alone: copia inerte (niente id duplicati, così provincePaths
+        //    la ignora) e spenta durante zoom/pan via `svg.map-interacting`.
+        const relief = land.cloneNode(true);
+        relief.id = 'decor-relief-layer';
+        relief.setAttribute('filter', 'url(#decor-relief)');
+        relief.setAttribute('transform', 'translate(1.4,1.9)');
+        relief.setAttribute('pointer-events', 'none');
+        relief.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        land.before(relief);
     }
 
     window.MapDecor = { decorate };

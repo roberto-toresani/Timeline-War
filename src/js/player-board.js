@@ -883,6 +883,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // o il bottone ↺ del rapporto di battaglia).
             R.playBattleFx(result);
         }
+        // MARCIA (#6): uno spostamento di truppe (non una battaglia) manda una
+        // colonna a scivolare dalla partenza all'arrivo. finalMove e i rinforzi
+        // tornano { fromId, toId }; l'attacco ha invece result.battle ed è già
+        // servito dalla scena qui sopra.
+        else if (result.fromId && result.toId && R.playMoveFx) {
+            R.playMoveFx(result.fromId, result.toId);
+        }
         // L'ESITO ARRIVA DOPO (richiesta dell'utente): con una battaglia in
         // corso il messaggio non compare subito — direbbe com'è finita mentre
         // le lame stanno ancora correndo. Si aspetta il verdetto sulla mappa
