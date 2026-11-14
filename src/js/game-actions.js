@@ -1071,6 +1071,9 @@
             // ...e le alleanze a tempo giunte a scadenza si sciolgono da sé,
             // gratis, avvisando entrambi i firmatari (§Diplomazia).
             expirePacts();
+            // ...le carovane delle rotte commerciali partono (§7): scambio di merci,
+            // +50 monete a testa, razzie dei terzi, corridoi interrotti.
+            runTradeRoutes(turnoPrima);
             // ...e i gridi d'aiuto rimasti senza risposta si spengono (§Diplomazia).
             expireHelpRequests();
             // Aggiorna ULTIMO CONFINE (§2A ciclo 3) e REGNI CONOSCIUTI (§3 ciclo 3):
@@ -2841,6 +2844,412 @@
             }
         });
         return scadute;
+    }
+
+    // ============================================================
+    // ROTTE COMMERCIALI inter-regno (§7, docs/regole/MERCATI_COMMERCI.md).
+    //
+    // Accordo permanente fra due Mercati di regni diversi, firmato per ARALDO
+    // come un patto: chi propone sceglie le merci (fino a 2 tipi di risorsa, ognuno
+    // con la sua direzione), l'altro accetta o rifiuta. Alla firma si traccia il
+    // CORRIDOIO — le province di terra attraversate dalla carovana — e lo si
+    // CONGELA: se un terzo conquista una provincia del tragitto la rotta non si
+    // re-instrada, resta lì e si espone. A ogni giro completo parte la carovana:
+    // le merci cambiano di mano e ognuno incassa +ROUTE_BONUS monete.
+    //
+    // Una rotta vive sul record di ENTRAMBI i capi (stessa `id`, come i patti):
+    //   rotteCommerciali = [{ id, conId, conNome, proponente, prov:[ids], mercatoDa,
+    //     mercatoA, risorse:[{tipo,n,da}], turnoFirma, saltati, esito, turnoEsito }]
+    // `prov` va dal Mercato del proponente (`mercatoDa`) a quello dell'altro
+    // (`mercatoA`); `conId/conNome` sono sempre l'ALTRO capo, dal punto di vista
+    // di chi legge il record.
+    // I terzi sul corridoio scelgono ogni giro se lasciar passare (default) o
+    // RAZZIARE: `razzieRotte = [{rotta, turno}]`, valido solo nel turno indicato.
+    // ============================================================
+    function routesOf(player) {
+        if (!Array.isArray(player.rotteCommerciali)) player.rotteCommerciali = [];
+        return player.rotteCommerciali;
+    }
+    function routeInbox(player) {
+        if (!Array.isArray(player.rotteProposte)) player.rotteProposte = [];
+        return player.rotteProposte;
+    }
+    function routeFlags(player) {
+        if (!Array.isArray(player.razzieRotte)) player.razzieRotte = [];
+        return player.razzieRotte;
+    }
+    // Gli avvisi delle rotte viaggiano nella stessa pergamena dell'araldo dei
+    // patti (`pattiAvvisi`), col tipo prefissato: rottaAccettata, rottaRifiutata,
+    // rottaSciolta, rottaInterrotta, rottaSaltata, rottaRazziata.
+    function pushRouteNotice(player, entry) {
+        if (!player) return;
+        const tipo = 'rotta' + entry.tipo.charAt(0).toUpperCase() + entry.tipo.slice(1);
+        pushPactNotice(player, Object.assign({}, entry, { tipo }));
+    }
+    function playerById(id) {
+        return R().players().find(p => String(p.id) === String(id)) || null;
+    }
+
+    function marketPaths(player) {
+        return E().ownedPaths(player.name).filter(p => E().countPiece(p, 'mercato') > 0);
+    }
+
+    // Il Mercato `path` di `owner` può ospitare una rotta verso `other`? Al più
+    // ROUTE_PER_MARKET rotte per Mercato, e una sola verso lo stesso regno.
+    function marketHasRoom(owner, path, other) {
+        const qui = routesOf(owner).filter(r => r.mercatoDa === path.id || r.mercatoA === path.id);
+        return qui.length < GR().ROUTE_PER_MARKET &&
+            !qui.some(r => String(r.conId) === String(other.id));
+    }
+
+    // Il CORRIDOIO: cammino sui confini di TERRA da uno dei Mercati `fromIds` a
+    // uno dei `toIds`, con meno province possibile; a parità, il più corto in
+    // linea d'aria (Dijkstra con un peso enorme per ogni salto, così il numero
+    // di province vince sempre sulla geometria). Attraversa province di chiunque.
+    function routeCorridor(fromIds, toIds) {
+        const to = new Set(toIds);
+        const HOP = 1e6;
+        const centri = new Map();
+        const centro = id => {
+            if (!centri.has(id)) {
+                const p = E().path(id);
+                centri.set(id, p ? E().provinceCenter(p) : null);
+            }
+            return centri.get(id);
+        };
+        const dist = new Map(), prev = new Map(), chiusi = new Set();
+        fromIds.forEach(id => dist.set(id, 0));
+        for (;;) {
+            let cur = null, best = Infinity;
+            dist.forEach((d, id) => { if (!chiusi.has(id) && d < best) { best = d; cur = id; } });
+            if (cur === null) return null;
+            if (to.has(cur)) {
+                const path = [cur];
+                while (prev.has(path[0])) path.unshift(prev.get(path[0]));
+                return path;
+            }
+            chiusi.add(cur);
+            const a = centro(cur);
+            E().landNeighbors(cur).forEach(nb => {
+                if (chiusi.has(nb)) return;
+                const b = centro(nb);
+                const geo = (a && b) ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+                const nd = best + HOP + geo;
+                if (!dist.has(nb) || nd < dist.get(nb)) { dist.set(nb, nd); prev.set(nb, cur); }
+            });
+        }
+    }
+
+    // Le cinque condizioni (meno la scelta delle merci) per aprire una rotta fra
+    // `player` e `altro`. Se tutte reggono, dice anche DOVE passa il corridoio.
+    function routePlan(player, altro) {
+        if (!player || !altro || String(player.id) === String(altro.id)) return fail('Regno non valido.');
+        const mieiM = marketPaths(player);
+        if (!mieiM.length) return fail('Serve almeno un Mercato tuo.');
+        const suoiM = marketPaths(altro);
+        if (!suoiM.length) return fail(altro.name + ' non ha un Mercato.');
+        if (!D().allowsTradeRoute(player, altro)) {
+            return fail('Serve un patto di commercio preferenziale (o un\'alleanza) con ' + altro.name + '.');
+        }
+        const a = mieiM.filter(p => marketHasRoom(player, p, altro));
+        if (!a.length) {
+            return fail('I tuoi Mercati hanno già il massimo di rotte, o una rotta verso ' + altro.name + '.');
+        }
+        const b = suoiM.filter(p => marketHasRoom(altro, p, player));
+        if (!b.length) {
+            return fail('I Mercati di ' + altro.name + ' hanno già il massimo di rotte, o una rotta verso di te.');
+        }
+        const prov = routeCorridor(a.map(p => p.id), b.map(p => p.id));
+        if (!prov) return fail('Nessun corridoio di terra fra i vostri Mercati: il mare vi separa.');
+        return { ok: true, prov, mercatoDa: prov[0], mercatoA: prov[prov.length - 1] };
+    }
+
+    // Fra due regni c'è già una proposta di rotta in sospeso?
+    function routeProposalPending(a, b) {
+        const dup = o => (String(o.da) === String(a.id) && String(o.a) === String(b.id)) ||
+                         (String(o.da) === String(b.id) && String(o.a) === String(a.id));
+        return routeInbox(a).some(dup) || routeInbox(b).some(dup);
+    }
+
+    function cleanGoods(risorse) {
+        return (Array.isArray(risorse) ? risorse : []).map(r => ({
+            tipo: r && r.tipo, n: Math.floor((r && r.n) || 0), da: r && r.da
+        }));
+    }
+
+    // Controllo completo (UI e azione): le merci scelte + le cinque condizioni.
+    function routeCheck(player, toId, risorse) {
+        const altro = playerById(toId);
+        if (!altro) return fail('Regno sconosciuto.');
+        if (!E().ownedPaths(altro.name).length) return fail(altro.name + ' non ha più province.');
+        const plan = routePlan(player, altro);
+        if (!plan.ok) return plan;
+        if (routeProposalPending(player, altro)) {
+            return fail('C\'è già una proposta di rotta in sospeso con ' + altro.name + '.');
+        }
+        if (risorse) {
+            const chk = GR().checkRouteGoods(cleanGoods(risorse), player.id, altro.id);
+            if (!chk.ok) return fail(chk.msg);
+        }
+        return plan;
+    }
+
+    function proposeRoute(player, toId, risorse) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const chk = routeCheck(player, toId, risorse || []);
+        if (!chk.ok) return chk;
+        const altro = playerById(toId);
+        routeInbox(altro).push({
+            id: newTradeId(), da: player.id, a: altro.id,
+            risorse: cleanGoods(risorse), turno: R().turn()
+        });
+        E().refresh(); E().save();
+        return done('Proposta di rotta commerciale inviata a ' + altro.name + '.', { prov: homeId(player) });
+    }
+
+    function takeRouteProposal(player, offerId) {
+        const list = routeInbox(player);
+        const i = list.findIndex(o => o.id === offerId);
+        return i < 0 ? null : { list, i, off: list[i] };
+    }
+
+    // Accetta: si ricontrolla TUTTO alla firma (patto, Mercati, capienza,
+    // corridoio) e SOLO ora il corridoio viene tracciato e congelato.
+    function acceptRoute(player, offerId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const found = takeRouteProposal(player, offerId);
+        if (!found) return fail('Questa proposta non c\'è più.');
+        const { list, i, off } = found;
+        const mittente = playerById(off.da);
+        if (!mittente) { list.splice(i, 1); E().save(); return fail('Il regno che l\'aveva proposta non esiste più.'); }
+        const chkM = GR().checkRouteGoods(cleanGoods(off.risorse), mittente.id, player.id);
+        if (!chkM.ok) { list.splice(i, 1); E().save(); return fail(chkM.msg); }
+        const plan = routePlan(mittente, player);
+        if (!plan.ok) { list.splice(i, 1); E().save(); return fail(plan.msg); }
+
+        const base = {
+            id: newTradeId(), proponente: mittente.id,
+            prov: plan.prov.slice(), mercatoDa: plan.mercatoDa, mercatoA: plan.mercatoA,
+            risorse: cleanGoods(off.risorse), turnoFirma: R().turn(),
+            saltati: 0, esito: null, turnoEsito: null
+        };
+        routesOf(mittente).push(Object.assign({}, base, { risorse: cleanGoods(base.risorse), prov: base.prov.slice(), conId: player.id, conNome: player.name }));
+        routesOf(player).push(Object.assign({}, base, { risorse: cleanGoods(base.risorse), prov: base.prov.slice(), conId: mittente.id, conNome: mittente.name }));
+        list.splice(i, 1);
+        pushRouteNotice(mittente, { tipo: 'accettata', conNome: player.name });
+        E().refresh(); E().save();
+        return done('Rotta commerciale con ' + mittente.name + ' aperta: ' + plan.prov.length +
+            (plan.prov.length === 1 ? ' provincia' : ' province') + ' di corridoio.', { prov: homeId(player) });
+    }
+
+    function declineRoute(player, offerId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const found = takeRouteProposal(player, offerId);
+        if (!found) return fail('Questa proposta non c\'è più.');
+        const mittente = playerById(found.off.da);
+        found.list.splice(found.i, 1);
+        pushRouteNotice(mittente, { tipo: 'rifiutata', conNome: player.name });
+        E().refresh(); E().save();
+        return done('Proposta di rotta di ' + nameOf(found.off.da) + ' rifiutata.', { prov: homeId(player) });
+    }
+
+    // Toglie la rotta `id` dal record di entrambi i capi.
+    function dropRoute(id, ...capi) {
+        capi.forEach(c => {
+            if (c) c.rotteCommerciali = routesOf(c).filter(r => r.id !== id);
+        });
+    }
+
+    // Una proposta ancora in viaggio si ritira da chi l'ha mandata.
+    function withdrawRoute(player, offerId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        let tolta = null;
+        R().players().forEach(p => {
+            const list = routeInbox(p);
+            const i = list.findIndex(o => o.id === offerId && String(o.da) === String(player.id));
+            if (i >= 0 && !tolta) { tolta = list[i]; list.splice(i, 1); }
+        });
+        if (!tolta) return fail('Questa proposta non c\'è più.');
+        E().refresh(); E().save();
+        return done('Proposta di rotta a ' + nameOf(tolta.a) + ' ritirata.', { prov: homeId(player) });
+    }
+
+    // Scioglie una rotta: o dei due capi può farlo, gratis.
+    function cancelRoute(player, routeId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const r = routesOf(player).find(x => x.id === routeId);
+        if (!r) return fail('Questa rotta non c\'è più.');
+        const altro = playerById(r.conId);
+        dropRoute(routeId, player, altro);
+        pushRouteNotice(altro, { tipo: 'sciolta', conNome: player.name });
+        E().refresh(); E().save();
+        return done('Rotta commerciale con ' + r.conNome + ' sciolta.', { prov: homeId(player) });
+    }
+
+    // Le rotte altrui che attraversano province di `player` (esclusi i due
+    // capi). Un terzo le vede nella sezione Mercato, ma SENZA le merci.
+    function routesCrossing(player) {
+        const seen = new Set(), out = [];
+        R().players().forEach(p => {
+            if (String(p.id) === String(player.id)) return;
+            routesOf(p).forEach(r => {
+                if (seen.has(r.id) || String(r.conId) === String(player.id)) return;
+                seen.add(r.id);
+                const mie = (r.prov || []).slice(1, -1).filter(id => {
+                    const path = E().path(id);
+                    return path && E().owner(path) === player.name;
+                });
+                if (!mie.length) return;
+                out.push({
+                    id: r.id, capi: [p.name, r.conNome], provs: mie,
+                    razzia: isRaiding(player, r.id)
+                });
+            });
+        });
+        return out;
+    }
+
+    function isRaiding(player, routeId) {
+        const t = R().turn();
+        return routeFlags(player).some(f => f.rotta === routeId && f.turno === t);
+    }
+
+    // Il terzo sceglie, per QUESTO giro, se razziare la rotta. Il flag vale solo
+    // nel turno in cui lo si mette: al giro dopo si torna a "lascia passare".
+    function setRouteRaid(player, routeId, on) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const via = routesCrossing(player).find(c => c.id === routeId);
+        if (!via) return fail('Quella rotta non passa per le tue province.');
+        player.razzieRotte = routeFlags(player).filter(f => f.rotta !== routeId);
+        if (on) player.razzieRotte.push({ rotta: routeId, turno: R().turn() });
+        E().refresh(); E().save();
+        return done(on
+            ? 'Razzia decisa: se la carovana passa da te questo giro, la prendi. Rovina i rapporti con entrambi i regni.'
+            : 'La carovana passerà indisturbata.', { prov: via.provs[0] });
+    }
+
+    // Il capo vede dove è avvenuta la razzia? Se confina con quella provincia,
+    // ha una vista condivisa con chi la tiene, o una spia che la guarda.
+    function seesRaidSpot(capo, path, raider) {
+        const vicini = E().landNeighbors(path.id);
+        if (vicini.some(id => { const q = E().path(id); return q && E().owner(q) === capo.name; })) return true;
+        if (D().sharesVision(capo, raider)) return true;
+        const SPY = SP();
+        if (SPY && SPY.watched(capo.spie, R().turn(), id => E().landNeighbors(id)).has(path.id)) return true;
+        return false;
+    }
+
+    // Il primo razziatore lungo il percorso (dal Mercato del proponente in poi).
+    function firstRaider(r, capoDa, capoA, turno) {
+        const inter = (r.prov || []).slice(1, -1);
+        for (let i = 0; i < inter.length; i++) {
+            const path = E().path(inter[i]);
+            const nome = path && E().owner(path);
+            if (!nome || nome === capoDa.name || nome === capoA.name) continue;
+            const terzo = R().players().find(p => p.name === nome);
+            if (terzo && routeFlags(terzo).some(f => f.rotta === r.id && f.turno === turno)) {
+                return { terzo, path };
+            }
+        }
+        return null;
+    }
+
+    function setRouteOutcome(id, capi, fields) {
+        capi.forEach(c => {
+            const rec = c && routesOf(c).find(x => x.id === id);
+            if (rec) Object.assign(rec, fields);
+        });
+    }
+
+    // LA CAROVANA: a ogni giro completo ogni rotta tenta il suo viaggio.
+    //   - un Mercato finito (conquistato, demolito) o il corridoio razziato
+    //     interrompono il viaggio: dopo ROUTE_BREAK_TURNS giri così la rotta si scioglie;
+    //   - se un capo non ha le merci concordate l'INTERO scambio salta;
+    //   - altrimenti le merci cambiano di mano e ognuno incassa ROUTE_BONUS.
+    // `turno` è il turno appena concluso (a cui si riferiscono i flag di razzia).
+    function runTradeRoutes(turno) {
+        const seen = new Set();
+        const esiti = [];
+        R().players().slice().forEach(a => {
+            routesOf(a).slice().forEach(r => {
+                if (seen.has(r.id)) return;
+                seen.add(r.id);
+                const b = playerById(r.conId);
+                if (!b || !E().ownedPaths(a.name).length || !E().ownedPaths(b.name).length) {
+                    dropRoute(r.id, a, b);
+                    pushRouteNotice(b, { tipo: 'sciolta', conNome: a.name, motivo: 'scomparso' });
+                    pushRouteNotice(a, { tipo: 'sciolta', conNome: b ? b.name : 'un regno scomparso', motivo: 'scomparso' });
+                    return;
+                }
+                const capoDa = String(r.proponente) === String(a.id) ? a : b;
+                const capoA = capoDa === a ? b : a;
+                const capi = [a, b];
+                const marketOk = (prov, capo) => {
+                    const path = E().path(prov);
+                    return !!path && E().owner(path) === capo.name && E().countPiece(path, 'mercato') > 0;
+                };
+
+                let esito;
+                let raider = null;
+                if (!marketOk(r.mercatoDa, capoDa) || !marketOk(r.mercatoA, capoA)) {
+                    esito = 'interrotta';
+                } else {
+                    raider = firstRaider(r, capoDa, capoA, turno);
+                    const manca = r.risorse.find(x => {
+                        const mittente = String(x.da) === String(a.id) ? a : b;
+                        return haveGood(mittente, x) < x.n;
+                    });
+                    if (manca) {
+                        esito = 'saltata';
+                        const chi = String(manca.da) === String(a.id) ? a : b;
+                        if (r.esito !== 'saltata') {
+                            capi.forEach(c => pushRouteNotice(c, { tipo: 'saltata', conNome: (c === a ? b : a).name, mancante: chi.name }));
+                        }
+                    } else if (raider) {
+                        esito = 'razziata';
+                        r.risorse.forEach(x => {
+                            const mittente = String(x.da) === String(a.id) ? a : b;
+                            giveGood(mittente, x, -1);
+                            giveGood(raider.terzo, x, +1);
+                        });
+                        capi.forEach(c => {
+                            recordAggression(c, raider.path, raider.terzo.name, 'razzia');
+                            const vede = seesRaidSpot(c, raider.path, raider.terzo);
+                            pushRouteNotice(c, vede
+                                ? { tipo: 'razziata', conNome: (c === a ? b : a).name, chi: raider.terzo.name, prov: raider.path.id }
+                                : { tipo: 'razziata', conNome: (c === a ? b : a).name });
+                        });
+                    } else {
+                        esito = 'ok';
+                        r.risorse.forEach(x => {
+                            const mittente = String(x.da) === String(a.id) ? a : b;
+                            const ricevente = mittente === a ? b : a;
+                            giveGood(mittente, x, -1);
+                            giveGood(ricevente, x, +1);
+                        });
+                        capi.forEach(c => {
+                            giveGood(c, { tipo: 'monete', n: GR().ROUTE_BONUS }, +1);
+                            c.commerciCiclo = (c.commerciCiclo || 0) + 1;
+                        });
+                    }
+                }
+
+                const bloccata = esito === 'interrotta' || esito === 'razziata';
+                const saltati = esito === 'ok' ? 0 : (bloccata ? (r.saltati || 0) + 1 : (r.saltati || 0));
+                setRouteOutcome(r.id, capi, { esito, turnoEsito: R().turn(), saltati });
+                if (esito === 'interrotta') {
+                    capi.forEach(c => pushRouteNotice(c, { tipo: 'interrotta', conNome: (c === a ? b : a).name }));
+                }
+                if (saltati >= GR().ROUTE_BREAK_TURNS) {
+                    dropRoute(r.id, a, b);
+                    capi.forEach(c => pushRouteNotice(c, { tipo: 'sciolta', conNome: (c === a ? b : a).name, motivo: 'interrotta' }));
+                }
+                esiti.push({ rotta: r.id, esito });
+            });
+        });
+        // I flag di razzia valgono un solo giro: ora si azzerano per tutti.
+        R().players().forEach(p => { p.razzieRotte = []; });
+        return esiti;
     }
 
     // ============================================================
@@ -5296,6 +5705,10 @@
         hasMarket, marketPath, tradeWithBank, setTax, issueDecree, councilIssued,
         proposeTrade, acceptTrade, refuseTrade, cancelTrade,
         tradeInbox, tradeOutbox, expireTrades, tradeHistory,
+        // ROTTE COMMERCIALI inter-regno (§7): proposta per araldo, corridoio
+        // congelato alla firma, carovana a fine giro, razzia dei terzi.
+        routePlan, routeCheck, proposeRoute, acceptRoute, declineRoute, withdrawRoute, cancelRoute,
+        routesOf, routeInbox, routesCrossing, setRouteRaid, isRaiding, runTradeRoutes,
         // DIPLOMAZIA (§Diplomazia): proporre, accettare, rifiutare, rompere i
         // patti; concedere l'attacco a un proprio territorio; far scadere le
         // alleanze a tempo (chiamata da endTurn come expireTrades).

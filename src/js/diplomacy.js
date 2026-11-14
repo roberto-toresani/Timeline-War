@@ -36,13 +36,14 @@
 (function (root) {
     'use strict';
 
-    const TYPES = ['alleanza', 'alleanzaTempo', 'nonBelligeranza', 'rinforzi', 'vista'];
+    const TYPES = ['alleanza', 'alleanzaTempo', 'nonBelligeranza', 'rinforzi', 'vista', 'commercio'];
     const LABEL = {
         alleanza: 'Alleanza',
         alleanzaTempo: 'Alleanza a tempo',
         nonBelligeranza: 'Patto di non belligeranza',
         rinforzi: 'Invio di rinforzi',
-        vista: 'Condivisione della vista'
+        vista: 'Condivisione della vista',
+        commercio: 'Commercio preferenziale'
     };
 
     const TIMED = 5;            // durata dell'alleanza a tempo, in turni
@@ -54,13 +55,15 @@
     //   nonAgg    → non ci si può attaccare (senza consenso/tradimento)
     //   vista     → visione condivisa oltre la nebbia (§9.2)
     //   rinforzi  → accesso militare: rinforzi/passaggio fra i territori
-    const FULL = ['nonAgg', 'vista', 'rinforzi'];
+    //   commercio → si possono aprire ROTTE COMMERCIALI fra i Mercati (§7)
+    const FULL = ['nonAgg', 'vista', 'rinforzi', 'commercio'];
     const GRANTS = {
         alleanza: FULL,
         alleanzaTempo: FULL,
         nonBelligeranza: ['nonAgg'],
         rinforzi: ['rinforzi'],
-        vista: ['vista']
+        vista: ['vista'],
+        commercio: ['commercio']
     };
 
     function sameId(a, b) { return String(a) === String(b); }
@@ -97,6 +100,11 @@
     function allowsReinforce(a, b) {
         if (!a || !b || sameId(a.id, b.id)) return false;
         return hasPrivilege(a, b.id, 'rinforzi') || hasPrivilege(b, a.id, 'rinforzi');
+    }
+    // Rotte commerciali: serve il patto 'commercio' (o un'alleanza, che lo comprende).
+    function allowsTradeRoute(a, b) {
+        if (!a || !b || sameId(a.id, b.id)) return false;
+        return hasPrivilege(a, b.id, 'commercio') || hasPrivilege(b, a.id, 'commercio');
     }
     // Alleanza PIENA (piena o a tempo) fra i due: è quella che, tradita, costa
     // prestigio e fa scattare la "guerra coordinata" dei bot.
@@ -164,7 +172,8 @@
         alleanzaTempo: 40,
         nonBelligeranza: 20,
         rinforzi: 15,
-        vista: 15
+        vista: 15,
+        commercio: 15
     };
     const LEVELS = [
         { min: 45,  key: 'allied',  label: 'Alleati' },
@@ -281,13 +290,18 @@
         const guerra = (Array.isArray(me.aggressioni) ? me.aggressioni : [])
             .filter(a => a.chi === other.name);
         const prese = guerra.filter(a => a.esito === 'presa');
-        const respinti = guerra.filter(a => a.esito !== 'presa');
+        const razziate = guerra.filter(a => a.esito === 'razzia');
+        const respinti = guerra.filter(a => a.esito !== 'presa' && a.esito !== 'razzia');
         add(-cap(Math.round(prese.reduce((s, a) =>
                 s + (AGGRO_BASE + AGGRO_PER_PESO * (a.peso || 0)) * fade(opts.turno, a.turno), 0)), AGGRO_CAP),
             prese.length === 1 ? '1 provincia strappata' : prese.length + ' province strappate');
         add(-cap(Math.round(respinti.reduce((s, a) =>
                 s + RAID_WEIGHT * fade(opts.turno, a.turno), 0)), RAID_CAP),
             respinti.length === 1 ? '1 attacco respinto' : respinti.length + ' attacchi respinti');
+        // Una carovana razziata sul corridoio: torto vero, ma più lieve di un attacco.
+        add(-cap(Math.round(razziate.reduce((s, a) =>
+                s + RAID_WEIGHT * fade(opts.turno, a.turno), 0)), RAID_CAP),
+            razziate.length === 1 ? '1 rotta razziata' : razziate.length + ' rotte razziate');
 
         // 7. La parola data e ripresa: patti rotti e, peggio, traditi.
         const avvisi = (Array.isArray(me.pattiAvvisi) ? me.pattiAvvisi : [])
@@ -315,7 +329,7 @@
         TYPES, LABEL, TIMED, BREAK_PRESTIGE, GRANTS,
         isFullAlliance, costsPrestige,
         pactsList, pactsWith, hasPactType, hasPrivilege,
-        grantsNonAggression, sharesVision, allowsReinforce, areAllied,
+        grantsNonAggression, sharesVision, allowsReinforce, allowsTradeRoute, areAllied,
         partnersOf, alliesOf, canPropose,
         // il livello di rapporto e i fatti che lo compongono
         standing, LEVELS, faithTie

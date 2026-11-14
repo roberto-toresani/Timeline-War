@@ -32,7 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'resolveConquest', 'resolveCapital', 'launchExpedition', 'expeditionLand',
         'steerExpedition', 'sendSpy', 'setTax', 'tradeWithBank', 'proposeTrade', 'acceptTrade',
         'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact',
-        'grantAttack', 'askReinforcements', 'cancelHelp'
+        'grantAttack', 'askReinforcements', 'cancelHelp',
+        'proposeRoute', 'acceptRoute', 'declineRoute', 'withdrawRoute', 'cancelRoute', 'setRouteRaid'
     ]);
     const SPECTATE_MSG = '👁 Stai osservando: le decisioni di questo regno spettano al suo giocatore (per giocarlo tu, mettilo su 🧑 Admin dall’editor).';
     let gaGuarded = null, gaGuardedFor = null;
@@ -109,6 +110,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Diplomazia (§Diplomazia): a chi propongo e che patto. `consenso` è la
     // provincia scelta nel riquadro "concedi attacco", per partner.
     const diploUI = { verso: null, tipo: 'alleanza', consenso: {} };
+    // Rotte commerciali (§7): a chi, e fino a 2 righe di merce. `dir` = chi la
+    // manda: 'io' o 'lui'. La seconda riga è facoltativa (tipo '' = nessuna).
+    const routeUI = { verso: null, righe: [{ tipo: null, n: 2, dir: 'io' }, { tipo: '', n: 2, dir: 'lui' }] };
 
     // CHAT fra i giocatori (proposta dell'utente): rende viva l'attesa fra i turni.
     // I messaggi arrivano dal canale `chat` di sync.js e vivono qui; il trasporto
@@ -4083,7 +4087,8 @@ document.addEventListener('DOMContentLoaded', () => {
             el.style.display = n ? '' : 'none';
         };
         set('dock-badge-diplomazia', player ? (GA().pactInbox(player) || []).length : 0);
-        set('dock-badge-mercato', player ? (GA().tradeInbox(player) || []).length : 0);
+        set('dock-badge-mercato', player
+            ? (GA().tradeInbox(player) || []).length + (GA().routeInbox(player) || []).length : 0);
     }
 
     function mkBlock(title) {
@@ -4207,9 +4212,255 @@ document.addEventListener('DOMContentLoaded', () => {
 
         box.appendChild(bankTradeCard(player, myTurn));
         box.appendChild(proposeCard(player, myTurn));
+        box.appendChild(routesCard(player));
+        const via = crossingCard(player);
+        if (via) box.appendChild(via);
         box.appendChild(inboxCard(player, myTurn));
         box.appendChild(outboxCard(player, myTurn));
         box.appendChild(historyCard(player));
+    }
+
+    // ---------- ROTTE COMMERCIALI (§7) ----------
+    // Accordo permanente fra due Mercati: ogni giro parte una carovana con le merci
+    // concordate e +50 monete a testa. Si propone per araldo (serve il patto di
+    // commercio preferenziale o un'alleanza), si firma con un'accettazione, e il
+    // corridoio di terra si fissa alla firma. Le regole stanno in game-actions
+    // (routePlan/routeCheck): qui si disegna e si raccolgono i clic.
+
+    function routeProvLabel(id) {
+        const p = R.engine && R.engine.path(id);
+        return p ? R.provinceLabel(p) : id;
+    }
+
+    // "Mandi 2 Grano · Ricevi 1 Pietra" dal punto di vista di `player`.
+    function routeTermsHtml(risorse, player, mandaId) {
+        const out = [], inn = [];
+        (risorse || []).forEach(x => {
+            const txt = x.n + ' ' + resName(x.tipo);
+            (String(x.da) === String(mandaId) ? out : inn).push(txt);
+        });
+        return '<div class="bp-trade-terms">' +
+            (out.length ? '<span class="out">− ' + out.join(', ') + '</span>' : '') +
+            (inn.length ? '<span class="in">+ ' + inn.join(', ') + '</span>' : '') +
+            '<span class="in">+ ' + GR().ROUTE_BONUS + ' monete</span></div>';
+    }
+
+    function routeOutcomeText(r) {
+        switch (r.esito) {
+            case 'ok': return 'Ultima carovana arrivata.';
+            case 'saltata': return 'Ultima carovana ferma: mancavano merci.';
+            case 'razziata': return 'Ultima carovana razziata sul corridoio.';
+            case 'interrotta': return 'Ultima carovana non partita: un Mercato è venuto meno.';
+            default: return 'La prima carovana parte a fine giro.';
+        }
+    }
+
+    function routesCard(player) {
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        const turno = isPlaying(player);
+        const D = window.Diplomacy;
+        const mine = GA().routesOf(player);
+        const inbox = GA().routeInbox(player);
+        card.innerHTML = '<div class="bp-trade-head">Rotte commerciali' +
+            (inbox.length ? ' <span class="bp-trade-badge">' + inbox.length + '</span>' : '') + '</div>';
+        card.insertAdjacentHTML('beforeend',
+            '<div class="bp-trade-cost">Un accordo fra due Mercati: a ogni giro la carovana porta le merci concordate e ' +
+            GR().ROUTE_BONUS + ' monete a testa. Il corridoio di terra si fissa alla firma.</div>');
+
+        // --- le rotte attive ---
+        mine.forEach(r => {
+            const con = R.players().find(p => String(p.id) === String(r.conId));
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((con && con.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                routeTermsHtml(r.risorse, player, player.id) +
+                '<div class="bp-trade-cost"></div>';
+            item.querySelector('.bp-trade-from').textContent = 'Rotta con ' + r.conNome + ' · ' +
+                r.prov.length + (r.prov.length === 1 ? ' provincia' : ' province');
+            item.title = 'Corridoio: ' + r.prov.map(routeProvLabel).join(' → ');
+            const nota = item.querySelector('.bp-trade-cost');
+            nota.textContent = routeOutcomeText(r) + (r.saltati
+                ? ' Interrotta da ' + r.saltati + (r.saltati === 1 ? ' giro' : ' giri') +
+                  ' (si scioglie a ' + GR().ROUTE_BREAK_TURNS + ').' : '');
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const no = document.createElement('button');
+            no.type = 'button'; no.className = 'bp-mini no'; no.textContent = '✕ Sciogli';
+            no.disabled = !turno;
+            no.title = turno ? 'Sciogli la rotta: gratis, per entrambi' : 'Solo nel tuo turno';
+            no.addEventListener('click', () => run(GA().cancelRoute(player, r.id)));
+            acts.appendChild(no);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+
+        // --- proposte arrivate ---
+        inbox.forEach(o => {
+            const from = R.players().find(p => String(p.id) === String(o.da));
+            const plan = from ? GA().routePlan(from, player) : { ok: false, msg: 'Il regno non esiste più.' };
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((from && from.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                routeTermsHtml(o.risorse, player, player.id);
+            item.querySelector('.bp-trade-from').textContent = (from ? from.name : 'Regno ignoto') +
+                ' propone una rotta commerciale';
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const ok = document.createElement('button');
+            ok.type = 'button'; ok.className = 'bp-mini ok'; ok.textContent = '✓ Accetta';
+            ok.disabled = !turno || !plan.ok;
+            ok.title = !turno ? 'Solo nel tuo turno' : (plan.ok
+                ? 'Corridoio di ' + plan.prov.length + ' province: ' + plan.prov.map(routeProvLabel).join(' → ')
+                : plan.msg);
+            ok.addEventListener('click', () => run(GA().acceptRoute(player, o.id)));
+            const no = document.createElement('button');
+            no.type = 'button'; no.className = 'bp-mini no'; no.textContent = '✕ Rifiuta';
+            no.disabled = !turno;
+            no.addEventListener('click', () => run(GA().declineRoute(player, o.id)));
+            acts.appendChild(ok); acts.appendChild(no);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+
+        // --- proposte partite, in attesa ---
+        R.players().forEach(p => GA().routeInbox(p).forEach(o => {
+            if (String(o.da) !== String(player.id)) return;
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                (p.color || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                routeTermsHtml(o.risorse, player, player.id);
+            item.querySelector('.bp-trade-from').textContent = 'Proposta a ' + p.name + ' in attesa';
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'bp-mini no'; cancel.textContent = 'Ritira';
+            cancel.disabled = !turno;
+            cancel.addEventListener('click', () => run(GA().withdrawRoute(player, o.id)));
+            acts.appendChild(cancel);
+            item.appendChild(acts);
+            card.appendChild(item);
+        }));
+
+        // --- il modulo per proporne una ---
+        const partners = R.players().filter(p => String(p.id) !== String(player.id) &&
+            R.ownedPaths(p.name).length && D && D.allowsTradeRoute(player, p));
+        if (!partners.length) {
+            card.insertAdjacentHTML('beforeend', '<div class="bp-empty-hint">Per aprire una rotta serve il patto ' +
+                'di Commercio preferenziale (o un\'alleanza) con un altro regno: proponilo dalla 🕊 Diplomazia.</div>');
+            return card;
+        }
+        if (!routeUI.verso || !partners.some(p => String(p.id) === String(routeUI.verso))) routeUI.verso = partners[0].id;
+        const righe = routeUI.righe;
+        if (!righe[0].tipo) righe[0].tipo = RES()[0];
+        if (righe[1].tipo && righe[1].tipo === righe[0].tipo) righe[1].tipo = '';
+
+        card.insertAdjacentHTML('beforeend', '<div class="bp-trade-head sub">Apri una rotta</div>');
+        const dst = document.createElement('div');
+        dst.className = 'bp-trade-leg';
+        dst.innerHTML = '<span class="bp-trade-lab">con</span>';
+        const sel = document.createElement('select');
+        sel.className = 'bp-trade-sel';
+        partners.forEach(p => {
+            const o = document.createElement('option');
+            o.value = String(p.id); o.textContent = p.name;
+            if (String(p.id) === String(routeUI.verso)) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => { routeUI.verso = parseInt(sel.value, 10); renderTrade(player); });
+        dst.appendChild(sel);
+        card.appendChild(dst);
+
+        righe.forEach((riga, i) => {
+            const row = document.createElement('div');
+            row.className = 'bp-trade-row';
+            const dir = document.createElement('select');
+            dir.className = 'bp-trade-sel';
+            [['io', 'Mando io'], ['lui', 'Manda lui']].forEach(([v, t]) => {
+                const o = document.createElement('option');
+                o.value = v; o.textContent = t;
+                if (riga.dir === v) o.selected = true;
+                dir.appendChild(o);
+            });
+            dir.addEventListener('change', () => { riga.dir = dir.value; renderTrade(player); });
+            const qty = qtyInput(riga.n, GR().ROUTE_MAX_UNITS, v => { riga.n = v; });
+            const res = document.createElement('select');
+            res.className = 'bp-trade-sel';
+            if (i === 1) {
+                const o = document.createElement('option');
+                o.value = ''; o.textContent = '— nessuna —';
+                if (!riga.tipo) o.selected = true;
+                res.appendChild(o);
+            }
+            RES().forEach(k => {
+                if (i === 1 && k === righe[0].tipo) return;
+                const o = document.createElement('option');
+                o.value = k; o.textContent = resName(k);
+                if (riga.tipo === k) o.selected = true;
+                res.appendChild(o);
+            });
+            res.addEventListener('change', () => { riga.tipo = res.value; renderTrade(player); });
+            row.appendChild(dir); row.appendChild(qty); row.appendChild(res);
+            card.appendChild(row);
+        });
+
+        const risorse = righe.filter(r => r.tipo).map(r => ({
+            tipo: r.tipo, n: r.n, da: r.dir === 'io' ? player.id : routeUI.verso
+        }));
+        const piano = GA().routeCheck(player, routeUI.verso, null);
+        const chk = piano.ok ? GA().routeCheck(player, routeUI.verso, risorse) : piano;
+        card.insertAdjacentHTML('beforeend', '<div class="bp-trade-cost">' + (piano.ok
+            ? 'Corridoio: ' + piano.prov.length + (piano.prov.length === 1 ? ' provincia' : ' province') +
+              ' (' + piano.prov.map(routeProvLabel).join(' → ') + '). Se un capo non ha le merci quel giro, lo scambio salta.'
+            : 'Ora non si può aprire: ' + piano.msg) + '</div>');
+        const why = !turno ? 'Solo nel tuo turno.' : (chk.ok ? null : chk.msg);
+        card.appendChild(actionButton('Invia l\'araldo', null, why ? shorten(why) : null,
+            () => run(GA().proposeRoute(player, routeUI.verso, risorse))));
+        return card;
+    }
+
+    // Le carovane altrui che passano per le TUE province: il terzo le vede (non
+    // le merci) e sceglie, giro per giro, se lasciarle passare o razziarle.
+    function crossingCard(player) {
+        const via = GA().routesCrossing(player);
+        if (!via.length) return null;
+        const turno = isPlaying(player);
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        card.innerHTML = '<div class="bp-trade-head">Carovane sul tuo territorio</div>';
+        card.insertAdjacentHTML('beforeend',
+            '<div class="bp-trade-cost">Di default le lasci passare, ad ogni giro. Razziare prende le merci in transito ' +
+            'e blocca il bonus ai due regni — ma rovina i rapporti con entrambi.</div>');
+        via.forEach(v => {
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML = '<div class="bp-trade-offer-head"><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-cost"></div>';
+            item.querySelector('.bp-trade-from').textContent = v.capi[0] + ' ⇄ ' + v.capi[1];
+            item.querySelector('.bp-trade-cost').textContent = 'Passa per: ' + v.provs.map(routeProvLabel).join(', ') +
+                (v.razzia ? ' — RAZZIA decisa per questo giro.' : '.');
+            const acts = document.createElement('div');
+            acts.className = 'bp-trade-acts';
+            const pass = document.createElement('button');
+            pass.type = 'button'; pass.className = 'bp-mini ok'; pass.textContent = '🕊 Lascia passare';
+            pass.disabled = !turno || !v.razzia;
+            pass.addEventListener('click', () => run(GA().setRouteRaid(player, v.id, false)));
+            const raid = document.createElement('button');
+            raid.type = 'button'; raid.className = 'bp-mini no'; raid.textContent = '⚔ Razzia';
+            raid.disabled = !turno || v.razzia;
+            raid.title = turno ? 'Prendi il carico se passa da te questo giro' : 'Solo nel tuo turno';
+            raid.addEventListener('click', () => run(GA().setRouteRaid(player, v.id, true)));
+            acts.appendChild(pass); acts.appendChild(raid);
+            item.appendChild(acts);
+            card.appendChild(item);
+        });
+        return card;
     }
 
     // --- storico degli scambi conclusi: si RIPROPONGONO con un click ---
@@ -6568,7 +6819,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'rinforzi': return a.conNome + ' ha mandato ' + (a.uomini || 0) +
                     (a.uomini === 1 ? ' uomo' : ' uomini') + ' in tuo aiuto a ' + provLabel(a.prov) +
                     ': sono tuoi.';
-                default: return '';
+                default: return isRouteNotice(a) ? routeNoticeText(a) : '';
             }
         };
         const tradito = attesa.some(a => a.tipo === 'tradito');
@@ -6602,9 +6853,32 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'nonBelligeranza': return 'Un impegno a non attaccarvi.';
             case 'rinforzi': return 'Accesso militare: rinforzi e passaggio fra i vostri territori.';
             case 'vista': return 'Vi vedrete a vicenda oltre la nebbia.';
+            case 'commercio': return 'Permette di aprire rotte commerciali fra i vostri Mercati (+50 monete a testa a ogni carovana).';
             default: return '';
         }
     }
+
+    // Gli avvisi delle rotte commerciali (§7) viaggiano in `pattiAvvisi` col tipo
+    // `rotta…`: stessa pergamena dell'araldo e stessa voce della cronaca.
+    function routeNoticeText(a) {
+        const dove = a.prov ? routeProvLabel(a.prov) : '';
+        switch (a.tipo) {
+            case 'rottaAccettata': return a.conNome + ' ha accettato la rotta commerciale: la carovana parte a ogni giro.';
+            case 'rottaRifiutata': return a.conNome + ' ha rifiutato la tua proposta di rotta commerciale.';
+            case 'rottaSciolta':
+                if (a.motivo === 'interrotta') return 'La rotta con ' + a.conNome + ' si è sciolta: il corridoio è rimasto interrotto troppo a lungo.';
+                if (a.motivo === 'scomparso') return 'La rotta con ' + a.conNome + ' è finita: uno dei due regni non esiste più.';
+                return a.conNome + ' ha sciolto la rotta commerciale con te.';
+            case 'rottaInterrotta': return 'La carovana con ' + a.conNome + ' non è partita: un Mercato lungo l\'accordo è venuto meno.';
+            case 'rottaSaltata': return 'La carovana con ' + a.conNome + ' è rimasta ferma: ' + (a.mancante || 'un regno') +
+                ' non aveva le merci concordate.';
+            case 'rottaRazziata': return a.chi
+                ? 'La carovana con ' + a.conNome + ' è stata RAZZIATA da ' + a.chi + ' a ' + dove + ': merci perse e niente bonus.'
+                : 'Una tua rotta con ' + a.conNome + ' è stata interrotta: la carovana non è arrivata.';
+            default: return '';
+        }
+    }
+    function isRouteNotice(a) { return !!(a && typeof a.tipo === 'string' && a.tipo.indexOf('rotta') === 0); }
     // Le proposte a cui il giocatore ha GIÀ risposto (accettate o rifiutate) in
     // questa sessione. Serve perché la risposta rimuove la proposta dallo stato
     // locale, ma un'eco stantia dal cloud (o un refresh del driver dei bot) può
@@ -7054,6 +7328,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'aiuto': text = a.conNome + ' chiede rinforzi a ' + provLabel(a.prov) + '.'; break;
                 case 'rinforzi': text = a.conNome + ' ha mandato ' + (a.uomini || 0) +
                     (a.uomini === 1 ? ' uomo' : ' uomini') + ' a ' + provLabel(a.prov) + '.'; break;
+                default:
+                    if (isRouteNotice(a)) {
+                        ico = '🐫'; cat = 'Mercato'; bad = a.tipo === 'rottaRazziata';
+                        text = routeNoticeText(a);
+                    }
             }
             add(a.turno, ico, cat, text, bad, a, bad ? 'Tradimento' : 'Diplomazia', 'evento');
         });

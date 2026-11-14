@@ -492,6 +492,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Serve a `tradeKingdomsDisponibili`: si può commerciare con chi confina
         // adesso O con chi ha confinato negli ultimi CONFINE_TTL turni.
         if (!p.ultimoConfine || typeof p.ultimoConfine !== 'object' || Array.isArray(p.ultimoConfine)) p.ultimoConfine = {};
+        // ROTTE COMMERCIALI inter-regno (§7): le rotte attive (la stessa `id` sta
+        // sul record di entrambi i capi), le proposte arrivate, gli avvisi in
+        // coda e i flag di razzia dei terzi sul corridoio (validi un turno).
+        if (!Array.isArray(p.rotteCommerciali)) p.rotteCommerciali = [];
+        if (!Array.isArray(p.rotteProposte)) p.rotteProposte = [];
+        if (!Array.isArray(p.rotteAvvisi)) p.rotteAvvisi = [];
+        if (!Array.isArray(p.razzieRotte)) p.razzieRotte = [];
         return p;
     }
 
@@ -2033,6 +2040,140 @@ document.addEventListener('DOMContentLoaded', () => {
         provincePaths(svg).forEach(path => {
             const corpi = byProv.get(path.id);
             if (corpi) drawCorps(svg, path, corpi);
+        });
+    }
+
+    // ROTTE COMMERCIALI inter-regno (§7): il CORRIDOIO congelato alla firma, come
+    // nella pagina di prova (_diag-rotte, commit 2dbdaee): una polilinea DRITTA fra
+    // i centri esatti (landAnchor) delle province attraversate, con alone sfocato,
+    // contorno scuro, anima oro, un flusso tratteggiato che scorre, una carovana
+    // che corre sul tracciato e un cerchio chiaro sui due Mercati.
+    // Vive in un suo strato, sopra terre e strade, sotto pedine e marker; non
+    // intercetta i clic. Segue la nebbia come le icone-risorsa: dove vedi la
+    // provincia vedi il suo tratto (con una sola delle due province visibili, il
+    // tratto si ferma a metà fra i due centri). Nessun dettaglio di scambio.
+    // Ogni rotta sta sul record di ENTRAMBI i capi: si deduplica per `id`. Si
+    // ridisegna solo se cambia la firma (corridoi + visibilità + focus), perché
+    // refreshMapDisplay gira dopo ogni azione.
+    // `function` e non `const`: refreshMapDisplay gira da initMap, prima che la
+    // closure arrivi a questa riga (TDZ).
+    function routeCss() { return '' +
+        '.rt-glow{fill:none;stroke:#ffe08a;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;opacity:.5;filter:blur(3px)}' +
+        '.rt-casing{fill:none;stroke:#0a0702;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;opacity:.9}' +
+        '.rt-core{fill:none;stroke:#f2bb46;stroke-width:.85;stroke-linecap:round;stroke-linejoin:round}' +
+        '.rt-flow{fill:none;stroke:#ffe08a;stroke-width:.85;stroke-linecap:round;stroke-linejoin:round;' +
+            'stroke-dasharray:.5 4;animation:rt-march 1.4s linear infinite}' +
+        '@keyframes rt-march{to{stroke-dashoffset:-4.5}}' +
+        '.rt-caravan{fill:#f2bb46;stroke:#0a0702;stroke-width:.3}' +
+        '.rt-mkt{fill:#f3ead3;stroke:#0a0702;stroke-width:.4}' +
+        '.rt-own .rt-core{stroke:#ffd25e}.rt-own .rt-glow{opacity:.7}' +
+        'svg.map-interacting .rt-glow{display:none}' +
+        '@media (prefers-reduced-motion:reduce){.rt-flow{animation:none}.rt-caravan{display:none}}';
+    }
+
+    function routesLayer(svg) {
+        let layer = svg.querySelector('#routes-layer');
+        if (!layer) {
+            layer = document.createElementNS(SVG_NS, 'g');
+            layer.setAttribute('id', 'routes-layer');
+            layer.setAttribute('pointer-events', 'none');
+            const st = document.createElementNS(SVG_NS, 'style');
+            st.textContent = routeCss();
+            layer.appendChild(st);
+            const roads = svg.querySelector('#roads-layer');
+            const land = svg.querySelector('#map-group');
+            const dopo = roads || land;
+            if (dopo && dopo.nextSibling) svg.insertBefore(layer, dopo.nextSibling);
+            else svg.appendChild(layer);
+        }
+        return layer;
+    }
+
+    function renderTradeRoutes(svg, focus, visible) {
+        const routes = new Map();
+        PLAYERS.forEach(pl => {
+            (Array.isArray(pl.rotteCommerciali) ? pl.rotteCommerciali : []).forEach(r => {
+                if (!r || !r.id || !Array.isArray(r.prov) || r.prov.length < 2) return;
+                const own = !!(focus && pl.id === focus.id);
+                const have = routes.get(r.id);
+                if (have) { have.own = have.own || own; return; }
+                routes.set(r.id, { prov: r.prov, own });
+            });
+        });
+        let layer = svg.querySelector('#routes-layer');
+        if (!routes.size) { if (layer) layer.remove(); return; }
+
+        let sig = '';
+        routes.forEach((r, id) => {
+            sig += id + (r.own ? '*' : '') + ':' + r.prov.map(p =>
+                p + (!visible || visible.has(p) ? '' : '~')).join(',') + ';';
+        });
+        layer = routesLayer(svg);
+        if (layer.getAttribute('data-sig') === sig) return;
+        layer.setAttribute('data-sig', sig);
+        Array.from(layer.children).forEach(c => { if (c.tagName.toLowerCase() !== 'style') layer.removeChild(c); });
+
+        // Un tratto più lungo del 40% della mappa INTERA (1200 di larghezza, non il
+        // viewBox zoomato) è un salto di bordo mappa (wrap): non si disegna.
+        const maxSeg = 1200 * 0.4;
+        const pt = id => {
+            const path = document.getElementById(id);
+            if (!path) return null;
+            return MapAnchors.landAnchor(path) || provinceCenter(path);
+        };
+        const mk = (tag, attrs) => {
+            const el = document.createElementNS(SVG_NS, tag);
+            Object.keys(attrs).forEach(k => el.setAttribute(k, attrs[k]));
+            return el;
+        };
+        const dOf = pts => 'M' + pts.map(p => p.x.toFixed(2) + ',' + p.y.toFixed(2)).join(' L');
+
+        routes.forEach((r, id) => {
+            const n = r.prov.length;
+            const vis = r.prov.map(p => !visible || visible.has(p));
+            // Pezzi continui di linea: un pezzo si allunga finché due province
+            // consecutive sono entrambe visibili; con una sola visibile si
+            // disegna il mezzo tratto dal suo lato e il pezzo si chiude.
+            const pieces = [];
+            let run = null;
+            for (let i = 0; i < n - 1; i++) {
+                const A = pt(r.prov[i]), B = pt(r.prov[i + 1]);
+                if (!A || !B || Math.hypot(A.x - B.x, A.y - B.y) > maxSeg || (!vis[i] && !vis[i + 1])) { run = null; continue; }
+                if (vis[i] && vis[i + 1]) {
+                    if (!run) { run = [A]; pieces.push(run); }
+                    run.push(B);
+                } else {
+                    const M = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+                    if (vis[i]) { pieces.push([A, M]); run = null; }
+                    else { run = [M, B]; pieces.push(run); }   // il pezzo prosegue da B
+                }
+            }
+            if (!pieces.length) return;
+
+            const g = mk('g', { class: 'rt-route' + (r.own ? ' rt-own' : ''), 'data-route': id });
+            const t = document.createElementNS(SVG_NS, 'title');
+            t.textContent = 'Rotta commerciale';
+            g.appendChild(t);
+            pieces.forEach(pts => {
+                const d = dOf(pts);
+                ['rt-glow', 'rt-casing', 'rt-core', 'rt-flow'].forEach(cl => g.appendChild(mk('path', { class: cl, d })));
+            });
+            // Cerchio chiaro sui due Mercati, dove si vedono.
+            [0, n - 1].forEach(i => {
+                const P = vis[i] && pt(r.prov[i]);
+                if (P) g.appendChild(mk('circle', { class: 'rt-mkt', cx: P.x.toFixed(2), cy: P.y.toFixed(2), r: '1.6' }));
+            });
+            // La carovana corre sul tracciato solo se lo si vede per intero.
+            if (pieces.length === 1 && pieces[0].length === n) {
+                const mid = 'rt-m-' + id;
+                g.appendChild(mk('path', { id: mid, d: dOf(pieces[0]), fill: 'none', stroke: 'none' }));
+                const cav = mk('circle', { class: 'rt-caravan', r: '1.1' });
+                const am = mk('animateMotion', { dur: Math.max(3, n * 1.1) + 's', repeatCount: 'indefinite', rotate: 'auto' });
+                am.appendChild(mk('mpath', { href: '#' + mid }));
+                cav.appendChild(am);
+                g.appendChild(cav);
+            }
+            layer.appendChild(g);
         });
     }
 
@@ -4767,6 +4908,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // data-pieces: anch'essi si ridisegnano a ogni refresh, col colore del
         // mittente e la coccarda, rispettando la nebbia del focus.
         renderCorps(svg, focus, visible, hazed);
+        // I corridoi delle rotte commerciali (§7): visibili a tutti, in nebbia
+        // solo dove si vede la provincia.
+        renderTradeRoutes(svg, focus, visible);
 
         renderPopularityPanel();
         renderGameControls();
@@ -7175,6 +7319,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // succede — registro dell'IA, scena della battaglia — perché una notizia
         // da dentro la nebbia è un'informazione che il giocatore non deve avere.
         visibleProvinces: () => visibleSet,
+        // Ridisegna i corridoi delle rotte commerciali (forzato, senza firma).
+        redrawRoutes: () => {
+            const svg = mapSvg(); if (!svg) return;
+            const l = svg.querySelector('#routes-layer'); if (l) l.removeAttribute('data-sig');
+            renderTradeRoutes(svg, PLAYERS.find(p => p.id === selectedTabPlayerId), visibleSet);
+        },
         isVisible: (id) => !visibleSet || visibleSet.has(id),
         // Isolotti non giocabili: disegnati come terra ma fuori dal motore. Serve
         // alla plancia per ignorare un clic su di loro (l'unico click handler che

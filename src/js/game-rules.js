@@ -313,6 +313,44 @@
     const GOLD_UNIT = 100;          // l'oro nelle proposte va a multipli di 100
     const TRADE_MAX_GOLD = 2000;    // tetto per lato in ORO di una proposta
 
+    // ROTTE COMMERCIALI inter-regno (docs/regole/MERCATI_COMMERCI.md): accordo
+    // permanente fra due Mercati. Ogni turno la carovana porta le merci
+    // concordate e +ROUTE_BONUS monete a testa. Una rotta scambia fino a
+    // ROUTE_MAX_TYPES tipi di RISORSA (mai oro), ciascuno con una direzione
+    // (`da` = chi lo manda) e una quantità per turno entro ROUTE_MAX_UNITS.
+    // Per Mercato: al più ROUTE_PER_MARKET rotte, una sola verso lo stesso regno.
+    const ROUTE_BONUS = 50;
+    const ROUTE_MAX_TYPES = 2;
+    const ROUTE_MAX_UNITS = 5;
+    const ROUTE_PER_MARKET = 2;
+    const ROUTE_BREAK_TURNS = 3;    // turni di corridoio interrotto prima che la rotta si sciolga
+
+    // Valida le merci di una rotta: [{tipo, n, da}] con `da` ∈ {meId, otherId}.
+    function checkRouteGoods(risorse, meId, otherId) {
+        if (!Array.isArray(risorse) || !risorse.length) {
+            return { ok: false, msg: 'Scegli almeno una risorsa da far viaggiare.' };
+        }
+        if (risorse.length > ROUTE_MAX_TYPES) {
+            return { ok: false, msg: 'Una rotta porta al massimo ' + ROUTE_MAX_TYPES + ' tipi di risorsa.' };
+        }
+        const visti = new Set();
+        for (const r of risorse) {
+            const tipo = r && r.tipo;
+            const n = Math.floor((r && r.n) || 0);
+            if (RES.indexOf(tipo) < 0) return { ok: false, msg: 'Le rotte portano solo risorse, non oro.' };
+            if (visti.has(tipo)) return { ok: false, msg: 'Ogni tipo di risorsa compare una volta sola.' };
+            visti.add(tipo);
+            if (n < 1) return { ok: false, msg: 'La quantità per turno dev\'essere almeno 1.' };
+            if (n > ROUTE_MAX_UNITS) {
+                return { ok: false, msg: 'Una rotta porta al massimo ' + ROUTE_MAX_UNITS + ' unità per tipo a turno.' };
+            }
+            if (String(r.da) !== String(meId) && String(r.da) !== String(otherId)) {
+                return { ok: false, msg: 'Ogni merce parte da uno dei due regni.' };
+            }
+        }
+        return { ok: true };
+    }
+
     // Una merce barattabile in una proposta fra regni: risorsa o oro (monete).
     // La banca invece accetta solo risorse (vedi canBankTrade).
     function isTradeGood(tipo) { return RES.indexOf(tipo) >= 0 || tipo === 'monete'; }
@@ -809,6 +847,7 @@
         NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,
         GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,
+        ROUTE_BONUS, ROUTE_MAX_TYPES, ROUTE_MAX_UNITS, ROUTE_PER_MARKET, ROUTE_BREAK_TURNS, checkRouteGoods,
         bankTradeCost, canBankTrade, goodsText,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
         connected, turnProduction, popEffectOf, defenceBonus, plagueTier,
