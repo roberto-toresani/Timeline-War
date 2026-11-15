@@ -320,6 +320,16 @@
             if ((opts.truppe_confine || 0) > 6) add(-8, 'confini armati');
         }
 
+        // 9. IL TUO CORPO DI SPEDIZIONE LO FRONTEGGIA (§Diplomazia): schierare uomini
+        //    al confine con lui è una presa di posizione ostile. Anche senza province
+        //    strappate il rapporto PARTE 'Teso' — teoricamente è un nemico. Non si
+        //    applica se c'è già un patto (allora non lo stai fronteggiando davvero).
+        if (opts.corpoControLui && !pactsWith(me, other.id).length) {
+            const raw = why.reduce((s, w) => s + w.delta, 0);
+            const floor = -16;                       // appena dentro la fascia 'Tesi'
+            if (raw > floor) add(floor - raw, 'il tuo corpo di spedizione lo fronteggia');
+        }
+
         const score = Math.max(-100, Math.min(100, why.reduce((s, w) => s + w.delta, 0)));
         const lv = levelOf(score);
         return { score, level: lv.key, label: lv.label, why };

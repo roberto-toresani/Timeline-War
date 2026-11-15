@@ -1963,9 +1963,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // CORPI DI SPEDIZIONE (§Diplomazia): le armate di un regno parcheggiate su
     // suolo ALLEATO. Non vivono in data-pieces (sono del mittente, non dell'ospite):
-    // si disegnano a ogni refresh come le spedizioni, col COLORE del mittente e una
-    // coccarda (anello) che le distingue da una guarnigione. Stanno in una fila
-    // sotto la guarnigione dell'ospite — "una guarnigione in più".
+    // si disegnano a ogni refresh come le spedizioni, col COLORE del mittente.
+    // Stanno in una fila sotto la guarnigione dell'ospite — "una guarnigione in
+    // più" — distinte solo dal colore (niente coccarda, richiesta dell'utente).
     function drawCorps(svg, path, corpi) {
         const bb = mainBodyBBox(path);
         if (!bb) return;
@@ -1986,14 +1986,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.style.color = color;
                 svg.appendChild(el);
             };
-            // La coccarda: un anello nel colore del mittente attorno alla pedina.
-            const ring = document.createElementNS(SVG_NS, 'circle');
-            ring.setAttribute('cx', x + size / 2); ring.setAttribute('cy', y + size / 2);
-            ring.setAttribute('r', size * 0.64);
-            ring.setAttribute('fill', 'none');
-            ring.setAttribute('stroke', color);
-            ring.setAttribute('stroke-width', size * 0.14);
-            add(ring);
+            // Niente coccarda (richiesta dell'utente): la pedina del corpo resta
+            // normale, distinta solo dal COLORE del mittente e dalla fila a parte.
             const use = document.createElementNS(SVG_NS, 'use');
             use.setAttribute('href', '#pc-soldato');
             use.setAttributeNS(XLINK_NS, 'href', '#pc-soldato');

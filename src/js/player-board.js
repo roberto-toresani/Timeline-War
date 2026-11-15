@@ -4880,7 +4880,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const attacco = order.kind === 'attacca';
         const sbarco = attacco && t.viaMare;
         const navale = !attacco && t.viaMare;      // rinforzo via nave (§9.2)
-        const dono = !attacco && t.alleato;        // rinforzo a un alleato: diventano suoi
+        const corpo = !attacco && !!t.soloCorpo;    // corpo di spedizione: resta tuo
+        const dono = !attacco && t.alleato && !corpo; // rinforzo a un alleato: diventano suoi
         const terr = terrainTag(t.terreno);
 
         // ALLEATO A TIRO (§Diplomazia, regola dell'utente): su una provincia di
@@ -4895,7 +4896,7 @@ document.addEventListener('DOMContentLoaded', () => {
         orderHud.className = 'moh ' + (attacco ? 'atk' : 'mov');
         orderHud.innerHTML =
             '<div class="moh-head"><span class="moh-ico">' +
-                (sbarco || navale ? '⚓' : attacco ? '⚔' : dono ? '🛡' : '➜') + '</span>' +
+                (sbarco || navale ? '⚓' : attacco ? '⚔' : corpo ? '⚔' : dono ? '🛡' : '➜') + '</span>' +
                 '<span class="moh-name"></span></div>' +
             '<div class="moh-sub"></div>' +
             squadRowsHtml() +
@@ -4908,7 +4909,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 '<button type="button" class="moh-no">✕' + (aiuto ? '' : ' Lascia stare') + '</button>' +
                 '<button type="button" class="moh-go' + (tradisce ? ' betray' : '') + '">' +
                     (sbarco ? '⚓ Sbarca' : attacco ? (tradisce ? '⚔ Tradisci' : '⚔ Carica')
-                        : navale ? '⚓ Imbarca' : dono ? '🛡 Invia' : '➜ Sposta') + '</button>' +
+                        : navale ? '⚓ Imbarca' : corpo ? '⚔ Invia il corpo' : dono ? '🛡 Invia' : '➜ Sposta') + '</button>' +
             '</div>';
 
         orderHud.querySelector('.moh-name').textContent = t.label;
@@ -4919,7 +4920,7 @@ document.addEventListener('DOMContentLoaded', () => {
               (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '') +
               (aiuto ? ' · alleato' : t.consenso ? ' · consenso concesso' : tradisce ? ' · patto in essere' : '')
             : t.troops + ' già lì · da ' + R.provinceLabel(path) + (navale ? ' · via nave' : '') +
-              (dono ? ' · in aiuto di ' + (t.owner || 'un alleato') : '');
+              (corpo ? ' · corpo di spedizione, resta tuo' : dono ? ' · in aiuto di ' + (t.owner || 'un alleato') : '');
 
         orderHud.querySelectorAll('.moh-squad').forEach(row => {
             const r = row.dataset.r;
@@ -5100,6 +5101,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = order.target;
         const n = order.n, cav = squadCav();
         if (order.kind === 'sposta') {
+            // Meta-fronte alleata lontana: è un corpo di spedizione (resta tuo),
+            // non un rinforzo-che-fonde. Il clic sulla mappa deve instradare qui,
+            // come il bottone in lista — altrimenti finalMove la rifiuta perché
+            // non confinante.
+            if (t.soloCorpo) { askSendCorps(player, path, t, n, cav); return; }
             askMove(player, path, t, n, closeOrder, cav);
             return;
         }
@@ -5598,6 +5604,31 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // I regni che un tuo CORPO DI SPEDIZIONE fronteggia (§Diplomazia): le province
+    // nemiche adiacenti alla base ospite. Avere uomini schierati lì ti mette in
+    // contatto — e in tensione — con quel regno, anche se nessuna TUA provincia lo
+    // tocca ancora. Ritorna { regnoId → soldati del corpo che lo fronteggiano }.
+    function corpsFrontContacts(player) {
+        const out = {};
+        const byName = {};
+        R.players().forEach(p => { byName[p.name] = p; });
+        (player.corpiSpedizione || []).forEach(c => {
+            const host = R.engine.path(c.prov);
+            if (!host) return;
+            const hostOwner = R.engine.owner(host);
+            R.engine.landNeighbors(c.prov).forEach(nid => {
+                const np = R.engine.path(nid);
+                if (!np) return;
+                const own = R.engine.owner(np);
+                if (!own || own === player.name || own === hostOwner) return;
+                const k = byName[own];
+                if (!k) return;                       // neutrali: niente diplomazia
+                out[k.id] = (out[k.id] || 0) + (c.soldati || 0);
+            });
+        });
+        return out;
+    }
+
     function diploKingdomsVisibili(player) {
         // §3 ciclo 3 (regola dell'utente, rev.): i regni raggiungibili
         // diplomaticamente sono SOLO quelli con cui si CONFINA DAVVERO — di terra,
@@ -5607,6 +5638,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // non devono sbloccare araldi e chat privata con chi non tocchi davvero.
         const D = window.Diplomacy;
         const conosciuti = new Set(Array.isArray(player.regniConosciuti) ? player.regniConosciuti : []);
+        const fronteggiati = corpsFrontContacts(player);
         const myPaths = R.ownedPaths(player.name);
         const adiacenti = (aId, bId) => R.engine.areLandAdjacent
             ? R.engine.areLandAdjacent(aId, bId)
@@ -5623,7 +5655,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 2. Patto diplomatico attivo
             if (D && D.pactsWith(player, p.id).length) return true;
             // 3. Confinano di terra ADESSO (prima che l'avanzamento turno li registri)
-            return myPaths.some(pa => paths.some(pb => adiacenti(pa.id, pb.id)));
+            if (myPaths.some(pa => paths.some(pb => adiacenti(pa.id, pb.id)))) return true;
+            // 4. Un tuo corpo di spedizione lo fronteggia dal fronte alleato
+            return !!fronteggiati[p.id];
         });
     }
     // ============================================================
@@ -5739,6 +5773,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         const confini = borderMap(player);
+        const fronteggiati = corpsFrontContacts(player);
         const myTurn = isPlaying(player);
         // Il rapporto si misura con tutto quel che il gioco sa: i confini, il
         // TURNO (i torti sbiadiscono) e le due religioni di STATO — che sono
@@ -5759,7 +5794,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         turno: R.turn(),
                         fedeMia: miaFede,
                         fedeSua: R.stateReligionOf ? R.stateReligionOf(p) : null,
-                        truppe_confine
+                        truppe_confine,
+                        // Un tuo corpo lo fronteggia dal fronte alleato: il rapporto
+                        // parte 'Teso' anche senza province strappate.
+                        corpoControLui: (fronteggiati[p.id] || 0) > 0
                     })
                 };
             })
