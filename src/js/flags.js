@@ -251,6 +251,13 @@
         },
         'Regno di Svezia': function () {         // d'azzurro, tre corone d'oro
             return field(T.azure) + crown(9, 9.5, 0.82, T.orCh) + crown(15, 9.5, 0.82, T.orCh) + crown(12, 18.5, 0.82, T.orCh);
+        },
+        'Regno di Danimarca': function () {      // Dannebrog: di rosso, croce scandinava d'argento
+            const RED = '#c60c30', WHITE = '#ffffff';
+            // croce bianca decentrata verso l'asta (sx), come la bandiera norvegese.
+            return field(RED) +
+                '<rect x="7" y="0" width="5" height="28" fill="' + WHITE + '"/>' +
+                '<rect x="0" y="10.5" width="24" height="5" fill="' + WHITE + '"/>';
         }
     };
 
