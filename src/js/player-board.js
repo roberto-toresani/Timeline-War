@@ -110,9 +110,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Diplomazia (§Diplomazia): a chi propongo e che patto. `consenso` è la
     // provincia scelta nel riquadro "concedi attacco", per partner.
     const diploUI = { verso: null, tipo: 'alleanza', consenso: {} };
-    // Rotte commerciali (§7): a chi, e fino a 2 righe di merce. `dir` = chi la
-    // manda: 'io' o 'lui'. La seconda riga è facoltativa (tipo '' = nessuna).
-    const routeUI = { verso: null, righe: [{ tipo: null, n: 2, dir: 'io' }, { tipo: '', n: 2, dir: 'lui' }] };
+    // Rotte commerciali (§7): a chi, cosa DAI a ogni giro e cosa RICEVI (tipo ''
+    // = nessuna: la merce può viaggiare in una sola direzione).
+    const routeUI = { verso: null, dai: { tipo: null, n: 2 }, ricevi: { tipo: null, n: 2 } };
 
     // CHAT fra i giocatori (proposta dell'utente): rende viva l'attesa fra i turni.
     // I messaggi arrivano dal canale `chat` di sync.js e vivono qui; il trasporto
@@ -4357,9 +4357,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return card;
         }
         if (!routeUI.verso || !partners.some(p => String(p.id) === String(routeUI.verso))) routeUI.verso = partners[0].id;
-        const righe = routeUI.righe;
-        if (!righe[0].tipo) righe[0].tipo = RES()[0];
-        if (righe[1].tipo && righe[1].tipo === righe[0].tipo) righe[1].tipo = '';
+        const dai = routeUI.dai, ricevi = routeUI.ricevi;
+        if (dai.tipo === null) dai.tipo = RES()[0];
+        if (ricevi.tipo === null || (dai.tipo && ricevi.tipo === dai.tipo)) ricevi.tipo = RES().find(k => k !== dai.tipo) || "";
 
         card.insertAdjacentHTML('beforeend', '<div class="bp-trade-head sub">Apri una rotta</div>');
         const dst = document.createElement('div');
@@ -4377,42 +4377,37 @@ document.addEventListener('DOMContentLoaded', () => {
         dst.appendChild(sel);
         card.appendChild(dst);
 
-        righe.forEach((riga, i) => {
-            const row = document.createElement('div');
-            row.className = 'bp-trade-row';
-            const dir = document.createElement('select');
-            dir.className = 'bp-trade-sel';
-            [['io', 'Mando io'], ['lui', 'Manda lui']].forEach(([v, t]) => {
-                const o = document.createElement('option');
-                o.value = v; o.textContent = t;
-                if (riga.dir === v) o.selected = true;
-                dir.appendChild(o);
-            });
-            dir.addEventListener('change', () => { riga.dir = dir.value; renderTrade(player); });
-            const qty = qtyInput(riga.n, GR().ROUTE_MAX_UNITS, v => { riga.n = v; });
+        // Come nei commerci normali: a sinistra cosa DAI, a destra cosa RICEVI,
+        // ognuno con quantità e tendina (anche "nessuna": una rotta può portare
+        // merce in una sola direzione). Un tipo non compare sui due lati insieme.
+        const lato = (lab, l, altro) => {
+            const leg = document.createElement('div');
+            leg.className = 'bp-trade-leg';
+            leg.innerHTML = '<span class="bp-trade-lab">' + lab + '</span>';
+            leg.appendChild(qtyInput(l.n, GR().ROUTE_MAX_UNITS, v => { l.n = v; }));
             const res = document.createElement('select');
             res.className = 'bp-trade-sel';
-            if (i === 1) {
+            [''].concat(RES().filter(k => k !== altro.tipo)).forEach(k => {
                 const o = document.createElement('option');
-                o.value = ''; o.textContent = '— nessuna —';
-                if (!riga.tipo) o.selected = true;
-                res.appendChild(o);
-            }
-            RES().forEach(k => {
-                if (i === 1 && k === righe[0].tipo) return;
-                const o = document.createElement('option');
-                o.value = k; o.textContent = resName(k);
-                if (riga.tipo === k) o.selected = true;
+                o.value = k; o.textContent = k ? resName(k) : '— nessuna —';
+                if ((l.tipo || '') === k) o.selected = true;
                 res.appendChild(o);
             });
-            res.addEventListener('change', () => { riga.tipo = res.value; renderTrade(player); });
-            row.appendChild(dir); row.appendChild(qty); row.appendChild(res);
-            card.appendChild(row);
-        });
+            res.addEventListener('change', () => { l.tipo = res.value; renderTrade(player); });
+            leg.appendChild(res);
+            return leg;
+        };
+        const row = document.createElement('div');
+        row.className = 'bp-trade-row';
+        row.appendChild(lato('dai', dai, ricevi));
+        row.insertAdjacentHTML('beforeend', '<span class="bp-trade-arrow">⇄</span>');
+        row.appendChild(lato('ricevi', ricevi, dai));
+        card.appendChild(row);
 
-        const risorse = righe.filter(r => r.tipo).map(r => ({
-            tipo: r.tipo, n: r.n, da: r.dir === 'io' ? player.id : routeUI.verso
-        }));
+        const risorse = [];
+        if (dai.tipo) risorse.push({ tipo: dai.tipo, n: dai.n, da: player.id });
+        if (ricevi.tipo) risorse.push({ tipo: ricevi.tipo, n: ricevi.n, da: routeUI.verso });
+
         const piano = GA().routeCheck(player, routeUI.verso, null);
         const chk = piano.ok ? GA().routeCheck(player, routeUI.verso, risorse) : piano;
         card.insertAdjacentHTML('beforeend', '<div class="bp-trade-cost">' + (piano.ok
