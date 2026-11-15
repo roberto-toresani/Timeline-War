@@ -5009,6 +5009,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 });
             });
+
+            // VISTA DEL FRONTE RICHIESTO (§Diplomazia): quando un alleato ti
+            // CHIEDE rinforzi per una sua provincia (grido d'aiuto, `richiesteAiuto`),
+            // accettare di marciare in aiuto non deve essere alla cieca: finché la
+            // richiesta è aperta vedi quella provincia e i NEMICI che la premono —
+            // le province altrui (né tue né dell'alleato, non neutrali) che la
+            // toccano. È il corrispettivo di 'mostra fronte', ma scatta dal lato di
+            // chi è stato chiamato ad aiutare, senza bisogno che l'alleato apra il
+            // fronte a mano. La vista dura quanto il grido (TTL in game-actions).
+            (Array.isArray(me.richiesteAiuto) ? me.richiesteAiuto : []).forEach(req => {
+                const ally = PLAYERS.find(p => String(p.id) === String(req.da));
+                if (!ally || !Diplomacy.allowsReinforce(me, ally)) return;
+                const pr = document.getElementById(req.prov);
+                if (!pr || pr.getAttribute('data-owner') !== ally.name) return;
+                visible.add(req.prov);
+                (NEIGHBORS_LAND[req.prov] || []).forEach(nid => {
+                    const np = document.getElementById(nid);
+                    if (!np) return;
+                    const own = np.getAttribute('data-owner');
+                    if (own && own !== 'Neutrale' && own !== me.name && own !== ally.name) visible.add(nid);
+                });
+            });
         }
 
         haze.forEach(id => { if (visible.has(id)) haze.delete(id); });
