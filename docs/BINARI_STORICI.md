@@ -512,6 +512,16 @@ morto, non un errore, ma da sapere prima di scrivere un capitolo nuovo che le di
 | **AFRICA** *(non nella versione precedente di questo doc)* | Senegal, Gambia, Guinea, Ivory_Coast, Ghana, Nigeria, Niger_Delta, Gabon, North_Angola, South_Angola, Namaqualand, Cape_Colony, Eastern_Cape, Zululand, Mocambique, Zanzibar, Kenya, Somaliland, Eritrea, Tanganyika, Uganda | Francia VIII (via mare, dentro un `tutti`; Maghreb escluso) |
 | SIBERIA | Krasnoyarsk, Buryatia, Irkutsk, Tomsk, Trans_Baikal, Sakhalin, Chukotka, Kamchatka, Amur *(non è nel foglio delle regioni originali)* | Kievan Rus' VII, Secondario (la marcia di Yermak) |
 | SCANDINAVIA | Jutland, Scania, Gotaland, Western_Norway, Eastern_Norway | dottrina di Norvegia/Svezia, `js/doctrines.js` — non fa parte di `SETS` in `objectives.js`, non un binario |
+| **NORVEGIA** *(nuovo, regola utente)* | Western_Norway, Eastern_Norway, Trondelag, Finnmark | Danimarca (binario breve, Secondario: tutta la Norvegia, Finnmark compreso) |
+
+## I regni del Nord (binari brevi a voci fisse)
+
+Oltre ai dieci grandi, due regni secondari hanno un binario di **un solo capitolo a voci fisse** (`fisso: true`: niente calibrazione né ratchet, si ripete finché il regno vive). Scritti a mano su richiesta dell'utente; il template `mercatoProvincia` (nuovo) chiede un Mercato su una provincia precisa.
+
+| Regno | Primario (5) | Secondario (3) | Terziario (2) |
+|---|---|---|---|
+| **Regno di Svezia** *(nato dal Götaland, §Eventi t.24)* | 6 territori difesi con ≥ 2 uomini (`guarnigioni`) | politica pro-popolo, grado ≥ 1 (`politica`) | gran mercato di Stoccolma = Svealand (`mercatoProvincia`) |
+| **Regno di Danimarca** | Schleswig-Holstein difeso con ≥ 6 uomini (`provincia`) | tutta la Norvegia, Finnmark compreso = `NORVEGIA` (`regione`) | mercato di Oslo = Eastern_Norway (`mercatoProvincia`) |
 
 ---
 

@@ -226,8 +226,14 @@
     const ITALIA_FED = new Set(['Lombardy', 'Venetia', 'Romagna', 'Emilia']);
     const EGYPT_SINAI = new Set(['Matruh', 'Lower_Egypt', 'Upper_Egypt', 'Middle_Egypt', 'Egyptian_Desert', 'Sinai']);
 
+    // La Norvegia intera (binario di Danimarca, C«l'impero del Baltico»): le
+    // quattro province del regno norvegese, Finnmark artico compreso. Id SVG
+    // verificati su data/id_mapping.js (Oslo = Eastern_Norway, Bergen =
+    // Western_Norway). «Tutte le province norvegesi» = tutte e quattro.
+    const NORVEGIA = new Set(['Western_Norway', 'Eastern_Norway', 'Trondelag', 'Finnmark']);
+
     const SETS = {
-        ITALIA_FED, EGYPT_SINAI,
+        ITALIA_FED, EGYPT_SINAI, NORVEGIA,
         ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT,
         ISLANDS, HOLY_LAND, IRELAND, FRANCIA, AMERICA, INDIE,
         ANATOLIA, TRANSGIORDANIA, SICILIA_CALABRIA, ITALIA_SUD, ISLAM_ORIGINE,
@@ -353,6 +359,14 @@
         collegate: { misura: c => c.connectedCount(), hint: (a, n) => ({ connected: n }) },
         tipiCollegati: { misura: c => c.connectedTypes(), hint: (a, n) => ({ connectedTypes: n }) },
         mercato: { misura: c => c.hasMercato() ? 1 : 0, hint: () => ({ mercato: true }) },
+        // Un Mercato su una provincia PRECISA (il «gran mercato» di una città
+        // nominata: Stoccolma = Svealand, Oslo = Eastern_Norway). È il gemello
+        // mirato di `mercato`, che conta un mercato qualunque del regno: qui il
+        // posto fa parte dell'obiettivo, non basta averlo altrove.
+        mercatoProvincia: {
+            misura: (c, a) => c.mercatoOn(a.id) ? 1 : 0,
+            hint: a => ({ mercato: true, at: a.id })
+        },
         // Possiedi una Fortezza (§6): booleano come `mercato`. Serve agli ultimi
         // capitoli di un binario che finisce sotto assedio — Polonia VIII,
         // Ungheria VI — dove il punto non è ESPANDERSI ma reggere l'urto.
@@ -409,6 +423,15 @@
             misura: (c, a) => c.cityIds().reduce((m, id) =>
                 SETS[a.set].has(id) ? Math.max(m, c.soldiersOn(id)) : m, -1),
             hint: (a, n) => ({ city: true, min: n, region: SETS[a.set] })
+        },
+        // Una Città FUORI da una regione, con almeno n uomini: il gemello
+        // rovesciato di `cittaRegione` (come `fuoriRegione` sta a `regione`).
+        // «una città sul continente» = una Città fuori dalle isole, dovunque
+        // sul continente — non una provincia fissa.
+        cittaFuoriRegione: {
+            misura: (c, a) => c.cityIds().reduce((m, id) =>
+                SETS[a.set].has(id) ? m : Math.max(m, c.soldiersOn(id)), -1),
+            hint: (a, n) => ({ city: true, min: n })
         },
         // Quante CITTÀ in tutto il regno. Non è `citta`, che ne chiede UNA e la
         // sua guarnigione: qui conta il NUMERO, ed è la misura che distingue un
@@ -1147,11 +1170,11 @@
                 { id: 'in3-1', tipo: 'espansione', titolo: 'Le terre del continente', fisso: true,
                   tmpl: 'tutti', arg: {
                       capo: { tmpl: 'fuoriRegione', arg: { set: 'BRITISH' } },
-                      altri: [{ tmpl: 'citta', arg: {}, soglia: 6 }]
+                      altri: [{ tmpl: 'cittaFuoriRegione', arg: { set: 'BRITISH' }, soglia: 6 }]
                   },
                   n: { avanzare: 3 },
-                  testo: n => `Conquista ${n} province sul continente e tieni una città con almeno 6 uomini.`,
-                  check: n => `province fuori dalle isole ≥ ${n} e una città con soldati ≥ 6` },
+                  testo: n => `Conquista ${n} province sul continente europeo e tieni una città sul continente con almeno 6 uomini.`,
+                  check: n => `province fuori dalle isole ≥ ${n} e una città sul continente con soldati ≥ 6` },
                 { id: 'in3-2', tipo: 'crescita', titolo: 'La Magna Carta', fisso: true,
                   tmpl: 'politica', arg: { lato: 'nobili' },
                   n: { avanzare: 2 },
@@ -2335,6 +2358,54 @@
                   testo: n => `Conserva almeno ${n} scorte di OGNI tipo di risorsa.`,
                   check: n => `scorte ≥ ${n} per ciascuno dei 5 tipi` }
             ] }
+        ],
+
+        // ------------------------------------------------------------------
+        //  I REGNI DEL NORD (§Eventi, nati a corona già sorta: Svezia dal
+        //  Götaland al turno 24, Danimarca sul Baltico). Non hanno il binario
+        //  lungo dei dieci grandi: un solo capitolo a VOCI FISSE, scritto a
+        //  mano dall'utente, che si ripete finché il regno vive — niente
+        //  calibrazione, niente ratchet (`fisso: true`). È la loro sola
+        //  pagina di storia, e non cambia d'intensità di ciclo in ciclo.
+        // ------------------------------------------------------------------
+        'Regno di Svezia': [
+            { ciclo: 3, epoca: '1200-1299', tema: 'La corona del Nord', voci: [
+                { id: 'sv1', tipo: 'espansione', titolo: 'Dal Götaland al settentrione', fisso: true,
+                  tmpl: 'guarnigioni', arg: { soglia: 2 },
+                  n: { avanzare: 6 },
+                  testo: n => `Conquista ${n} territori e difendili con almeno 2 uomini ciascuno.`,
+                  check: n => `province con almeno 2 uomini ≥ ${n}` },
+                { id: 'sv2', tipo: 'crescita', titolo: 'La corona e i contadini', fisso: true,
+                  tmpl: 'politica', arg: { lato: 'popolo' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Conduci una politica pro-popolo per accrescere la produzione di risorse.',
+                  check: () => 'politica del regno orientata al popolo (grado ≥ 1)' },
+                { id: 'sv3', tipo: 'economia', titolo: 'Il gran mercato di Stoccolma', fisso: true,
+                  tmpl: 'mercatoProvincia', arg: { id: 'Svealand' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci il gran mercato di Stoccolma (Svealand).',
+                  check: () => 'un Mercato a Svealand (Stoccolma)' }
+            ] }
+        ],
+
+        'Regno di Danimarca': [
+            { ciclo: 3, epoca: '1200-1299', tema: 'L’impero del Baltico', voci: [
+                { id: 'da1', tipo: 'espansione', titolo: 'La marca di Holstein', fisso: true,
+                  tmpl: 'provincia', arg: { id: 'Schleswig_Holstein' },
+                  n: { avanzare: 6 },
+                  testo: n => `Conquista lo Schleswig-Holstein e difendilo con almeno ${n} uomini.`,
+                  check: n => `possiedi Schleswig-Holstein con soldati ≥ ${n}` },
+                { id: 'da2', tipo: 'espansione', titolo: 'La Norvegia alla corona', fisso: true,
+                  tmpl: 'regione', arg: { set: 'NORVEGIA' },
+                  n: { avanzare: 4 },
+                  testo: n => `Possiedi tutte le ${n} province norvegesi, Finnmark compreso.`,
+                  check: n => `province norvegesi possedute ≥ ${n}` },
+                { id: 'da3', tipo: 'economia', titolo: 'Il mercato di Oslo', fisso: true,
+                  tmpl: 'mercatoProvincia', arg: { id: 'Eastern_Norway' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci il mercato di Oslo (Eastern Norway).',
+                  check: () => 'un Mercato a Eastern Norway (Oslo)' }
+            ] }
         ]
     };
 
@@ -2379,7 +2450,7 @@
     // non costruire mai. (La banda dell'autore fa comunque da tetto a entrambi.)
     const CRESCITA = new Set(['regione', 'regioneGuarnigione', 'regioneGuarnigioni', 'province', 'provincia',
         'provCount', 'guarnigioni', 'guarnigioniCostiere', 'guarnigioniConfine', 'strade', 'collegate',
-        'tipiCollegati', 'mercato', 'citta', 'cittaRegione', 'navi', 'naviTipo',
+        'tipiCollegati', 'mercato', 'mercatoProvincia', 'citta', 'cittaRegione', 'navi', 'naviTipo',
         'naveGuarnigione', 'capitale', 'fortezza', 'fede',
         'cittaCount', 'cittaRegioneCount', 'fortezze',
         'conquisteNavali', 'turniTassaDura', 'turniPopolarita']);

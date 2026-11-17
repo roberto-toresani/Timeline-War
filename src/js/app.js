@@ -1803,10 +1803,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // CSS lo anima (reduced-motion lo lascia fermo); è un marker-pedina come
         // gli altri, così la nebbia lo nasconde e il colore-armata non lo tinge
         // (il fumo ha un suo grigio, non `currentColor`).
-        if (countPiece(path, 'capitale') || countPiece(path, 'citta') || countPiece(path, 'fortezza')) {
-            const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
-            drawSmoke(svg, path, a.x, a.y - sizeBase * 0.55, sizeBase, fogged);
-        }
+        // Il FUMO ora vive dentro la pianta-città (js/map-city.js) e sale solo
+        // quando la città è "aperta" in zoom: da lontano, con l'icona, non ha
+        // senso (richiesta dell'utente). Qui perciò non si disegna più.
+        // (drawSmoke resta definito: utile se un domani lo si volesse anche
+        //  sull'icona a zoom medio.)
     }
 
     // Tre sbuffi di fumo che salgono in colonna sopra un insediamento, sfalsati
@@ -2680,6 +2681,37 @@ document.addEventListener('DOMContentLoaded', () => {
             svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
         }
 
+        /* --- PIANTE DELLE CITTÀ (LOD, js/map-city.js) ---------------------
+           Quando lo zoom si posa, l'icona dell'insediamento lascia il posto a
+           una pianta 2D cinta da mura; de-zoomando torna l'icona. Tutta la
+           logica di soglia/forma sta in MapCity: qui gli passiamo solo come
+           risolvere ancora, colore e nome a partire dal path. */
+        function cityAnchor(path) {
+            const a = MapAnchors.landAnchor(path);
+            if (a) return a;
+            const bb = mainBodyBBox(path);
+            return bb ? { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: Math.min(bb.w, bb.h) / 2 } : null;
+        }
+        function cityNameOf(path) {
+            const id = path.id;
+            const gameName = (typeof ID_MAP !== 'undefined' && ID_MAP[id]) ? ID_MAP[id] : (path.getAttribute('name') || id);
+            if (typeof CITY_NAMES !== 'undefined' && CITY_NAMES[gameName]) return CITY_NAMES[gameName];
+            const data = findMatch(id, path.getAttribute('name'), path.getAttribute('name'));
+            return data ? data.nome : gameName;
+        }
+        let citiesRaf = null;
+        function settleCities() {
+            if (typeof MapCity === 'undefined' || citiesRaf) return;
+            citiesRaf = requestAnimationFrame(() => {
+                citiesRaf = null;
+                try {
+                    MapCity.update(svg, base.w / vb.w, vb, {
+                        anchorOf: cityAnchor, colorOf: pieceColorOf, nameOf: cityNameOf
+                    });
+                } catch (e) { /* una pianta che non si disegna non deve rompere lo zoom */ }
+            });
+        }
+
         /* --------------------------------------------------------------
            ZOOM E PAN FLUIDI.
 
@@ -2705,6 +2737,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
                 svg.classList.remove('map-interacting');
+                settleCities();
             }, 140);
         }
 
@@ -2757,6 +2790,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             clampPan();
             apply();
+            settleCities();
             return true;
         }
 
@@ -2770,6 +2804,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         apply();
+        settleCities();
 
         wrapper.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -5292,6 +5327,9 @@ document.addEventListener('DOMContentLoaded', () => {
             provCount: () => ids.length,
             soldiersOn: id => { const el = document.getElementById(id); return el ? countPiece(el, 'soldato') : 0; },
             hasMercato: () => paths.some(p => countPiece(p, 'mercato') > 0),
+            // Un Mercato su UNA provincia precisa e mia (template `mercatoProvincia`:
+            // il «gran mercato» di Stoccolma/Oslo). Se non è mia torna false.
+            mercatoOn: id => { const el = idSet.has(id) && document.getElementById(id); return el ? countPiece(el, 'mercato') > 0 : false; },
             hasCity: () => paths.some(p => countPiece(p, 'citta') > 0),
             hasFortress: () => paths.some(p => countPiece(p, 'fortezza') > 0),
             cityIds: () => paths.filter(p => countPiece(p, 'citta') > 0).map(p => p.id),

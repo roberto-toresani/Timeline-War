@@ -79,16 +79,17 @@ Se un regno terzo possiede una provincia del corridoio, nella sua **sezione Merc
 - Avere una rotta attiva con un regno → +10 standing (vedi `DIPLOMAZIA_FEDE.md § Criteri di standing`, criterio 3b).
 - Razziare → `aggressione` verso entrambi i capi → penalità standing automatica.
 
-## Costi costruzioni (GameRules — aggiornare se cambiano in codice)
-| Edificio | Monete | Risorse |
+## Costi costruzioni (fonte: `COSTS` in `js/game-rules.js`)
+| Edificio | Monete | Risorse / soldati |
 |---|---|---|
-| Strada | 100 | — |
-| Fortezza | 300 | 1 Pietra |
-| Mercato | 200 | 1 Legno |
-| Porto | 400 | 2 Legno |
-| Nave | 300 | 1 Legno |
-| Veliero | 600 | 2 Legno |
-| Capitale (prima) | 500 | 1 Pietra + 1 Legno |
-| Capitale (sposta) | 500 | — |
+| Strada | — | 1 Pietra + 1 soldato (sulla prima provincia) |
+| Barca (Nave) | — | 3 Legno + 1 soldato |
+| Capitale | 500 | — (spostabile per 500) |
+| Città | 800 | 3 Pietra, 2 Argilla, 2 Bestiame |
+| Fortezza | 1500 | 6 Pietra, 4 Legno, 4 Argilla, 2 Bestiame, 2 Grano |
+| Mercato | 600 | 3 soldati |
+| Vascello | 1800 | 10 Legno, 2 Argilla, 4 Bestiame, 4 Grano |
+| Generale | 200 | 3 Bestiame, 3 Grano, 1 Argilla |
 
-> Fonte di verità: `GameRules` in `js/game-rules.js`. Verificare prima di citare cifre.
+> Nessun "Porto" né "Veliero" in `COSTS`. Reclute (Mercenario, Guarnigione, Cavaliere, Spia) e tabella completa: vedi `RISORSE_ECONOMIA.md § Costi reali`.
+> Fonte di verità: `COSTS` in `js/game-rules.js`. Verificare prima di citare cifre.
