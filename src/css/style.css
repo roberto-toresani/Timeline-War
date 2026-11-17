@@ -855,32 +855,6 @@ svg.map-interacting #decor-relief-layer { display: none; }
     .settle-smoke .smoke-puff:not(:first-child) { display: none; }
 }
 
-/* PIANTA DELLA CITTÀ (LOD, js/map-city.js): compare/sparisce con lo zoom.
-   Parte invisibile e un filo rimpicciolita, poi si apre al suo posto. */
-.city-plan {
-    opacity: 0;
-    transform-box: fill-box;
-    transform-origin: center;
-    transition: opacity .28s ease;
-}
-.city-plan.shown { opacity: 1; }
-.city-plan text { paint-order: stroke; stroke: #f3e9cf; stroke-width: 2px; }
-
-/* VESTIZIONE TERRENO (LOD): velo del bioma + alberelli. Semitrasparente, così
-   il colore politico della provincia resta leggibile sotto. */
-.ground-lod { opacity: 0; transition: opacity .3s ease; }
-.ground-lod.shown { opacity: 1; }
-.ground-wash { opacity: .5; }
-
-/* Durante zoom/pan le piante e il terreno vestito si spengono: sono molti nodi
-   e rirasterizzarli a ogni frame impastava la gesture (stesso patto dell'alone
-   costiero). Tornano quando la vista si posa. */
-svg.map-interacting .city-plan,
-svg.map-interacting .ground-lod { display: none; }
-
-@media (prefers-reduced-motion: reduce) {
-    .city-plan, .ground-lod { transition: none; }
-}
 /* Il contorno delle province (0,25 su 1,2 MB di tracciato, ogni confine
    ripassato due volte) era la voce più cara di ogni frame di zoom e pan: con
    l'antialiasing spento il frame costa circa un terzo (misurato in Chrome
