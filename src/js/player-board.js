@@ -3037,8 +3037,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // La ventura del difensore si vede come si vedono le sue truppe: è
             // parte di quel che si sa guardando il confine (§5.3).
             const vent = (t.cav ? ' · ' + t.cav + '🐎' : '') + (t.merc ? ' · ' + t.merc + '⚑' : '');
+            // DIFESE IN NEBBIA (§9.2): un bersaglio in nebbia leggera (tipico degli
+            // sbarchi fuori vista) mostra la bandiera ma NON la guarnigione, come
+            // sulla mappa: niente numero di difensori né reparti (🐎/⚑), o farebbe
+            // da spia via nave senza mai attaccare. La probabilità resta visibile
+            // (regola dell'utente): dà la misura del rischio senza contare gli uomini.
+            const occulto = !!(R.isHazed && R.isHazed(t.id));
             const btn = actionButton((t.viaMare ? '⚓ ' : '⚔ ') + t.label,
-                t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : '') +
+                t.owner + (occulto
+                    ? ' · difese ignote' + (terr ? ' · ' + terr : '')
+                    : ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : '')) +
                     (t.decisivo ? ' · attacco decisivo' : ''), null,
                 () => askAttack(player, path, t, engagedFor(), cavFor()));
             const chip = document.createElement('span');
@@ -3181,13 +3189,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     const bonus = t.fort ? ' +' + t.fort : '';
                     const vent = t.merc ? ' · ' + t.merc + '⚑' : '';
                     const terr = terrainTag(t.terreno);
+                    // DIFESE IN NEBBIA (§9.2): la costa è avvistata dalla nave —
+                    // bandiera sì, guarnigione no. Si nasconde il numero dei
+                    // difensori (altrimenti la spedizione farebbe da spia), ma la
+                    // probabilità resta visibile (regola dell'utente).
+                    const occulto = !!(R.isHazed && R.isHazed(t.id));
                     const btn = actionButton('⚓ ' + t.label,
-                        t.owner + ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : ''), null,
+                        t.owner + (occulto
+                            ? ' · difese ignote' + (terr ? ' · ' + terr : '')
+                            : ' · ' + t.troops + bonus + vent + (terr ? ' · ' + terr : '')), null,
                         () => R.confirm({
                             title: 'Sbarcare a ' + t.label + '?',
-                            text: exp.carico + (exp.carico === 1 ? ' uomo' : ' uomini') + ' contro ' + t.troops +
-                                (t.fort ? ' difensori (+' + t.fort + ')' : ' difensori') + ' · vittoria ' +
-                                (banda ? 'intorno al ' : '') + p + '%. Sbarco totale: vinci e la costa è tua con ' +
+                            text: exp.carico + (exp.carico === 1 ? ' uomo' : ' uomini') +
+                                (occulto
+                                    ? ' contro difese ignote · vittoria '
+                                    : ' contro ' + t.troops +
+                                      (t.fort ? ' difensori (+' + t.fort + ')' : ' difensori') + ' · vittoria ') +
+                                (banda ? 'intorno al ' : '') + p + '%.' +
+                                ' Sbarco totale: vinci e la costa è tua con ' +
                                 'la nave ancorata; perdi e la spedizione è perduta.',
                             ok: '⚓ Sbarca', tone: 'war'
                         }, () => run(GA().expeditionLand(player, exp.id, t.id))));
@@ -3230,6 +3249,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function askAttack(player, path, t, n, cav) {
         const f = forecast(path, n, t, cav);
+        // DIFESE IN NEBBIA (§9.2): se la provincia è in nebbia leggera non vedi la
+        // sua guarnigione sulla mappa, e allora non devi vederla nemmeno qui: si
+        // nasconde il NUMERO dei difensori (e la ventura, che conta gli uomini). La
+        // probabilità invece resta (regola dell'utente): dice il rischio senza dire
+        // quanti sono.
+        const occulto = !!(R.isHazed && R.isHazed(t.id));
         // Il terreno è la cosa che il giocatore rischia di non vedere: va detta
         // prima della carica, non nel rapporto dopo.
         const nota = (typeof Terrain !== 'undefined' && Terrain.exists(t.terreno))
@@ -3257,8 +3282,9 @@ document.addEventListener('DOMContentLoaded', () => {
               'rientrano; se perdi, i superstiti ripiegano su ' + R.provinceLabel(path) + '.';
         const testoCariche = chargeNote(t, n) ? ' ' + chargeNote(t, n) : '';
         // La ventura è l'altra cosa che non si vede: se c'è, il numero mostrato è
-        // una media e va detto qui, prima della carica (§5.3).
-        const testoVentura = f.banda ? ' ' + mercNote(f) : '';
+        // una media e va detto qui, prima della carica (§5.3). In nebbia leggera
+        // non si dice: svelerebbe che fra quei difensori ignoti c'è della ventura.
+        const testoVentura = (!occulto && f.banda) ? ' ' + mercNote(f) : '';
         // IL TRADIMENTO (§Diplomazia): con un patto di non aggressione in essere
         // l'attacco non parte da solo — il motore lo rifiuta senza il flag. Finché
         // la plancia non lo passava, l'unica strada era sciogliere il patto dal
@@ -3274,8 +3300,10 @@ document.addEventListener('DOMContentLoaded', () => {
             : (t.consenso ? ' ' + t.owner + ' ti ha concesso questa provincia: l\'attacco non rompe il patto.' : '');
         R.confirm({
             title: (tradisce ? 'Tradire ' + t.owner + ' a ' : t.viaMare ? 'Sbarcare a ' : 'Attaccare ') + t.label + '?',
-            text: squadText(n, f.cavA, ' truppa imbarcata', ' truppe') + ' contro ' +
-                t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
+            text: squadText(n, f.cavA, ' truppa imbarcata', ' truppe') +
+                (occulto
+                    ? ' contro difese ignote'
+                    : ' contro ' + t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori')) +
                 ' · probabilità di conquista ' + (f.banda ? 'intorno al ' : '') + f.p + '%.' +
                 testoCariche + testoVentura + nota + (chargeNote(t, n) && !t.decisivo ? '' : testoSbarco) + testoPatto,
             ok: tradisce ? '⚔ Tradisci' : t.viaMare ? '⚓ Sbarca' : '⚔ Carica',
@@ -4897,6 +4925,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // per non farla partire distrattamente.
         const aiuto = attacco && !!t.rinforzabile;
         const tradisce = attacco && !!t.patto && !t.consenso;
+        // DIFESE IN NEBBIA (§9.2): bersaglio in nebbia leggera (tipicamente uno
+        // sbarco fuori vista) — vedi la bandiera ma NON la guarnigione, come sulla
+        // mappa. Il cursore nasconde il numero dei difensori (e i reparti 🐎/⚑), o
+        // farebbe da spia via nave senza mai attaccare; la probabilità resta
+        // (regola dell'utente). L'aiuto a un alleato resta scoperto: non è un
+        // nemico da scrutare.
+        const occulto = attacco && !aiuto && !!(R.isHazed && R.isHazed(t.id));
 
         orderHud.className = 'moh ' + (attacco ? 'atk' : 'mov');
         orderHud.innerHTML =
@@ -4919,11 +4954,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         orderHud.querySelector('.moh-name').textContent = t.label;
         orderHud.querySelector('.moh-sub').textContent = attacco
-            ? t.owner + ' · ' + t.troops + (aiuto ? ' di presidio' : ' a difesa') +
-              (t.fort ? ' +' + t.fort + ' mura' : '') +
-              (t.cav ? ' · ' + t.cav + '🐎' : '') +
-              (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '') +
-              (aiuto ? ' · alleato' : t.consenso ? ' · consenso concesso' : tradisce ? ' · patto in essere' : '')
+            ? (occulto
+                ? t.owner + ' · difese ignote' + (terr ? ' · ' + terr : '') +
+                  (t.consenso ? ' · consenso concesso' : tradisce ? ' · patto in essere' : '')
+                : t.owner + ' · ' + t.troops + (aiuto ? ' di presidio' : ' a difesa') +
+                  (t.fort ? ' +' + t.fort + ' mura' : '') +
+                  (t.cav ? ' · ' + t.cav + '🐎' : '') +
+                  (t.merc ? ' · ' + t.merc + '⚑' : '') + (terr ? ' · ' + terr : '') +
+                  (aiuto ? ' · alleato' : t.consenso ? ' · consenso concesso' : tradisce ? ' · patto in essere' : ''))
             : t.troops + ' già lì · da ' + R.provinceLabel(path) + (navale ? ' · via nave' : '') +
               (corpo ? ' · corpo di spedizione, resta tuo' : dono ? ' · in aiuto di ' + (t.owner || 'un alleato') : '');
 
@@ -5535,6 +5573,60 @@ document.addEventListener('DOMContentLoaded', () => {
             testo: attesa.map(riga).join('\n\n'),
             nota: attesa.length > 1 ? attesa.length + ' notizie dal mare ti attendevano.' : ''
         });
+    }
+
+    // ---------- conquiste SUBITE (richiesta dell'utente) ----------
+    // Chi perde una provincia deve saperlo subito, qualunque sia il turno e chiunque
+    // l'abbia presa (un giocatore, un bot, uno sbarco). applyBattleOutcome lascia
+    // l'avviso in player.conquisteSubite; qui lo si srotola non appena la plancia
+    // si ridisegna — NON serve che sia il tuo turno, anzi: di solito non lo è.
+    // Ha la precedenza su ogni altra pergamena. Ritorna true se ne ha una a
+    // schermo (o in attesa che la scena della battaglia finisca).
+    function showPendingConquisteSubite(player) {
+        if (document.querySelector('#ui-foundation .uf-conquistaSubita')) return true;
+        if (!(player.conquisteSubite || []).some(a => !a.letto) || !R.showFoundation) return false;
+        // Un admin che sbircia un regno preso da un giocatore vero NON consuma né
+        // fa scadere l'avviso: resta in coda per il legittimo giocatore.
+        if (!ownsBoard(player)) return false;
+        // L'avviso vale solo per il turno IMMEDIATAMENTE successivo all'invasione:
+        // se quel turno è passato senza che lo leggesse, scade in silenzio e non
+        // ricompare più tardi.
+        let scaduto = false;
+        (player.conquisteSubite || []).forEach(a => {
+            if (!a.letto && R.turn() > (a.turno || 0) + 1) { a.letto = true; scaduto = true; }
+        });
+        if (scaduto) R.save();
+        // Compare quando il giocatore apre il SUO turno (non mentre attende).
+        if (!isPlaying(player)) return false;
+        const attesa = (player.conquisteSubite || []).filter(a => !a.letto);
+        if (!attesa.length) return false;
+        // Non coprire la scena di una battaglia in corso: si riprova a scena finita.
+        if (R.battleFxBusy && R.battleFxBusy()) {
+            clearTimeout(showPendingConquisteSubite._t);
+            showPendingConquisteSubite._t = setTimeout(() => {
+                const p = currentPlayer();
+                if (p && p.id === player.id) render();
+            }, 600);
+            return true;
+        }
+        attesa.forEach(a => { a.letto = true; });
+        R.save();
+
+        const primo = attesa[0];
+        const anno = (typeof Chronicle !== 'undefined' && Chronicle.yearOfTurn)
+            ? Chronicle.yearOfTurn(primo.turno || R.turn()) : (primo.turno || R.turn());
+        const riga = a => (a.capitale ? 'LA CAPITALE ' : '') + a.nome + ' è caduta in mano a ' + a.da +
+            (a.difensori ? ' (' + a.difensori + (a.difensori === 1 ? ' difensore travolto' : ' difensori travolti') + ')' : '') + '.';
+        R.showFoundation({
+            tipo: 'conquistaSubita',
+            anno,
+            regno: player.name,
+            colore: player.color,
+            titolo: attesa.length > 1 ? 'Il regno perde ' + attesa.length + ' province' : 'Una provincia è perduta',
+            testo: attesa.map(riga).join('\n\n'),
+            nota: 'Puoi riprendertela attaccando dalle province confinanti.'
+        });
+        return true;
     }
 
     // ---------- carovane concluse (§7, richiesta dell'utente) ----------
@@ -6927,10 +7019,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // fuori) NON segna la proposta come risposta: resta in coda e torna al turno
     // successivo, come deve.
     let pactAnswered = new Set();
+    const pactDismissed = new Set();   // proposte chiuse dall'admin senza decidere
     function showPendingPactProposals(player) {
         if (!isPlaying(player) || !R.confirm) return;
         if (!ownsBoard(player)) return;
-        const list = (player.pattiProposte || []).filter(o => o && !pactAnswered.has(o.id));
+        // TUTTI possono chiudere il banner SENZA decidere ("Ci penso dopo"): si
+        // decide a ragion veduta, dopo aver guardato la plancia. La proposta resta
+        // in coda intatta (né accettata né rifiutata) e il banner non ricompare in
+        // questa sessione; la si ritrova nel pannello Diplomazia.
+        const list = (player.pattiProposte || []).filter(o => o && !pactAnswered.has(o.id) &&
+            !pactDismissed.has(o.id));
         if (!list.length) return;
         // Una modale per volta: se una pergamena o un'altra conferma è aperta,
         // si riprova al render dopo.
@@ -6947,7 +7045,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 (costa ? 'Un\'alleanza, se rotta, costa prestigio a chi tradisce.'
                        : 'È un patto leggero: si può sciogliere senza costo.'),
             ok: 'Accetta',
-            cancel: 'Rifiuta'
+            cancel: 'Rifiuta',
+            later: 'Ci penso dopo',
+            onLater: () => { pactDismissed.add(off.id); }   // Esc / click fuori inclusi
         },
         () => { pactAnswered.add(off.id); run(GA().acceptPact(player, off.id)); },
         () => { pactAnswered.add(off.id); run(GA().declinePact(player, off.id)); });
@@ -7566,17 +7666,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // In coda al render: la pergamena non deve rubare il focus ai comandi
         // mentre la plancia si sta ancora ridisegnando (stessa ragione per cui
         // le fondazioni si srotolano dopo render() in run()).
-        showPendingEventi(player);
-        showPendingEditti(player);
-        showPendingPapaMessages(player);
-        showPendingWrecks(player);
-        showPendingCommerci(player);
-        showPendingPactNotices(player);
-        showPendingPactProposals(player);
-        showPendingCouncil(player);
-        showPendingWelfare(player);
-        showPendingLeva(player);
-        showPendingCronache(player);
+        // Una conquista subita ha la precedenza su tutto e non va coperta.
+        if (!showPendingConquisteSubite(player)) {
+            showPendingEventi(player);
+            showPendingEditti(player);
+            showPendingPapaMessages(player);
+            showPendingWrecks(player);
+            showPendingCommerci(player);
+            showPendingPactNotices(player);
+            showPendingPactProposals(player);
+            showPendingCouncil(player);
+            showPendingWelfare(player);
+            showPendingLeva(player);
+            showPendingCronache(player);
+        }
         showConquestPrompt(player);
         autoDeployBound(player);
         maybeStartTour(player);

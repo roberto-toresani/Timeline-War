@@ -310,12 +310,14 @@ svg path.haze {
     cursor: pointer;
 }
 
+#ui-confirm .uc-later,
 #ui-confirm .uc-no {
     background: transparent;
     border: 1px solid var(--rule-strong);
     color: var(--parchment-muted);
 }
 
+#ui-confirm .uc-later:hover,
 #ui-confirm .uc-no:hover { border-color: var(--gold-edge); color: var(--gold); }
 
 #ui-confirm .uc-yes {
@@ -476,6 +478,7 @@ svg path.haze {
 /* La leva degli obiettivi (§10): sono uomini che accorrono per un'impresa
    compiuta — verde d'alloro, non l'oro di chi comanda da fuori. */
 #ui-foundation .uf-scroll.uf-leva { --kingdom: #3f6b3a; }
+#ui-foundation .uf-scroll.uf-conquistaSubita { --kingdom: #8b1f1f; }
 
 #ui-foundation .uf-text {
     font-size: 1.05rem;

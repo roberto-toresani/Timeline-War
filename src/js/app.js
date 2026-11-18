@@ -165,6 +165,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Province visibili al regno in focus, aggiornate da refreshMapDisplay.
     // null = nessuna nebbia (vista generale o editor): si vede tutto.
     let visibleSet = null;
+    // Province in nebbia leggera per il regno in focus (vedi la provincia ma NON
+    // le sue pedine, §9.2): usato da Risiko.isHazed perché la plancia non sveli
+    // le guarnigioni che la mappa tiene nascoste. null = nessuna nebbia.
+    let hazedSet = null;
     // Come si colora la mappa: 'owner' (per regno, di default), 'fede' (per
     // religione) o 'terreno' (chiuso/aperto, §9 — dove conviene attaccare).
     // È solo pittura: non cambia proprietari né permessi, e rispetta la nebbia.
@@ -433,6 +437,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // in coda finché il giocatore non li ha letti — stessa logica degli editti,
         // così un naufragio non si perde se la pagina si ricarica prima del turno.
         if (!Array.isArray(p.spedizioniAvvisi)) p.spedizioniAvvisi = [];
+        // CONQUISTE SUBITE: una provincia presa da un altro regno resta qui in
+        // coda ({letto, turno, da, prov, nome, capitale, difensori}) finché la
+        // plancia non la srotola. Scritta da game-actions.applyBattleOutcome.
+        if (!Array.isArray(p.conquisteSubite)) p.conquisteSubite = [];
         // DIPLOMAZIA (§Diplomazia): i PATTI. `patti` è la lista MUTUA degli
         // accordi attivi ({tipo, con, dal, scad}), scritta su entrambi i record
         // da game-actions (come recordTrade). `pattiProposte` sono le proposte
@@ -4835,6 +4843,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const spied = seen ? seen.spie : null;
 
         visibleSet = visible;   // memorizzato per Risiko.isVisible (nebbia, §fog)
+        hazedSet = hazed;       // memorizzato per Risiko.isHazed (nebbia leggera)
 
         const { res, pieces } = markerIndex(svg);
         // Colore per proprietario, una volta sola invece di un find per provincia.
@@ -5754,6 +5763,7 @@ document.addEventListener('DOMContentLoaded', () => {
             '<div class="uc-title"></div>' +
             '<div class="uc-text"></div>' +
             '<div class="uc-actions">' +
+            (o.later ? '<button type="button" class="uc-later"></button>' : '') +
             '<button type="button" class="uc-no"></button>' +
             '<button type="button" class="uc-yes"></button>' +
             '</div></div>';
@@ -5766,14 +5776,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const close = () => { document.removeEventListener('keydown', onKey); wrap.remove(); };
         const accept = () => { close(); if (typeof onYes === 'function') onYes(); };
         function onKey(e) {
-            if (e.key === 'Escape') { e.preventDefault(); close(); }
+            if (e.key === 'Escape') { e.preventDefault(); close(); if (o.later && typeof o.onLater === 'function') o.onLater(); }
             else if (e.key === 'Enter') { e.preventDefault(); accept(); }
         }
 
         const refuse = () => { close(); if (typeof onNo === 'function') onNo(); };
+        // Terzo esito opzionale (`opts.later`): chiude senza decidere. `onLater`
+        // scatta anche su Esc / click fuori, che sono lo stesso "ci penso dopo".
+        const laterBtn = wrap.querySelector('.uc-later');
+        if (laterBtn) {
+            laterBtn.textContent = o.later;
+            laterBtn.addEventListener('click', () => { close(); if (typeof o.onLater === 'function') o.onLater(); });
+        }
         wrap.querySelector('.uc-no').addEventListener('click', refuse);
         wrap.querySelector('.uc-yes').addEventListener('click', accept);
-        wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+        wrap.addEventListener('click', (e) => {
+            if (e.target !== wrap) return;
+            close();
+            if (o.later && typeof o.onLater === 'function') o.onLater();
+        });
         document.addEventListener('keydown', onKey);
         document.body.appendChild(wrap);
         wrap.querySelector('.uc-yes').focus();
@@ -5794,6 +5815,7 @@ document.addEventListener('DOMContentLoaded', () => {
         capitale: 'Cronaca del regno',
         scisma: 'Cronaca della fede',
         editto: 'Editto — accaduto mentre non eri al potere',
+        conquistaSubita: 'Guerra — un messaggero giunge a corte, trafelato',
         naufragio: 'Cronaca del mare — accadde in rotta',
         commercio: 'Commercio — una carovana ha concluso',
         patto: 'Diplomazia — un araldo alla tua corte',
@@ -7349,6 +7371,11 @@ document.addEventListener('DOMContentLoaded', () => {
             renderTradeRoutes(svg, PLAYERS.find(p => p.id === selectedTabPlayerId), visibleSet);
         },
         isVisible: (id) => !visibleSet || visibleSet.has(id),
+        // Provincia in nebbia leggera: la vedi (bandiera, confini) ma NON le sue
+        // pedine (§9.2). La mappa qui nasconde il numero della guarnigione; la
+        // plancia la usa per non svelare le difese che un giocatore non vede —
+        // altrimenti il cursore d'attacco farebbe da spia via nave senza attaccare.
+        isHazed: (id) => !!(hazedSet && hazedSet.has(id)),
         // Isolotti non giocabili: disegnati come terra ma fuori dal motore. Serve
         // alla plancia per ignorare un clic su di loro (l'unico click handler che
         // li può ancora intercettare, via closest('path.state')).

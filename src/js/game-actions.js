@@ -3894,6 +3894,21 @@
             // è ancora declassata), e riprendendosi la provincia il vecchio
             // rancore del vincitore per quella terra si spegne.
             recordGrudge(defender, to, winner.name);
+            // AVVISO DI CONQUISTA SUBITA: chi perde una provincia deve saperlo,
+            // anche se l'attacco è arrivato nel turno di un altro (o di un bot) e
+            // lui non c'era. Resta in coda sul suo record finché la plancia non
+            // srotola la pergamena (player-board.showPendingConquisteSubite).
+            // Si scrive qui, nell'unica porta della conquista, quindi vale per
+            // terra, sbarco, spedizione ed editto. I bot non leggono: niente coda.
+            if (defender && !defender.bot) {
+                if (!Array.isArray(defender.conquisteSubite)) defender.conquisteSubite = [];
+                defender.conquisteSubite.push({
+                    letto: false, turno: R().turn(), da: winner.name,
+                    prov: to.id, nome: R().provinceLabel(to),
+                    capitale: hadEnemyCapital, difensori: defTroops
+                });
+                while (defender.conquisteSubite.length > 20) defender.conquisteSubite.shift();
+            }
             clearGrudge(winner, to.id);
             if (defender && defender.temporanei) delete defender.temporanei[to.id];
             E().setOwner(to, winner.name);
