@@ -71,16 +71,18 @@ Limita quante risorse di **ogni tipo** puoi stoccare (tetto per singolo tipo, no
 | Livello | Tetto per tipo | Costo upgrade |
 |---|---|---|
 | 1 (base) | 10 | — |
-| 2 | 20 | 500 monete |
+| 2 | 20 | 1000 monete |
 | 3 | 40 | 1000 monete |
 
 - Al raggiungimento del tetto del livello: o si **upgrada** il magazzino, o l'eccedenza viene **venduta automaticamente** a **50 monete ogni 3 risorse** eccedenti, **arrotondando per difetto** (le monete). Il resto sotto le 3 unità trabocca e va perso: oltre il tetto non si accumula nulla.
 - **Nessun tier "infinito"**: il livello 3 resta finito (40) apposta, così anche i regni ricchi di monete non possono comprarsi fuori dal limite.
+- **Scudo dei nuovi regni**: a **lvl 1 la manutenzione delle STRUTTURE è spenta**. Il **primo upgrade (lvl 1→2)** la accende. Un regno troppo piccolo per reggere i costi resta a lvl 1, cap 10, nessun costo di struttura. (La manutenzione delle TRUPPE è sempre attiva — vedi sotto.)
 - Interazione voluta con la Manutenzione: il tetto del Grano stringe le grandi armate (~1 Grano ogni 15 uomini ogni 3 turni) → spinge verso il magazzino alto.
 
-## Manutenzione strutturale (ogni 3 turni) — DA IMPLEMENTARE (design concordato)
-Ogni 3 turni il regno paga il mantenimento di strutture e truppe. È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci.
+## Manutenzione (ogni 3 turni) — DA IMPLEMENTARE (design concordato)
+Ogni **3 turni** il regno paga il mantenimento. È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci. Due blocchi, con regole di attivazione diverse.
 
+### Strutture — gated dallo scudo (attive solo da magazzino lvl 2+)
 | Voce | Costo ogni 3 turni |
 |---|---|
 | Strade | 1 Pietra ogni 5 strade |
@@ -88,10 +90,15 @@ Ogni 3 turni il regno paga il mantenimento di strutture e truppe. È il **sink s
 | Città | 1 Argilla ciascuna |
 | Mercato | 1 Legno ciascuno |
 | Navi (barca / vascello) | 1 Legno ciascuna |
+
+Mancato pagamento → icona **"zzz"** sull'edificio: resta **dormiente/offline** finché non si paga.
+
+### Truppe — SEMPRE attive (fuori dallo scudo)
+| Voce | Costo ogni 3 turni |
+|---|---|
 | Uomini (fanti) | 1 Grano ogni 15 |
 | Cavalieri | 1 Bestiame ogni 5 |
 
-- **Mancato pagamento → conseguenza:**
-  - **Edifici**: icona **"zzz"** sull'edificio → resta **dormiente/offline** finché non si paga.
-  - **Truppe**: **diserzione** di **1 fante e/o 1 cavaliere a turno**, per ogni turno in cui la manutenzione non è coperta.
+È il freno **anti-snowball**: non si schiva restando a lvl 1, e su un regno piccolo (pochi uomini) pesa pochissimo. Mancato pagamento → **diserzione** di **1 fante e/o 1 cavaliere a turno**, per ogni turno scoperto.
+
 - Da ritarare: Pietra/Legno/Argilla drenano poco un impero molto ricco; il morso vero è il **Grano** sulle grandi armate. Alzare i coefficienti se serve più pressione.
