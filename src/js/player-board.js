@@ -4287,6 +4287,11 @@ document.addEventListener('DOMContentLoaded', () => {
                   ' (si scioglie a ' + GR().ROUTE_BREAK_TURNS + ').' : '');
             const acts = document.createElement('div');
             acts.className = 'bp-trade-acts';
+            const look = document.createElement('button');
+            look.type = 'button'; look.className = 'bp-mini'; look.textContent = '🗺 Mostra sulla mappa';
+            look.title = 'Chiude il foglio e inquadra il corridoio della rotta';
+            look.addEventListener('click', () => { showSheet(null); R.fitToProvinces(r.prov); });
+            acts.appendChild(look);
             const no = document.createElement('button');
             no.type = 'button'; no.className = 'bp-mini no'; no.textContent = '✕ Sciogli';
             no.disabled = !turno;
