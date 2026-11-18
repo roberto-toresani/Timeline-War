@@ -1780,9 +1780,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             land = out;
         }
-        // Una pedina PER SCAFO, senza numero sopra (regola dell'utente: il carico
-        // nel pallino non serviva). `badge: null` spegne anche il conteggio.
-        const ships = shipsOf(path).map(s => ({ type: s.tipo, count: 1, badge: null }));
+        // Una pedina per TIPO di scafo: con più scafi dello stesso tipo nella
+        // provincia ne esce una sola, col numerino in alto a destra come per le
+        // truppe (nessun numero se ce n'è uno solo; niente carico nel pallino).
+        const shipCount = new Map();
+        shipsOf(path).forEach(s => shipCount.set(s.tipo, (shipCount.get(s.tipo) || 0) + 1));
+        const ships = [];
+        shipCount.forEach((n, tipo) => ships.push({ type: tipo, count: n, badge: n > 1 ? n : null }));
 
         if (land.length) {
             const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2, r: bb.w / 2 };
