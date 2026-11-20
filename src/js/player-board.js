@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const diploUI = { verso: null, tipo: 'alleanza', consenso: {} };
     // Rotte commerciali (§7): a chi, cosa DAI a ogni giro e cosa RICEVI (tipo ''
     // = nessuna: la merce può viaggiare in una sola direzione).
-    const routeUI = { verso: null, dai: { tipo: null, n: 2 }, ricevi: { tipo: null, n: 2 } };
+    const routeUI = { verso: null, dai: { tipo: null, n: 1 }, ricevi: { tipo: null, n: 1 } };
 
     // CHAT fra i giocatori (proposta dell'utente): rende viva l'attesa fra i turni.
     // I messaggi arrivano dal canale `chat` di sync.js e vivono qui; il trasporto
@@ -4270,7 +4270,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return '<div class="bp-trade-terms">' +
             (out.length ? '<span class="out">− ' + out.join(', ') + '</span>' : '') +
             (inn.length ? '<span class="in">+ ' + inn.join(', ') + '</span>' : '') +
-            '<span class="in">+ ' + GR().ROUTE_BONUS + ' monete</span></div>';
+            '</div>';
     }
 
     function routeOutcomeText(r) {
@@ -4293,8 +4293,7 @@ document.addEventListener('DOMContentLoaded', () => {
         card.innerHTML = '<div class="bp-trade-head">Rotte commerciali' +
             (inbox.length ? ' <span class="bp-trade-badge">' + inbox.length + '</span>' : '') + '</div>';
         card.insertAdjacentHTML('beforeend',
-            '<div class="bp-trade-cost">Un accordo fra due Mercati: a ogni giro la carovana porta le merci concordate e ' +
-            GR().ROUTE_BONUS + ' monete a testa. Il corridoio di terra si fissa alla firma.</div>');
+            '<div class="bp-trade-cost">Un accordo fra due Mercati: a ogni giro la carovana porta le merci concordate. Il corridoio di terra si fissa alla firma.</div>');
 
         // --- le rotte attive ---
         mine.forEach(r => {
