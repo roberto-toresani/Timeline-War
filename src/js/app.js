@@ -148,6 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // prima che la cancellazione arrivi).
     let pendingId = null;
     const appliedInterventions = new Set();
+    const appliedDiffPrints = new Set();   // impronte dei diff già applicati (vedi diff orfano)
     // EDITTI DIFFERITI (oro/scorte, GameActions.deferDecree) promulgati DURANTE un
     // intervento: non sono nel diff delle province, quindi si tengono a parte e
     // si aggiungono al pacchetto al commit (pendingDiff.decrees).
@@ -3294,6 +3295,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyPendingIntervention() {
         const diff = pendingDiff;
         if (pendingId) appliedInterventions.add(pendingId);
+        try { if (diff) appliedDiffPrints.add(JSON.stringify(diff)); } catch (e) { /* ignora */ }
         const doneId = pendingId;
         pendingDiff = null;
         pendingBaseTurnoDi = null;
@@ -4750,6 +4752,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data && 'pendingDiff' in data && !MultiplayerSync.isConfigured) {
             pendingDiff = data.pendingDiff || null;
             pendingBaseTurnoDi = (data.pendingBaseTurnoDi !== undefined) ? data.pendingBaseTurnoDi : null;
+        }
+        // DIFF ORFANO: online il canale è l'unica fonte, ma se lo stato porta un
+        // pendingDiff che il canale non ha (canale svuotato prima dell'applicazione)
+        // nessuno lo applicherebbe mai. Il regista lo adotta; l'impronta evita di
+        // riapplicare un diff già applicato da questa sessione.
+        else if (data && data.pendingDiff && !pendingDiff && MultiplayerSync.isConfigured
+                 && isInterventionApplier() && !appliedDiffPrints.has(JSON.stringify(data.pendingDiff))) {
+            pendingDiff = data.pendingDiff;
+            pendingBaseTurnoDi = (data.pendingBaseTurnoDi !== undefined) ? data.pendingBaseTurnoDi : null;
+            pendingId = null;
         }
     }
 
