@@ -6982,7 +6982,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'nonBelligeranza': return 'Un impegno a non attaccarvi.';
             case 'rinforzi': return 'Accesso militare: rinforzi e passaggio fra i vostri territori.';
             case 'vista': return 'Vi vedrete a vicenda oltre la nebbia.';
-            case 'commercio': return 'Permette di aprire rotte commerciali fra i vostri Mercati (+50 monete a testa a ogni carovana).';
+            case 'commercio': return 'Permette di aprire rotte commerciali fra i vostri Mercati.';
             default: return '';
         }
     }
