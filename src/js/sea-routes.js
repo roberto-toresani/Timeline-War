@@ -517,8 +517,18 @@
 
     // Set degli id raggiungibili entro `radius` (esclusa la provincia di partenza).
     function reach(svg, provId, radius) {
-        return new Set(distances(svg, provId, radius).keys());
+        const out = new Set(distances(svg, provId, radius).keys());
+        // Rotte dirette (regola dell'utente): Norvegia e Scozia si raggiungono
+        // per mare a prescindere dalla portata della griglia. Vale per ogni nave.
+        (SEA_LINKS[provId] || []).forEach(id => out.add(id));
+        return out;
     }
+    const SEA_LINKS = {
+        Western_Norway: ['Highlands', 'Lowlands'],
+        Eastern_Norway: ['Highlands'],
+        Highlands: ['Western_Norway', 'Eastern_Norway'],
+        Lowlands: ['Western_Norway']
+    };
 
     // Stessa cosa, memoizzata. `refreshMapDisplay` gira dopo OGNI azione — anche
     // dopo ogni mossa di ogni bot — e deve restare sui ~20 ms: una portata da

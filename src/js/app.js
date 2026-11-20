@@ -4940,6 +4940,15 @@ document.addEventListener('DOMContentLoaded', () => {
     //             scorge dal mare: bandiera sì, guarnigione no.
     // `spie` è solo il POSTO dove stanno i nostri uomini: serve a disegnarcelo
     // sopra un segno, non aggiunge visibilità (è già dentro haze).
+    // Province che si vedono oltre il mare senza essere confinanti (solo vista,
+    // non cambia attacchi né portate): chi ha la chiave vede i valori.
+    // `function` e non `const`: vedi la nota sugli alias (zona morta).
+    function sightAcrossSea(id) {
+        if (id === 'Western_Norway') return ['Highlands', 'Lowlands'];
+        if (id === 'Eastern_Norway') return ['Highlands'];
+        return [];
+    }
+
     function computeVisibleProvinces(playerName) {
         const svg = mapSvg();
         const visible = new Set(), haze = new Set(), spie = new Set();
@@ -4949,6 +4958,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Nebbia di default: si vedono le province confinanti via TERRA...
             const neigh = NEIGHBORS_LAND[path.id];
             if (neigh) neigh.forEach(id => visible.add(id));
+            // ...più i vicini "a vista" oltre il braccio di mare (regola dell'utente).
+            sightAcrossSea(path.id).forEach(id => visible.add(id));
             // ...e, appena si costruisce una nave, tutto quel che quella nave
             // raggiunge via mare — ma solo in nebbia leggera.
             if (typeof SeaRoutes === 'undefined' || !SeaRoutes.isReady(svg)) return;
