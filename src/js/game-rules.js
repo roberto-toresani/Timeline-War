@@ -418,6 +418,100 @@
         return s;
     }
 
+    // ---------- MAGAZZINO (docs/regole/RISORSE_ECONOMIA.md §Magazzino) ----------
+    // Tetto PER TIPO di risorsa, non globale: ferma l'accumulo infinito dei
+    // regni grandi. Tre livelli, e il terzo resta FINITO apposta (regola
+    // dell'utente): nemmeno un tesoro enorme compra un magazzino senza fondo.
+    // L'eccedenza si vende da sé a fine turno (game-actions.applyWarehouseCap):
+    // 50 monete ogni 3 risorse oltre il tetto, contate su TUTTI i tipi insieme,
+    // per difetto; il resto sotto le 3 unità va perso.
+    const WAREHOUSE_CAP = { 1: 10, 2: 20, 3: 40 };
+    const WAREHOUSE_MAX = 3;
+    const WAREHOUSE_UPGRADE = { 2: { monete: 1000 }, 3: { monete: 1000 } };
+    const OVERFLOW_LOT = 3;
+    const OVERFLOW_PRICE = 50;
+
+    function warehouseLevel(player) {
+        const l = Math.floor((player && player.magazzino) || 1);
+        return Math.max(1, Math.min(WAREHOUSE_MAX, l));
+    }
+    function warehouseCap(level) {
+        return WAREHOUSE_CAP[Math.max(1, Math.min(WAREHOUSE_MAX, Math.floor(level || 1)))];
+    }
+    // Il costo per salire DAL livello indicato al successivo (null se è già al massimo).
+    function warehouseUpgradeCost(level) {
+        return WAREHOUSE_UPGRADE[Math.floor(level || 1) + 1] || null;
+    }
+    // Quanto trabocca dalle scorte con quel tetto: per tipo, in tutto, quante
+    // monete rende la vendita e quante unità vanno perse.
+    function overflowOf(scorte, cap) {
+        const eccedenza = {};
+        let totale = 0;
+        RES.forEach(k => {
+            const n = Math.max(0, Math.floor(((scorte || {})[k] || 0) - cap));
+            if (n > 0) { eccedenza[k] = n; totale += n; }
+        });
+        const lotti = Math.floor(totale / OVERFLOW_LOT);
+        return { eccedenza, totale, monete: lotti * OVERFLOW_PRICE, perse: totale - lotti * OVERFLOW_LOT };
+    }
+
+    // ---------- MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md §Manutenzione) ----------
+    // Ogni 3 turni GLOBALI il regno paga il mantenimento. Due blocchi:
+    //   STRUTTURE — solo da magazzino livello 2 (lo "scudo" dei regni nuovi:
+    //     a livello 1 la manutenzione delle strutture è spenta);
+    //   TRUPPE    — sempre, a ogni livello: è il freno anti-valanga delle grandi armate.
+    // Chi non paga una struttura la trova DORMIENTE (💤): resta in piedi ma non
+    // rende. Chi non paga le truppe perde un disertore a turno finché non salda.
+    const UPKEEP_EVERY = 3;
+    const UPKEEP_STRUCT = {
+        capitale: { pietra: 1 },
+        citta:    { argilla: 1 },
+        fortezza: { pietra: 1 },
+        mercato:  { legno: 1 },
+        vascello: { legno: 1 },
+        barca:    { legno: 1 }
+    };
+    // Ordine di pagamento quando le scorte non bastano per tutto: prima il
+    // cuore del regno, poi il resto. Le strade pagano per ultime (la loro pena
+    // è la più leggera: niente strade nuove finché non si salda).
+    const UPKEEP_ORDER = ['capitale', 'citta', 'fortezza', 'mercato', 'vascello', 'barca'];
+    const UPKEEP_ROADS_PER = 5;     // 1 Pietra ogni 5 strade
+    const UPKEEP_MEN_PER = 15;      // 1 Grano ogni 15 fanti
+    const UPKEEP_KNIGHTS_PER = 5;   // 1 Bestiame ogni 5 cavalieri
+    const STRUCT_UPKEEP_LEVEL = 2;  // da questo livello di magazzino le strutture pagano
+
+    function isUpkeepTurn(turn) { return (turn | 0) > 0 && (turn | 0) % UPKEEP_EVERY === 0; }
+    function nextUpkeepTurn(turn) {
+        const t = Math.max(1, turn | 0);
+        return isUpkeepTurn(t) ? t : t + (UPKEEP_EVERY - (t % UPKEEP_EVERY));
+    }
+    function structuresPayUpkeep(level) { return (level || 1) >= STRUCT_UPKEEP_LEVEL; }
+    function roadUpkeep(nStrade) { return Math.floor(Math.max(0, nStrade || 0) / UPKEEP_ROADS_PER); }
+    function troopUpkeep(fanti, cavalieri) {
+        return {
+            grano: Math.floor(Math.max(0, fanti || 0) / UPKEEP_MEN_PER),
+            bestiame: Math.floor(Math.max(0, cavalieri || 0) / UPKEEP_KNIGHTS_PER)
+        };
+    }
+    // Il conto intero di una manutenzione, per la plancia e per il motore.
+    // inv = { strutture: {capitale, citta, fortezza, mercato, vascello, barca}, strade, fanti, cavalieri }
+    function upkeepBill(level, inv) {
+        inv = inv || {};
+        const tot = emptyScorte();
+        const strutture = structuresPayUpkeep(level);
+        if (strutture) {
+            UPKEEP_ORDER.forEach(tipo => {
+                const n = ((inv.strutture || {})[tipo]) || 0;
+                Object.keys(UPKEEP_STRUCT[tipo]).forEach(r => { tot[r] += UPKEEP_STRUCT[tipo][r] * n; });
+            });
+            tot.pietra += roadUpkeep(inv.strade);
+        }
+        const tr = troopUpkeep(inv.fanti, inv.cavalieri);
+        tot.grano += tr.grano;
+        tot.bestiame += tr.bestiame;
+        return { strutture, risorse: tot, truppe: tr, strade: strutture ? roadUpkeep(inv.strade) : 0 };
+    }
+
     // Nome delle voci costruibili. Mercenario, Guarnigione e Spia non sono
     // pedine (non stanno in PIECES), quindi il nome deve arrivare da qui.
     const ITEM_LABEL = {
@@ -522,8 +616,35 @@
     // una provincia e esentano una Città dalle tasse. Senza `pol` tutto si
     // comporta come prima — ed è così che il gioco gira finché nessuno sceglie
     // una politica.
-    function turnProduction(provinces, connectedSet, units, tax, popularity, blockedIds, pol) {
+    // `spenti` (facoltativo) è la MANUTENZIONE non pagata (§Manutenzione):
+    // { idProvincia: { capitale, citta, fortezza } } = quante strutture lì sono
+    // DORMIENTI. Una struttura dormiente resta in piedi (collega, difende, tiene
+    // viva la raccolta) ma non RENDE: niente tasse da Capitale/Città, niente
+    // rinforzi da Capitale/Città/Fortezza. La Capitale dormiente conta comunque
+    // come Capitale per la raccolta — se no un regno che non riesce a pagare
+    // perderebbe proprio il raccolto con cui pagare, e non ne uscirebbe più.
+    function turnProduction(provinces, connectedSet, units, tax, popularity, blockedIds, pol, spenti) {
         const hasCapital = units.capitale > 0;
+        // Città e Fortezze dormienti escono dal conto togliendole dalla
+        // fotografia; la Capitale dormiente invece RESTA (è lei che tiene in
+        // piedi raccolta e Popolarità) e le si tolgono a mano tasse e +1 recluta.
+        const capSpente = new Set();
+        if (spenti && Object.keys(spenti).length) {
+            provinces = (provinces || []).map(p => {
+                const off = spenti[p.id];
+                if (!off) return p;
+                if (off.capitale) capSpente.add(p.id);
+                return Object.assign({}, p, {
+                    pieces: (p.pieces || []).map(pc => {
+                        const n = (pc.type === 'citta' || pc.type === 'fortezza') ? (off[pc.type] || 0) : 0;
+                        return n ? Object.assign({}, pc, { count: Math.max(0, (pc.count || 0) - n) }) : pc;
+                    })
+                });
+            });
+            const capPrima = units.capitale;
+            units = KingdomStats.countUnits(provinces);
+            units.capitale = capPrima;
+        }
 
         // SENZA CAPITALE RESTANO SOLO GLI UOMINI DELLE PROVINCE (regola
         // dell'utente). Prima qui non arrivava assolutamente nulla e il regno
@@ -562,6 +683,9 @@
             const u = KingdomStats.countUnits([p]);
             cittaPaganti -= (u.citta + u.capitale);
         });
+        // Capitale dormiente (§Manutenzione): non versa le tasse. Se è già
+        // esente per un decreto non si toglie due volte.
+        capSpente.forEach(id => { if (!(eff.esenti && eff.esenti[id])) cittaPaganti -= 1; });
         const monete = Math.max(0, cittaPaganti) * rate +
             (P && grado ? P.perks(grado, pol.turno).monete : 0);
 
@@ -598,6 +722,14 @@
         // dice quante ne nascono in ciascuna provincia con Capitale/Città/Fortezza:
         // quelle lì devono restare.
         const plan = KingdomStats.reinforcementPlan(provinces || [], popularity, grado, baseRisorse);
+        // La Capitale dormiente non dà il suo +1 soldato (resta tutto il resto).
+        capSpente.forEach(id => {
+            if (!(plan.perProvincia[id] > 0)) return;
+            plan.perProvincia[id] -= 1;
+            if (!plan.perProvincia[id]) delete plan.perProvincia[id];
+            plan.total = Math.max(0, plan.total - 1);
+            plan.vincolate = Math.max(0, (plan.vincolate || 0) - 1);
+        });
 
         return {
             monete, risorse,
@@ -849,6 +981,11 @@
         GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,
         ROUTE_BONUS, ROUTE_MAX_TYPES, ROUTE_MAX_UNITS, ROUTE_PER_MARKET, ROUTE_BREAK_TURNS, checkRouteGoods,
         bankTradeCost, canBankTrade, goodsText,
+        WAREHOUSE_CAP, WAREHOUSE_MAX, WAREHOUSE_UPGRADE, OVERFLOW_LOT, OVERFLOW_PRICE,
+        warehouseLevel, warehouseCap, warehouseUpgradeCost, overflowOf,
+        UPKEEP_EVERY, UPKEEP_STRUCT, UPKEEP_ORDER, UPKEEP_ROADS_PER, UPKEEP_MEN_PER, UPKEEP_KNIGHTS_PER,
+        STRUCT_UPKEEP_LEVEL, isUpkeepTurn, nextUpkeepTurn, structuresPayUpkeep, roadUpkeep,
+        troopUpkeep, upkeepBill,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
         connected, turnProduction, popEffectOf, defenceBonus, plagueTier,
         joyTier, discountedCost, costFor

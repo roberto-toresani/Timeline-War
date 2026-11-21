@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=102">
-    <link rel="stylesheet" href="css/board.css?v=143">
+    <link rel="stylesheet" href="css/board.css?v=144">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -235,8 +235,13 @@
                             <i id="bp-capital">—</i>
                         </span>
                     </div>
+                    <div class="bps-wh-title">Magazzino</div>
                     <div class="bps-res" id="bp-resources"></div>
+                    <div class="bps-wh-up" id="bp-wh-upgrade"></div>
                     <div class="bps-mod" id="bp-pop-mod" style="display:none;"></div>
+                    <!-- magazzino e manutenzione: c'è solo quando c'è qualcosa da dire
+                         (eccedenza, strutture dormienti, debiti) — renderTreasury -->
+                    <div class="bps-mod bps-store" id="bp-store-note" style="display:none;"></div>
                 </div>
 
                 <!-- ---------- 2 · LINGUETTE DELLE FASI ----------
@@ -299,6 +304,18 @@
                         <summary>Spie <span class="bp-fold-hint">200 monete · 3 turni · vedi le bandiere, non le truppe</span></summary>
                         <div class="bp-fold-body">
                             <div id="bp-spies"></div>
+                        </div>
+                    </details>
+
+                    <!-- ---------- FASE 2d · MAGAZZINO E MANUTENZIONE ----------
+                         docs/regole/RISORSE_ECONOMIA.md. Tetto delle scorte,
+                         ampliamento, conto della prossima manutenzione, strutture
+                         dormienti e «Salda». Si apre da solo quando c'è un
+                         problema. Contenuto da renderWarehouse(). -->
+                    <details class="bp-fold" id="fase-magazzino" style="display:none;">
+                        <summary>Magazzino e manutenzione <span class="bp-fold-hint" id="bp-warehouse-hint">tetto delle scorte · conto ogni 3 turni</span></summary>
+                        <div class="bp-fold-body">
+                            <div id="bp-warehouse"></div>
                         </div>
                     </details>
 
@@ -606,7 +623,7 @@
     <script src="js/audio.js?v=90"></script>
     <script src="js/politics.js?v=2"></script>
     <script src="js/kingdom-stats.js?v=91"></script>
-    <script src="js/game-rules.js?v=135"></script>
+    <script src="js/game-rules.js?v=136"></script>
     <!-- PRIMA di app.js: vedi la nota in index.html. -->
     <script src="js/popularity.js?v=90"></script>
     <script src="js/map-anchors.js?v=90"></script>
@@ -619,10 +636,10 @@
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=100"></script>
     <script src="js/flags.js?v=2"></script>
-    <script src="js/app.js?v=135"></script>
-    <script src="js/game-actions.js?v=137"></script>
-    <script src="js/bot.js?v=135"></script>
-    <script src="js/player-board.js?v=150"></script>
+    <script src="js/app.js?v=137"></script>
+    <script src="js/game-actions.js?v=138"></script>
+    <script src="js/bot.js?v=136"></script>
+    <script src="js/player-board.js?v=152"></script>
     <!-- ✝ Il Papa: la finestra dell'admin, solo senza codice d'invito (js/pope-chat.js). -->
     <script src="js/pope-chat.js?v=3"></script>
 </body>

@@ -470,6 +470,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // gli editti e gli avvisi di mare.
         if (typeof p.welfareMaintTurn !== 'number') p.welfareMaintTurn = 0;
         if (!Array.isArray(p.welfareAvvisi)) p.welfareAvvisi = [];
+        // MAGAZZINO E MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md): livello del
+        // magazzino (1-3, tetto per tipo di risorsa), strutture DORMIENTI per
+        // manutenzione non pagata [{prov, tipo, dal}] e debiti aperti
+        // {turno, grano, bestiame, pietraStrade}. Chi li muta è game-actions.
+        if (typeof p.magazzino !== 'number' || p.magazzino < 1) p.magazzino = 1;
+        if (!Array.isArray(p.dormienti)) p.dormienti = [];
+        if (!p.manutenzione || typeof p.manutenzione !== 'object' || Array.isArray(p.manutenzione)) p.manutenzione = {};
         // OBIETTIVI DI PRESTIGIO (§10, js/objectives.js): la spunta del ciclo
         // corrente è DAL VIVO (si ricalcola, non si salva), quindi qui basta lo
         // STORICO dei cicli conclusi — fotografato al passaggio di ciclo e sempre
@@ -2047,6 +2054,49 @@ document.addEventListener('DOMContentLoaded', () => {
         provincePaths(svg).forEach(path => {
             const corpi = byProv.get(path.id);
             if (corpi) drawCorps(svg, path, corpi);
+        });
+    }
+
+    // STRUTTURE DORMIENTI (docs/regole/RISORSE_ECONOMIA.md §Manutenzione): la
+    // struttura che non ha pagato resta in piedi ma non rende. Lo stato vive sul
+    // record del regno (player.dormienti), non sul path: qui si disegna solo un
+    // 💤 in alto a destra della provincia, a ogni refresh come i corpi. Si vede
+    // dal padrone e da chi vede la provincia (non in nebbia né in foschia).
+    // `function` e non `const`: refreshMapDisplay gira già da initMap (TDZ).
+    function renderDormant(svg, focus, visible, hazed) {
+        svg.querySelectorAll('.dormant-marker').forEach(m => m.remove());
+        const byProv = new Map();
+        PLAYERS.forEach(pl => {
+            (pl.dormienti || []).forEach(d => {
+                if (!d || !d.prov) return;
+                if (focus && pl.id !== focus.id) {
+                    if (visible && !visible.has(d.prov)) return;
+                    if (hazed && hazed.has(d.prov)) return;
+                }
+                if (!byProv.has(d.prov)) byProv.set(d.prov, pl.name);
+            });
+        });
+        if (!byProv.size) return;
+        byProv.forEach((ownerName, id) => {
+            const path = document.getElementById(id);
+            if (!path || path.getAttribute('data-owner') !== ownerName) return;
+            const bb = mainBodyBBox(path);
+            if (!bb) return;
+            const a = MapAnchors.landAnchor(path) || { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2 };
+            const size = Math.max(PIECE_SIZE_MIN, Math.min(Math.min(bb.w, bb.h) * PIECE_FIT, PIECE_SIZE));
+            const t = document.createElementNS(SVG_NS, 'text');
+            t.setAttribute('class', 'dormant-marker');
+            t.setAttribute('pointer-events', 'none');
+            t.setAttribute('x', a.x + size * 0.55);
+            t.setAttribute('y', a.y - size * 0.3);
+            t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('dominant-baseline', 'central');
+            t.setAttribute('font-size', size * 0.6);
+            t.textContent = '💤';
+            const tip = document.createElementNS(SVG_NS, 'title');
+            tip.textContent = 'Struttura dormiente: manutenzione non pagata';
+            t.appendChild(tip);
+            svg.appendChild(t);
         });
     }
 
@@ -4927,6 +4977,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // data-pieces: anch'essi si ridisegnano a ogni refresh, col colore del
         // mittente e la coccarda, rispettando la nebbia del focus.
         renderCorps(svg, focus, visible, hazed);
+        // Le strutture DORMIENTI (manutenzione non pagata): un 💤 sulla
+        // provincia, con le stesse regole di nebbia dei corpi.
+        renderDormant(svg, focus, visible, hazed);
         // I corridoi delle rotte commerciali (§7): visibili a tutti, in nebbia
         // solo dove si vede la provincia.
         renderTradeRoutes(svg, focus, visible);
@@ -6000,7 +6053,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const scroll = wrap.querySelector('.uf-scroll');
         if (info.colore) scroll.style.setProperty('--kingdom', info.colore);
         if (info.tipo) scroll.classList.add('uf-' + info.tipo);
-        wrap.querySelector('.uf-eyebrow').textContent =
+        wrap.querySelector('.uf-eyebrow').textContent = info.occhiello ||
             FOUNDATION_EYEBROW[info.tipo] ||
             ('Cronaca' + (info.regno ? ' del regno di ' + info.regno : ''));
         wrap.querySelector('.uf-year').textContent = 'Anno Domini ' + info.anno;

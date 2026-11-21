@@ -74,7 +74,7 @@
         const links = [];
         paths.forEach(p => {
             if (hubSet.has(p.id)) return;
-            const hulls = E().ships(p);
+            const hulls = hullsOf(p);
             if (!hulls.length) return;
             const maxR = hulls.reduce((m, h) => Math.max(m, E().shipRange(h.tipo) || 0), 0);
             if (!(maxR > 0)) return;
@@ -565,6 +565,12 @@
             pl.temporanei = {};
             pl.offerte = [];
             pl.spie = [];
+            // MAGAZZINO E MANUTENZIONE: si riparte dal livello 1, senza debiti
+            // né strutture dormienti.
+            pl.magazzino = 1;
+            pl.dormienti = [];
+            pl.manutenzione = {};
+            pl.welfareAvvisi = [];
             pl.fase = PHASES[0];
             pl.spostamentiRimasti = 1;
             pl.tipoSpostamento = null;
@@ -726,8 +732,10 @@
         prunePolicyDecrees(player, turnoGlobale);
         const pol = policyContext(player, turnoGlobale);
 
+        // MANUTENZIONE (§Manutenzione): le strutture rimaste DORMIENTI al conto
+        // precedente non rendono — niente tasse né rinforzi da loro.
         const prod = GR().turnProduction(snapshotOf(player), collegate, units,
-            player.tassazione, pop, bloccoPeste, pol);
+            player.tassazione, pop, bloccoPeste, pol, dormantMap(player));
 
         // FELICITÀ (§6.1, "Festa" — regola dell'utente, simmetrica alla Peste ma
         // di segno opposto): quante migliorie di Felicità il regno ha sulla
@@ -797,6 +805,10 @@
         // questo turno (così vale tutto ciò che si è accumulato nei 5 turni). Chi
         // resta scoperto va dormiente, poi crolla; l'esito va nella pergamena.
         maintainWelfare(player);
+        // MANUTENZIONE DEL REGNO (§Manutenzione): ogni 3 turni il conto di
+        // truppe e (da magazzino liv. 2) strutture; ogni turno i debiti aperti
+        // si saldano da sé o costano un disertore.
+        maintainKingdom(player);
 
         // Le spedizioni in mare (§9.2, rotte lunghe) avanzano di una portata verso
         // la loro rotta: si sono mosse nell'intervallo, il giocatore le ritrova più
@@ -1037,6 +1049,9 @@
         // Conquista lasciata a metà: i superstiti restano tutti nella provincia
         // presa (è già la situazione sulla mappa), si chiude solo la pratica.
         if (player) { player.conquista = null; player.capitalePresa = null; expireTemporaries(player); }
+        // MAGAZZINO (§Magazzino): l'eccedenza oltre il tetto si vende ora, a
+        // fine turno di chi ha giocato.
+        if (player) applyWarehouseCap(player);
 
         const idx = ordine.indexOf(R().turnoDi());
         const primo = R().primoDelGiro();
@@ -2018,6 +2033,346 @@
         return eventi.length ? { prov: cap.id, eventi } : null;
     }
 
+    // ==================================================================
+    //  MAGAZZINO E MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md)
+    //  Le regole (tetti, costi, conto) sono pure in game-rules.js; qui si
+    //  applicano. Tutto lo stato vive sul RECORD del regno, non sulla mappa:
+    //    player.magazzino     livello 1-3
+    //    player.dormienti     [{prov, tipo, dal}] strutture che non hanno pagato
+    //    player.manutenzione  {turno, grano, bestiame, pietraStrade} debiti aperti
+    //  Gli esiti finiscono in player.welfareAvvisi (la stessa pergamena
+    //  «Manutenzione» delle migliorie civiche), con `kind` per distinguerli.
+    // ==================================================================
+    const DORMANT_TYPES = ['capitale', 'citta', 'fortezza', 'mercato', 'vascello', 'barca'];
+    const UPKEEP_NOTICES_MAX = 40;
+
+    function warehouseCapOf(player) { return GR().warehouseCap(GR().warehouseLevel(player)); }
+
+    function upkeepState(player) {
+        if (!player.manutenzione || typeof player.manutenzione !== 'object') player.manutenzione = {};
+        return player.manutenzione;
+    }
+
+    // `silenzioso`: nasce già letto — va nel giornale della plancia ma non apre
+    // la pergamena (una manutenzione pagata tutta non merita un pop-up).
+    function pushUpkeepNotice(player, turno, eventi, silenzioso) {
+        if (!eventi || !eventi.length) return;
+        if (!Array.isArray(player.welfareAvvisi)) player.welfareAvvisi = [];
+        player.welfareAvvisi.push({ turno, eventi, letto: !!silenzioso });
+        while (player.welfareAvvisi.length > UPKEEP_NOTICES_MAX) player.welfareAvvisi.shift();
+    }
+
+    // Quante strutture di quel tipo ci sono nella provincia (navi comprese).
+    function structureCount(path, tipo) {
+        if (tipo === 'barca' || tipo === 'vascello') return E().ships(path).filter(s => s.tipo === tipo).length;
+        return E().countPiece(path, tipo);
+    }
+
+    // Le strutture DORMIENTI del regno, ripulite da ciò che non vale più: una
+    // provincia persa (la conquista azzera il debito — è del nuovo padrone, e
+    // per lui è una struttura nuova), una Capitale spostata, una nave affondata.
+    function dormantList(player) {
+        if (!player || !Array.isArray(player.dormienti) || !player.dormienti.length) return [];
+        const keep = [];
+        const seen = {};
+        player.dormienti.forEach(d => {
+            if (!d || !d.prov || DORMANT_TYPES.indexOf(d.tipo) < 0) return;
+            const path = E().path(d.prov);
+            if (!path || E().owner(path) !== player.name) return;
+            const k = d.prov + '|' + d.tipo;
+            seen[k] = (seen[k] || 0) + 1;
+            if (seen[k] > structureCount(path, d.tipo)) return;
+            keep.push(d);
+        });
+        if (keep.length !== player.dormienti.length) player.dormienti = keep;
+        return keep;
+    }
+
+    // { idProvincia: { tipo: n } } — la forma che legge GameRules.turnProduction.
+    function dormantMap(player) {
+        const m = {};
+        dormantList(player).forEach(d => {
+            if (!m[d.prov]) m[d.prov] = {};
+            m[d.prov][d.tipo] = (m[d.prov][d.tipo] || 0) + 1;
+        });
+        return m;
+    }
+
+    function isDormant(player, provId, tipo) {
+        return dormantList(player).some(d => d.prov === provId && d.tipo === tipo);
+    }
+
+    // Gli scafi USABILI di una provincia: quelli dormienti restano in porto
+    // (non salpano, non sbarcano, non collegano un'isola). Gli scafi non hanno
+    // un'identità propria, quindi si conta: i dormienti sono gli ultimi di quel
+    // tipo nella lista.
+    function hullsOf(path) {
+        const all = E().ships(path);
+        if (!all.length) return all;
+        const owner = E().owner(path);
+        const pl = owner ? R().players().find(p => p.name === owner) : null;
+        if (!pl || !Array.isArray(pl.dormienti) || !pl.dormienti.length) return all;
+        const off = {};
+        pl.dormienti.forEach(d => { if (d && d.prov === path.id) off[d.tipo] = (off[d.tipo] || 0) + 1; });
+        if (!off.barca && !off.vascello) return all;
+        const out = [];
+        const tolti = {};
+        for (let i = all.length - 1; i >= 0; i--) {
+            const t = all[i].tipo;
+            if ((tolti[t] || 0) < (off[t] || 0)) { tolti[t] = (tolti[t] || 0) + 1; continue; }
+            out.unshift(all[i]);
+        }
+        return out;
+    }
+
+    // Cosa possiede il regno, per il conto della manutenzione.
+    function upkeepInventory(player) {
+        const paths = E().ownedPaths(player.name);
+        const owned = new Set(paths.map(p => p.id));
+        const strutture = {};
+        GR().UPKEEP_ORDER.forEach(t => { strutture[t] = 0; });
+        const elenco = [];
+        let fanti = 0, cavalieri = 0;
+        paths.forEach(p => {
+            GR().UPKEEP_ORDER.forEach(tipo => {
+                const n = structureCount(p, tipo);
+                for (let i = 0; i < n; i++) elenco.push({ prov: p.id, tipo });
+                strutture[tipo] += n;
+            });
+            const sold = E().countPiece(p, 'soldato'), cav = E().cav(p);
+            fanti += Math.max(0, sold - cav);
+            cavalieri += cav;
+        });
+        // I corpi di spedizione su suolo alleato sono uomini di questo regno: mangiano anche loro.
+        (player.corpiSpedizione || []).forEach(c => {
+            const cav = c.cav || 0;
+            fanti += Math.max(0, (c.soldati || 0) - cav);
+            cavalieri += cav;
+        });
+        const ord = GR().UPKEEP_ORDER;
+        elenco.sort((a, b) => ord.indexOf(a.tipo) - ord.indexOf(b.tipo));
+        const strade = E().roads().filter(r => owned.has(r.a) && owned.has(r.b)).length;
+        return { strutture, elenco, strade, fanti, cavalieri };
+    }
+
+    // Il conto della PROSSIMA manutenzione, per la plancia.
+    function upkeepPreview(player) {
+        const inv = upkeepInventory(player);
+        const lvl = GR().warehouseLevel(player);
+        const bill = GR().upkeepBill(lvl, inv);
+        // Se il conto di questo turno è già stato pagato (succede a inizio
+        // turno), il prossimo è fra UPKEEP_EVERY turni.
+        let turno = GR().nextUpkeepTurn(R().turn());
+        if (turno === R().turn() && upkeepState(player).turno === turno) turno += GR().UPKEEP_EVERY;
+        return Object.assign({}, bill, {
+            livello: lvl, turno, inv,
+            debito: Object.assign({}, upkeepState(player)), dormienti: dormantList(player).slice()
+        });
+    }
+
+    // DISERZIONE (§Manutenzione, truppe): un uomo se ne va da dove ce ne sono
+    // di più, mai sotto il presidio minimo. Fra i fanti partono prima i
+    // mercenari: sono i meno legati alla corona.
+    function desert(player, unita) {
+        const paths = E().ownedPaths(player.name).filter(p => GR().spendableTroops(E().countPiece(p, 'soldato')) > 0);
+        let best = null, bestN = 0;
+        paths.forEach(p => {
+            const cav = E().cav(p), n = unita === 'cavaliere' ? cav : E().countPiece(p, 'soldato') - cav;
+            if (n > bestN) { best = p; bestN = n; }
+        });
+        if (!best) return null;
+        const merc = E().merc(best), cav = E().cav(best);
+        E().addPiece(best, 'soldato', -1);
+        if (unita === 'cavaliere') E().setCav(best, cav - 1);
+        else if (merc > 0) E().setMerc(best, merc - 1);
+        E().redrawProvince(best);
+        return best.id;
+    }
+
+    // LA MANUTENZIONE di inizio turno. Gira per TUTTI in beginTurn, dopo la
+    // raccolta (si paga anche con quel che si è appena raccolto).
+    //  · Turno di manutenzione (multiplo di 3): si presenta il conto. Truppe
+    //    sempre; strutture e strade solo da magazzino livello 2. Il debito delle
+    //    truppe NON si accumula: il conto riparte da quel che devi adesso (il
+    //    vecchio l'hai già pagato in disertori).
+    //  · Ogni turno: se c'è un debito di truppe o strade si prova a saldarlo
+    //    da sé; se il Grano (o il Bestiame) manca ancora, diserta un fante (o
+    //    un cavaliere). Le strutture dormienti si riattivano al conto successivo
+    //    o subito, a mano, con «Salda la manutenzione» (payUpkeep).
+    function maintainKingdom(player) {
+        const T = R().turn();
+        const st = upkeepState(player);
+        const scorte = player.scorte || (player.scorte = GR().emptyScorte());
+        const versato = GR().emptyScorte();
+        const take = (res, n) => {
+            const x = Math.max(0, Math.min(n || 0, scorte[res] || 0));
+            scorte[res] -= x; versato[res] += x;
+            return x;
+        };
+        const eventi = [];
+        let periodo = false;
+
+        if (GR().isUpkeepTurn(T) && st.turno !== T) {
+            periodo = true;
+            st.turno = T;
+            const inv = upkeepInventory(player);
+            const lvl = GR().warehouseLevel(player);
+            const bill = GR().upkeepBill(lvl, inv);
+            st.grano = bill.truppe.grano - take('grano', bill.truppe.grano);
+            st.bestiame = bill.truppe.bestiame - take('bestiame', bill.truppe.bestiame);
+            if (bill.strutture) {
+                // Le dormienti di prima, per riconoscere chi si riattiva e da quando dorme.
+                const vecchie = {};
+                dormantList(player).forEach(d => {
+                    const k = d.prov + '|' + d.tipo;
+                    (vecchie[k] = vecchie[k] || []).push(d.dal || T);
+                });
+                const nuove = [];
+                inv.elenco.forEach(s => {
+                    const cost = GR().UPKEEP_STRUCT[s.tipo];
+                    const res = Object.keys(cost)[0];
+                    const k = s.prov + '|' + s.tipo;
+                    const dormiva = vecchie[k] && vecchie[k].length ? vecchie[k].shift() : null;
+                    if ((scorte[res] || 0) >= cost[res]) {
+                        take(res, cost[res]);
+                        if (dormiva != null) eventi.push({ kind: 'struttura', tipo: s.tipo, prov: s.prov, esito: 'riattivata', res });
+                    } else {
+                        nuove.push({ prov: s.prov, tipo: s.tipo, dal: dormiva != null ? dormiva : T });
+                        if (dormiva == null) eventi.push({ kind: 'struttura', tipo: s.tipo, prov: s.prov, esito: 'dormiente', res });
+                    }
+                });
+                player.dormienti = nuove;
+                st.pietraStrade = bill.strade - take('pietra', bill.strade);
+                if (st.pietraStrade > 0) eventi.push({ kind: 'strade', manca: st.pietraStrade });
+            } else {
+                st.pietraStrade = 0;
+                player.dormienti = [];
+            }
+        } else {
+            // Turno qualunque: i debiti aperti si saldano da sé appena si può.
+            if (st.grano > 0) st.grano -= take('grano', st.grano);
+            if (st.bestiame > 0) st.bestiame -= take('bestiame', st.bestiame);
+            if (st.pietraStrade > 0) st.pietraStrade -= take('pietra', st.pietraStrade);
+        }
+
+        // Il debito delle truppe segue le BOCCHE da sfamare: se nel frattempo
+        // l'esercito è sceso sotto la soglia (disertori, battaglie), il conto
+        // scende con lui — 14 fanti non chiedono Grano, e non devono più disertare.
+        if (st.grano > 0 || st.bestiame > 0) {
+            const inv = upkeepInventory(player);
+            const ora = GR().troopUpkeep(inv.fanti, inv.cavalieri);
+            st.grano = Math.min(st.grano || 0, ora.grano);
+            st.bestiame = Math.min(st.bestiame || 0, ora.bestiame);
+        }
+
+        // DISERZIONE: un turno scoperto costa un uomo per reparto non pagato.
+        if (st.grano > 0) {
+            const prov = desert(player, 'fante');
+            eventi.push({ kind: 'truppe', res: 'grano', manca: st.grano, disertore: prov ? 'fante' : null, prov });
+        }
+        if (st.bestiame > 0) {
+            const prov = desert(player, 'cavaliere');
+            eventi.push({ kind: 'truppe', res: 'bestiame', manca: st.bestiame, disertore: prov ? 'cavaliere' : null, prov });
+        }
+
+        const pagato = GR().RES.some(k => versato[k] > 0);
+        if (periodo || pagato) {
+            eventi.unshift({ kind: 'conto', periodo, versato, prossimo: T + GR().UPKEEP_EVERY });
+        }
+        // Senza problemi (solo il conto pagato) l'avviso resta nel giornale e
+        // non apre la pergamena.
+        const problemi = eventi.some(e => e.kind !== 'conto' && !(e.kind === 'struttura' && e.esito === 'riattivata'));
+        pushUpkeepNotice(player, T, eventi, !problemi);
+        return eventi.length ? { eventi } : null;
+    }
+
+    // «SALDA LA MANUTENZIONE» (fase Costruisci): paga subito i debiti aperti e
+    // riattiva le strutture dormienti, una unità ciascuna, nell'ordine del conto
+    // (Capitale prima). Quel che non si può pagare resta com'è.
+    function payUpkeep(player) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const st = upkeepState(player);
+        const scorte = player.scorte;
+        const versato = GR().emptyScorte();
+        const take = (res, n) => {
+            const x = Math.max(0, Math.min(n || 0, scorte[res] || 0));
+            scorte[res] -= x; versato[res] += x;
+            return x;
+        };
+        const fatti = [];
+        if (st.grano > 0) { st.grano -= take('grano', st.grano); if (!st.grano) fatti.push('il Grano delle truppe'); }
+        if (st.bestiame > 0) { st.bestiame -= take('bestiame', st.bestiame); if (!st.bestiame) fatti.push('il Bestiame dei cavalieri'); }
+        const ord = GR().UPKEEP_ORDER;
+        const restano = [];
+        dormantList(player).slice()
+            .sort((a, b) => ord.indexOf(a.tipo) - ord.indexOf(b.tipo))
+            .forEach(d => {
+                const cost = GR().UPKEEP_STRUCT[d.tipo];
+                const res = Object.keys(cost)[0];
+                if ((scorte[res] || 0) >= cost[res]) {
+                    take(res, cost[res]);
+                    fatti.push(structureLabel(d.tipo) + ' a ' + labelOf(d.prov));
+                } else restano.push(d);
+            });
+        player.dormienti = restano;
+        if (st.pietraStrade > 0) { st.pietraStrade -= take('pietra', st.pietraStrade); if (!st.pietraStrade) fatti.push('le strade'); }
+
+        if (!GR().RES.some(k => versato[k] > 0)) {
+            const aperto = st.grano > 0 || st.bestiame > 0 || st.pietraStrade > 0 || restano.length;
+            return fail(aperto ? 'Non hai le risorse per saldare la manutenzione.' : 'Non c\'è nessuna manutenzione da saldare.');
+        }
+        E().refresh();
+        E().save();
+        const txt = GR().goodsText ? GR().RES.filter(k => versato[k] > 0).map(k => versato[k] + ' ' + GR().RES_LABEL[k]).join(', ') : '';
+        const resta = (st.grano > 0 || st.bestiame > 0 || st.pietraStrade > 0 || restano.length) ? ' Resta ancora qualcosa da pagare.' : '';
+        return done('Manutenzione saldata (' + txt + ')' + (fatti.length ? ': ' + fatti.join(', ') + '.' : '.') + resta,
+            { prov: homeId(player) });
+    }
+
+    function structureLabel(tipo) {
+        if (tipo === 'barca') return 'Nave';
+        if (tipo === 'vascello') return 'Veliero';
+        return (GR().ITEM_LABEL && GR().ITEM_LABEL[tipo]) || tipo;
+    }
+
+    // AMPLIA IL MAGAZZINO (fase Costruisci): 1000 monete per livello, fino al 3.
+    // Il primo ampliamento spegne lo scudo dei regni nuovi: da lì anche le
+    // strutture pagano la manutenzione.
+    function upgradeWarehouse(player) {
+        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const lvl = GR().warehouseLevel(player);
+        const cost = GR().warehouseUpgradeCost(lvl);
+        if (!cost) return fail('Il magazzino è già al livello massimo (' + lvl + ').');
+        const afford = GR().canAfford(player, cost, 0);
+        if (!afford.ok) return fail('Non puoi permettertelo: ' + GR().missingText(afford.missing) + '.');
+        payConstruction(player, cost, null);
+        player.magazzino = lvl + 1;
+        const nota = (lvl + 1 === GR().STRUCT_UPKEEP_LEVEL)
+            ? ' Da ora anche Capitale, Città, Fortezze, Mercati, navi e strade pagano la manutenzione ogni ' +
+              GR().UPKEEP_EVERY + ' turni.' : '';
+        E().refresh();
+        E().save();
+        return done('Magazzino al livello ' + (lvl + 1) + ': tetto di ' + GR().warehouseCap(lvl + 1) +
+            ' per tipo di risorsa.' + nota, { prov: homeId(player) });
+    }
+
+    // IL TETTO DEL MAGAZZINO, a fine turno di chi gioca: l'eccedenza si vende da
+    // sola (50 monete ogni 3 risorse, contate su tutti i tipi), il resto va perso.
+    // A fine turno e non alla raccolta: così il giocatore ha il turno intero per
+    // spendere, scambiare o ampliare prima di perdere qualcosa.
+    function applyWarehouseCap(player) {
+        if (!player || !player.scorte) return null;
+        const cap = warehouseCapOf(player);
+        const ov = GR().overflowOf(player.scorte, cap);
+        if (!ov.totale) return null;
+        Object.keys(ov.eccedenza).forEach(k => { player.scorte[k] -= ov.eccedenza[k]; });
+        player.monete = (player.monete || 0) + ov.monete;
+        pushUpkeepNotice(player, R().turn(), [{
+            kind: 'magazzino', cap, eccedenza: ov.eccedenza, totale: ov.totale, monete: ov.monete, perse: ov.perse
+        }], false);
+        return ov;
+    }
+
     // Trasloco fisico del seggio: la vecchia Capitale diventa Città (non si rade
     // nulla — l'insediamento resta, cambia solo grado), la nuova provincia diventa
     // Capitale. È l'UNICO punto che sposta il seggio: lo chiamano sia lo
@@ -2129,6 +2484,13 @@
         }
         if (!E().areLandAdjacent(aId, bId)) return fail('Le due province non confinano via terra.');
         if (E().hasRoad(aId, bId)) return fail('Questa strada esiste già.');
+        // Strade DISSESTATE (§Manutenzione): con la Pietra della manutenzione
+        // ancora da versare non se ne aprono di nuove.
+        const debitoStrade = (player.manutenzione && player.manutenzione.pietraStrade) || 0;
+        if (debitoStrade > 0) {
+            return fail('Le tue strade sono dissestate: prima versa ' + debitoStrade +
+                ' Pietra di manutenzione (Salda la manutenzione).');
+        }
 
         const gratis = (player.stradeGratis || 0) > 0;
         if (!gratis) {
@@ -2548,11 +2910,23 @@
     // questo la stessa pietra si potrebbe promettere a tre regni diversi.
     // Una proposta vive in un posto solo: la lista `offerte` di CHI LA RICEVE.
 
+    // Il primo Mercato ATTIVO: uno dormiente (§Manutenzione) non commercia.
     function marketPath(player) {
-        return E().ownedPaths(player.name).find(p => E().countPiece(p, 'mercato') > 0) || null;
+        return E().ownedPaths(player.name).find(p => E().countPiece(p, 'mercato') > 0 &&
+            !isDormant(player, p.id, 'mercato')) || null;
     }
 
-    function hasMarket(player) { return !!marketPath(player); }
+    // Il regno ha COSTRUITO un Mercato (anche dormiente): serve ai bot per non
+    // costruirne un secondo e alla plancia per mostrare la sezione Mercato.
+    function hasMarket(player) {
+        return E().ownedPaths(player.name).some(p => E().countPiece(p, 'mercato') > 0);
+    }
+
+    function noMarketMsg(player, base) {
+        return hasMarket(player)
+            ? 'Il tuo Mercato è dormiente 💤 (manutenzione non pagata): riattivalo con «Salda la manutenzione».'
+            : base;
+    }
 
     // Dove "succede" un'azione che non ha una provincia sua (accettare, rifiutare,
     // ritirare): la Capitale, o la prima provincia del regno. Serve alla nebbia —
@@ -2610,7 +2984,7 @@
     function tradeWithBank(player, dai, prendi, n) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         const mercato = marketPath(player);
-        if (!mercato) return fail('Senza un Mercato non si commercia con l\'estero: costruiscine uno.');
+        if (!mercato) return fail(noMarketMsg(player, 'Senza un Mercato non si commercia con l\'estero: costruiscine uno.'));
 
         const check = GR().canBankTrade(player, dai, prendi, n);
         if (!check.ok) return fail(check.msg);
@@ -2640,7 +3014,7 @@
             .map(p => p.id);
         if (!markets.length) return false;
         return E().ownedPaths(player.name).some(from => {
-            const hulls = E().ships(from);
+            const hulls = hullsOf(from);
             if (!hulls.length) return false;
             return hulls.some(h => {
                 const r = E().shipRange(h.tipo);
@@ -2655,7 +3029,7 @@
     function proposeTrade(player, toId, offro, chiedo) {
         const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
         const mercato = marketPath(player);
-        if (!mercato) return fail('Serve un Mercato per far partire una carovana: costruiscine uno.');
+        if (!mercato) return fail(noMarketMsg(player, 'Serve un Mercato per far partire una carovana: costruiscine uno.'));
 
         const altro = R().players().find(p => String(p.id) === String(toId));
         if (!altro) return fail('Regno sconosciuto.');
@@ -2891,7 +3265,8 @@
     }
 
     function marketPaths(player) {
-        return E().ownedPaths(player.name).filter(p => E().countPiece(p, 'mercato') > 0);
+        return E().ownedPaths(player.name).filter(p => E().countPiece(p, 'mercato') > 0 &&
+            !isDormant(player, p.id, 'mercato'));
     }
 
     // Il Mercato `path` di `owner` può ospitare una rotta verso `other`? Al più
@@ -3186,7 +3561,9 @@
                 const capi = [a, b];
                 const marketOk = (prov, capo) => {
                     const path = E().path(prov);
-                    return !!path && E().owner(path) === capo.name && E().countPiece(path, 'mercato') > 0;
+                    // Un Mercato dormiente (§Manutenzione) non manda carovane: la rotta salta.
+                    return !!path && E().owner(path) === capo.name && E().countPiece(path, 'mercato') > 0 &&
+                        !isDormant(capo, prov, 'mercato');
                 };
 
                 let esito;
@@ -3416,10 +3793,19 @@
             tipo: tradimento ? 'tradito' : 'rotto',
             patto: tipo || presenti[0].tipo, conNome: player.name
         });
+        // Senza più accesso militare, i corpi di spedizione rientrano. Durante un
+        // attacco (`corpiDopo`) lo fa l'attacco stesso, a battaglia applicata: un
+        // corpo che rientrasse ORA nella provincia contesa finirebbe nel conto.
+        let rientro = '';
+        if (!(opts && opts.corpiDopo)) {
+            const rientri = recallOrphanCorps(player, altro);
+            noticeCorpsReturn(rientri, tipo || presenti[0].tipo, player);
+            rientro = corpsReturnText(rientri, player);
+        }
         if (!(opts && opts.silent)) { E().refresh(); E().save(); }
         const testa = tradimento ? 'Hai tradito ' + altro.name
                                  : (tipo ? D().LABEL[tipo] : 'Ogni patto') + ' con ' + altro.name + ' sciolto';
-        return done(testa + (perde ? ' (−' + D().BREAK_PRESTIGE + ' prestigio).' : '.'), { prov: homeId(player) });
+        return done(testa + (perde ? ' (−' + D().BREAK_PRESTIGE + ' prestigio).' : '.') + rientro, { prov: homeId(player) });
     }
 
     // CONSENSO ALL'ATTACCO (regola dell'utente): il PROPRIETARIO concede a un
@@ -3618,6 +4004,8 @@
                     unbondPact(p, partner, pact.tipo);
                     pushPactNotice(p, { tipo: 'scaduto', patto: pact.tipo, conNome: partner.name });
                     pushPactNotice(partner, { tipo: 'scaduto', patto: pact.tipo, conNome: p.name });
+                    // Senza più accesso militare, i corpi di spedizione rientrano.
+                    noticeCorpsReturn(recallOrphanCorps(p, partner), pact.tipo, null);
                 } else {
                     p.patti = pactsMut(p).filter(x => x !== pact);
                 }
@@ -3702,7 +4090,7 @@
         // scafo più capiente, che è quello che ci può portare più uomini.
         const from = E().path(provId);
         if (!from || E().owner(from) !== player.name) return out;
-        const hulls = E().ships(from);
+        const hulls = hullsOf(from);
         if (!hulls.length) return out;
         // Per ogni bersaglio, TUTTI i tipi di scafo che ci arrivano, ordinati per
         // capienza crescente: l'ultimo è il più capiente e fa da default.
@@ -3737,7 +4125,7 @@
     // non parte una nave che non porta nessuno) — oppure null se nessuna flotta basta.
     function hullsForLanding(from, toId, engaged, voluto) {
         const byType = new Map();
-        E().ships(from).forEach(h => {
+        hullsOf(from).forEach(h => {
             if (voluto && h.tipo !== voluto) return;
             const r = E().shipRange(h.tipo);
             if (!(r > 0) || !E().seaReach(from.id, r).has(toId)) return;
@@ -3997,7 +4385,7 @@
         const viaMare = !E().areLandAdjacent(fromId, toId);
         let scafo = null;
         if (viaMare) {
-            const raggiungibile = E().ships(from).some(h => {
+            const raggiungibile = hullsOf(from).some(h => {
                 if (scafoVoluto && h.tipo !== scafoVoluto) return false;
                 const r = E().shipRange(h.tipo);
                 return r > 0 && E().seaReach(fromId, r).has(toId);
@@ -4030,7 +4418,7 @@
                 // Capienza massima disponibile: la flotta più capiente di un tipo
                 // solo che arriva fin lì (nº scafi × carico).
                 const perTipo = new Map();
-                E().ships(from)
+                hullsOf(from)
                     .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
                     .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); })
                     .forEach(h => perTipo.set(h.tipo, (perTipo.get(h.tipo) || 0) + 1));
@@ -4046,7 +4434,7 @@
         // Si sommano ai difensori — soldati, ventura e cavalieri — e il terreno e
         // le mura (dell'ospite) contano una volta sola. Senza corpi i totali sono
         // zero e tutto il percorso resta identico a prima.
-        const corpiQui = corpsOn(toId);
+        const corpiQui = corpsOn(toId, player);
         const corpSold = corpiQui.reduce((s, c) => s + (c.corpo.soldati || 0), 0);
         const corpMerc = corpiQui.reduce((s, c) => s + (c.corpo.merc || 0), 0);
         const corpCav  = corpiQui.reduce((s, c) => s + (c.corpo.cav || 0), 0);
@@ -4079,10 +4467,14 @@
         // rompe ogni patto col difensore (−2 prestigio se c'era un'alleanza) e
         // avvisa il tradito. Il save di questa attack in coda copre tutto (silent).
         let consensoUsato = consensoSpeso;
+        let corpiDaRientrare = false;
         if (pattoNonAgg && difRegno) {
             const ci = consentIndex(difRegno, player.id, toId);
             if (ci >= 0) { difRegno.permessiAttacco.splice(ci, 1); consensoUsato = true; }
-            else if (!consensoSpeso) breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
+            else if (!consensoSpeso) {
+                breakPact(player, difRegno.id, null, { tradimento: true, silent: true, corpiDopo: true });
+                corpiDaRientrare = true;
+            }
         }
 
         // L'ATTO DI GUERRA SI REGISTRA COMUNQUE VADA (§Diplomazia): la provincia
@@ -4204,6 +4596,15 @@
             }
         }
 
+        // CORPI DI SPEDIZIONE a battaglia applicata: quelli rimasti senza patto
+        // per il tradimento rientrano ORA (non prima, o finivano nel conto della
+        // provincia contesa); e un tuo corpo ospitato nella provincia appena
+        // presa torna fra i tuoi — è suolo tuo, non più una spedizione.
+        let rientri = corpiDaRientrare ? recallOrphanCorps(player, difRegno) : [];
+        if (res.attackerWins) rientri = rientri.concat(homeCorps(player, c => c.prov === toId));
+        noticeCorpsReturn(rientri, null, player);
+        msg += corpsReturnText(rientri, player);
+
         E().redrawProvince(from);
         E().redrawProvince(to);
         E().redrawRoads();
@@ -4294,7 +4695,7 @@
         if (E().owner(from) !== player.name) return fail('Puoi salpare solo da una tua provincia.');
         if (EXPED_DIRS.indexOf(dir) < 0) return fail('Direzione di rotta non valida.');
         // La rotta lunga è solo del Veliero (§9.2): serve uno scafo ancorato qui.
-        if (!E().ships(from).some(h => h.tipo === 'vascello')) {
+        if (!hullsOf(from).some(h => h.tipo === 'vascello')) {
             return fail('Serve un Veliero ancorato qui per una spedizione oltremare.');
         }
         // Da dove prende il mare: l'approdo in acqua libera della provincia.
@@ -4718,7 +5119,7 @@
         // NON si saltano: lì la nave è la seconda strada, e sceglie il giocatore.
         const from = E().path(fromId);
         if (from && E().owner(from) === player.name) {
-            E().ships(from).forEach(h => {
+            hullsOf(from).forEach(h => {
                 const r = E().shipRange(h.tipo);
                 if (!(r > 0)) return;
                 E().seaReach(fromId, r).forEach(id => {
@@ -4835,7 +5236,7 @@
             flotta = hullsForLanding(from, toId, n, scafoVoluto);
             scafo = flotta ? { tipo: flotta.tipo } : null;
             if (!scafo) {
-                const arriva = E().ships(from)
+                const arriva = hullsOf(from)
                     .filter(h => (!scafoVoluto || h.tipo === scafoVoluto))
                     .filter(h => { const r = E().shipRange(h.tipo); return r > 0 && E().seaReach(fromId, r).has(toId); });
                 if (!arriva.length) {
@@ -4857,7 +5258,7 @@
         // di quel tipo (nº scafi × capienza).
         const tetto = viaMare
             ? Math.min(mobili, E().shipCapacity(scafo.tipo) *
-                E().ships(from).filter(h => h.tipo === scafo.tipo).length)
+                hullsOf(from).filter(h => h.tipo === scafo.tipo).length)
             : mobili;
         if (n > tetto) {
             return fail(viaMare
@@ -5176,9 +5577,12 @@
     }
 
     // I corpi di spedizione (di chiunque) che stanno su una certa provincia ospite.
-    function corpsOn(provId) {
+    // `tranne` = un regno da escludere: chi attacca quella provincia non se la
+    // trova difesa dai propri uomini (il suo corpo lì resta fermo, non combatte).
+    function corpsOn(provId, tranne) {
         const out = [];
         R().players().forEach(pl => {
+            if (tranne && pl === tranne) return;
             (pl.corpiSpedizione || []).forEach(c => {
                 if (c.prov === provId) out.push({ owner: pl, corpo: c });
             });
@@ -5191,6 +5595,64 @@
         if (!owner || !Array.isArray(owner.corpiSpedizione)) return;
         const i = owner.corpiSpedizione.findIndex(c => c.id === corpoId);
         if (i >= 0) owner.corpiSpedizione.splice(i, 1);
+    }
+
+    // RIENTRO AUTOMATICO (§Diplomazia, regola dell'utente): i corpi di `owner`
+    // scelti da `quali` tornano da sé nella provincia del regno più vicina e si
+    // rifondono nella guarnigione. Gratis: non è il richiamo del giocatore, non
+    // consuma lo spostamento. Senza una via di terra si torna alla Capitale;
+    // senza più province il corpo si scioglie. Ritorna [{owner, ospite, prov, n}]
+    // (prov null = sciolto).
+    function homeCorps(owner, quali) {
+        const lista = owner && Array.isArray(owner.corpiSpedizione) ? owner.corpiSpedizione : null;
+        const out = [];
+        if (!lista) return out;
+        for (let i = lista.length - 1; i >= 0; i--) {
+            const c = lista[i];
+            if (!quali(c)) continue;
+            lista.splice(i, 1);
+            const dest = nearestOwnProvince(owner.name, c.prov) || homeId(owner);
+            const to = dest ? E().path(dest) : null;
+            if (to) {
+                putGroup(to, { n: c.soldati || 0, cav: c.cav || 0, merc: c.merc || 0 });
+                E().setArmyColor(to, owner.color);
+                E().redrawProvince(to);
+            }
+            out.push({ owner, ospite: c.alleato, prov: to ? dest : null, n: c.soldati || 0 });
+        }
+        return out;
+    }
+
+    // FINE DEL PATTO: un corpo sta su suolo altrui solo finché un patto concede
+    // l'accesso militare (alleanza, alleanza a tempo o rinforzi). Quando fra `a`
+    // e `b` non ce n'è più nessuno, i corpi dell'uno presso l'altro — in tutti e
+    // due i versi — rientrano a casa. Se resta un altro patto che lo concede
+    // (es. scade l'alleanza a tempo ma c'è ancora "rinforzi"), restano dove sono.
+    function recallOrphanCorps(a, b) {
+        if (!a || !b) return [];
+        let out = [];
+        [[a, b], [b, a]].forEach(([owner, host]) => {
+            if (D().allowsReinforce(owner, host)) return;
+            out = out.concat(homeCorps(owner, c => c.alleato === host.name));
+        });
+        return out;
+    }
+
+    // Avviso al regno del corpo rientrato (pergamena d'inizio turno, pattiAvvisi).
+    // `tranne`: chi ha appena agito lo legge già nel messaggio, niente pergamena.
+    function noticeCorpsReturn(rientri, patto, tranne) {
+        rientri.forEach(r => {
+            if (tranne && r.owner === tranne) return;
+            pushPactNotice(r.owner, {
+                tipo: 'corpoRientrato', patto, conNome: r.ospite, prov: r.prov, uomini: r.n
+            });
+        });
+    }
+    // Lo stesso, in chiaro, per il messaggio di chi ha agito.
+    function corpsReturnText(rientri, owner) {
+        return rientri.filter(r => r.owner === owner).map(r => r.prov
+            ? ' Il tuo corpo di spedizione presso ' + r.ospite + ' rientra a ' + labelOf(r.prov) + '.'
+            : ' Il tuo corpo di spedizione presso ' + r.ospite + ' non ha dove tornare e si scioglie.').join('');
     }
 
     // Perdite su un corpo di spedizione: la ventura cade per prima (§5.3); se il
@@ -5269,7 +5731,7 @@
         const mercImp = corpo.merc || 0, cavImp = corpo.cav || 0;
 
         // Il bersaglio può a sua volta ospitare corpi nemici: difendono con lui.
-        const corpiBersaglio = corpsOn(toId);
+        const corpiBersaglio = corpsOn(toId, player);
         const corpSoldB = corpiBersaglio.reduce((s, c) => s + (c.corpo.soldati || 0), 0);
         const corpMercB = corpiBersaglio.reduce((s, c) => s + (c.corpo.merc || 0), 0);
         const corpCavB = corpiBersaglio.reduce((s, c) => s + (c.corpo.cav || 0), 0);
@@ -5287,10 +5749,14 @@
 
         // Tradimento senza consenso: rompe il patto. Col consenso si consuma il
         // permesso una-tantum e il patto resta.
+        let corpiDaRientrare = false;
         if (pattoNonAgg && difRegno) {
             const ci = consentIndex(difRegno, player.id, toId);
             if (ci >= 0) difRegno.permessiAttacco.splice(ci, 1);
-            else breakPact(player, difRegno.id, null, { tradimento: true, silent: true });
+            else {
+                breakPact(player, difRegno.id, null, { tradimento: true, silent: true, corpiDopo: true });
+                corpiDaRientrare = true;
+            }
         }
         recordAggression(difRegno, to, player.name, res.attackerWins ? 'presa' : 'respinto');
 
@@ -5331,6 +5797,13 @@
                     res.defenderSurvivors + '.';
             }
         }
+
+        // Come l'attacco normale: rientri per il tradimento e, a provincia presa,
+        // un altro tuo corpo che vi stava ospite torna fra i tuoi.
+        let rientri = corpiDaRientrare ? recallOrphanCorps(player, difRegno) : [];
+        if (res.attackerWins) rientri = rientri.concat(homeCorps(player, c => c.prov === toId));
+        noticeCorpsReturn(rientri, null, player);
+        msg += corpsReturnText(rientri, player);
 
         E().redrawProvince(to);
         E().redrawRoads();
@@ -5714,6 +6187,9 @@
         deploy, deployBound, deployAllBound, undeploy, deployKnight,
         build, buildWelfare, maintainWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
         destroyMarket, destroyShip,
+        // MAGAZZINO E MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md)
+        upgradeWarehouse, payUpkeep, upkeepPreview, warehouseCapOf, applyWarehouseCap,
+        maintainKingdom, dormantList, isDormant, hullsOf,
         launchExpedition, expeditionTargets, expeditionLand, steerExpedition, advanceExpeditions,
         EXPED_DIRS, EXPED_DIR_LABEL,
         sendSpy, spyTargets, spiesOf,

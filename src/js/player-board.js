@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'resolveConquest', 'resolveCapital', 'launchExpedition', 'expeditionLand',
         'steerExpedition', 'sendSpy', 'setTax', 'tradeWithBank', 'proposeTrade', 'acceptTrade',
         'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact',
-        'grantAttack', 'askReinforcements', 'cancelHelp',
+        'grantAttack', 'askReinforcements', 'cancelHelp', 'upgradeWarehouse', 'payUpkeep',
         'proposeRoute', 'acceptRoute', 'declineRoute', 'withdrawRoute', 'cancelRoute', 'setRouteRaid'
     ]);
     const SPECTATE_MSG = '👁 Stai osservando: le decisioni di questo regno spettano al suo giocatore (per giocarlo tu, mettilo su 🧑 Admin dall’editor).';
@@ -1495,6 +1495,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // disabilita i comandi quando non è il momento.
         $('fase-schiera').style.display = view === 'schiera' ? '' : 'none';
         $('fase-spie').style.display = view === 'costruisci' ? '' : 'none';
+        if ($('fase-magazzino')) $('fase-magazzino').style.display = view === 'costruisci' ? '' : 'none';
         $('fase-sposta').style.display = view === 'sposta' ? '' : 'none';
 
         const next = $('bp-next-phase');
@@ -2105,17 +2106,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const collegate = snapshot.filter(p => connectedSet.has(p.id));
         const yields = KingdomStats.resourceYield(collegate, RES_KEYS);
 
+        // MAGAZZINO: il tetto per tipo accanto a ogni scorta; chi sfora si
+        // colora — a fine turno l'eccedenza si vende da sola.
+        const cap = GR().warehouseCap ? GR().warehouseCap(GR().warehouseLevel(player)) : null;
         $('bp-resources').innerHTML = RES_KEYS.map(k => {
             const gain = yields[k] || 0;
             const have = (player.scorte && player.scorte[k]) || 0;
+            const over = cap != null && have > cap;
+            const capTxt = cap != null ? ' (tetto ' + cap + (over ? ': a fine turno si vende l\'eccedenza' : '') + ')' : '';
             return `
-            <div class="bps-r" style="border-bottom-color:${RESOURCES[k].colore}"
-                 title="${RESOURCES[k].nome}: ${have} in scorta, ${gain ? '+' + gain : 'nessuna'} per turno">
+            <div class="bps-r${over ? ' over' : ''}" style="${over ? '' : 'border-bottom-color:' + RESOURCES[k].colore}"
+                 title="${RESOURCES[k].nome}: ${have} in scorta${capTxt}, ${gain ? '+' + gain : 'nessuna'} per turno">
                 <svg viewBox="0 0 100 100" aria-hidden="true"><use href="#res-${k}"></use></svg>
-                <span class="bps-r-n">${have}</span>
+                <span class="bps-r-n">${have}${cap != null ? '<span class="bps-cap">/' + cap + '</span>' : ''}</span>
                 <span class="bps-r-g${gain ? '' : ' zero'}">${gain ? '+' + gain : '—'}</span>
             </div>`;
         }).join('');
+        renderStoreNote(player, cap);
+        renderTreasuryUpgrade(player);
 
         const mod = pop ? GR().popEffectOf(pop.totale).risorse : 0;
         const modEl = $('bp-pop-mod');
@@ -2136,6 +2144,159 @@ document.addEventListener('DOMContentLoaded', () => {
             faithEl.textContent = '—';
             faithEl.title = 'Senza Capitale non c\'è religione di stato';
         }
+    }
+
+    // ---------- MAGAZZINO E MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md) ----------
+    // La riga d'allarme sotto le scorte: compare solo se c'è qualcosa da dire.
+    function renderStoreNote(player, cap) {
+        const el = $('bp-store-note');
+        if (!el) return;
+        const ga = GA();
+        if (!ga || !ga.upkeepPreview || !R.turn || !R.turn()) { el.style.display = 'none'; return; }
+        const parts = [];
+        if (cap != null && GR().overflowOf) {
+            const ov = GR().overflowOf(player.scorte || {}, cap);
+            if (ov.totale) parts.push('<span class="warn">Magazzino pieno: a fine turno ' + (ov.monete
+                ? ov.totale + ' in eccesso si vendono per ' + ov.monete + ' monete' + (ov.perse ? ' (' + ov.perse + ' perse)' : '')
+                : ov.totale + ' in eccesso vanno perse (si vendono a lotti di ' + GR().OVERFLOW_LOT + ')') + '</span>');
+        }
+        const dorm = ga.dormantList(player);
+        if (dorm.length) parts.push('💤 ' + dorm.length + (dorm.length === 1 ? ' struttura dormiente' : ' strutture dormienti'));
+        const st = player.manutenzione || {};
+        if (st.grano > 0) parts.push('<span class="warn">mancano ' + st.grano + ' Grano: un fante diserta a ogni turno</span>');
+        if (st.bestiame > 0) parts.push('<span class="warn">mancano ' + st.bestiame + ' Bestiame: un cavaliere diserta a ogni turno</span>');
+        if (st.pietraStrade > 0) parts.push('strade dissestate (' + st.pietraStrade + ' Pietra)');
+        el.style.display = parts.length ? '' : 'none';
+        el.innerHTML = parts.length ? '🏚 ' + parts.join(' · ') : '';
+    }
+
+    // Il pulsante «Amplia magazzino» SOTTO le scorte del cruscotto (regola
+    // dell'utente): sempre in vista, non solo nel fold della fase Costruisci.
+    // Disabilitato con la ragione quando non è il tuo turno di costruzione.
+    function renderTreasuryUpgrade(player) {
+        const box = $('bp-wh-upgrade');
+        if (!box) return;
+        box.innerHTML = '';
+        if (!GR().warehouseUpgradeCost || !GR().warehouseLevel) { box.style.display = 'none'; return; }
+        box.style.display = '';
+        const lvl = GR().warehouseLevel(player);
+        const upCost = GR().warehouseUpgradeCost(lvl);
+        if (!upCost) {
+            const d = document.createElement('div');
+            d.className = 'bps-wh-max';
+            d.textContent = '🏚 Magazzino al livello massimo (' + lvl + ')';
+            box.appendChild(d);
+            return;
+        }
+        const myTurn = inPhase(player, 'costruisci');
+        const afford = GR().canAfford(player, upCost, 0);
+        const why = !myTurn ? 'Solo nel tuo turno, in fase costruzioni.'
+            : (afford.ok ? null : GR().missingText(afford.missing));
+        box.appendChild(actionButton(
+            'Amplia magazzino → livello ' + (lvl + 1) + ' (tetto ' + GR().warehouseCap(lvl + 1) + ')',
+            GR().formatCost(upCost), why ? shorten(why) : null, () => {
+                const go = () => run(GA().upgradeWarehouse(player));
+                if (lvl + 1 === GR().STRUCT_UPKEEP_LEVEL && R.confirm) {
+                    R.confirm({
+                        title: 'Ampliare il magazzino?',
+                        text: 'Il tetto sale a ' + GR().warehouseCap(lvl + 1) + ' per tipo.\n' +
+                            'Da qui in poi anche le strutture pagano la manutenzione ogni ' +
+                            GR().UPKEEP_EVERY + ' turni.',
+                        ok: 'Amplia', tone: 'calm'
+                    }, go);
+                } else go();
+            }));
+    }
+
+    // Il riquadro della fase Costruisci: livello e tetto, «Amplia», conto della
+    // prossima manutenzione, strutture dormienti e «Salda la manutenzione».
+    function renderWarehouse(player) {
+        const box = $('bp-warehouse');
+        const fold = $('fase-magazzino');
+        if (!box || !fold) return;
+        const ga = GA();
+        if (!ga || !ga.upkeepPreview) { fold.style.display = 'none'; return; }
+        const myTurn = inPhase(player, 'costruisci');
+        const pv = ga.upkeepPreview(player);
+        const lvl = pv.livello;
+        const cap = GR().warehouseCap(lvl);
+        const resName = k => (GR().RES_LABEL && GR().RES_LABEL[k]) || k;
+        const billTxt = r => GR().RES.filter(k => r[k] > 0).map(k => r[k] + ' ' + resName(k)).join(', ') || 'niente';
+        box.innerHTML = '';
+        const line = (ico, txt, val, warn) => {
+            const d = document.createElement('div');
+            d.className = 'bp-wh-line' + (warn ? ' warn' : '');
+            d.innerHTML = '<span class="ico">' + ico + '</span><span class="txt"></span><span class="val"></span>';
+            d.querySelector('.txt').textContent = txt;
+            d.querySelector('.val').textContent = val || '';
+            box.appendChild(d);
+        };
+
+        line('🏚', 'Magazzino livello ' + lvl + ' di ' + GR().WAREHOUSE_MAX, 'tetto ' + cap + ' per tipo');
+        const ov = GR().overflowOf(player.scorte || {}, cap);
+        if (ov.totale) line('⚠', 'A fine turno trabocca dal magazzino: ' + ov.totale + (ov.totale === 1 ? ' risorsa' : ' risorse') +
+            ' (50 monete ogni ' + GR().OVERFLOW_LOT + ')',
+            (ov.monete ? '+' + ov.monete + ' monete' : '') + (ov.perse ? (ov.monete ? ', ' : '') + ov.perse + ' perse' : ''), true);
+
+        const quando = pv.turno === R.turn() ? 'questo turno' : 'turno ' + pv.turno;
+        line('🧾', 'Prossima manutenzione (' + quando + ')', billTxt(pv.risorse));
+        if (!pv.strutture) {
+            const note = document.createElement('div');
+            note.className = 'bp-wh-note';
+            note.textContent = 'Al livello 1 pagano solo le truppe (1 Grano ogni ' + GR().UPKEEP_MEN_PER +
+                ' fanti, 1 Bestiame ogni ' + GR().UPKEEP_KNIGHTS_PER + ' cavalieri). Ampliando il magazzino ' +
+                'anche le strutture pagano: Capitale e Fortezze 1 Pietra, Città 1 Argilla, Mercati e navi 1 Legno, ' +
+                '1 Pietra ogni ' + GR().UPKEEP_ROADS_PER + ' strade.';
+            box.appendChild(note);
+        }
+
+        const st = pv.debito || {};
+        if (st.grano > 0) line('🏃', 'Grano non pagato: un fante diserta a ogni turno', st.grano + ' Grano', true);
+        if (st.bestiame > 0) line('🏃', 'Bestiame non pagato: un cavaliere diserta a ogni turno', st.bestiame + ' Bestiame', true);
+        if (st.pietraStrade > 0) line('🛤', 'Strade dissestate: niente strade nuove finché non paghi', st.pietraStrade + ' Pietra', true);
+        pv.dormienti.forEach(d => {
+            const path = R.engine.path(d.prov);
+            const nome = path ? R.provinceLabel(path) : d.prov;
+            const res = Object.keys(GR().UPKEEP_STRUCT[d.tipo] || {})[0];
+            const label = d.tipo === 'barca' ? 'Nave' : d.tipo === 'vascello' ? 'Veliero' : (GR().ITEM_LABEL[d.tipo] || d.tipo);
+            line('💤', label + ' dormiente a ' + nome, '1 ' + resName(res), true);
+        });
+
+        const acts = document.createElement('div');
+        acts.className = 'bp-wh-acts';
+        const upCost = GR().warehouseUpgradeCost(lvl);
+        if (upCost) {
+            const afford = GR().canAfford(player, upCost, 0);
+            const why = !myTurn ? 'Solo nel tuo turno, in fase costruzioni.'
+                : (afford.ok ? null : GR().missingText(afford.missing));
+            acts.appendChild(actionButton('Amplia il magazzino → livello ' + (lvl + 1) + ' (tetto ' + GR().warehouseCap(lvl + 1) + ')',
+                GR().formatCost(upCost), why ? shorten(why) : null, () => {
+                    const go = () => run(GA().upgradeWarehouse(player));
+                    if (lvl + 1 === GR().STRUCT_UPKEEP_LEVEL && R.confirm) {
+                        R.confirm({
+                            title: 'Ampliare il magazzino?',
+                            text: 'Il tetto sale a ' + GR().warehouseCap(lvl + 1) + ' per tipo.\n' +
+                                'Da qui in poi anche le strutture pagano la manutenzione ogni ' + GR().UPKEEP_EVERY +
+                                ' turni: con quello che hai oggi sarebbero ' +
+                                billTxt(GR().upkeepBill(lvl + 1, pv.inv).risorse) + '.',
+                            ok: 'Amplia', tone: 'calm'
+                        }, go);
+                    } else go();
+                }));
+        }
+        const aperto = st.grano > 0 || st.bestiame > 0 || st.pietraStrade > 0 || pv.dormienti.length;
+        if (aperto) {
+            acts.appendChild(actionButton('Salda la manutenzione', null,
+                myTurn ? null : 'Solo nel tuo turno, in fase costruzioni.',
+                () => run(GA().payUpkeep(player))));
+        }
+        if (acts.childNodes.length) box.appendChild(acts);
+
+        const hint = $('bp-warehouse-hint');
+        if (hint) hint.textContent = 'livello ' + lvl + ' · tetto ' + cap + ' · conto al ' + quando;
+        // Si apre da solo quando c'è un problema da risolvere.
+        if ((aperto || ov.totale) && !fold.dataset.autoOpened) { fold.open = true; fold.dataset.autoOpened = '1'; }
+        if (!aperto && !ov.totale) delete fold.dataset.autoOpened;
     }
 
     function renderArmy(owned, units, pop, capitalPath, connectedSet) {
@@ -6948,6 +7109,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'rinforzi': return a.conNome + ' ha mandato ' + (a.uomini || 0) +
                     (a.uomini === 1 ? ' uomo' : ' uomini') + ' in tuo aiuto a ' + provLabel(a.prov) +
                     ': sono tuoi.';
+                case 'corpoRientrato': return a.prov
+                    ? 'Finito il patto con ' + a.conNome + ', il tuo corpo di spedizione (' + (a.uomini || 0) +
+                      (a.uomini === 1 ? ' uomo' : ' uomini') + ') è rientrato a ' + provLabel(a.prov) + '.'
+                    : 'Finito il patto con ' + a.conNome + ', il tuo corpo di spedizione non aveva dove tornare e si è sciolto.';
                 default: return isRouteNotice(a) ? routeNoticeText(a) : '';
             }
         };
@@ -7465,6 +7630,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'aiuto': text = a.conNome + ' chiede rinforzi a ' + provLabel(a.prov) + '.'; break;
                 case 'rinforzi': text = a.conNome + ' ha mandato ' + (a.uomini || 0) +
                     (a.uomini === 1 ? ' uomo' : ' uomini') + ' a ' + provLabel(a.prov) + '.'; break;
+                case 'corpoRientrato': text = a.prov
+                    ? 'Il corpo di spedizione presso ' + a.conNome + ' è rientrato a ' + provLabel(a.prov) + '.'
+                    : 'Il corpo di spedizione presso ' + a.conNome + ' si è sciolto: nessuna provincia dove tornare.'; break;
                 default:
                     if (isRouteNotice(a)) {
                         ico = '🐫'; cat = 'Mercato'; bad = a.tipo === 'rottaRazziata';
@@ -7497,6 +7665,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 (crolli === 1 ? ' opera della Capitale è crollata.' : ' opere della Capitale sono crollate.'),
                 true, a, 'Capitale', 'evento');
         });
+
+        // Magazzino e manutenzione del regno: conti pagati, eccedenze vendute,
+        // strutture dormienti, disertori.
+        (player.welfareAvvisi || []).forEach(a => (a.eventi || []).forEach(ev => {
+            if (!ev || !ev.kind) return;
+            const line = upkeepEventLine(ev, provLabel);
+            if (!line) return;
+            add(a.turno, ev.kind === 'magazzino' ? '🏚' : ev.kind === 'conto' ? '🧾' : '💤',
+                ev.kind === 'magazzino' ? 'Magazzino' : 'Manutenzione', line,
+                upkeepEventBad(ev), a, 'Manutenzione del regno', 'evento');
+        }));
 
         // Mare: naufragi e morìa delle spedizioni
         (player.spedizioniAvvisi || []).forEach(a => add(a.turno, '🌊', 'Mare',
@@ -7624,6 +7803,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!inPhase(player, 'costruisci')) spyPicking = false;
         spyChoices = spyPicking ? GA().spyTargets(player) : [];
         renderSpies(player);
+        renderWarehouse(player);
         if (openSheet === 'mercato') renderTrade(player);
         renderMarketPulse(player);
         if (openSheet === 'diplomazia') renderDiplomacy(player);
@@ -7690,6 +7870,45 @@ document.addEventListener('DOMContentLoaded', () => {
     // crollato attende in player.welfareAvvisi; qui lo si srotola una volta sola,
     // con la stessa pergamena degli avvisi di mare. Cede la precedenza a editti,
     // mare, commerci e patti: una pergamena per volta (#ui-foundation).
+    // Una riga leggibile per ogni esito di MAGAZZINO E MANUTENZIONE
+    // (game-actions.maintainKingdom / applyWarehouseCap): la usano il giornale
+    // e la pergamena. null = niente da dire (un conto a zero).
+    function upkeepEventLine(ev, provLabel) {
+        const resName = k => (GR().RES_LABEL && GR().RES_LABEL[k]) || k;
+        const goods = r => GR().RES.filter(k => (r || {})[k] > 0).map(k => r[k] + ' ' + resName(k)).join(', ');
+        const label = t => t === 'barca' ? 'Nave' : t === 'vascello' ? 'Veliero' : ((GR().ITEM_LABEL || {})[t] || t);
+        const where = id => (provLabel ? provLabel(id) : id);
+        switch (ev.kind) {
+            case 'conto': {
+                const g = goods(ev.versato);
+                if (!g) return null;
+                return (ev.periodo ? 'Manutenzione pagata: ' : 'Debiti di manutenzione saldati: ') + g + '.';
+            }
+            case 'magazzino':
+                return 'Magazzino pieno (tetto ' + ev.cap + '): ' + ev.totale + ' risorse in eccesso vendute per ' +
+                    ev.monete + ' monete' + (ev.perse ? ', ' + ev.perse + ' perse' : '') + ' (' + goods(ev.eccedenza) + ').';
+            case 'struttura':
+                return ev.esito === 'dormiente'
+                    ? label(ev.tipo) + ' a ' + where(ev.prov) + ' è dormiente 💤: mancava 1 ' + resName(ev.res) +
+                      '. Non rende finché non la paghi (Salda la manutenzione, fase Costruisci).'
+                    : label(ev.tipo) + ' a ' + where(ev.prov) + ' è di nuovo attiva (1 ' + resName(ev.res) + ' versata).';
+            case 'strade':
+                return 'Strade dissestate: mancano ' + ev.manca + ' Pietra. Niente strade nuove finché non saldi.';
+            case 'truppe': {
+                const chi = ev.res === 'grano' ? 'fante' : 'cavaliere';
+                return 'Mancano ' + ev.manca + ' ' + resName(ev.res) + ' per le truppe: ' +
+                    (ev.disertore ? 'un ' + chi + ' ha disertato da ' + where(ev.prov) + '.'
+                        : 'nessuno ha potuto disertare (presidi al minimo).') +
+                    ' Ne partirà uno a ogni turno finché non paghi.';
+            }
+            default: return null;
+        }
+    }
+    function upkeepEventBad(ev) {
+        return ev.kind === 'strade' || ev.kind === 'truppe' || ev.kind === 'magazzino' ||
+            (ev.kind === 'struttura' && ev.esito === 'dormiente');
+    }
+
     function showPendingWelfare(player) {
         const attesa = (player.welfareAvvisi || []).filter(a => !a.letto);
         if (!attesa.length || !R.showFoundation) return;
@@ -7707,7 +7926,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const resLabel = k => (GR().RES_LABEL && GR().RES_LABEL[k]) || k;
         const righe = [];
         let crolli = 0;
+        let regno = false;
+        const provLabel = id => {
+            const p = R.engine && R.engine.path && R.engine.path(id);
+            return p ? R.provinceLabel(p) : id;
+        };
         attesa.forEach(a => (a.eventi || []).forEach(ev => {
+            // Magazzino e manutenzione del regno: hanno `kind`, le migliorie no.
+            if (ev && ev.kind) {
+                const line = upkeepEventLine(ev, provLabel);
+                if (line) { righe.push(line); regno = true; }
+                return;
+            }
             if (ev.esito === 'crollata') crolli++;
             const nome = GR().welfareLabel(ev.key);
             let frase = nome + ' ' + (verbo[ev.esito] || ev.esito);
@@ -7726,9 +7956,15 @@ document.addEventListener('DOMContentLoaded', () => {
             anno,
             regno: player.name,
             colore: player.color,
-            titolo: crolli ? 'Le opere della Capitale rovinano' : 'Manutenzione della Capitale',
+            // Con esiti del regno l'occhiello delle migliorie (§6.1) non basta più.
+            occhiello: regno ? 'Magazzino e manutenzione del regno' : undefined,
+            titolo: crolli ? 'Le opere della Capitale rovinano'
+                : regno ? 'Manutenzione del regno' : 'Manutenzione della Capitale',
             testo: righe.join('\n\n'),
-            nota: 'Le migliorie civiche reclamano un contributo ogni 5 turni (§6.1).'
+            nota: regno
+                ? 'Truppe e (da magazzino livello 2) strutture pagano ogni ' + GR().UPKEEP_EVERY +
+                  ' turni; l\'eccedenza oltre il tetto del magazzino si vende a fine turno.'
+                : 'Le migliorie civiche reclamano un contributo ogni 5 turni (§6.1).'
         });
     }
 

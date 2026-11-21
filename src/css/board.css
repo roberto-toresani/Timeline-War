@@ -3827,3 +3827,48 @@ body.mobile-lite #ui-foundation .uf-sheet { max-height: 72dvh; overflow-y: auto;
     color: var(--parchment-dim);
 }
 .pol-active-n { flex: 1 1 0; }
+
+/* ============================================================
+   MAGAZZINO E MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md)
+   Il tetto per tipo accanto a ogni scorta, la tessera che sfora in rosso,
+   e il riquadro della fase Costruisci con conto, dormienti e «Salda».
+   ============================================================ */
+.bps-r-n .bps-cap { color: var(--parchment-muted); font-size: .72rem; }
+.bps-r.over { border-bottom-color: #c0504d; }
+.bps-r.over .bps-r-n { color: #e07a5f; }
+.bps-store { color: #e0b070; }
+.bps-store .warn { color: #e07a5f; }
+
+/* Titolo «Magazzino» sopra le scorte del cruscotto e il pulsante «Amplia»
+   sotto di esse: sempre in vista (regola dell'utente). */
+.bps-wh-title {
+    margin-top: 10px;
+    font-size: .74rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--parchment-muted);
+}
+.bps-wh-up { margin-top: 6px; }
+.bps-wh-up .bp-act { width: 100%; }
+.bps-wh-max { margin-top: 6px; font-size: .85rem; color: var(--parchment-muted); }
+
+.bp-wh-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin-top: 6px;
+    font-size: .95rem;
+}
+.bp-wh-line .ico { flex: 0 0 auto; }
+.bp-wh-line .txt { flex: 1 1 auto; color: var(--parchment-dim); }
+.bp-wh-line .val { flex: 0 1 auto; max-width: 45%; text-align: right; color: var(--parchment-muted); font-variant-numeric: tabular-nums; }
+.bp-wh-line.warn { border-color: #8a3b33; }
+.bp-wh-line.warn .txt { color: #e8a08c; }
+.bp-wh-note { margin-top: 6px; color: var(--parchment-muted); font-size: .85rem; line-height: 1.35; }
+.bp-wh-acts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+/* Struttura dormiente sulla mappa (💤): manutenzione non pagata */
+.dormant-marker { pointer-events: none; }

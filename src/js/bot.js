@@ -873,7 +873,7 @@
     // sé), poi semmai se ne arma un secondo.
     function hasReadyShip(player) {
         return E().ownedPaths(player.name).some(pp => {
-            const hulls = E().ships(pp);
+            const hulls = GA().hullsOf ? GA().hullsOf(pp) : E().ships(pp);
             if (!hulls.length) return false;
             return hulls.some(h => seaPreyFrom(player, pp.id, E().shipRange(h.tipo)).length > 0);
         });
@@ -930,7 +930,7 @@
     }
     function oceanHullAt(player) {
         return E().ownedPaths(player.name)
-            .find(p => E().ships(p).some(h => h.tipo === OCEAN)) || null;
+            .find(p => (GA().hullsOf ? GA().hullsOf(p) : E().ships(p)).some(h => h.tipo === OCEAN)) || null;
     }
     // Dove armare il Veliero: la costa più popolosa che può ospitarlo e pagarlo.
     function colonyShipPlan(player) {
@@ -1071,6 +1071,43 @@
     // da zero e va costruito.
     const WELFARE_RESERVE = 3;   // di una risorsa non si scende mai sotto questo per una miglioria
     const WELFARE_PER_TURN = 2;  // quante migliorie al massimo per turno
+    // MANUTENZIONE: c'è un debito o una struttura dormiente che le scorte di
+    // adesso possono pagare? (payUpkeep paga quel che può, quindi basta una
+    // sola voce saldabile.)
+    function upkeepDue(player) {
+        if (!GA().upkeepPreview) return false;
+        const st = player.manutenzione || {};
+        const sc = player.scorte || {};
+        if (st.grano > 0 && sc.grano > 0) return true;
+        if (st.bestiame > 0 && sc.bestiame > 0) return true;
+        if (st.pietraStrade > 0 && sc.pietra > 0) return true;
+        return GA().dormantList(player).some(d => {
+            const cost = GR().UPKEEP_STRUCT[d.tipo] || {};
+            return Object.keys(cost).every(r => (sc[r] || 0) >= cost[r]);
+        });
+    }
+
+    // MAGAZZINO: si amplia quando una scorta è a un passo dal tetto (entro 2)
+    // e restano le 1000 monete oltre la riserva per le prossime costruzioni.
+    // Dal livello 1 al 2 si accende la manutenzione delle strutture: il bot ci
+    // va solo se raccoglie abbastanza da reggerla (almeno 3 tipi collegati).
+    function warehousePlan(player, s, og) {
+        if (!GR().warehouseUpgradeCost) return false;
+        const lvl = GR().warehouseLevel(player);
+        const cost = GR().warehouseUpgradeCost(lvl);
+        if (!cost) return false;
+        const cap = GR().warehouseCap(lvl);
+        const sc = player.scorte || {};
+        if (!GR().RES.some(k => (sc[k] || 0) >= cap - 2)) return false;
+        const riserva = coinReserve(player, s, og) || 0;
+        if ((player.monete || 0) < cost.monete + riserva) return false;
+        if (lvl + 1 === GR().STRUCT_UPKEEP_LEVEL) {
+            const tipi = GR().RES.filter(k => (sc[k] || 0) > 0).length;
+            if (tipi < 3) return false;
+        }
+        return true;
+    }
+
     function welfarePlan(player, s, st) {
         if (!st || !st.cap || typeof root.Popularity === 'undefined') return [];
         const cap = st.cap;
@@ -1298,6 +1335,28 @@
         GR().RES.forEach(k => {
             if ((scorte[k] || 0) >= 8) need[k] = Math.max(0, need[k] - 0.6);
         });
+
+        // MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md): il conto del prossimo
+        // giro e i debiti aperti sono un bisogno vero, e il più urgente — un
+        // debito di Grano costa un fante a OGNI turno. Senza questa riga i bot
+        // non compravano mai il Grano per le truppe e sanguinavano disertori.
+        if (GA().upkeepPreview) {
+            const pv = GA().upkeepPreview(player);
+            const deb = player.manutenzione || {};
+            const dovuto = Object.assign({}, pv.risorse);
+            dovuto.grano += deb.grano || 0;
+            dovuto.bestiame += deb.bestiame || 0;
+            dovuto.pietra += deb.pietraStrade || 0;
+            (pv.dormienti || []).forEach(d => {
+                const c = GR().UPKEEP_STRUCT[d.tipo] || {};
+                Object.keys(c).forEach(r => { dovuto[r] += c[r]; });
+            });
+            GR().RES.forEach(k => {
+                if (!dovuto[k]) return;
+                const manca = dovuto[k] - (scorte[k] || 0);
+                if (manca > 0) need[k] = Math.max(need[k], (deb.grano && k === 'grano') ? 1.5 : 1.1);
+            });
+        }
 
         // OBIETTIVI (§10): una scorta che un obiettivo aperto vuole in magazzino
         // e non c'è ancora è un bisogno vero — così il Mercato non la svende
@@ -2230,6 +2289,14 @@
             if (banca) yield GA().tradeWithBank(player, banca.dai, banca.prendi, banca.n);
         }
 
+        // MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md): prima di spendere si
+        // salda — un fante che diserta a ogni turno o una Città che non paga le
+        // tasse costano più di qualunque cosa si possa costruire con quella risorsa.
+        if (GA().phaseOf(player) === 'costruisci' && upkeepDue(player)) {
+            yield GA().payUpkeep(player);
+            st = popState(player, s, og);
+        }
+
         // Il seggio si è ritrovato sul confine? Si trasloca (500 monete). Va fatto
         // PRIMA delle strade del turno: la rete di collegamenti parte dalla
         // Capitale, e spostarla dopo aver costruito significa costruire dal punto
@@ -2277,6 +2344,12 @@
                 yield GA().buildWelfare(player, key);
                 st = popState(player, s, og);   // ogni miglioria cambia il Benessere
             }
+        }
+
+        // MAGAZZINO: se dopo le costruzioni una scorta sta ancora per traboccare
+        // e la cassa lo regge, si amplia invece di svendere a fine turno.
+        if (GA().phaseOf(player) === 'costruisci' && warehousePlan(player, s, og)) {
+            yield GA().upgradeWarehouse(player);
         }
 
         // POLITICA DEL REGNO (§8-bis): il decreto del Consiglio si emana DOPO
