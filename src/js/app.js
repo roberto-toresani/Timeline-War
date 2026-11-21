@@ -282,6 +282,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // difensivo e moderato. Lo legge bot.js (doctrineOf/marchTip); di default
         // spento, così ogni altro regno tiene la sua dottrina come sempre.
         if (typeof p.dottrinaSospesa !== 'boolean') p.dottrinaSospesa = false;
+        // IL RITIRO DELL'ORDA (js/events.js, turno 31): segna che è già avvenuto,
+        // così l'evento non lo ripete e le ondate di rinforzo non ripartono.
+        if (typeof p.ordaRitirata !== 'boolean') p.ordaRitirata = false;
         // CHI GIOCA IL REGNO — etichetta ORGANIZZATIVA dell'admin (regola
         // dell'utente), non un comportamento del motore: 'ai' (una strategia),
         // 'player' (lo gioca un altro col link), 'admin' (lo giochi tu). 'admin' e
@@ -5904,7 +5907,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // un'etichetta propria ricadeva sulla generica "Cronaca del regno",
         // che non dice che è successo qualcosa di grosso — regola dell'utente:
         // il giocatore non deve rischiare di non accorgersene.
-        crociata: 'La Crociata — l’oste giunge in Terra Santa'
+        crociata: 'La Crociata — l’oste giunge in Terra Santa',
+        mongoli: 'Cronaca delle steppe — l’Orda'
     };
 
     // UN REGNO È COMPATTO IN UN'UNICA FEDE (regola dell'utente, generalizzata):

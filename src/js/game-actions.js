@@ -1224,6 +1224,9 @@
             // MONGOLI: crea un nuovo regno a partita in corso, gli posa le province
             // di partenza con un esercito e lo infila nell'ordine dei turni.
             spawnKingdom: (spec) => eventSpawnKingdom(spec),
+            // IL RITIRO: le province di un regno tornano terre di nessuno (tranne
+            // quelle che tiene), con un presidio fisso.
+            release: (regno, opts) => eventRelease(regno, opts),
             // Le ONDATE dell'Orda: un'armata di rinforzo cala sulla punta della marcia.
             reinforce: (regno, opts) => eventReinforce(regno, opts),
             // PESTE: applica il piano di GameRules.plagueTier a un regno (Capitale
@@ -1525,6 +1528,51 @@
     // partenza; `minProvince` è la soglia sotto la quale il regno NON nasce
     // affatto — se il posto è occupato, quella storia non accade. Nessuna
     // Capitale in regalo: come ogni regno se la costruisce da sé (§Capitale).
+    // IL RITIRO DI UN REGNO (l'Orda nel 1300, regola dell'utente): tutte le sue
+    // province TRANNE quelle in `tiene` tornano terre di nessuno, ognuna con un
+    // presidio FISSO di `presidio` uomini — non la quota del calendario delle
+    // terre lontane, che lì è di 2 e aprirebbe la steppa a chiunque. Il resto è la
+    // regola di sempre quando una provincia perde il padrone (la stessa delle
+    // razzie neutrali, neutralRaids): le costruzioni restano, una Capitale si
+    // declassa a Città, ventura, cavalieri e navi spariscono con chi li pagava, il
+    // vincolo di fede si scioglie e le strade si potano. Restituisce le province
+    // liberate e i regni che ci confinano, per la pergamena.
+    function eventRelease(regno, opts) {
+        const o = opts || {};
+        const p = R().players().find(x => x.name === regno || x.id === regno);
+        if (!p) return { liberate: [], vicini: [] };
+        const tiene = new Set(o.tiene || []);
+        const presidio = Math.max(GR().MIN_GARRISON, o.presidio || 3);
+        const liberate = [];
+        E().ownedPaths(p.name).forEach(tp => {
+            if (tiene.has(tp.id)) return;
+            E().setOwner(tp, null);
+            const seggio = E().countPiece(tp, 'capitale');
+            if (seggio > 0) {
+                E().addPiece(tp, 'capitale', -seggio);
+                E().addPiece(tp, 'citta', 1);
+            }
+            E().setMerc(tp, 0);
+            E().setCav(tp, 0);
+            E().addPiece(tp, 'soldato', presidio - E().countPiece(tp, 'soldato'));
+            if (E().ships(tp).length) E().setShips(tp, []);
+            E().setArmyColor(tp, null);
+            E().setReligionLock(tp, false);
+            if (p.temporanei) delete p.temporanei[tp.id];
+            pruneRoadsTouching(tp.id);
+            E().redrawProvince(tp);
+            liberate.push(tp.id);
+        });
+        const libSet = new Set(liberate);
+        const vicini = new Set();
+        liberate.forEach(id => E().landNeighbors(id).forEach(n => {
+            const chi = E().owner(E().path(n));
+            if (chi && chi !== p.name && !libSet.has(n)) vicini.add(chi);
+        }));
+        E().refresh();
+        return { liberate, vicini: Array.from(vicini) };
+    }
+
     function eventSpawnKingdom(spec) {
         const s = spec || {};
         if (!R().addKingdom) return null;

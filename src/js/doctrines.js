@@ -21,6 +21,10 @@
 //   amici        regni che non si attaccano (salvo che per una `meta`) e con cui
 //                si tratta anche attraverso una barriera di fede
 //   pattoAmico   il patto che si CERCA con un amico (assente = non lo si propone)
+//   pattiAmici   lo stesso, amico per amico: { nomeRegno: tipoDiPatto }
+//   custodia     { contro:[regni], peso }: chi tocca le tue terre o quelle più a
+//                sud della tua frontiera settentrionale diventa, LÌ, un nemico
+//                (il Mali contro i Mori)
 //   nemici       regni da colpire per primi, e con cui non si firma niente
 //   pesoNemici   moltiplicatore del punteggio d'attacco contro un nemico
 //   mete         province che valgono più di ogni altra cosa finché non sono tue
@@ -187,7 +191,7 @@
         // fuori: non si espande via terra, si difende, commercia, e quando ha
         // scafi salpa per l'Africa e per l'oceano.
         'Regno di Portogallo': {
-            bot: 'costruttore',
+            bot: 'opportunista',     // carattere MERCANTE: scambi con tutti, nessuna guerra
             fede: 'cristiani',
             amici: ['Regno di Castiglia'],
             pattoAmico: 'alleanza',
@@ -225,20 +229,23 @@
 
         // 1180 — i Bulgari risorgono sul basso Danubio. NON sono un regno
         // espansionista (regola dell'utente): prendono la provincia di Bulgaria e
-        // poi basta — si rafforzano, costruiscono e commerciano. `soloMete` è
-        // quel "e poi basta": nemmeno una terra di nessuno in più. L'unico regno
-        // con cui non firmano è l'Ungheria; con bizantini, russi e chiunque altro
-        // si tratta.
+        // poi basta — si fortificano e restano autosufficienti col Mercato e le
+        // loro risorse (carattere CHIUSO). Hanno bisogno del sostegno della Rus'
+        // (con cui cercano l'ALLEANZA) e della pace coi Bizantini (NON
+        // BELLIGERANZA). Il rapporto instabile è con l'Ungheria — nemica
+        // dichiarata, con cui non si firma niente di nuovo — e coi musulmani, con
+        // cui non si tratta.
         'Regno di Bulgaria': {
             bot: 'costruttore',
             fede: 'cristiani',
+            vietaFede: ['musulmani'],
             nemici: ['Ducato di Ungheria'],
             pesoNemici: 1.6,
             mete: ['Bulgaria'],
             pesoMete: 5,
             soloMete: true,
             amici: ['Impero Bizantino', "Kievan Ru's"],
-            pattoAmico: 'nonBelligeranza',
+            pattiAmici: { "Kievan Ru's": 'alleanza', 'Impero Bizantino': 'nonBelligeranza' },
             levaCiclo: 5,
             chat: {
                 nemico: [
@@ -256,6 +263,31 @@
                     saluto: ['Salute, {mittente}. Che il Danubio ci divida in pace.'],
                     nemico: ['{mittente}! Fra noi c\'è il Danubio e un conto rimasto aperto.'],
                     default: ['Parla pure, {mittente}. Io intanto tengo stretto ciò che è mio.']
+                }
+            }
+        },
+
+        // L'IMPERO DEL MALI (creato dall'admin a partita in corso). Carattere
+        // EQUILIBRATO: commercia e cresce quando conviene. La sua linea rossa
+        // (regola dell'utente): non vuole che gli si prendano le sue terre né
+        // quelle più a SUD della sua frontiera settentrionale — se ci mettono
+        // mano i Mori, interviene contro di loro (`custodia`); altrove i Mori
+        // restano un vicino come un altro.
+        'Impero del Mali': {
+            bot: 'espansione',
+            fede: 'animisti',
+            custodia: { contro: ['Emirato dei Mori'], peso: 1.8 },
+            chat: {
+                generico: [
+                    'L\'oro del Mali passa per le nostre carovane. Chi vuole commerciare è il benvenuto.',
+                    'Il Niger è la nostra strada: la teniamo aperta a chi viene in pace.'
+                ],
+                conquista: ['Le terre del sud restano sotto la protezione del Mansa.'],
+                risposte: {
+                    minaccia: ['Il Mansa ha uomini quanti granelli ha il Sahara, {mittente}.'],
+                    pace: ['Volentieri, {mittente}. Il Mali preferisce l\'oro al ferro.'],
+                    saluto: ['Il Mansa ti saluta, {mittente}.'],
+                    default: ['Ti ascolto, {mittente}. Ma le terre del sud non si toccano.']
                 }
             }
         },

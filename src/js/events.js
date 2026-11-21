@@ -134,7 +134,20 @@
         // di marcia si spegne (`dottrinaSospesa`, letta da bot.js) e la strategia
         // passa a `costruttore`: l'Orda diventa STANZIALE — difende ciò che ha e
         // torna a poter trattare, invece di sfondare a occidente all'infinito.
-        stanziale: { turno: 36, bot: 'costruttore' }
+        stanziale: { turno: 36, bot: 'costruttore' },
+        // IL RITIRO DELL'ORDA (turno 31 = 1300, regola dell'utente). L'Orda si
+        // ritira nelle steppe d'origine: tiene solo queste sette province e tutte
+        // le altre tornano terre di nessuno con un presidio FISSO di 3 uomini, così
+        // arabi e russi faticano ancora a spingersi verso est. Da qui il regno è
+        // CHIUSO (`costruttore`): si difende, si basta da sé, colpisce solo chi lo
+        // invade. Niente più ondate; il grande passo del 1350 non ha più niente da
+        // fare perché la dottrina di marcia è già spenta.
+        ritiro: {
+            turno: 31,
+            tiene: ['Tianshan', 'Dzungaria', 'Uliastai', 'Altai', 'Tuva', 'Gansu', 'Alxa'],
+            presidio: 3,
+            bot: 'costruttore'
+        }
     };
 
     // LA PESTE NERA (turno 35 = 1340-1349: la Peste Nera dilaga in Europa fra il
@@ -233,7 +246,7 @@
     const PORTOGALLO = {
         name: 'Regno di Portogallo',
         color: '#006d5b',            // verde-teal delle carte atlantiche
-        bot: 'costruttore',
+        bot: 'opportunista',         // carattere Mercante (vedi doctrines.js)
         soloLibere: true, minProvince: 1,
         monete: 2000,
         scorte: { legno: 3 },
@@ -356,6 +369,26 @@
             // una volta sola.
             onRound(ctx) {
                 const m = INVASIONE_MONGOLA;
+                const orda = ctx.R.players().find(p => p.name === m.name);
+                // IL RITIRO: una volta sola (`ordaRitirata` sul record del regno,
+                // così sopravvive al salvataggio), e prima di tutto il resto —
+                // al turno 31 cadrebbe anche un'ondata di rinforzi.
+                const rt = m.ritiro;
+                if (orda && rt && ctx.turn >= rt.turno && !orda.ordaRitirata) {
+                    orda.ordaRitirata = true;
+                    orda.dottrinaSospesa = true;               // niente più marcia né soloMete
+                    if (!ctx.senzaIA) { orda.bot = rt.bot; orda.controllo = 'ai'; }   // Chiuso, all'IA
+                    const esito = ctx.release(m.name, { tiene: rt.tiene, presidio: rt.presidio });
+                    ctx.notify([m.name].concat(esito.vicini), {
+                        tipo: 'mongoli',
+                        titolo: 'L\'Orda si ritira',
+                        testo: 'I cavalieri del feltro tornano alle steppe d\'origine. Le terre che tenevano restano senza padrone, ' +
+                            'presidiate da chi non è partito con loro.',
+                        nota: esito.liberate.length + ' province tornano terre di nessuno.'
+                    });
+                    return;
+                }
+                if (orda && orda.ordaRitirata) return;
                 if (ctx.turn >= m.stanziale.turno) {
                     const orda = ctx.R.players().find(p => p.name === m.name);
                     if (orda && !orda.dottrinaSospesa) {

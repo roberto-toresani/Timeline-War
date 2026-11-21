@@ -10,16 +10,31 @@
 - `levaCiclo: N` in doctrines.js: N reclute libere a ogni `closeCycle`.
 - Alternativa alla leva degli obiettivi per regni d'evento con dottrina attiva.
 
-## 4 strategie bot (`Bot.STRATEGIES`)
-| Strategia | Comportamento |
-|---|---|
-| `espansione` | Conquista aggressiva, pochi edifici |
-| `costruttore` | Priorità a infrastrutture e risorse |
-| `opportunista` | Attacca chi è debole, si adatta |
-| `predone` | Razzie veloci, nessun insediamento stabile |
+## 4 caratteri bot (`Bot.STRATEGIES`, rev. 2026-11-21)
+Le chiavi sono rimaste quelle vecchie (le usano partita in corso, dottrine, eventi); cambiano nome e comportamento.
 
-- **Conservatore non esiste**: la difesa è `holdFloor`/`capitalGuard` per tutti.
+| Chiave | Nome | Comportamento |
+|---|---|---|
+| `costruttore` | **Chiuso** | Non attacca (`guerra:'difesa'`): solo riconquista e risposta a chi l'ha invaso negli ultimi 5 turni. Mercato dal 2° turno (`mercatoDa:1`), rinforza i confini, mercenari solo per tappare un confine cruciale (`mercDifesa`). 1 carovana, compra solo ciò che blocca una costruzione, non vende. Offre la non belligeranza a ogni vicino (`diplomazia:'pace'`), alleanze solo con amici di dottrina. |
+| `opportunista` | **Mercante** | Niente guerra ai regni (`guerra:'risorse'`): prende solo terre di nessuno con una risorsa, anche via nave. 3 carovane, vende sempre, baratto 0.8. Non belligeranza con tutti, alleanze coi forti. Politica verso il popolo (monete). |
+| `espansione` | **Equilibrato** | Conquista quando conviene, commercia, patti per bisogno/guerra in stallo/fede vicina (il comportamento dei giocatori della partita vera). |
+| `predone` | **Guerrafondaio** | Soglia bassa, 6 attacchi, premio Capitali nemiche ×3 (`premioCapitale`), mercenari a ogni turno con l'oro libero (`mercLibero`) e fino a 5 cavalieri. Non concede alleanze; non belligeranza solo da chi è più forte o se sta per essere schiacciato. |
+
+- **Cambi di carattere** (`situational`): Guerrafondaio con Popolarità < 3 o Capitale minacciata → 2 attacchi, soglia +0.1, niente mercenari a pioggia. Chiuso con una provincia appena strappata → contrattacco (solo contro l'aggressore e per riprendersi il suo).
+- Cosa può attaccare un carattere: `profileAllows` (usato da `bestAttack`, `spearhead`, `shipPlan`).
+- La difesa resta `holdFloor`/`capitalGuard` per tutti.
 - Una nuova strategia = voce in `Bot.STRATEGIES`, non un ramo `if` sparso.
+
+## Lezioni dai giocatori umani (studio della partita vera, turni 9-12-28)
+- **Capitale** sulla provincia centrale del feudo, accanto a grano/pietra anche neutrali (`capitalScore`).
+- **Prima l'anello della Capitale**, poi le risorse (`ringBonus`, `resourceBonus`; la prima cava di pietra vale doppio).
+- **Punta di lancia**: reclute e spostamenti ammassati su una provincia di partenza (`spearhead`), non spalmati.
+- **Strade solo verso risorse o Città**, passando dalle intermedie (`nextRoad`).
+- **Province cruciali** (Mercato, Città, risorse) al confine con un regno: almeno 3 uomini (`CRUCIAL_MIN`).
+- **Spostamenti dal ciclo III**: una mossa a catena col grosso (`chainMovePlan`) o fino a 3 da 5 uomini.
+- **Saper fermarsi**: dopo un assalto respinto, niente ritorno sulla stessa provincia nel turno e margine in più contro quel regno.
+- **Patti**: dopo una guerra in stallo e coi vicini della stessa fede; il rancore li blocca (`holdsGrudge`).
+- Dottrina: `pattiAmici` (patto per amico), `custodia` (il Mali contro i Mori a sud della sua frontiera).
 
 ## 6 regole essenziali bot (per non bloccarsi)
 0. **Dove costruire la Capitale** (`capitalScore`): protezione + risorse + uomini presenti.

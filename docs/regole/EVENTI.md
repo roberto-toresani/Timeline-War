@@ -19,6 +19,12 @@ Inghilterra → Gerusalemme, da `Home_Counties`. Quota 90% degli uomini presenti
 Nasce regno IA `predone` (`ctx.spawnKingdom`). Province: Urga, Uliastai, Buryatia — 35 uomini.
 Dottrina: marcia verso occidente, `soloMete`, `nessunPatto`, `senzaFede`.
 Rinforzi ogni 5 turni fino al 1350. **Grande passo turno 36**: `dottrinaSospesa=true`, bot → `costruttore`.
+**Ritiro dell'Orda turno 31** (regola dell'utente, `INVASIONE_MONGOLA.ritiro`): l'Orda tiene solo Tianshan, Dzungaria,
+Uliastai, Altai, Tuva, Gansu, Alxa; tutte le altre sue province tornano neutrali con **3 uomini** (`ctx.release` →
+`GameActions.eventRelease`: Capitale→Città, via ventura/cavalieri/navi, vincolo di fede sciolto, strade potate).
+Poi `dottrinaSospesa`, bot → `costruttore` (Chiuso), `controllo:'ai'`, niente più ondate; `player.ordaRitirata`
+impedisce di ripeterlo. Pergamena "L'Orda si ritira" all'Orda e ai regni confinanti. Il presidio poi segue il
+calendario normale delle neutrali (si alza soltanto): le terre del core salgono a 4 già dal turno 31.
 
 ## Selgiuchidi (turno 9)
 Province: Tabriz, Urmia, Erzurum, Diyarbakir (6 uomini). Marcia → Terra Santa → Costantinopoli.
@@ -26,7 +32,9 @@ Province: Tabriz, Urmia, Erzurum, Diyarbakir (6 uomini). Marcia → Terra Santa 
 
 ## Portogallo (turno 11), Bulgaria (turno 11), Norvegia+Svezia (turno 24)
 - **Portogallo**: 5 uomini, `soloMare`+`conservatore`, 2000 monete + 3 Legno all'avvio.
-- **Bulgaria**: `soloMete` → Bulgaria; amici con tutti tranne Ungheria.
+- **Bulgaria**: carattere Chiuso, `soloMete` → Bulgaria; alleanza cercata con la Rus' e non belligeranza coi Bizantini (`pattiAmici`); nemica l'Ungheria, nessun patto coi musulmani.
+- **Portogallo**: carattere Mercante (`opportunista`).
+- **Impero del Mali** (creato dall'admin, nessun evento): Equilibrato; `custodia` contro i Mori a sud della sua frontiera settentrionale.
 - **Norvegia+Svezia**: 10 uomini, Danimarca vietata, meta condivisa Finlandia.
 
 ## Peste Nera (turni 35-39)
