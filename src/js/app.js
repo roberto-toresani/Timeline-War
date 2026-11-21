@@ -3603,7 +3603,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // un altro) · AI (una strategia). Admin e Player sono lo stesso stato di
         // gioco (bot=null): la scelta è solo l'etichetta organizzativa `p.controllo`.
         const botKeys = (window.Bot && window.Bot.KEYS) || [];
-        const botLabels = { espansione: 'Espansione', costruttore: 'Costruttore', opportunista: 'Opportunista', predone: 'Predone' };
+        // I nomi vengono dal bot (Bot.STRATEGIES[k].nome): le chiavi sono rimaste
+        // quelle storiche, i caratteri si chiamano Chiuso, Mercante, Equilibrato,
+        // Guerrafondaio.
+        const strat = (window.Bot && window.Bot.STRATEGIES) || {};
+        const botLabels = {};
+        botKeys.forEach(k => { if (strat[k] && strat[k].nome) botLabels[k] = strat[k].nome; });
         const ruolo = p.bot ? 'ai' : (p.controllo === 'player' ? 'player' : 'admin');
         const botOptions =
             '<option value="admin"' + (ruolo === 'admin' ? ' selected' : '') + '>🧑 Admin (la giochi tu)</option>' +
