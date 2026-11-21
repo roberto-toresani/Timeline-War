@@ -95,11 +95,15 @@ La provincia resta di A. Il corpo **non entra in `data-pieces`** della provincia
 
 **UX — la provincia alleata si tratta come tua**: dove hai un corpo, clicchi la provincia sulla mappa e agisci come se fosse tua — in fase **attacca** scegli il bersaglio adiacente, in fase **sposta** scegli se ritirare gli uomini. Comandi **solo il tuo corpo**: la guarnigione dell'alleato resta sua (difende insieme, ma non la muovi tu).
 
-**Base di proiezione**: dalla provincia ospite B può attaccare **qualunque** provincia nemica adiacente (A fa da base). Un corpo **non può attaccare il proprio ospite** (niente pugnalata dall'interno — il tradimento resta quello di confine). Se ad A non sta bene, rompe l'alleanza e il corpo diventa sconfinamento da ritirare.
+**Base di proiezione**: dalla provincia ospite B può attaccare **qualunque** provincia nemica adiacente (A fa da base). Un corpo **non può attaccare il proprio ospite** (niente pugnalata dall'interno — il tradimento resta quello di confine). Se ad A non sta bene, rompe l'alleanza e il corpo torna a casa da solo (vedi *Fine del patto*).
 
 **Conquista**: la provincia presa **va a B** (testa di ponte sua), con la ripartizione conquista di B.
 
 **Ritiro (richiamo immediato)**: il corpo rientra nella provincia di B **più vicina** e si rifonde nella guarnigione. Costa come la **modalità B dello spostamento di fine turno** (l'unica grande mossa): quel turno occupa tutto il movimento ed è **esclusivo con i 3 spostamenti modalità A**. L'invio non ha questo vincolo; solo il ritiro è prezzato come modalità B.
+
+**Fine del patto (rientro automatico)**: il corpo sta su suolo di A solo finché fra A e B c'è un patto che concede l'accesso militare (alleanza, alleanza a tempo o rinforzi). Quando l'ultimo di questi patti **scade o viene rotto** (anche per tradimento), i corpi di B presso A — e quelli di A presso B — **rientrano da soli**, gratis, nella provincia del proprio regno più vicina (via terra; altrimenti nella Capitale) e si rifondono nella guarnigione. Non consuma lo spostamento. Senza più province il corpo si scioglie. Il proprietario del corpo riceve un avviso (`pattiAvvisi`, tipo `corpoRientrato`); chi rompe il patto lo legge nel messaggio. Se resta un altro patto che concede l'accesso (es. scade l'alleanza a tempo ma c'è ancora "rinforzi"), il corpo resta dov'è. Nel tradimento durante un attacco il rientro avviene **a battaglia applicata**, non prima.
+
+**Il tuo corpo non ti combatte contro**: se B attacca una provincia dove ha un proprio corpo, quel corpo non difende (resta fermo). Se B la conquista, il corpo torna fra i suoi nella provincia più vicina.
 
 ### Difesa e perdite
 Sul fronte condiviso le due armate si **sommano**: soldati di A + soldati di B, con le rispettive ventura e cavalieri; terreno e mura sono quelli della provincia ospite, contati una volta sola. La somma vale anche per il limite di conquista e per la soglia dei due attacchi (§9).

@@ -122,6 +122,7 @@ Per ogni domanda su meccaniche, simulazioni, nuove funzionalità: carica sempre 
 | Eventi storici, crociate, Peste, Mongoli, spie, spedizioni | `docs/regole/EVENTI.md` |
 | Regole complete (§1–§11) | `docs/GAME_DESIGN.md` |
 | Numeri esatti obiettivi per regno | `docs/BINARI_STORICI.md` |
+| Vendibilità, roadmap verso app/store, nome del prodotto | `docs/ANALISI_COMMERCIALE.md` |
 
 ---
 

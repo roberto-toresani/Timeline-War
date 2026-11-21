@@ -65,7 +65,7 @@ Reclutare e costruire sono già sink ricorrenti: oltre alle monete spendono riso
 - `pesteBlocco` → un turno senza raccolta.
 - Mercenari non pagati → abbandonano a fine turno (`mercLeaving`).
 
-## Magazzino (tetto risorse) — DA IMPLEMENTARE (design concordato)
+## Magazzino (tetto risorse) — IMPLEMENTATO (2026-11-20)
 Limita quante risorse di **ogni tipo** puoi stoccare (tetto per singolo tipo, non globale). Nasce per fermare l'accumulo infinito dei regni grandi.
 
 | Livello | Tetto per tipo | Costo upgrade |
@@ -79,7 +79,7 @@ Limita quante risorse di **ogni tipo** puoi stoccare (tetto per singolo tipo, no
 - **Scudo dei nuovi regni**: a **lvl 1 la manutenzione delle STRUTTURE è spenta**. Il **primo upgrade (lvl 1→2)** la accende. Un regno troppo piccolo per reggere i costi resta a lvl 1, cap 10, nessun costo di struttura. (La manutenzione delle TRUPPE è sempre attiva — vedi sotto.)
 - Interazione voluta con la Manutenzione: il tetto del Grano stringe le grandi armate (~1 Grano ogni 15 uomini ogni 3 turni) → spinge verso il magazzino alto.
 
-## Manutenzione (ogni 3 turni) — DA IMPLEMENTARE (design concordato)
+## Manutenzione (ogni 3 turni) — IMPLEMENTATO (2026-11-20)
 Ogni **3 turni** il regno paga il mantenimento. È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci. Due blocchi, con regole di attivazione diverse.
 
 ### Strutture — gated dallo scudo (attive solo da magazzino lvl 2+)
@@ -102,3 +102,24 @@ Mancato pagamento → icona **"zzz"** sull'edificio: resta **dormiente/offline**
 È il freno **anti-snowball**: non si schiva restando a lvl 1, e su un regno piccolo (pochi uomini) pesa pochissimo. Mancato pagamento → **diserzione** di **1 fante e/o 1 cavaliere a turno**, per ogni turno scoperto.
 
 - Da ritarare: Pietra/Legno/Argilla drenano poco un impero molto ricco; il morso vero è il **Grano** sulle grandi armate. Alzare i coefficienti se serve più pressione.
+
+## Magazzino e manutenzione — come è implementato (2026-11-20)
+Regole pure in `GameRules` (`warehouseCap`, `overflowOf`, `upkeepBill`, costanti `UPKEEP_*`), applicazione in
+`GameActions` (`upgradeWarehouse`, `applyWarehouseCap`, `maintainKingdom`, `payUpkeep`, `hullsOf`).
+Stato sul **record del regno**, non sulla mappa: `player.magazzino` (1-3),
+`player.dormienti = [{prov, tipo, dal}]`, `player.manutenzione = {turno, grano, bestiame, pietraStrade}`.
+Esiti in `player.welfareAvvisi` con `kind` (stessa pergamena «Manutenzione»). Plancia: riquadro
+«Magazzino e manutenzione» in fase Costruisci + riga d'allarme sotto le scorte. Mappa: 💤 sulla provincia.
+
+Scelte prese in implementazione **[PROPOSTA, da confermare]** — il design non le fissava:
+- **Quando si vende l'eccedenza**: a **fine turno** di chi gioca (`endTurn`), non alla raccolta: il giocatore ha il turno intero per spendere, scambiare o ampliare.
+- **Come si conta l'eccedenza**: sommata su **tutti i tipi** (es. +2 Pietra e +2 Legno = 4 → 50 monete, 1 persa).
+- **Ampliamento**: azione della fase Costruisci (`upgradeWarehouse`), 1000 monete per livello. Il passaggio 1→2 chiede conferma e mostra il conto delle strutture che si accende.
+- **Quando si paga**: turni globali multipli di 3, in `beginTurn` **dopo la raccolta**. Ordine di pagamento: truppe, poi Capitale → Città → Fortezze → Mercati → Velieri → Navi, strade per ultime.
+- **Struttura dormiente (💤) = resta in piedi ma non rende**: Capitale/Città niente tasse e niente +1 recluta (la Capitale dormiente tiene comunque in vita raccolta e Popolarità, se no non si potrebbe più pagare); Fortezza niente +5 (le mura difendono ancora); Mercato niente banca, carovane né rotte (la rotta risulta interrotta); Nave/Veliero non salpa, non sbarca e non collega isole.
+- **Riattivazione**: al conto successivo se le scorte bastano, o subito con **«Salda la manutenzione»** (fase Costruisci, 1 unità per struttura).
+- **Strade non pagate**: non vanno dormienti (spezzerebbero la rete e il raccolto con cui pagare): restano **dissestate** — niente strade nuove finché non si versa la Pietra.
+- **Debito delle truppe non si accumula**: a ogni conto riparte da quanto si deve adesso (il vecchio è già stato pagato in disertori). E **segue le bocche da sfamare**: se l'esercito scende sotto la soglia (14 fanti non chiedono Grano), il debito scende con lui e la diserzione si ferma. Ogni turno il debito aperto si salda da sé se le scorte lo permettono; se no diserta **1 fante** (Grano) e/o **1 cavaliere** (Bestiame), dalla provincia che ne ha di più, mai sotto il presidio minimo, i mercenari per primi.
+- **Conteggi per difetto**: 14 fanti = 0 Grano, 4 cavalieri = 0 Bestiame, 4 strade = 0 Pietra. I corpi di spedizione contano come truppe del mittente.
+- **Bot**: saldano la manutenzione prima di costruire e ampliano il magazzino quando una scorta è a 2 dal tetto e la cassa regge 1000 monete oltre la riserva.
+- **Partita già in corso**: i regni partono al livello 1; l'eccedenza oltre 10 si vende alla prima chiusura di turno.
