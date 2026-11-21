@@ -712,6 +712,14 @@
         // di beginStamp), non a ogni rimbalzo.
         player.turnStartedAt = Date.now();
 
+        // RICONCILIAZIONE DEI CORPI ORFANI (§Corpi di spedizione): il richiamo
+        // normale è event-driven (expirePacts / breakPact / tradimento). Qui, a
+        // inizio turno, si recuperano i corpi rimasti orfani per altre vie — un
+        // patto d'accesso finito prima che la feature esistesse, o tolto con un
+        // intervento admin — che senza questa spazzata resterebbero piantati su
+        // suolo altrui per sempre. Stessa pergamena di rientro del richiamo.
+        noticeCorpsReturn(reconcileOrphanCorps(player), null, null);
+
         const paths = E().ownedPaths(player.name);
         const units = unitsOf(paths);
         const capital = R().getCapitalPathFor(player);
@@ -5636,6 +5644,19 @@
             out = out.concat(homeCorps(owner, c => c.alleato === host.name));
         });
         return out;
+    }
+
+    // RICONCILIAZIONE: rimpatria i corpi di spedizione rimasti orfani — su suolo
+    // altrui senza più un patto che conceda l'accesso militare (alleanza, alleanza
+    // a tempo o rinforzi), o il cui ospite non esiste più. recallOrphanCorps agisce
+    // sull'istante della scadenza/rottura; questa spazzata, chiamata da beginTurn,
+    // recupera gli orfani "storici" e qualunque buco futuro.
+    function reconcileOrphanCorps(owner) {
+        if (!owner || !Array.isArray(owner.corpiSpedizione) || !owner.corpiSpedizione.length) return [];
+        return homeCorps(owner, c => {
+            const host = R().players().find(x => x.name === c.alleato);
+            return !host || !D().allowsReinforce(owner, host);
+        });
     }
 
     // Avviso al regno del corpo rientrato (pergamena d'inizio turno, pattiAvvisi).
