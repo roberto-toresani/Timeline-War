@@ -5,6 +5,7 @@
 - `closeCycle`: chiude il ciclo corrente e assegna i nuovi (`ensureAssignment`).
 - Numeri esatti degli obiettivi per regno → `docs/BINARI_STORICI.md`.
 - Modifica obiettivi: si cambia `js/objectives.js`; vale dal ciclo successivo.
+- **Tabellone del prestigio** (2026-11-22): ogni 3 cicli conclusi, nei primi 3 turni del ciclo nuovo (turni 31-33, 61-63, 91-93…) compare sulla mappa della plancia la classifica dei regni in gioco per `puntiPrestigio`. `Objectives.leaderboardCycle(turno)` / `leaderboard(players)`, `TABELLONE_OGNI`/`TABELLONE_TURNI`; disegno in `renderLeaderboard` (player-board.js), `#map-leaderboard`. Richiudibile dalla testata (localStorage).
 
 ## Leva di ciclo (dottrina)
 - `levaCiclo: N` in doctrines.js: N reclute libere a ogni `closeCycle`.

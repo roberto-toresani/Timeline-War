@@ -1339,6 +1339,56 @@ document.addEventListener('DOMContentLoaded', () => {
             '</div>';
     }
 
+    // ---------- 🏆 tabellone del prestigio ----------
+    // Ogni 3 cicli conclusi, per i primi 3 turni del ciclo nuovo
+    // (Objectives.leaderboardCycle), la classifica dei regni ancora in gioco per
+    // punti di prestigio accumulati. Si richiude cliccando la testata: chiuso
+    // resta la sola testata, ed è una comodità di chi guarda (localStorage).
+    const LB_KEY = 'risiko_tabellone_chiuso';
+    let lbSig = '';
+    function renderLeaderboard(player) {
+        const box = $('map-leaderboard');
+        if (!box) return;
+        const O = window.Objectives;
+        const ciclo = (O && O.leaderboardCycle) ? O.leaderboardCycle(R.turn()) : 0;
+        if (!ciclo) { if (lbSig) { box.style.display = 'none'; box.innerHTML = ''; lbSig = ''; } return; }
+        const mioId = player ? player.id : null;
+        const vivi = R.players().filter(p => p.id === mioId || R.ownedPaths(p.name).length);
+        const rows = O.leaderboard(vivi);
+        let chiuso = false;
+        try { chiuso = localStorage.getItem(LB_KEY) === String(ciclo); } catch (e) { /* privato */ }
+        const fine = (ciclo - 1) * 10 + O.TABELLONE_TURNI;
+        const sig = ciclo + '|' + chiuso + '|' + mioId + '|' + R.turn() + '|' +
+            rows.map(r => r.player.id + ':' + r.punti).join(',');
+        box.style.display = '';
+        if (sig === lbSig) return;
+        lbSig = sig;
+        box.classList.toggle('closed', chiuso);
+        const cicloPrima = CICLO_ROMANO[ciclo - 1] || (ciclo - 1);
+        box.innerHTML =
+            '<button type="button" class="mlb-head" title="' + (chiuso ? 'Apri' : 'Richiudi') + ' la classifica">' +
+                '<span class="mlb-ico">🏆</span><span class="mlb-title">Classifica del prestigio</span>' +
+                '<span class="mlb-tog">' + (chiuso ? '▸' : '▾') + '</span></button>' +
+            (chiuso ? '' :
+            '<div class="mlb-sub">Punti accumulati fino al Ciclo ' + cicloPrima +
+                ' · a vista fino al turno ' + fine + '</div>' +
+            '<div class="mlb-list">' + rows.map(r =>
+                '<div class="mlb-row' + (r.player.id === mioId ? ' me' : '') + (r.posto <= 3 ? ' top' + r.posto : '') + '">' +
+                    '<span class="mlb-pos">' + r.posto + '</span>' +
+                    '<span class="mlb-flag">' + flagHTML(r.player.name, r.player.color) + '</span>' +
+                    '<span class="mlb-name"></span>' +
+                    '<span class="mlb-pts">' + r.punti + '</span>' +
+                '</div>').join('') + '</div>');
+        Array.from(box.querySelectorAll('.mlb-name')).forEach((el, i) => { el.textContent = rows[i].player.name; });
+        box.querySelector('.mlb-head').onclick = () => {
+            try {
+                if (chiuso) localStorage.removeItem(LB_KEY); else localStorage.setItem(LB_KEY, String(ciclo));
+            } catch (e) { /* privato */ }
+            lbSig = '';
+            renderLeaderboard(player);
+        };
+    }
+
     // Conferme in pagina (R.confirm), non window.confirm: il dialogo nativo viene
     // chiuso d'ufficio in certi contesti e l'azione non partiva mai.
     function askEndTurn() {
@@ -7830,6 +7880,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // I confini coi regni di giocatori: strato a parte, non c'entra con le
         // fasi e resta acceso anche quando i bersagli si spengono.
         syncBorderMarks(player);
+        renderLeaderboard(player);
         renderTreasury(player, units, snapshot, connectedSet, pop);
         renderArmy(paths, units, pop, capitalPath, connectedSet);
         renderLegend(player);

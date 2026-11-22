@@ -2552,6 +2552,27 @@
 
     function cycleOfTurn(turn) { return Math.floor((Math.max(1, turn | 0) - 1) / 10) + 1; }
 
+    // IL TABELLONE DEL PRESTIGIO (regola dell'utente, 2026-11-22): ogni 3 cicli
+    // conclusi compare sulla mappa la classifica dei regni per punti di
+    // prestigio accumulati, e resta a vista per i primi 3 turni del ciclo nuovo
+    // — Ciclo IV (dopo I-III), VII, X… Torna il ciclo del tabellone, 0 se in
+    // quel turno non si mostra.
+    const TABELLONE_OGNI = 3, TABELLONE_TURNI = 3;
+    function leaderboardCycle(turn) {
+        if (!turn || turn < 1) return 0;
+        const c = cycleOfTurn(turn);
+        const nelCiclo = ((turn - 1) % 10) + 1;
+        return (c > 1 && (c - 1) % TABELLONE_OGNI === 0 && nelCiclo <= TABELLONE_TURNI) ? c : 0;
+    }
+    // La classifica: punti accumulati (player.puntiPrestigio), a pari punti per
+    // nome; a pari punti stesso posto (1, 1, 3…).
+    function leaderboard(players) {
+        const rows = (players || []).map(p => ({ player: p, punti: p.puntiPrestigio || 0 }))
+            .sort((a, b) => b.punti - a.punti || String(a.player.name).localeCompare(String(b.player.name)));
+        rows.forEach((r, i) => { r.posto = (i && rows[i - 1].punti === r.punti) ? rows[i - 1].posto : i + 1; });
+        return rows;
+    }
+
     // Quanti capitoli ha il binario di un regno (0 = regno senza binario).
     function chapterCount(name) { return (BINARI[name] || []).length; }
 
@@ -2806,7 +2827,8 @@
     const api = {
         BINARI, TEMPLATES, SETS, TIERS, INTENSITA, FRENO, CROLLO_PROV, K_TIER,
         LEVA_PER_PUNTO, leva,
-        cycleOfTurn, chapter, chapterCount, soglia, ritmoDa, passo, withOverflow,
+        cycleOfTurn, leaderboardCycle, leaderboard, TABELLONE_OGNI, TABELLONE_TURNI,
+        chapter, chapterCount, soglia, ritmoDa, passo, withOverflow,
         generate, evaluate
     };
 

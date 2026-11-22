@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=102">
-    <link rel="stylesheet" href="css/board.css?v=144">
+    <link rel="stylesheet" href="css/board.css?v=145">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -198,6 +198,12 @@
                 <!-- Legenda dei confini coi regni di GIOCATORI: si accende da sé
                      quando c'è almeno un confine segnato (player-board.js). -->
                 <div id="map-border-key" style="display:none;"></div>
+
+                <!-- 🏆 TABELLONE DEL PRESTIGIO: ogni 3 cicli, per i primi 3 turni
+                     del ciclo nuovo, la classifica dei regni per punti di
+                     prestigio (Objectives.leaderboardCycle). Lo riempie
+                     renderLeaderboard in player-board.js. -->
+                <div id="map-leaderboard" style="display:none;"></div>
             </div>
 
             <!-- ============ PANNELLO DESTRO: il turno ============
@@ -634,12 +640,12 @@
     <script src="js/diplomacy.js?v=98"></script>
     <script src="js/doctrines.js?v=105"></script>
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
-    <script src="js/objectives.js?v=102"></script>
+    <script src="js/objectives.js?v=103"></script>
     <script src="js/flags.js?v=3"></script>
     <script src="js/app.js?v=140"></script>
     <script src="js/game-actions.js?v=139"></script>
     <script src="js/bot.js?v=137"></script>
-    <script src="js/player-board.js?v=153"></script>
+    <script src="js/player-board.js?v=154"></script>
     <!-- ✝ Il Papa: la finestra dell'admin, solo senza codice d'invito (js/pope-chat.js). -->
     <script src="js/pope-chat.js?v=3"></script>
 </body>
