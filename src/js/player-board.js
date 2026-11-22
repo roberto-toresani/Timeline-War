@@ -6657,6 +6657,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'Regno di Bulgaria': ['bulgar'],
         'Regno di Norvegia': ['norveg', 'viching'],
         'Regno di Svezia': ['svedes', 'svezia'],
+        'Sultanato di Delhi': ['delhi', 'india', 'indian'],
+        'Impero Giapponese': ['giappon', 'nippon'],
         'Mongoli': ['mongol', 'orda', 'tartar']
     };
     const NAME_STOPWORDS = new Set(['regno', 'ducato', 'impero', 'califfato', 'sultanato', 'di', 'del', 'della', 'the', 'of']);

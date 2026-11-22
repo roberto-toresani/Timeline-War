@@ -5479,6 +5479,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cap = getCapitalPathFor(player);
                 return cap ? welfareOf(cap).filter(e => !e.dormant).length : 0;
             },
+            // Le sole migliorie di SANITÀ attive sulla Capitale: template `sanita`
+            // (ciclo IV). È la stessa lettura della Peste (events.js, plagueRound).
+            sanitaCount: () => {
+                const cap = getCapitalPathFor(player);
+                if (!cap) return 0;
+                const attive = welfareOf(cap).filter(e => !e.dormant).map(e => e.key);
+                return GameRules.welfareCount(attive, 'sanita');
+            },
             // Una voce del ciclo `ciclo` (per posizione: 0 Primario, 1 Secondario,
             // 2 Terziario) è stata compiuta? Legge lo storico archiviato da
             // closeCycle, che gira PRIMA della generazione del ciclo nuovo. Serve ai

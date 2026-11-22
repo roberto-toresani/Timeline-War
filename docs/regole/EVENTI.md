@@ -30,6 +30,11 @@ calendario normale delle neutrali (si alza soltanto): le terre del core salgono 
 Province: Tabriz, Urmia, Erzurum, Diyarbakir (6 uomini). Marcia → Terra Santa → Costantinopoli.
 `levaCiclo: 5` — 5 reclute libere a ogni ciclo chiuso.
 
+## Sultanato di Delhi e Impero Giapponese (turno 31)
+- **Sultanato di Delhi**: Delhi, Rajputana, Punjab (5 uomini ciascuna), 1500 monete, fede musulmana, Equilibrato; mete Gujarat, Central_India, Awadh, Sindh.
+- **Impero Giapponese**: Chugoku, Kansai, Shikoku (5 uomini ciascuna), 1500 monete, fede dharmica, Equilibrato; mete Kyushu, Chubu, Kanto, Tohoku. Una Città nel Kanto si chiama Edo.
+- Obiettivi: un capitolo fisso ciascuno (`objectives.js`, ciclo IV).
+
 ## Portogallo (turno 11), Bulgaria (turno 11), Norvegia+Svezia (turno 24)
 - **Portogallo**: 5 uomini, `soloMare`+`conservatore`, 2000 monete + 3 Legno all'avvio.
 - **Bulgaria**: carattere Chiuso, `soloMete` → Bulgaria; alleanza cercata con la Rus' e non belligeranza coi Bizantini (`pattiAmici`); nemica l'Ungheria, nessun patto coi musulmani.

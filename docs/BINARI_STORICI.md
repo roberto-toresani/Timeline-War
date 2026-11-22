@@ -256,6 +256,13 @@ da discutere con l'utente prima di scriverla.
 
 # I dieci binari
 
+> **NB (2026-11-22): anche i capitoli IV (ciclo 1300-1399) sono stati RISCRITTI** con
+> gli obiettivi decisi dall'utente (numeri fissi, Peste e Cent'Anni come fili del
+> secolo), e Svezia e Danimarca hanno ora un secondo capitolo. Le mire di cap IV
+> elencate qui sotto sono superate: la versione viva è in `docs/CICLO4_RICERCA.md` §3 e
+> in `js/objectives.js`. Template nuovo `sanita`; SET nuovi `STRETTO`, `STEPPA_NERA`,
+> `DALMAZIA_HU`, `ARABIA_INTERA`, `REGNO_INGLESE`, `FINLANDIA`.
+>
 > **NB (2026-11-05): i capitoli III (ciclo 1200-1299) sono stati RISCRITTI** con gli
 > obiettivi decisi dall'utente — numeri fissi, titoli storici, il capitolo Mori non è più
 > "Saladino/Gerusalemme" ma "L'emirato d'Egitto". Le mire primarie di cap III elencate qui

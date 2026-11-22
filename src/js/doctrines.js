@@ -315,6 +315,39 @@
                 }
             }
         },
+        // 1300 — i due regni d'Asia (ciclo IV). Mete = la strada storica del
+        // secolo: i Khalji e i Tughlaq a sud e a ovest (Gujarat 1299, Malwa
+        // 1305); per il Giappone il resto delle isole (Kamakura nel Kanto, 1333).
+        'Sultanato di Delhi': {
+            bot: 'espansione',
+            fede: 'musulmani',
+            mete: ['Gujarat', 'Central_India', 'Awadh', 'Sindh'],
+            pesoMete: 3,
+            chat: {
+                meta: ['Il Gujarat e il Malwa pagheranno tributo a Delhi.'],
+                risposte: {
+                    minaccia: ['I nostri elefanti hanno schiacciato eserciti più grandi del tuo, {mittente}.'],
+                    pace: ['Delhi ascolta chi viene in pace, {mittente}.'],
+                    saluto: ['Il sultano di Delhi ti saluta, {mittente}.'],
+                    default: ['Ti ascolto, {mittente}.']
+                }
+            }
+        },
+        'Impero Giapponese': {
+            bot: 'espansione',
+            fede: 'dharmiche',
+            mete: ['Kyushu', 'Chubu', 'Kanto', 'Tohoku'],
+            pesoMete: 3,
+            chat: {
+                meta: ['Le isole avranno un solo signore.'],
+                risposte: {
+                    minaccia: ['Il vento divino ha già affondato flotte più grandi della tua, {mittente}.'],
+                    pace: ['La corte di Kyoto non rifiuta un\'intesa, {mittente}.'],
+                    saluto: ['Il Sol Levante ti saluta, {mittente}.'],
+                    default: ['Ti ascolto, {mittente}.']
+                }
+            }
+        },
         'Regno di Svezia': {
             bot: 'espansione',
             fede: 'cristiani',

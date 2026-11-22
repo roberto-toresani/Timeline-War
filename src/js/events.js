@@ -318,6 +318,46 @@
         }
     };
 
+    // 1300 — i due regni d'Asia (regola dell'utente, ciclo IV): nascono al
+    // turno 31 con 1500 monete, su tre province ciascuno. Senza Capitale, come
+    // ogni regno d'evento: la fondano loro.
+    const DELHI = {
+        name: 'Sultanato di Delhi',
+        color: '#1e7f5c',            // verde smeraldo dei sultani
+        bot: 'espansione',
+        soloLibere: true, ripiego: true, minProvince: 1,
+        monete: 1500,
+        province: [
+            { id: 'Delhi', soldati: 5 },
+            { id: 'Rajputana', soldati: 5 },
+            { id: 'Punjab', soldati: 5 }
+        ],
+        annuncio: {
+            tipo: 'regno',
+            titolo: 'Il Sultanato di Delhi',
+            testo: 'Fra il Punjab e le rocche del Rajputana i sultani di Delhi raccolgono l\'India del nord sotto una sola spada.',
+            nota: 'Un regno nuovo confina con te.'
+        }
+    };
+    const GIAPPONE = {
+        name: 'Impero Giapponese',
+        color: '#e8869a',            // rosa dei ciliegi
+        bot: 'espansione',
+        soloLibere: true, ripiego: true, minProvince: 1,
+        monete: 1500,
+        province: [
+            { id: 'Chugoku', soldati: 5 },
+            { id: 'Kansai', soldati: 5 },
+            { id: 'Shikoku', soldati: 5 }
+        ],
+        annuncio: {
+            tipo: 'regno',
+            titolo: 'L\'Impero Giapponese',
+            testo: 'Da Kyoto la corte del Tenno torna a comandare: le isole del Sol Levante entrano nella storia del mondo.',
+            nota: 'Un regno nuovo confina con te.'
+        }
+    };
+
     // Il calendario. Ogni voce è un descrittore come sopra.
     const EVENTS = [
         {
@@ -350,6 +390,20 @@
             // ognuno può mancare per conto suo, se il suo feudo è già di qualcuno
             // e non c'è terra libera lì attorno.
             onStart(ctx) { ctx.spawnKingdom(NORVEGIA); ctx.spawnKingdom(SVEZIA); }
+        },
+        {
+            id: 'sultanato-delhi', turn: 31, fino: null, tipo: 'regno',
+            titolo: 'Il Sultanato di Delhi',
+            testo: 'Nell\'India del nord i sultani di Delhi si fanno signori del Punjab e del Rajputana.',
+            nota: '',
+            onStart(ctx) { ctx.spawnKingdom(DELHI); }
+        },
+        {
+            id: 'impero-giapponese', turn: 31, fino: null, tipo: 'regno',
+            titolo: 'L\'Impero Giapponese',
+            testo: 'Fra Kyoto e il mare interno nasce l\'Impero del Sol Levante.',
+            nota: '',
+            onStart(ctx) { ctx.spawnKingdom(GIAPPONE); }
         },
         {
             id: 'invasione-mongola', turn: INVASIONE_MONGOLA.turno, fino: INVASIONE_MONGOLA.fino,

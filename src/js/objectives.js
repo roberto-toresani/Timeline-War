@@ -232,7 +232,18 @@
     // Western_Norway). «Tutte le province norvegesi» = tutte e quattro.
     const NORVEGIA = new Set(['Western_Norway', 'Eastern_Norway', 'Trondelag', 'Finnmark']);
 
+    // Aggiunte per il ciclo IV (obiettivi scritti dall'utente, docs/CICLO4_RICERCA.md).
+    const STRETTO = new Set(['Al_Rif', 'Fez']);
+    const STEPPA_NERA = new Set(['Kuban', 'Stavropol', 'Kalmykia', 'Astrakhan', 'Uralsk']);
+    const DALMAZIA_HU = new Set(['Dalmatia', 'Croatia', 'Slovenia']);
+    const ARABIA_INTERA = new Set(['Hail', 'Hedjaz', 'Nejd', 'Yemen', 'Oman', 'Abu_Dhabi']);
+    const REGNO_INGLESE = new Set([...BRITISH, 'Friesland', 'Holland', 'Gelre', 'French_Low_Countries']);
+    const FINLANDIA = new Set(['Oulu', 'Ostrobothnia', 'Kuopio', 'Uusimaa', 'West_Karelia']);
+    const INDIA_KHALJI = new Set(['Gujarat', 'Central_India', 'Sindh', 'Awadh']);
+    const GIAPPONE_ISOLE = new Set(['Kyushu', 'Chubu', 'Kanto', 'Tohoku']);
+
     const SETS = {
+        STRETTO, STEPPA_NERA, DALMAZIA_HU, ARABIA_INTERA, REGNO_INGLESE, FINLANDIA, INDIA_KHALJI, GIAPPONE_ISOLE,
         ITALIA_FED, EGYPT_SINAI, NORVEGIA,
         ANDALUS, IBERIA, BRITISH, MED_FR, ADRIATIC, LEVANT, NORMANDY_FR, GREECE, EGYPT,
         ISLANDS, HOLY_LAND, IRELAND, FRANCIA, AMERICA, INDIE,
@@ -483,6 +494,13 @@
         // Le MIGLIORIE civiche ATTIVE sulla Capitale (§6.1, Sanità + Felicità,
         // max 10): «costruisci N edifici per il benessere». Le dormienti non
         // contano, come nella Popolarità.
+        // Le migliorie di SANITÀ attive sulla Capitale (0-5): la stessa lettura
+        // della Peste (GameRules.plagueTier). Ciclo IV: Francia, Mori, Ungheria, Bisanzio.
+        sanita: {
+            misura: c => (typeof c.sanitaCount === 'function' ? c.sanitaCount() : 0),
+            tetto: () => 5,
+            hint: (a, n) => ({ sanita: n })
+        },
         migliorie: {
             misura: c => c.welfareBuilt(),
             tetto: () => 10,
@@ -641,30 +659,24 @@
                   testo: () => 'Esegui con successo una conquista navale.',
                   check: n => `conquiste navali ≥ ${n}` }
             ] },
-            // Ciclo IV — lo Stretto: Rio Salado (1340), la Castiglia porta la
-            // guerra in Africa. Il secondario prosegue il lavoro di fondo su
-            // tutta la penisola, che al ciclo V diventa la mira primaria.
-            { ciclo: 4, epoca: '1300-1399', tema: 'Lo Stretto', voci: [
-                // Ordine dell'xlsx: consolidare la penisola è il Primario, la
-                // traversata dello Stretto (Rio Salado) il Secondario.
-                { id: 'ca4-1', tipo: 'espansione', titolo: 'La penisola si consolida',
-                  tmpl: 'regione', arg: { set: 'IBERIA' },
-                  n: { resistere: 8, avanzare: 10, eccedere: 12, passo: 1 },
-                  testo: n => `Consolida la penisola: possiedi ${n} delle 13 province iberiche.`,
-                  check: n => `province iberiche possedute ≥ ${n}` },
-                { id: 'ca4-2', tipo: 'navale', titolo: 'Rio Salado',
-                  tmpl: 'regione', arg: { set: 'MAGHREB', viaSea: true },
-                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
-                  testo: n => `Attraversa lo Stretto: sbarca e conquista ${n} province in Maghreb.`,
-                  check: n => `province del Maghreb possedute ≥ ${n}` },
-                { id: 'ca4-3', tipo: 'economia', titolo: 'Il tesoro della guerra',
-                  tmpl: 'tutti', arg: {
-                      capo: { tmpl: 'oro', arg: {} },
-                      altri: [{ tmpl: 'scorte', arg: { res: 'legno' }, soglia: 6 }]
-                  },
-                  n: { resistere: 1000, avanzare: 1500, eccedere: 2200, passo: 200 },
-                  testo: n => `Conserva ${n} monete d’oro e 6 scorte di legno.`,
-                  check: n => `monete ≥ ${n} e scorte di legno ≥ 6` }
+            // Ciclo IV — Río Salado (1340) e Algeciras (1344): la guerra passa lo
+            // Stretto. Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Río Salado e lo Stretto', voci: [
+                { id: 'ca4-1', tipo: 'espansione', titolo: 'Río Salado', fisso: true,
+                  tmpl: 'regioneSenzaFede', arg: { set: 'STRETTO', famiglia: 'musulmani' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Porta la croce oltre lo Stretto: Al-Rif e Fez non devono restare musulmane (chi le tiene non conta, purché siano cristiane).',
+                  check: () => 'nessuna provincia musulmana fra Al_Rif e Fez' },
+                { id: 'ca4-2', tipo: 'economia', titolo: 'Le Atarazanas di Siviglia', fisso: true,
+                  tmpl: 'scorte', arg: { res: 'legno' },
+                  n: { avanzare: 6 },
+                  testo: n => `Rifornisci i cantieri delle galee: conserva ${n} scorte di legno.`,
+                  check: n => `scorte di legno ≥ ${n}` },
+                { id: 'ca4-3', tipo: 'crescita', titolo: 'La Hermandad delle città', fisso: true,
+                  tmpl: 'politica', arg: { lato: 'popolo' },
+                  n: { avanzare: 2 },
+                  testo: () => 'Le città fanno lega col re: chiudi il ciclo con una politica fortemente a favore del popolo.',
+                  check: () => 'politica del regno fortemente verso il popolo (grado 2)' }
             ] },
             // Ciclo V — Granada cade (1492) e comincia l'Atlantico: la Reconquista
             // si compie proprio mentre parte la storia dopo. Il legno chiesto al
@@ -819,29 +831,24 @@
                   testo: () => 'Porta la croce in Oriente: difendi almeno una provincia in Terra Santa.',
                   check: () => 'almeno 1 provincia di HOLY_LAND posseduta' }
             ] },
-            // Ciclo IV — i Cent'Anni cominciano (1337): l'inglese sbarca proprio
-            // dove la Francia ha appena consolidato. Aquitaine è la stessa
-            // provincia che l'Inghilterra chiede al suo capitolo IV — chi la
-            // tiene, la toglie all'altro.
-            { ciclo: 4, epoca: '1300-1399', tema: 'I Cent’Anni', voci: [
-                { id: 'fr4-1', tipo: 'espansione', titolo: 'L’inglese sbarca',
-                  tmpl: 'regione', arg: { set: 'NORMANDY_FR' },
-                  n: { resistere: 4, avanzare: 6, eccedere: 7, passo: 1 },
-                  testo: n => `Non lasciare che l’inglese ti scacci dalla Normandia: mantieni ${n} delle tue 7 province normanne.`,
-                  check: n => `province di NORMANDY_FR possedute ≥ ${n}` },
-                { id: 'fr4-2', tipo: 'espansione', titolo: 'La capitale e le città difese',
-                  tmpl: 'tutti', arg: {
-                      capo: { tmpl: 'capitale', arg: {} },
-                      altri: [{ tmpl: 'citta', arg: {}, soglia: 6 }]
-                  },
-                  n: { resistere: 4, avanzare: 6, eccedere: 8, passo: 1 },
-                  testo: n => `Difendi la Capitale e una Città con almeno ${n} uomini.`,
-                  check: n => `Capitale con soldati ≥ ${n} e una Città ≥ 6` },
-                { id: 'fr4-3', tipo: 'crescita', titolo: 'Il regno che prospera',
-                  tmpl: 'benessere', arg: {},
-                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
-                  testo: n => `Porta il Benessere del regno al livello ${n}.`,
-                  check: n => `Benessere ≥ ${n}` }
+            // Ciclo IV — Carlo V il Saggio (re di Francia 1364-1380) e Du Guesclin
+            // riprendono le terre cedute a Brétigny. Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Carlo V il Saggio', voci: [
+                { id: 'fr4-1', tipo: 'espansione', titolo: 'La riscossa di Carlo di Valois', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Normandy', 'Brittany', 'Picardy', 'Poitou'] },
+                  n: { avanzare: 6 },
+                  testo: n => `Respingi l’inglese: difendi Normandia, Bretagna, Piccardia e Poitou con almeno ${n} uomini ciascuna.`,
+                  check: n => `Normandy, Brittany, Picardy e Poitou possedute con soldati ≥ ${n}` },
+                { id: 'fr4-2', tipo: 'crescita', titolo: 'Avignone e il Delfinato', fisso: true,
+                  tmpl: 'cittaRegione', arg: { set: 'MED_FR' },
+                  n: { avanzare: 4 },
+                  testo: n => `La corona sul Rodano: costruisci una Città fra Provenza, Linguadoca e Rodano e difendila con ${n} uomini.`,
+                  check: n => `una Città in Provence/Languedoc/Rhone con soldati ≥ ${n}` },
+                { id: 'fr4-3', tipo: 'crescita', titolo: 'La Morte Nera a Parigi', fisso: true,
+                  tmpl: 'sanita', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Prima che arrivi la Peste: costruisci ${n} migliorie di Sanità sulla Capitale.`,
+                  check: n => `migliorie di Sanità attive sulla Capitale ≥ ${n}` }
             ] },
             // Ciclo V — Giovanna d'Arco (1429): l'inglese è cacciato, la Francia
             // riprende per intero le terre normanne. Il secondario mette da parte
@@ -999,26 +1006,24 @@
                   testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
                   check: n => `Popolarità ≥ ${n}` }
             ] },
-            // Ciclo IV — il sultanato mamelucco tiene il Levante. NON si nomina
-            // l'Orda (regola dell'utente): un capitolo non può dipendere da un
-            // evento che potrebbe non arrivare in tempo. Quel che si chiede è
-            // quel che il giocatore controlla — presidiare il Levante.
-            { ciclo: 4, epoca: '1300-1399', tema: 'I mamelucchi', voci: [
-                { id: 'fa4-1', tipo: 'espansione', titolo: 'L’Egitto assicurato',
-                  tmpl: 'regione', arg: { set: 'EGYPT' },
-                  n: { resistere: 3, avanzare: 5, eccedere: 5, passo: 1 },
-                  testo: n => `Assicurati tutte le province d’Egitto: possiedi ${n} delle 5.`,
-                  check: n => `province di EGYPT possedute ≥ ${n}` },
-                { id: 'fa4-2', tipo: 'economia', titolo: 'Le riserve dell’emirato',
-                  tmpl: 'scorteTutte', arg: {},
-                  n: { resistere: 2, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Tieni almeno ${n} scorte di ogni tipo di risorsa.`,
-                  check: n => `scorte ≥ ${n} per ciascuno dei 5 tipi` },
-                { id: 'fa4-3', tipo: 'economia', titolo: 'Il tesoro del Cairo',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 800, avanzare: 1300, eccedere: 2000, passo: 200 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+            // Ciclo IV — Merinidi e Mamelucchi: Abu al-Hasan (Tlemcen 1337, Tunisi
+            // 1347) e la Peste al Cairo (1348). Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Merinidi e Mamelucchi', voci: [
+                { id: 'fa4-1', tipo: 'espansione', titolo: 'Il Maghreb dei Merinidi', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Inner_Morocco', 'Fez', 'Al_Rif'] },
+                  n: { avanzare: 5 },
+                  testo: n => `Difendi il Maghreb: possiedi Marocco interno, Fez e Al-Rif con almeno ${n} uomini ciascuna.`,
+                  check: n => `Inner_Morocco, Fez e Al_Rif possedute con soldati ≥ ${n}` },
+                { id: 'fa4-2', tipo: 'navale', titolo: 'Le galee di Ceuta', fisso: true,
+                  tmpl: 'conquisteNavali', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Esegui con successo una conquista navale.',
+                  check: n => `conquiste navali nel ciclo ≥ ${n}` },
+                { id: 'fa4-3', tipo: 'crescita', titolo: 'La Peste al Cairo', fisso: true,
+                  tmpl: 'sanita', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Prepara il regno alla Peste: costruisci ${n} migliorie di Sanità sulla Capitale.`,
+                  check: n => `migliorie di Sanità attive sulla Capitale ≥ ${n}` }
             ] },
             // Ciclo V — le vie del Mar Rosso: un TEATRO intero (la scala del
             // ciclo V), non una provincia sola. Yemen e Oman insieme, e la
@@ -1186,24 +1191,23 @@
                   testo: n => `Estendi la signoria oltremare: conquista ${n} province in Irlanda.`,
                   check: n => `province d'Irlanda possedute ≥ ${n}` }
             ] },
-            // Ciclo IV — i Cent'Anni: qui comincia la guerra vera, e la posta è
-            // l'Aquitania. Prenderla non basta: va difesa, se no il capitolo si
-            // chiude aperto com'era.
+            // Ciclo IV — i Cent’Anni: Sluys (1340), Crécy (1346), Calais (1347), l’Ordine
+            // della Giarrettiera (1348), il Buon Parlamento (1376). Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
             { ciclo: 4, epoca: '1300-1399', tema: 'I Cent’Anni', voci: [
-                { id: 'in4-1', tipo: 'espansione', titolo: 'L’Aquitania',
-                  tmpl: 'provincia', arg: { id: 'Aquitaine' },
-                  n: { resistere: 4, avanzare: 8, eccedere: 12, passo: 2 },
-                  testo: n => `Conquista l’Aquitania e difendila con ${n} uomini.`,
-                  check: n => `possiedi Aquitaine con soldati ≥ ${n}` },
-                { id: 'in4-2', tipo: 'economia', titolo: 'Il tesoro della guerra',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 1000, avanzare: 1500, eccedere: 2200, passo: 200 },
-                  testo: n => `Immagazzina ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` },
-                { id: 'in4-3', tipo: 'crescita', titolo: 'Il regno che prospera',
+                { id: 'in4-1', tipo: 'espansione', titolo: 'Crécy e Calais', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Picardy', 'Normandy'] },
+                  n: { avanzare: 8 },
+                  testo: n => `Sbarca in Francia: conquista Piccardia e Normandia e difendile con almeno ${n} uomini ciascuna.`,
+                  check: n => `Picardy e Normandy possedute con soldati ≥ ${n}` },
+                { id: 'in4-2', tipo: 'crescita', titolo: 'L’Ordine della Giarrettiera', fisso: true,
+                  tmpl: 'cavalieri', arg: {},
+                  n: { avanzare: 8 },
+                  testo: n => `Arma la cavalleria del re: chiudi il ciclo con ${n} cavalieri nel tuo esercito.`,
+                  check: n => `cavalieri ≥ ${n}` },
+                { id: 'in4-3', tipo: 'crescita', titolo: 'Il Buon Parlamento', fisso: true,
                   tmpl: 'benessere', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Migliora il Benessere del regno al livello ${n}.`,
+                  n: { avanzare: 4 },
+                  testo: n => `Porta il Benessere del regno al livello ${n}.`,
                   check: n => `Benessere ≥ ${n}` }
             ] },
             // Ciclo V — l'Irlanda intera, e una Città a tenerla. È il capitolo
@@ -1359,24 +1363,24 @@
                   testo: () => 'Apri una rotta commerciale e mantienila fino a fine ciclo (concludi almeno uno scambio nel ciclo).',
                   check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
-            // Ciclo IV — la Bolla d'Oro (1356): la costituzione dell'Impero
-            // formalizza il dominio sulla Germania intera.
-            { ciclo: 4, epoca: '1300-1399', tema: 'La Bolla d’Oro', voci: [
-                { id: 'sr4-1', tipo: 'espansione', titolo: 'La Bolla d’Oro',
-                  tmpl: 'regione', arg: { set: 'BALTICO_EST' },
-                  n: { resistere: 1, avanzare: 1, eccedere: 2, passo: 1 },
-                  testo: n => `Conquista ${pl(n, 'una provincia', 'province')} baltiche fra Tallin, Tartu, Riga e Courland.`,
-                  check: n => `province baltiche (Tallin/Tartu/Riga/Courland) ≥ ${n}` },
-                { id: 'sr4-2', tipo: 'economia', titolo: 'Il tesoro per l’Austria',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 1000, avanzare: 1600, eccedere: 2400, passo: 300 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` },
-                { id: 'sr4-3', tipo: 'crescita', titolo: 'La pace armata',
-                  tmpl: 'sicurezza', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Tieni la Sicurezza del regno al livello ${n}.`,
-                  check: n => `Sicurezza ≥ ${n}` }
+            // Ciclo IV — Carlo IV: Praga capitale (1348), la Bolla d’Oro (1356); a nord
+            // la Prussia dell’Ordine teutonico (Marienburg, 1309). Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Le corone di Carlo IV', voci: [
+                { id: 'sr4-1', tipo: 'espansione', titolo: 'Marienburg', fisso: true,
+                  tmpl: 'province', arg: { ids: ['West_Prussia', 'East_Prussia'] },
+                  n: { avanzare: 5 },
+                  testo: n => `Prendi la Prussia dell’Ordine teutonico: possiedi Prussia occidentale e orientale con almeno ${n} uomini ciascuna.`,
+                  check: n => `West_Prussia e East_Prussia possedute con soldati ≥ ${n}` },
+                { id: 'sr4-2', tipo: 'crescita', titolo: 'Praga, città di Carlo IV', fisso: true,
+                  tmpl: 'citta', arg: { at: 'Bohemia' },
+                  n: { avanzare: 6 },
+                  testo: n => `Costruisci una Città in Boemia e difendila con ${n} uomini.`,
+                  check: n => `una Città a Bohemia con soldati ≥ ${n}` },
+                { id: 'sr4-3', tipo: 'crescita', titolo: 'La Bolla d’Oro', fisso: true,
+                  tmpl: 'politica', arg: { lato: 'nobili' },
+                  n: { avanzare: 2 },
+                  testo: () => 'Concedi la Bolla d’Oro ai principi elettori: chiudi il ciclo con una politica fortemente a favore della nobiltà.',
+                  check: () => 'politica del regno fortemente verso la nobiltà (grado 2)' }
             ] },
             // Ciclo V — gli Asburgo: la casa d'Austria sale, e con lei l'Impero
             // mette radici a est. Il Benessere prepara il terreno prima che la
@@ -1539,24 +1543,24 @@
                   testo: () => 'Apri una rotta commerciale e mantienila fino a fine ciclo (concludi almeno uno scambio nel ciclo).',
                   check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
-            // Ciclo IV — Casimiro il Grande (1333-1370): "trovò una Polonia di
-            // legno e la lasciò di pietra". La pietra del ciclo prima serve qui.
+            // Ciclo IV — Casimiro il Grande (1333-1370) e l’unione di Krewo (1385).
+            // Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
             { ciclo: 4, epoca: '1300-1399', tema: 'Casimiro il Grande e l’unione di Krewo', voci: [
-                { id: 'po4-1', tipo: 'crescita', titolo: 'Una Polonia di pietra',
-                  tmpl: 'cittaRegione', arg: { set: 'POLONIA' },
-                  n: { resistere: 1, avanzare: 3, eccedere: 5, passo: 1 },
-                  testo: n => `Fonda una Città nel cuore del regno e difendila con ${n} uomini.`,
-                  check: n => `una Città in POLONIA con soldati ≥ ${n}` },
-                { id: 'po4-2', tipo: 'espansione', titolo: 'Il regno difeso',
-                  tmpl: 'provCount', arg: {},
-                  n: { resistere: 7, avanzare: 9, eccedere: 12, passo: 1 },
-                  testo: n => `Difendi almeno ${n} province.`,
-                  check: n => `province ≥ ${n}` },
-                { id: 'po4-3', tipo: 'economia', titolo: 'Il tesoro reale',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 1000, avanzare: 1600, eccedere: 2400, passo: 300 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+                { id: 'po4-1', tipo: 'espansione', titolo: 'L’unione di Krewo', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Vilnius', 'Minsk', 'Vitebsk'] },
+                  n: { avanzare: 6 },
+                  testo: n => `Unisci la Lituania alla corona: possiedi Vilnius, Minsk e Vitebsk con almeno ${n} uomini ciascuna.`,
+                  check: n => `Vilnius, Minsk e Vitebsk possedute con soldati ≥ ${n}` },
+                { id: 'po4-2', tipo: 'crescita', titolo: 'Una Polonia di pietra', fisso: true,
+                  tmpl: 'fortezza', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Casimiro la trovò di legno e la lasciò di pietra: costruisci una Fortezza.',
+                  check: () => 'possiedi una Fortezza' },
+                { id: 'po4-3', tipo: 'crescita', titolo: 'Il re dei contadini', fisso: true,
+                  tmpl: 'benessere', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Porta il Benessere del regno al livello ${n}.`,
+                  check: n => `Benessere ≥ ${n}` }
             ] },
             // Ciclo V — l'unione con la Lituania e Grunwald (1410): i Cavalieri
             // Teutonici sono fermati, la costa baltica si apre.
@@ -1710,28 +1714,27 @@
                   testo: () => 'Affacciati sul mare: conquista una provincia del Baltico — Tallinn, Tartu, Riga, Courland o Prussia Orientale — e costruiscivi una nave.',
                   check: () => 'una provincia fra Tallinn/Tartu/Riga/Courland/Prussia Orientale con una nave ancorata' }
             ] },
-            // Ciclo IV — raccogliere le terre russe: Mosca diventa il fulcro
-            // attorno a cui la Rus’ settentrionale si ricompone per intero.
-            { ciclo: 4, epoca: '1300-1399', tema: 'Raccogliere le terre russe', voci: [
-                { id: 'ru4-1', tipo: 'espansione', titolo: 'Raccogliere le terre russe',
-                  tmpl: 'regione', arg: { set: 'RUS_NORD', oltre: 'EST_RUSSO' },
-                  n: { resistere: 5, avanzare: 6, eccedere: 6, passo: 1 },
-                  testo: n => `Ricomponi la Rus’ attorno a Mosca: possiedi tutte e 6 le sue terre settentrionali.`,
-                  check: n => `province di RUS_NORD possedute ≥ ${n}`,
-                  nOltre: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
-                  titoloOltre: 'Oltre il Volga, in anticipo',
-                  testoOltre: n => `Mosca è già ricomposta: spingiti oltre il Volga — possiedi ${n} province orientali.`,
-                  checkOltre: n => `province di EST_RUSSO possedute ≥ ${n}` },
-                { id: 'ru4-2', tipo: 'economia', titolo: 'Il tesoro per l’Oriente',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 1000, avanzare: 1600, eccedere: 2400, passo: 300 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` },
-                { id: 'ru4-3', tipo: 'crescita', titolo: 'Il regno che si governa',
-                  tmpl: 'popolarita', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
-                  check: n => `Popolarità ≥ ${n}` }
+            // Ciclo IV — Dmitrij Donskoj: il raduno di Kolomna e Kulikovo (1380). Il
+            // testo non nomina l’Orda: sono province da prendere chiunque le tenga. Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Dmitrij Donskoj', voci: [
+                { id: 'ru4-1', tipo: 'espansione', titolo: 'Le steppe del Mar Nero', fisso: true,
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'regione', arg: { set: 'STEPPA_NERA' } },
+                      altri: [{ tmpl: 'province', arg: { ids: ['Kuban', 'Stavropol'] }, soglia: 3 }]
+                  },
+                  n: { avanzare: 5 },
+                  testo: () => 'Scendi verso il Mar Nero: conquista Kuban, Stavropol, Calmucchia, Astrachan’ e Uralsk, e difendi Kuban e Stavropol con almeno 3 uomini ciascuna.',
+                  check: n => `province di STEPPA_NERA possedute ≥ ${n}, Kuban e Stavropol con soldati ≥ 3` },
+                { id: 'ru4-2', tipo: 'crescita', titolo: 'Kolomna, la piazza d’armi', fisso: true,
+                  tmpl: 'fortezza', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Prepara il raduno dell’esercito: costruisci una Fortezza.',
+                  check: () => 'possiedi una Fortezza' },
+                { id: 'ru4-3', tipo: 'crescita', titolo: 'Le schiere di Donskoj', fisso: true,
+                  tmpl: 'cavalieri', arg: {},
+                  n: { avanzare: 15 },
+                  testo: n => `Chiudi il ciclo con ${n} cavalieri nel tuo esercito.`,
+                  check: n => `cavalieri ≥ ${n}` }
             ] },
             // Ciclo V — la Rus' si spinge a oriente, oltre il Volga. Il nome
             // non chiama in causa nessun khanato: la meta è la terra.
@@ -1889,24 +1892,27 @@
                   testo: n => `Ripopola il regno dopo l’invasione: raggiungi un Benessere di almeno ${n}.`,
                   check: n => `Benessere ≥ ${n}` }
             ] },
-            // Ciclo IV — gli Angioini (Carlo Roberto, 1308-1342): il regno si
-            // espande nei Balcani.
-            { ciclo: 4, epoca: '1300-1399', tema: 'Gli Angioini', voci: [
-                { id: 'un4-1', tipo: 'crescita', titolo: 'Gli Angioini nei Balcani',
-                  tmpl: 'cittaRegione', arg: { set: 'BALCANI' },
-                  n: { resistere: 1, avanzare: 2, eccedere: 4, passo: 1 },
-                  testo: n => `Espandi il regno nei Balcani: costruisci una Città balcanica e difendila con ${n} uomini.`,
-                  check: n => `una Città in BALCANI con soldati ≥ ${n}` },
-                { id: 'un4-2', tipo: 'espansione', titolo: 'I Balcani armati',
-                  tmpl: 'regioneGuarnigioni', arg: { set: 'BALCANI', soglia: 4 },
-                  n: { resistere: 1, avanzare: 2, eccedere: 3, passo: 1 },
-                  testo: n => `Presidia i Balcani: tieni ${n} sue province con almeno 4 uomini ciascuna.`,
-                  check: n => `${n} province balcaniche con soldati ≥ 4 ciascuna` },
-                { id: 'un4-3', tipo: 'crescita', titolo: 'Il regno che si governa',
-                  tmpl: 'popolarita', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Chiudi il ciclo con una Popolarità di livello ${n}.`,
-                  check: n => `Popolarità ≥ ${n}` }
+            // Ciclo IV — Luigi il Grande (1342-1382): la pace di Zara (1358) gli dà la
+            // Dalmazia; la peste lo caccia da Napoli (1348). Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Luigi il Grande', voci: [
+                { id: 'un4-1', tipo: 'espansione', titolo: 'La pace di Zara', fisso: true,
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'regione', arg: { set: 'DALMAZIA_HU' } },
+                      altri: [{ tmpl: 'provincia', arg: { id: 'Slovenia' }, soglia: 4 }]
+                  },
+                  n: { avanzare: 3 },
+                  testo: () => 'Strappa la costa adriatica: possiedi Dalmazia, Croazia e Slovenia, e difendi la Slovenia con almeno 4 uomini.',
+                  check: n => `province fra Dalmatia, Croatia e Slovenia possedute ≥ ${n}, Slovenia con soldati ≥ 4` },
+                { id: 'un4-2', tipo: 'crescita', titolo: 'La corte di Visegrád', fisso: true,
+                  tmpl: 'cittaCount', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci una Città nel tuo regno.',
+                  check: n => `Città ≥ ${n}` },
+                { id: 'un4-3', tipo: 'crescita', titolo: 'La peste di Napoli', fisso: true,
+                  tmpl: 'sanita', arg: {},
+                  n: { avanzare: 3 },
+                  testo: n => `Costruisci ${n} migliorie di Sanità sulla Capitale: la Peste non fermerà più il raccolto.`,
+                  check: n => `migliorie di Sanità attive sulla Capitale ≥ ${n}` }
             ] },
             // Ciclo V — Hunyadi e l'assedio di Belgrado (1456): l'Ottomano è
             // fermato. Il secondario mette da parte la pietra per la Fortezza
@@ -2073,26 +2079,24 @@
                   testo: n => `Chiudi il ciclo con ${n} cavalieri in armi nel tuo regno.`,
                   check: n => `cavalieri nel regno ≥ ${n}` }
             ] },
-            // Ciclo IV — la frontiera vigilata: dopo la riconquista, si presidia
-            // ogni confine con un REGNO nemico (le neutrali non contano), mentre
-            // a ovest si apre un fronte navale nuovo, il rovescio dello sbarco
-            // normanno in Sicilia.
-            { ciclo: 4, epoca: '1300-1399', tema: 'Le frontiere vigilate', voci: [
-                { id: 'bi4-1', tipo: 'espansione', titolo: 'Le frontiere vigilate',
-                  tmpl: 'guarnigioniConfine', arg: {},
-                  n: { resistere: 3, avanzare: 5, eccedere: 7, passo: 1 },
-                  testo: n => `Rafforza OGNI provincia a contatto con un regno nemico con almeno ${n} uomini.`,
-                  check: n => `ogni provincia confinante con un nemico con soldati ≥ ${n}` },
-                { id: 'bi4-2', tipo: 'navale', titolo: 'Lo sbarco in Italia',
-                  tmpl: 'regione', arg: { set: 'SICILIA_CALABRIA', viaSea: true },
-                  n: { resistere: 1, avanzare: 2, eccedere: 2, passo: 1 },
-                  testo: n => `Sbarca in Italia: conquista ${pl(n, 'una provincia', 'province')} fra Sicilia e Calabria.`,
-                  check: n => `province fra Sicily e Calabria possedute ≥ ${n}` },
-                { id: 'bi4-3', tipo: 'economia', titolo: 'Il tesoro del Bosforo',
-                  tmpl: 'oro', arg: {},
-                  n: { resistere: 1200, avanzare: 2000, eccedere: 3000, passo: 300 },
-                  testo: n => `Conserva ${n} monete d’oro.`,
-                  check: n => `monete ≥ ${n}` }
+            // Ciclo IV — i Turchi in Bitinia: in gioco Bursa e Nicea si possono tenere.
+            // Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'I Turchi in Bitinia', voci: [
+                { id: 'bi4-1', tipo: 'espansione', titolo: 'Bursa e Nicea', fisso: true,
+                  tmpl: 'regioneGuarnigioni', arg: { set: 'ANATOLIA', soglia: 5 },
+                  n: { avanzare: 5 },
+                  testo: n => `Tieni la Bitinia e avanza: possiedi ${n} province d’Anatolia con almeno 5 uomini ciascuna.`,
+                  check: n => `province d’Anatolia con soldati ≥ 5: almeno ${n}` },
+                { id: 'bi4-2', tipo: 'economia', titolo: 'La via Egnatia', fisso: true,
+                  tmpl: 'tipiCollegati', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Collega alla Capitale almeno ${n} tipi di risorsa diversi.`,
+                  check: n => `tipi di risorsa collegati ≥ ${n}` },
+                { id: 'bi4-3', tipo: 'crescita', titolo: 'La Peste a Costantinopoli', fisso: true,
+                  tmpl: 'sanita', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `Prepara la città alla Peste: costruisci ${n} migliorie di Sanità sulla Capitale.`,
+                  check: n => `migliorie di Sanità attive sulla Capitale ≥ ${n}` }
             ] },
             // Ciclo V — la cristianità in pericolo: la pressione a oriente
             // costringe a TENERE (non più conquistare) l'Anatolia con una guardia
@@ -2244,28 +2248,24 @@
                   testo: () => 'Apri una rotta commerciale e mantienila fino a fine ciclo (concludi almeno uno scambio nel ciclo).',
                   check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
-            // Ciclo IV — l'altopiano persiano: il califfato si allunga a
-            // oriente. Nessun Ilkhanato da nominare (non è un regno del gioco):
-            // la meta è la terra.
-            { ciclo: 4, epoca: '1300-1399', tema: 'L’altopiano persiano', voci: [
-                // FOGLIO: «Possiedi 4 territori della penisola arabica». La penisola
-                // sulla mappa ha 3 province (Nejd, Yemen, Oman): la soglia si ferma a 3.
-                // TODO(rivedere): il foglio chiede 4, ma non esistono.
-                { id: 'ab4-1', tipo: 'espansione', titolo: 'La penisola arabica',
-                  tmpl: 'regione', arg: { set: 'ARABIA' },
-                  n: { resistere: 1, avanzare: 3, eccedere: 3, passo: 1 },
-                  testo: n => `Spingiti nella penisola arabica: possiedi ${n} delle 3 sue province.`,
-                  check: n => `province di ARABIA possedute ≥ ${n}` },
-                { id: 'ab4-2', tipo: 'espansione', titolo: 'La Persia presidiata',
-                  tmpl: 'regioneGuarnigioni', arg: { set: 'PERSIA', soglia: 6 },
-                  n: { resistere: 2, avanzare: 3, eccedere: 4, passo: 1 },
-                  testo: n => `Presidia la Persia: tieni ${n} sue province con almeno 6 uomini ciascuna.`,
-                  check: n => `${n} province persiane con soldati ≥ 6 ciascuna` },
-                { id: 'ab4-3', tipo: 'crescita', titolo: 'Il regno che prospera',
-                  tmpl: 'benessere', arg: {},
-                  n: { resistere: 3, avanzare: 4, eccedere: 5, passo: 1 },
-                  testo: n => `Tieni il Benessere del regno al livello ${n}.`,
-                  check: n => `Benessere ≥ ${n}` }
+            // Ciclo IV — il Califfato e le Città Sante; i Jalayiridi costruttori a
+            // Baghdad, Hormuz emporio del Golfo. Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Il Califfato e le Città Sante', voci: [
+                { id: 'ab4-1', tipo: 'espansione', titolo: 'Il custode delle Città Sante', fisso: true,
+                  tmpl: 'regione', arg: { set: 'ARABIA_INTERA' },
+                  n: { avanzare: 6 },
+                  testo: () => 'Conquista l’intera penisola arabica: Hail, Hegiaz, Nejd, Yemen, Oman e Abu Dhabi.',
+                  check: n => `province della penisola arabica possedute ≥ ${n}` },
+                { id: 'ab4-2', tipo: 'crescita', titolo: 'Le cupole dei Jalayiridi', fisso: true,
+                  tmpl: 'cittaCount', arg: {},
+                  n: { avanzare: 3 },
+                  testo: () => 'Fonda 2 nuove Città nel tuo regno: possiedine 3 in tutto.',
+                  check: n => `Città ≥ ${n}` },
+                { id: 'ab4-3', tipo: 'economia', titolo: 'Le carovane di Hormuz', fisso: true,
+                  tmpl: 'rottaCommerciale', arg: {},
+                  n: { avanzare: 5 },
+                  testo: n => `Concludi ${n} scambi commerciali nel ciclo.`,
+                  check: n => `scambi conclusi nel ciclo ≥ ${n}` }
             ] },
             // Ciclo V — la Persia si tiene con le armi. Nessun conquistatore da
             // nominare: quel che si chiede è il presidio, che dipende dal
@@ -2385,6 +2385,31 @@
                   n: { avanzare: 1 },
                   testo: () => 'Costruisci il gran mercato di Stoccolma (Svealand).',
                   check: () => 'un Mercato a Svealand (Stoccolma)' }
+            ] },
+            // Ciclo IV — Magnus Eriksson e il trattato di Nöteborg (1323).
+            // Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Magnus Eriksson e Nöteborg', voci: [
+                { id: 'sv4-1', tipo: 'espansione', titolo: 'Il trattato di Nöteborg', fisso: true,
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'regione', arg: { set: 'FINLANDIA' } },
+                      altri: [{ tmpl: 'provincia', arg: { id: 'Norrbotten' }, soglia: 1 }]
+                  },
+                  n: { avanzare: 3 },
+                  testo: n => `Conquista il Norrbotten e ${n} province finlandesi fra Oulu, Ostrobotnia, Kuopio, Uusimaa e Carelia occidentale.`,
+                  check: n => `Norrbotten posseduta e province di FINLANDIA ≥ ${n}` },
+                { id: 'sv4-2', tipo: 'crescita', titolo: 'Il Landslag di Magnus', fisso: true,
+                  tmpl: 'sicurezza', arg: {},
+                  n: { avanzare: 4 },
+                  testo: n => `La legge del regno: porta la Sicurezza al livello ${n}.`,
+                  check: n => `Sicurezza ≥ ${n}` },
+                { id: 'sv4-3', tipo: 'economia', titolo: 'Il ferro di Bergslagen', fisso: true,
+                  tmpl: 'tutti', arg: {
+                      capo: { tmpl: 'rottaCommerciale', arg: {} },
+                      altri: [{ tmpl: 'mercato', arg: {}, soglia: 1 }]
+                  },
+                  n: { avanzare: 2 },
+                  testo: n => `Costruisci un Mercato e concludi ${n} scambi commerciali nel ciclo.`,
+                  check: n => `un Mercato e scambi nel ciclo ≥ ${n}` }
             ] }
         ],
 
@@ -2405,6 +2430,71 @@
                   n: { avanzare: 1 },
                   testo: () => 'Costruisci il mercato di Oslo (Eastern Norway).',
                   check: () => 'un Mercato a Eastern Norway (Oslo)' }
+            ] },
+            // Ciclo IV — Valdemar Atterdag (1340-1375): la pace del regno, la flotta di
+            // Visby (1361). Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
+            { ciclo: 4, epoca: '1300-1399', tema: 'Valdemar Atterdag', voci: [
+                { id: 'da4-1', tipo: 'espansione', titolo: 'Il richiamo del Danelaw', fisso: true,
+                  tmpl: 'regione', arg: { set: 'REGNO_INGLESE' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Porta le navi danesi oltre il mare: conquista una provincia del Regno d’Inghilterra (Isole britanniche, Frisia, Olanda, Gheldria o Fiandre francesi).',
+                  check: n => `province del regno inglese possedute ≥ ${n}` },
+                { id: 'da4-2', tipo: 'crescita', titolo: 'La pace di Valdemar', fisso: true,
+                  tmpl: 'sicurezza', arg: {},
+                  n: { avanzare: 5 },
+                  testo: n => `Porta la Sicurezza del regno al livello ${n}.`,
+                  check: n => `Sicurezza ≥ ${n}` },
+                { id: 'da4-3', tipo: 'economia', titolo: 'La flotta per Visby', fisso: true,
+                  tmpl: 'scorte', arg: { res: 'legno' },
+                  n: { avanzare: 5 },
+                  testo: n => `Conserva ${n} scorte di legno.`,
+                  check: n => `scorte di legno ≥ ${n}` }
+            ] }
+        ],
+
+        // ------------------------------------------------------------------
+        //  I REGNI D'ASIA (§Eventi, nati al turno 31 con 1500 monete). Come i
+        //  regni del Nord: un capitolo a voci FISSE scritto con l'utente
+        //  (2026-11-22, docs/CICLO4_RICERCA.md), che si ripete finché il regno
+        //  vive.
+        // ------------------------------------------------------------------
+        'Sultanato di Delhi': [
+            { ciclo: 4, epoca: '1300-1399', tema: 'I Khalji e i Tughlaq', voci: [
+                { id: 'de4-1', tipo: 'espansione', titolo: 'Le campagne di Alauddin', fisso: true,
+                  tmpl: 'regione', arg: { set: 'INDIA_KHALJI' },
+                  n: { avanzare: 4 },
+                  testo: () => 'Porta la spada del sultano a sud e a ovest: conquista Gujarat, Malwa, Sind e Awadh.',
+                  check: n => `province fra Gujarat, Central_India, Sindh e Awadh possedute ≥ ${n}` },
+                { id: 'de4-2', tipo: 'crescita', titolo: 'Le città di Firuz Shah', fisso: true,
+                  tmpl: 'cittaCount', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci una Città oltre la Capitale.',
+                  check: n => `Città ≥ ${n}` },
+                { id: 'de4-3', tipo: 'economia', titolo: 'Il mercato di Alauddin', fisso: true,
+                  tmpl: 'mercato', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci un Mercato.',
+                  check: () => 'possiedi un Mercato' }
+            ] }
+        ],
+
+        'Impero Giapponese': [
+            { ciclo: 4, epoca: '1300-1399', tema: 'Le due Corti', voci: [
+                { id: 'gi4-1', tipo: 'espansione', titolo: 'L’unione delle due Corti', fisso: true,
+                  tmpl: 'regione', arg: { set: 'GIAPPONE_ISOLE' },
+                  n: { avanzare: 4 },
+                  testo: () => 'Riunisci le isole sotto un solo signore: possiedi Kyushu, Chubu, Kanto e Tohoku.',
+                  check: n => `province fra Kyushu, Chubu, Kanto e Tohoku possedute ≥ ${n}` },
+                { id: 'gi4-2', tipo: 'crescita', titolo: 'Kamakura ed Edo', fisso: true,
+                  tmpl: 'citta', arg: { at: 'Kanto' },
+                  n: { avanzare: 1 },
+                  testo: () => 'Costruisci una Città nel Kanto, la terra degli shogun.',
+                  check: () => 'una Città a Kanto' },
+                { id: 'gi4-3', tipo: 'navale', titolo: 'I pirati wakō', fisso: true,
+                  tmpl: 'conquisteNavali', arg: {},
+                  n: { avanzare: 1 },
+                  testo: () => 'Esegui con successo una conquista navale.',
+                  check: n => `conquiste navali nel ciclo ≥ ${n}` }
             ] }
         ]
     };

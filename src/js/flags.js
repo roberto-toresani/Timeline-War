@@ -252,6 +252,12 @@
         'Regno di Svezia': function () {         // d'azzurro, tre corone d'oro
             return field(T.azure) + crown(9, 9.5, 0.82, T.orCh) + crown(15, 9.5, 0.82, T.orCh) + crown(12, 18.5, 0.82, T.orCh);
         },
+        'Sultanato di Delhi': function () {      // di verde, mezzaluna d'argento
+            return field(T.vert) + crescent(12, 14, 1.15, T.argent);
+        },
+        'Impero Giapponese': function () {       // d'argento, sole rosso
+            return field(T.argent) + '<circle cx="12" cy="14" r="6" fill="' + T.gules + '"/>';
+        },
         'Regno di Danimarca': function () {      // Dannebrog: di rosso, croce scandinava d'argento
             const RED = '#c60c30', WHITE = '#ffffff';
             // croce bianca decentrata verso l'asta (sx), come la bandiera norvegese.
