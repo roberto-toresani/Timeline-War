@@ -62,7 +62,8 @@ Se tutte le condizioni sono soddisfatte, nella sezione Mercato compare il pulsan
 
 ### Ciclo di vita
 - **Proposta via araldo** (come i patti): entrambi devono avere un Mercato, entrambi accettano, si scelgono le merci.
-- Persiste finché un capo la scioglie o il corridoio rimane interrotto N turni.
+- Persiste finché un capo la scioglie o il corridoio rimane interrotto `ROUTE_BREAK_TURNS` (3) giri (Mercato dormiente, razzie).
+- **Capolinea perso → scioglimento immediato**: se uno dei due Mercati viene conquistato, liberato, ceduto o demolito, la rotta si scioglie subito (`pruneDeadRoutes`), senza tolleranza. Non si trasferisce su un altro Mercato né al conquistatore: va rifatta da capo (proposta via araldo) da un altro Mercato. La linea sulla mappa sparisce nello stesso istante.
 - Struttura sul player: `player.rotteCommerciali = [{ id, conId, conNome, prov:[], risorse:[], turnoFirma }]`.
 
 ### Terzi sul corridoio

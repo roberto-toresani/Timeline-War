@@ -414,6 +414,7 @@
                     E().setReligion(tp, nf);
                 }
                 pruneRoadsTouching(tp.id);
+                pruneDeadRoutes();   // un Mercato di capolinea perso scioglie la sua rotta
                 esito = 'riconquistata';
             } else {
                 // Respinta: il difensore perde solo i caduti, tiene la provincia.
@@ -1563,6 +1564,7 @@
             E().redrawProvince(tp);
             liberate.push(tp.id);
         });
+        if (liberate.length) pruneDeadRoutes();
         const libSet = new Set(liberate);
         const vicini = new Set();
         liberate.forEach(id => E().landNeighbors(id).forEach(n => {
@@ -1965,6 +1967,7 @@
         E().addPiece(path, 'mercato', -1);
         if (n > 0) { E().addPiece(path, 'soldato', n); E().setArmyColor(path, player.color); }
         player.monete = (player.monete || 0) + 100;
+        pruneDeadRoutes();
 
         E().redrawProvince(path);
         E().refresh();
@@ -3328,9 +3331,55 @@
     // Il Mercato `path` di `owner` può ospitare una rotta verso `other`? Al più
     // ROUTE_PER_MARKET rotte per Mercato, e una sola verso lo stesso regno.
     function marketHasRoom(owner, path, other) {
-        const qui = routesOf(owner).filter(r => r.mercatoDa === path.id || r.mercatoA === path.id);
+        const qui = routesOf(owner).filter(r => (r.mercatoDa === path.id || r.mercatoA === path.id) &&
+            !routeLostMarket(r, owner));
         return qui.length < GR().ROUTE_PER_MARKET &&
             !qui.some(r => String(r.conId) === String(other.id));
+    }
+
+    // Un capolinea della rotta `r` (letta dal record di `holder`) è VENUTO MENO:
+    // la provincia non è più del suo capo (conquistata, liberata, ceduta) o il
+    // Mercato non c'è più (demolito). Il Mercato solo DORMIENTE non conta: è
+    // ancora lì, la rotta resta e la carovana salta il giro. Restituisce l'id
+    // della provincia perduta, o null se entrambi i capolinea reggono.
+    function routeLostMarket(r, holder) {
+        if (!r || !holder) return null;
+        const altroId = String(r.proponente) === String(holder.id) ? r.conId : holder.id;
+        const capoDa = playerById(r.proponente), capoA = playerById(altroId);
+        const vivo = (prov, capo) => {
+            const path = E().path(prov);
+            return !!path && !!capo && E().owner(path) === capo.name && E().countPiece(path, 'mercato') > 0;
+        };
+        if (!vivo(r.mercatoDa, capoDa)) return r.mercatoDa;
+        if (!vivo(r.mercatoA, capoA)) return r.mercatoA;
+        return null;
+    }
+
+    // SCIOGLIE SUBITO le rotte con un capolinea venuto meno: la rotta non si
+    // trasferisce né aspetta, va rifatta da capo verso un altro Mercato. Si
+    // chiama dove una provincia cambia mano o un Mercato sparisce (conquista,
+    // liberazione, demolizione) e, come rete di sicurezza, a ogni giro.
+    // Non salva: lo fa l'azione che la chiama.
+    function pruneDeadRoutes() {
+        const seen = new Set();
+        let tolte = 0;
+        R().players().slice().forEach(a => {
+            routesOf(a).slice().forEach(r => {
+                if (!r || seen.has(r.id)) return;
+                seen.add(r.id);
+                const perso = routeLostMarket(r, a);
+                if (!perso) return;
+                const b = playerById(r.conId);
+                dropRoute(r.id, a, b);
+                const path = E().path(perso);
+                const dove = path ? R().provinceLabel(path) : null;
+                [a, b].forEach(c => {
+                    if (c) pushRouteNotice(c, { tipo: 'sciolta', conNome: (c === a ? (b ? b.name : r.conNome) : a.name), motivo: 'mercato', prov: perso, dove });
+                });
+                tolte++;
+            });
+        });
+        return tolte;
     }
 
     // Il CORRIDOIO: cammino sui confini di TERRA da uno dei Mercati `fromIds` a
@@ -3450,6 +3499,7 @@
         const turnErr = requireTurn(player); if (turnErr) return turnErr;
         const found = takeRouteProposal(player, offerId);
         if (!found) return fail('Questa proposta non c\'è più.');
+        pruneDeadRoutes();
         const { list, i, off } = found;
         const mittente = playerById(off.da);
         if (!mittente) { list.splice(i, 1); E().save(); return fail('Il regno che l\'aveva proposta non esiste più.'); }
@@ -3593,12 +3643,16 @@
     }
 
     // LA CAROVANA: a ogni giro completo ogni rotta tenta il suo viaggio.
-    //   - un Mercato finito (conquistato, demolito) o il corridoio razziato
-    //     interrompono il viaggio: dopo ROUTE_BREAK_TURNS giri così la rotta si scioglie;
+    //   - un Mercato finito (conquistato, demolito) scioglie la rotta SUBITO
+    //     (pruneDeadRoutes); un Mercato dormiente o il corridoio razziato la
+    //     interrompono: dopo ROUTE_BREAK_TURNS giri così la rotta si scioglie;
     //   - se un capo non ha le merci concordate l'INTERO scambio salta;
     //   - altrimenti le merci cambiano di mano e ognuno incassa ROUTE_BONUS.
     // `turno` è il turno appena concluso (a cui si riferiscono i flag di razzia).
     function runTradeRoutes(turno) {
+        // Rete di sicurezza: un capolinea perso per una via che non passa da
+        // pruneDeadRoutes (editor admin, ritocchi) scioglie la rotta qui.
+        pruneDeadRoutes();
         const seen = new Set();
         const esiti = [];
         R().players().slice().forEach(a => {
@@ -4356,6 +4410,7 @@
             clearGrudge(winner, to.id);
             if (defender && defender.temporanei) delete defender.temporanei[to.id];
             E().setOwner(to, winner.name);
+            pruneDeadRoutes();   // un Mercato di capolinea caduto scioglie la sua rotta
             E().addPiece(to, 'soldato', res.attackerSurvivors);
             // La ventura della provincia adesso è solo quella arrivata: quella del
             // difensore è caduta con lui, e i suoi contratti non passano di mano.
@@ -6064,6 +6119,7 @@
                     E().setOwner(to, target.name);
                     E().setArmyColor(to, target.color);
                     pruneRoadsTouching(to.id);
+                    pruneDeadRoutes();
                     convConsegna = handOver(target, to, fedeNuova);   // la fede segue la spada (§religione)
                 }
                 E().addPiece(to, 'soldato', mossi);
@@ -6097,6 +6153,7 @@
             E().setOwner(to, target ? target.name : null);
             E().setArmyColor(to, target ? target.color : null);
             pruneRoadsTouching(to.id);
+            pruneDeadRoutes();
             const convProv = handOver(target, to, fedeNuova);   // la fede segue la spada (§religione)
             E().redrawProvince(to);
             tocchi.push(to.id);

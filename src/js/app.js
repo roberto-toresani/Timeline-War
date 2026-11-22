@@ -2151,12 +2151,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderTradeRoutes(svg, focus, visible) {
         const routes = new Map();
+        // Un capolinea è vivo se la provincia è ancora del suo capo e ha il Mercato:
+        // un Mercato conquistato o demolito spegne la linea subito, senza aspettare
+        // il giro (altrimenti sembra una rotta attiva col conquistatore).
+        const nameById = id => { const p = PLAYERS.find(x => String(x.id) === String(id)); return p ? p.name : null; };
+        const mktAlive = (provId, capoNome) => {
+            const path = document.getElementById(provId);
+            return !!path && !!capoNome && path.getAttribute('data-owner') === capoNome && countPiece(path, 'mercato') > 0;
+        };
         PLAYERS.forEach(pl => {
             (Array.isArray(pl.rotteCommerciali) ? pl.rotteCommerciali : []).forEach(r => {
                 if (!r || !r.id || !Array.isArray(r.prov) || r.prov.length < 2) return;
                 const own = !!(focus && pl.id === focus.id);
                 const have = routes.get(r.id);
                 if (have) { have.own = have.own || own; return; }
+                const altro = String(r.proponente) === String(pl.id) ? r.conId : pl.id;
+                const capoDa = nameById(r.proponente), capoA = nameById(altro);
+                const da = r.mercatoDa || r.prov[0], a = r.mercatoA || r.prov[r.prov.length - 1];
+                if (!mktAlive(da, capoDa) || !mktAlive(a, capoA)) return;
                 routes.set(r.id, { prov: r.prov, own });
             });
         });

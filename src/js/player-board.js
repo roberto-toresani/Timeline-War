@@ -7163,9 +7163,11 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'rottaRifiutata': return a.conNome + ' ha rifiutato la tua proposta di rotta commerciale.';
             case 'rottaSciolta':
                 if (a.motivo === 'interrotta') return 'La rotta con ' + a.conNome + ' si è sciolta: il corridoio è rimasto interrotto troppo a lungo.';
+                if (a.motivo === 'mercato') return 'La rotta con ' + a.conNome + ' si è sciolta: il Mercato' +
+                    (a.dove ? ' di ' + a.dove : '') + ' è venuto meno. Per riaprirla serve una rotta nuova da un altro Mercato.';
                 if (a.motivo === 'scomparso') return 'La rotta con ' + a.conNome + ' è finita: uno dei due regni non esiste più.';
                 return a.conNome + ' ha sciolto la rotta commerciale con te.';
-            case 'rottaInterrotta': return 'La carovana con ' + a.conNome + ' non è partita: un Mercato lungo l\'accordo è venuto meno.';
+            case 'rottaInterrotta': return 'La carovana con ' + a.conNome + ' non è partita: un Mercato dell\'accordo è dormiente.';
             case 'rottaSaltata': return 'La carovana con ' + a.conNome + ' è rimasta ferma: ' + (a.mancante || 'un regno') +
                 ' non aveva le merci concordate.';
             case 'rottaRazziata': return a.chi
