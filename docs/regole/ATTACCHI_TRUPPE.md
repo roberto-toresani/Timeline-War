@@ -32,7 +32,8 @@
 - `neutralGarrison`: presidio fisso delle province neutrali.
 - `isFarProvince`: province lontane dalle Capitali iniziali, presidio maggiore.
 - `neutralCanRaid`: neutrali di fede diversa possono razziare confini.
-- **Una razzia per giro** per ogni neutrale (`neutralRaids` in `endTurn`).
+- **Una razzia per regno per giro** (`neutralRaids` in `endTurn`): ogni regno scoperto viene razziato da UNA neutrale estratta a sorte; ogni neutrale marcia al massimo una volta.
+- **Lazio e Umbria** (terre del Papa, `GameRules.isPapalNeutral`) non razziano mai.
 
 ## Demolizione
 - Mercato → rimane con 2 uomini + 100 monete di rimborso.

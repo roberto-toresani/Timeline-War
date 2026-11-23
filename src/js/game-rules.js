@@ -288,6 +288,12 @@
         return spendableTroops(neutralTroops) >= NEUTRAL_RAID_RATIO * Math.max(0, defenderTroops || 0);
     }
 
+    // LE TERRE DEL PAPA non razziano (regola dell'utente): Lazio e Umbria sono
+    // neutrali ma sono il patrimonio della Santa Sede, non terre di nessuno
+    // affamate — non marciano mai contro un vicino, di qualunque fede sia.
+    const PAPAL_NEUTRALS = new Set(['Lazio', 'Umbria']);
+    function isPapalNeutral(id) { return PAPAL_NEUTRALS.has(id); }
+
     // Il rovescio della regola: quanti soldati bastano in una provincia perché
     // quella neutrale NON possa marciarci contro. È quello che serve al bot (e a
     // chiunque voglia mostrarlo al giocatore) per presidiare il confine giusto.
@@ -976,7 +982,7 @@
         welfareInfo, welfareCategory, welfareCost, welfareLabel, welfareCount,
         NEUTRAL_START, NEUTRAL_EVERY, NEUTRAL_STEP, NEUTRAL_MAX, neutralGarrison, CONQUEST_BOUNTY,
         FAR_UNTIL_TURN, FAR_GARRISON_LATE, isFarProvince,
-        NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison,
+        NEUTRAL_RAID_RATIO, neutralCanRaid, neutralSafeGarrison, PAPAL_NEUTRALS, isPapalNeutral,
         TRADE_RATE, TRADE_MAX_PENDING, TRADE_MAX_UNITS, TRADE_EXPIRY,
         GOLD_UNIT, TRADE_MAX_GOLD, isTradeGood, checkGoods,
         ROUTE_BONUS, ROUTE_MAX_TYPES, ROUTE_MAX_UNITS, ROUTE_PER_MARKET, ROUTE_BREAK_TURNS, checkRouteGoods,

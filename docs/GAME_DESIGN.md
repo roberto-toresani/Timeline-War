@@ -283,6 +283,12 @@ Nessuna provincia neutrale è vuota, e nessuna è un avversario in più: sono un
   - è in **schiacciante inferiorità: 3 attaccanti per ogni difensore**
     (`GameRules.neutralCanRaid`). Il presidio minimo (§5) vale anche per le neutrali, quindi
     il caso limite è **4 soldati neutrali contro 1 difensore**.
+  - **Una razzia per regno per giro** [REGOLA, utente]: ogni regno scoperto **viene
+    razziato**, ma da **una sola** neutrale per giro (estratta a sorte fra quelle che lo
+    minacciano), sulla sua provincia più debole a tiro. Regni diversi vengono razziati tutti
+    nello stesso giro; una neutrale marcia una volta sola.
+  - **Le terre del Papa non razziano** [REGOLA, utente]: Lazio e Umbria, pur neutrali, non
+    marciano mai (`GameRules.isPapalNeutral`).
 
   Prima bastava 1 soldato in più e le razzie erano continue: una neutrale da 3 uomini
   strappava una provincia difesa da 2, e nessun confine reggeva. Ora la razzia è la punizione

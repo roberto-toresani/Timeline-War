@@ -232,6 +232,7 @@
             if (n === salvo) return need;
             const np = pathOf(n);
             if (!np || E().owner(np)) return need;             // solo terre di nessuno
+            if (GR().isPapalNeutral(n)) return need;           // le terre del Papa non razziano
             const nf = E().religion(np);
             if (!nf || Religions.sameFaith(nf, mia)) return need;
             return Math.max(need, GR().neutralSafeGarrison(E().countPiece(np, 'soldato')));

@@ -308,26 +308,28 @@
     // ---------- razzie delle terre di nessuno (regola dell'utente) ----------
     // La fede conta anche per le neutrali: una provincia di nessuno della TUA
     // stessa religione ti lascia in pace, una di fede diversa può marciarti
-    // contro. Gira a fine giro (prima del rifornimento neutrale) e fa UNA SOLA
-    // razzia per giro (regola dell'utente): fra tutte le neutrali pronte a
-    // colpire — vicino-giocatore più debole di fede diversa, schiacciato di numero
-    // — ne estrae una a sorte, risolve con battle.js e, se VINCE, si riprende la
-    // provincia (che torna neutrale coi superstiti). Se perde, il difensore
-    // incassa solo i caduti.
+    // contro. Gira a fine giro (prima del rifornimento neutrale): OGNI regno
+    // scoperto subisce UNA razzia per giro (regola dell'utente), risolta con
+    // battle.js; se la neutrale VINCE si riprende la provincia (che torna
+    // neutrale coi superstiti), se perde il difensore incassa solo i caduti.
     // Restituisce l'elenco delle razzie (con le province, per la nebbia §3).
     function neutralRaids(turn) {
         if (typeof Religions === 'undefined') return { razzie: [], perse: 0 };
         const razzie = [];
-        // UNA SOLA RAZZIA PER GIRO (regola dell'utente): tutte le terre di nessuno
-        // insieme attaccano una volta sola, quindi non possono strappare più di
-        // una provincia a un giocatore nello stesso giro. Prima ogni neutrale di
-        // fede diversa razziava per conto suo e un giro poteva spazzare via mezzo
-        // regno. Si raccolgono tutte le candidate (una neutrale pronta col suo
-        // bersaglio più debole) e se ne estrae UNA a sorte — così non è sempre lo
-        // stesso angolo di mappa a colpire, come sarebbe con l'ordine dei path.
+        // UNA RAZZIA PER REGNO PER GIRO (regola dell'utente): un confine sguarnito
+        // DEVE essere punito, ma uno stesso regno non viene colpito da più
+        // neutrali nello stesso giro — così non perde mezzo regno in una notte.
+        // Regni diversi invece vengono razziati tutti, ognuno per conto suo.
+        // Si raccolgono tutte le coppie (neutrale pronta → provincia scoperta),
+        // poi per ogni regno se ne estrae UNA a sorte fra le neutrali che lo
+        // minacciano; una neutrale marcia una volta sola, quindi se confina con
+        // due regni scoperti ne colpisce uno e l'altro passa alla neutrale dopo.
+        // L'ordine dei regni è mescolato perché nessuno abbia la precedenza fissa.
+        // Le terre del Papa (Lazio, Umbria: GameRules.isPapalNeutral) non razziano.
         const candidati = [];
         E().allPaths().forEach(np => {
             if (E().owner(np)) return;                       // solo terre di nessuno
+            if (GR().isPapalNeutral(np.id)) return;          // il Papa non razzia
             const nf = E().religion(np);
             const truppeNeutrali = E().countPiece(np, 'soldato');
             const attaccanti = GR().spendableTroops(truppeNeutrali);
@@ -344,13 +346,36 @@
                 .filter(tp => tp && E().owner(tp)
                     && !Religions.sameFaith(E().religion(tp), nf)
                     && GR().neutralCanRaid(truppeNeutrali, E().countPiece(tp, 'soldato')));
-            if (!targets.length) return;
-            targets.sort((a, b) => E().countPiece(a, 'soldato') - E().countPiece(b, 'soldato'));
-            candidati.push({ np, nf, attaccanti, tp: targets[0] });
+            targets.forEach(tp => candidati.push({ np, nf, attaccanti, tp }));
         });
 
-        if (candidati.length) {
-            const scelta = candidati[Math.floor(Math.random() * candidati.length)];
+        // Un bersaglio per regno: fra le neutrali che lo minacciano (e non hanno
+        // già marciato) se ne sceglie una a sorte, e lei colpisce la provincia
+        // più debole di QUEL regno che ha a tiro.
+        const regni = Array.from(new Set(candidati.map(c => E().owner(c.tp))));
+        for (let i = regni.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [regni[i], regni[j]] = [regni[j], regni[i]];
+        }
+        // Prima i regni minacciati da MENO neutrali (a parità, l'ordine mescolato):
+        // se una neutrale confina con due regni scoperti e uno dei due ha solo
+        // lei, va a lui — l'altro ha altre neutrali che possono punirlo.
+        const minacce = r => new Set(candidati.filter(c => E().owner(c.tp) === r).map(c => c.np.id)).size;
+        regni.sort((a, b) => minacce(a) - minacce(b));
+        const marciate = new Set();
+        const scelte = [];
+        regni.forEach(regno => {
+            const suoi = candidati.filter(c => E().owner(c.tp) === regno && !marciate.has(c.np.id));
+            if (!suoi.length) return;
+            const neutrali = Array.from(new Set(suoi.map(c => c.np.id)));
+            const nid = neutrali[Math.floor(Math.random() * neutrali.length)];
+            const mira = suoi.filter(c => c.np.id === nid)
+                .sort((a, b) => E().countPiece(a.tp, 'soldato') - E().countPiece(b.tp, 'soldato'))[0];
+            marciate.add(nid);
+            scelte.push(mira);
+        });
+
+        scelte.forEach(scelta => {
             const np = scelta.np, nf = scelta.nf, attaccanti = scelta.attaccanti, tp = scelta.tp;
 
             const difOwner = E().owner(tp);
@@ -437,7 +462,7 @@
                 conversione,
                 coloreDifensore: (R().players().find(p => p.name === difOwner) || {}).color || null
             });
-        }
+        });
         if (razzie.length) E().redrawRoads();
         return { razzie, perse: razzie.filter(r => r.esito === 'riconquistata').length };
     }
