@@ -5031,6 +5031,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function sightAcrossSea(id) {
         if (id === 'Western_Norway') return ['Highlands', 'Lowlands'];
         if (id === 'Eastern_Norway') return ['Highlands'];
+        if (id === 'Marrakech') return ['West_Sahara'];
         return [];
     }
 

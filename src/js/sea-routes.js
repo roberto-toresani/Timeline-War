@@ -527,7 +527,9 @@
         Western_Norway: ['Highlands', 'Lowlands'],
         Eastern_Norway: ['Highlands'],
         Highlands: ['Western_Norway', 'Eastern_Norway'],
-        Lowlands: ['Western_Norway']
+        Lowlands: ['Western_Norway'],
+        Marrakech: ['West_Sahara'],
+        West_Sahara: ['Marrakech']
     };
 
     // Stessa cosa, memoizzata. `refreshMapDisplay` gira dopo OGNI azione — anche
