@@ -32,7 +32,7 @@ Asse **nobiltà ↔ popolo**: ogni scelta sposta l'ago.
 - **3**: sconto −1 su 1 tipo di risorsa sorteggiato. **4**: su 2 tipi.
 - **5**: come 4 + −50 monete sugli acquisti grandi (Città, Fortezza, Mercato, Vascello; la Nave no, non costa monete).
 
-Lo sconto di risorsa non tocca mai i costi a un solo tipo (Strada, Nave, migliorie §6.1). `beginTurn` sorteggia i tipi scontati una volta a turno → `player.festaRisorse` / `festaMalus` / `festaBonusGrandi`. `payConstruction` paga e basta (il costo è già piegato da `costFor`).
+Lo sconto di risorsa non tocca mai i costi a un solo tipo (Strada, Nave, migliorie §6.1). `beginTurn` sorteggia i tipi scontati una volta a turno → `player.festaRisorse` / `festaMalus` / `festaBonusGrandi` (via `refreshFesta(player, true)`). Il piano si aggiorna **subito**, dentro il turno, quando cambiano le Felicità attive (costruzione/riattivazione, manutenzione, trasloco della Capitale): `refreshFesta(player, false)` tiene i sorteggi già fatti e aggiunge solo i tipi nuovi. `payConstruction` paga e basta (il costo è già piegato da `costFor`).
 
 ## Impatto Peste Nera (turni 35-39)
 `plagueTier`: 0-1 → morti in Capitale e provincia più popolosa, blocco raccolta.

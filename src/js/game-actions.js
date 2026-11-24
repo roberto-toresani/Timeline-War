@@ -120,6 +120,37 @@
         return out;
     }
 
+    // FELICITÀ (§6.1, "Festa"): ricalcola il piano del regno dalle migliorie di
+    // Felicità ATTIVE sulla Capitale e scrive i tre campi che GameRules.costFor
+    // legge (`festaRisorse`, `festaMalus`/`festaMalusRes`, `festaBonusGrandi`).
+    // `rinnova` = true a inizio turno: si risorteggia tutto. Altrimenti (una
+    // Felicità costruita/riattivata, la manutenzione, un trasloco del seggio)
+    // si aggiorna SUBITO il piano ma si tengono i sorteggi già fatti: i tipi
+    // scontati restano quelli e se ne aggiungono solo di nuovi, il rincaro del
+    // malcontento resta sulla stessa risorsa finché dura — così il prezzo sui
+    // tasselli non balla a ogni costruzione.
+    function refreshFesta(player, rinnova) {
+        const capital = R().getCapitalPathFor(player);
+        const attive = capital ? E().welfare(capital).filter(e => !e.dormant).map(e => e.key) : [];
+        const festa = GR().joyTier(GR().welfareCount(attive, 'felicita'));
+        const nFav = (festa && festa.favoriti) || 0;
+        const tenuti = (!rinnova && Array.isArray(player.festaRisorse))
+            ? player.festaRisorse.slice(0, nFav) : [];
+        const pool = GR().RES.filter(k => !tenuti.includes(k));
+        while (tenuti.length < nFav && pool.length) {
+            tenuti.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+        }
+        player.festaRisorse = tenuti;
+        const eraMalus = !!player.festaMalus;
+        player.festaMalus = !!(festa && festa.malus);
+        // Scontento (tier 0-1): la risorsa rincarata di 1 sulle costruzioni senza
+        // monete — sorteggiata UNA volta (come festaRisorse) e tenuta finché dura.
+        player.festaMalusRes = !player.festaMalus ? null
+            : (!rinnova && eraMalus && player.festaMalusRes) ? player.festaMalusRes
+            : pickResources(1)[0];
+        player.festaBonusGrandi = (festa && festa.bonusGrandi) || 0;
+    }
+
     // ---------- serbatoi delle reclute (§5.1) ----------
     // Due mucchi distinti, vedi KingdomStats.reinforcements:
     //   player.recluteDaSchierare  → LIBERE, vanno dove vuole il giocatore
@@ -780,16 +811,9 @@
         // `festaBonusGrandi` (−50 monete sugli acquisti grandi, tier 5). I tipi
         // scontati si sorteggiano UNA volta a inizio turno, non a ogni costruzione,
         // così il prezzo sui tasselli resta STABILE invece di ballare a ogni render.
-        const attiveFelicita = capital ? E().welfare(capital).filter(e => !e.dormant).map(e => e.key) : [];
-        const felicita = GR().welfareCount(attiveFelicita, 'felicita');
-        const festa = GR().joyTier(felicita);
-        player.festaRisorse     = (festa && festa.favoriti) ? pickResources(festa.favoriti) : [];
-        player.festaMalus       = !!(festa && festa.malus);
-        // Scontento (tier 0-1): la risorsa rincarata di 1 sulle costruzioni senza
-        // monete — sorteggiata UNA volta a turno (come festaRisorse), così il
-        // prezzo resta stabile fra un render e l'altro.
-        player.festaMalusRes    = player.festaMalus ? pickResources(1)[0] : null;
-        player.festaBonusGrandi = (festa && festa.bonusGrandi) || 0;
+        // Dentro il turno lo si riallinea con refreshFesta(player, false) quando
+        // cambiano le Felicità attive (costruzione, riattivazione, manutenzione).
+        refreshFesta(player, true);
         delete player.festaCostruzioneBonus;   // ritirato: la Festa ora vive nel costo
 
         player.monete += prod.monete;
@@ -838,7 +862,9 @@
         // contributo di 1 risorsa per edificio, auto-pagato DOPO la raccolta di
         // questo turno (così vale tutto ciò che si è accumulato nei 5 turni). Chi
         // resta scoperto va dormiente, poi crolla; l'esito va nella pergamena.
-        maintainWelfare(player);
+        // Una Felicità andata dormiente o crollata (o rimediata) cambia il piano
+        // della Festa già ORA, non al turno dopo.
+        if (maintainWelfare(player)) refreshFesta(player, false);
         // MANUTENZIONE DEL REGNO (§Manutenzione): ogni 3 turni il conto di
         // truppe e (da magazzino liv. 2) strutture; ogni turno i debiti aperti
         // si saldano da sé o costano un disertore.
@@ -2052,6 +2078,7 @@
             if (!okRiatt.ok) return fail('Per riattivarla serve ' + GR().missingText(okRiatt.missing) + '.');
             pay(player, upkeep, cap);
             E().setWelfareDormant(cap, key, false);
+            refreshFesta(player, false);   // il malcontento si scioglie subito
             E().refresh(); E().save();
             return done(GR().welfareLabel(key) + ' riattivata in ' + R().provinceLabel(cap) + '.',
                 { prov: cap.id });
@@ -2068,6 +2095,9 @@
 
         payConstruction(player, cost, cap);
         E().addWelfare(cap, key, R().turn());   // il turno di costruzione: manutenzione (§6.1)
+        // Il piano della Festa (malcontento / sconti) segue SUBITO la nuova
+        // Felicità: non si aspetta il turno dopo.
+        refreshFesta(player, false);
         E().refresh();
         E().save();
         const catLabel = GR().WELFARE[info.cat].label;
@@ -2488,6 +2518,9 @@
         // prossimo giro completo: fino ad allora la mappa delle fedi mostrerebbe
         // un impero che non esiste più.
         if (R().syncStateFaiths) R().syncStateFaiths();
+        // Le Felicità restano sulla vecchia sede (annullate): il piano della
+        // Festa va riletto dalla nuova Capitale già adesso.
+        refreshFesta(player, false);
     }
 
     // Sposta la Capitale su una provincia propria (500 monete). La vecchia sede
