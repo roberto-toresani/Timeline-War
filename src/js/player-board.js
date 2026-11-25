@@ -1170,28 +1170,9 @@ document.addEventListener('DOMContentLoaded', () => {
         sync();
     })();
 
-    // ---------- velocità dell'IA ----------
-    // Guardare nove regni giocare a 600 ms per azione è bello la prima volta e
-    // lungo la decima: il bottone cicla fra "seguo l'azione" e "portami al mio
-    // turno". Sta qui e non in bot.js perché è una preferenza di chi guarda.
-    const SPEEDS = [
-        { ms: 600, label: '⏩ IA normale' },
-        { ms: 220, label: '⏩⏩ IA veloce' },
-        { ms: 40, label: '⏭ IA lampo' },
-        { ms: 1400, label: '🐢 IA lenta' }
-    ];
-    let speedIdx = 0;
-
-    function syncSpeedBtn() {
-        const b = $('board-speed');
-        if (b) b.textContent = SPEEDS[speedIdx].label;
-    }
-
-    $('board-speed').addEventListener('click', () => {
-        speedIdx = (speedIdx + 1) % SPEEDS.length;
-        if (window.Bot) window.Bot.speed(SPEEDS[speedIdx].ms);
-        syncSpeedBtn();
-    });
+    // (Il bottone "velocità dell'IA" non c'è più, richiesta dell'utente: i
+    // regni dell'IA li muove il motore, non il browser di chi guarda, e il
+    // bottone non cambiava niente.)
 
     // ---------- registro dell'IA ----------
     // Guardare i bot non deve voler dire inseguirli. La telecamera resta dove
@@ -7784,6 +7765,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return out;
     }
 
+    // APRI/CHIUDI GLI AGGIORNAMENTI (richiesta dell'utente: da telefono il
+    // giornale occupava mezzo schermo). Si chiude toccando la testata; chiuso
+    // resta una pillola 📣 col numero delle notizie non lette. La scelta è di
+    // chi guarda (localStorage); senza scelta, da telefono parte chiuso.
+    const UPD_KEY = 'risiko_updates_closed';
+    function updatesClosed() {
+        let v = null;
+        try { v = localStorage.getItem(UPD_KEY); } catch (e) { /* privato */ }
+        if (v === '1') return true;
+        if (v === '0') return false;
+        return liteQuery.matches;
+    }
+    function syncUpdatesOpen() {
+        const box = $('board-updates');
+        if (box) box.classList.toggle('closed', updatesClosed());
+    }
+    (function wireUpdatesToggle() {
+        const head = $('bu-head');
+        if (!head) return;
+        const toggle = () => {
+            try { localStorage.setItem(UPD_KEY, updatesClosed() ? '0' : '1'); } catch (e) { /* privato */ }
+            syncUpdatesOpen();
+        };
+        head.addEventListener('click', toggle);
+        head.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+        syncUpdatesOpen();
+    })();
+
     function renderUpdates(player) {
         const box = $('board-updates');
         if (!box) return;
@@ -7791,11 +7802,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // Partita non avviata (turno 0): niente giornale.
         if (!turn) { box.style.display = 'none'; return; }
         box.style.display = '';
+        syncUpdatesOpen();
         setText('bu-cycle', 'ciclo ' + (Math.floor((turn - 1) / 10) + 1));
 
         const list = $('bu-list');
         if (!list) return;
         const items = collectUpdates(player);
+        const nonLette = items.filter(it => !it.letto).length;
+        const cnt = $('bu-count');
+        if (cnt) {
+            cnt.textContent = String(nonLette);
+            cnt.style.display = nonLette ? '' : 'none';
+        }
         if (!items.length) {
             list.innerHTML = '<div class="bu-empty">Ancora nessun aggiornamento in questo ciclo.</div>';
             return;
@@ -8250,7 +8268,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (player) {
             enterKingdom(player);
             syncSpectateBtn();
-            syncSpeedBtn();
             // AUTO-TURNO da link (regola dell'utente, sistema mail): il player ha
             // cliccato la scorciatoia della mail (?autoplay=confini|capitale) —
             // se è davvero il suo turno lo si chiude con quella preferenza e si

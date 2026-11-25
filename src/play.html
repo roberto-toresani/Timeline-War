@@ -9,8 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
-    <link rel="stylesheet" href="css/style.css?v=102">
-    <link rel="stylesheet" href="css/board.css?v=145">
+    <link rel="stylesheet" href="css/style.css?v=103">
+    <link rel="stylesheet" href="css/board.css?v=147">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -72,9 +72,6 @@
                  interruttore è un suono che si finisce per odiare: la scelta
                  resta nel browser di chi guarda, non nella partita. -->
             <button id="board-sound" type="button" title="Urla della battaglia">🔊 Suono</button>
-            <!-- Velocità con cui giocano i regni dell'IA: da "si segue l'azione"
-                 a "arriva subito al mio turno". -->
-            <button id="board-speed" type="button" title="Velocità dei regni governati dall'IA">⏩ IA normale</button>
             <!-- Guida della plancia: si apre da sola al primo turno, da qui quando si vuole. -->
             <button id="board-help" type="button" title="Rivedi la guida della plancia">❓ Guida</button>
             <button id="board-switch" type="button" title="Scegli un altro regno">Cambia regno</button>
@@ -158,10 +155,16 @@
                      mercato e diplomazia restano: questo è in più, non al posto.
                      Lo riempie renderUpdates in player-board.js. -->
                 <div id="board-updates" style="display:none;">
-                    <header class="bu-head">
+                    <!-- La testata apre e chiude il giornale (richiesta dell'utente:
+                         da telefono occupava troppo). Chiuso resta una pillola con
+                         il numero delle notizie non lette. -->
+                    <header class="bu-head" id="bu-head" role="button" tabindex="0"
+                            title="Apri o chiudi gli aggiornamenti">
                         <span class="bu-ico">📣</span>
                         <span class="bu-title">Aggiornamenti</span>
                         <span class="bu-cycle" id="bu-cycle">ciclo 1</span>
+                        <span class="bu-count" id="bu-count" style="display:none;">0</span>
+                        <span class="bu-chev" aria-hidden="true">▾</span>
                     </header>
                     <div class="bu-list" id="bu-list"></div>
                 </div>
@@ -642,10 +645,10 @@
     <!-- Obiettivi di prestigio (§10): catalogo puro, letto da app.js. Prima di app.js. -->
     <script src="js/objectives.js?v=106"></script>
     <script src="js/flags.js?v=3"></script>
-    <script src="js/app.js?v=143"></script>
+    <script src="js/app.js?v=144"></script>
     <script src="js/game-actions.js?v=143"></script>
     <script src="js/bot.js?v=138"></script>
-    <script src="js/player-board.js?v=156"></script>
+    <script src="js/player-board.js?v=157"></script>
     <!-- ✝ Il Papa: la finestra dell'admin, solo senza codice d'invito (js/pope-chat.js). -->
     <script src="js/pope-chat.js?v=3"></script>
 </body>

@@ -2849,7 +2849,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         apply();
 
+        // I pannelli che stanno DENTRO la cornice della mappa (Aggiornamenti,
+        // classifica, cursori d'ordine) tengono per sé dito e rotella: lì si
+        // scorre la lista o si tira il cursore, non si sposta la mappa.
+        // (bug segnalato dall'utente: da telefono gli Aggiornamenti non scorrevano)
+        const OFF_MAP = '#board-rail, #map-leaderboard, #map-order-hud, #map-deploy-hud';
+        function offMap(e) {
+            const t = e.target;
+            return !!(t && t.closest && t.closest(OFF_MAP));
+        }
+
         wrapper.addEventListener('wheel', (e) => {
+            if (offMap(e)) return;
             e.preventDefault();
             const p = cursorUserPoint(e);
             if (!p) return;
@@ -2874,6 +2885,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         wrapper.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return; // solo tasto sinistro
+            if (offMap(e)) return;
             dragging = true; moved = false;
             startClientX = e.clientX; startClientY = e.clientY;
             startVBx = vb.x; startVBy = vb.y;
@@ -2926,6 +2938,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         wrapper.addEventListener('touchstart', (e) => {
+            if (offMap(e)) { touchPan = null; pinch = null; return; }
             if (e.touches.length === 1) {
                 const t = e.touches[0];
                 touchPan = { x: t.clientX, y: t.clientY, vbx: vb.x, vby: vb.y, moved: false };
@@ -6068,6 +6081,10 @@ document.addEventListener('DOMContentLoaded', () => {
         wrap.id = 'ui-foundation';
         wrap.innerHTML =
             '<div class="uf-scroll">' +
+            // ✕ sempre in vista in cima (richiesta dell'utente): una lettera
+            // lunga del Papa, da telefono, copriva lo schermo e il "Così sia"
+            // finiva in fondo. Il testo scorre dentro il foglio.
+            '<button type="button" class="uf-x" title="Chiudi" aria-label="Chiudi">✕</button>' +
             '<div class="uf-rod"></div>' +
             '<div class="uf-sheet">' +
             '<div class="uf-eyebrow"></div>' +
@@ -6096,10 +6113,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); close(); }
         }
         wrap.querySelector('.uf-ok').addEventListener('click', close);
+        wrap.querySelector('.uf-x').addEventListener('click', close);
         wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
         document.addEventListener('keydown', onKey);
         document.body.appendChild(wrap);
-        wrap.querySelector('.uf-ok').focus();
+        // preventScroll: il fuoco va su "Così sia" (Invio chiude) ma il foglio
+        // lungo deve aprirsi dall'inizio, non già scorso in fondo.
+        try { wrap.querySelector('.uf-ok').focus({ preventScroll: true }); }
+        catch (e) { wrap.querySelector('.uf-ok').focus(); }
+        wrap.querySelector('.uf-sheet').scrollTop = 0;
     }
 
     // ============================================================

@@ -184,8 +184,7 @@ body.board {
    — mentre guardi tutta la mappa non stai guardando il tuo regno, e si deve
    vedere a colpo d'occhio. */
 #board-spectate,
-#board-help,
-#board-speed {
+#board-help {
     background: transparent;
     border: 1px solid var(--rule-strong);
     color: var(--parchment-dim);
@@ -199,8 +198,7 @@ body.board {
 }
 
 #board-spectate:hover,
-#board-help:hover,
-#board-speed:hover { border-color: var(--gold-edge); color: var(--gold); }
+#board-help:hover { border-color: var(--gold-edge); color: var(--gold); }
 
 #board-spectate.on {
     background: var(--gold-edge);
@@ -462,6 +460,48 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
        (#pope-fab, fixed) — così l'ultima voce non ci finisce sotto. */
     padding: 6px 6px 56px;
 }
+
+/* APRI/CHIUDI (richiesta dell'utente): la testata è il bottone. Chiuso, il
+   giornale si riduce a una pillola 📣 col numero delle non lette, e la mappa
+   sotto torna libera. La lista scorre col dito per conto suo (offMap in
+   app.js lascia stare il pan della mappa sopra la rail). */
+.bu-head { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.bu-head:hover .bu-title { color: var(--gold-bright); }
+.bu-head:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.bu-list { touch-action: pan-y; overscroll-behavior: contain; }
+.bu-count {
+    flex: 0 0 auto;
+    min-width: 18px;
+    padding: 1px 5px;
+    border-radius: 9px;
+    background: var(--gold-edge);
+    color: var(--bg-panel-solid);
+    font-size: .68rem;
+    font-weight: 700;
+    text-align: center;
+}
+.bu-chev {
+    flex: 0 0 auto;
+    color: var(--gold);
+    font-size: .8rem;
+    line-height: 1;
+    transition: transform .15s ease;
+}
+#board-updates.closed {
+    flex: 0 0 auto;
+    width: auto;
+    align-self: flex-start;
+}
+/* Chiuso resta la sola icona 📣 (+ il numero delle non lette): la scritta
+   "Aggiornamenti" rubava spazio alla mappa (richiesta dell'utente). */
+#board-updates.closed .bu-list,
+#board-updates.closed .bu-cycle,
+#board-updates.closed .bu-title,
+#board-updates.closed .bu-chev { display: none; }
+#board-updates.closed .bu-head { padding: 7px 9px; gap: 5px; }
+#board-updates.closed .bu-ico { font-size: 1.15rem; }
+#board-updates.closed .bu-head { border-bottom: none; }
+#board-updates.closed .bu-chev { transform: rotate(-90deg); }
 
 .bu-empty {
     padding: 14px 10px;
@@ -3249,6 +3289,74 @@ svg path.state.spied {
         -webkit-overflow-scrolling: touch;
     }
     body:not(.mobile-lite) #board-topbar > * { flex-shrink: 0; }
+
+    /* BARRA BASSA, TRUPPE A VISTA (richiesta dell'utente). Da telefono la barra
+       era alta 68px e le reclute da schierare stavano a 630px, fuori schermo.
+       Qui si abbassa a ~44px e l'ordine cambia: stemma, nome, RECLUTE, turno —
+       tutto dentro i primi 375px; il resto (stato, scadenza, Fine turno, viste)
+       segue scorrendo la barra col dito. */
+    body:not(.mobile-lite) #board-topbar {
+        gap: 8px;
+        padding: 4px 8px;
+        border-bottom-width: 2px;
+    }
+    body:not(.mobile-lite) #board-crest {
+        width: 30px; height: 30px;
+        border-width: 2px; border-radius: 6px;
+        font-size: 22px;
+    }
+    body:not(.mobile-lite) #board-identity {
+        flex: 0 0 auto;
+        max-width: 30vw;
+    }
+    /* Il nome va a capo su due righe invece di troncarsi a "Calif…". */
+    body:not(.mobile-lite) #board-kingdom {
+        font-size: .8rem;
+        line-height: 1.1;
+        letter-spacing: .01em;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+    }
+    body:not(.mobile-lite) #board-subtitle { display: none; }
+    body:not(.mobile-lite) #board-reinforce {
+        order: 1;
+        padding: 3px 8px;
+        gap: 4px;
+        align-items: center;
+    }
+    body:not(.mobile-lite) .reinf-badge .reinf-num { font-size: 1.3rem; }
+    body:not(.mobile-lite) .reinf-badge .reinf-label { font-size: .68rem; line-height: 1.05; white-space: normal; width: 52px; }
+    body:not(.mobile-lite) #board-turn { order: 2; padding: 0 8px; }
+    body:not(.mobile-lite) #board-turn #turn-display { font-size: .95rem; line-height: 1.15; }
+    body:not(.mobile-lite) #board-turn .board-turn-sub,
+    body:not(.mobile-lite) #board-turn #date-display { font-size: .66rem; line-height: 1.2; }
+    body:not(.mobile-lite) #board-turn #board-cycle,
+    body:not(.mobile-lite) #board-turn .board-turn-sub { white-space: nowrap; }
+    body:not(.mobile-lite) #board-turn #board-cycle { display: none; }
+    body:not(.mobile-lite) #board-topbar > :not(#board-crest):not(#board-identity):not(#board-reinforce):not(#board-turn) { order: 3; }
+    body:not(.mobile-lite) #board-turn-state { font-size: .78rem; padding: 6px 10px; }
+    body:not(.mobile-lite) .turn-time { font-size: .74rem; padding: 3px 7px; }
+    body:not(.mobile-lite) .board-auto { font-size: .74rem; padding: 3px 6px; }
+    body:not(.mobile-lite) #board-end-turn { font-size: .85rem; padding: 7px 12px; }
+    body:not(.mobile-lite) #board-spectate,
+    body:not(.mobile-lite) #board-faith,
+    body:not(.mobile-lite) #board-terrain,
+    body:not(.mobile-lite) #board-sound,
+    body:not(.mobile-lite) #board-help,
+    body:not(.mobile-lite) #board-switch,
+    body:not(.mobile-lite) #board-editor-link,
+    body:not(.mobile-lite) #board-lite-on { font-size: .78rem; padding: 6px 10px; }
+
+    /* Aggiornamenti aperti da telefono: non oltre metà altezza, il resto è
+       mappa. Chiusi sono una pillola (vedi #board-updates.closed). */
+    body:not(.mobile-lite) #board-rail { width: 188px; }
+    body:not(.mobile-lite) #board-updates:not(.closed) { flex: 0 1 auto; max-height: 46%; }
+    body:not(.mobile-lite) .bu-list { padding-bottom: 8px; }
+    body:not(.mobile-lite) .bu-cycle { display: none; }
+    body:not(.mobile-lite) .bu-title { font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* il nome del patto dentro il gettone della scheda */
@@ -3475,7 +3583,6 @@ body.mobile-lite #board-spectate,
 body.mobile-lite #board-faith,
 body.mobile-lite #board-terrain,
 body.mobile-lite #board-sound,
-body.mobile-lite #board-speed,
 body.mobile-lite #board-help,
 body.mobile-lite #board-switch,
 body.mobile-lite #board-editor-link,

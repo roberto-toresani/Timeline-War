@@ -69,6 +69,14 @@
 - Versione semplificata: a schermo stretto (≤820px) il pannello è a tutto schermo e a colonna.
 - Il bottone Papa ✝ in basso a sinistra (a destra c'è la colonna del turno).
 - Plancia completa solo desktop; su telefono si accende la vista semplice.
+- **Versione completa da telefono** (chi sceglie 🖥 dal menu ⋯, stessa soglia di `liteQuery`):
+  barra in alto bassa (~44px) con ordine stemma → nome (2 righe) → **reclute da schierare** → turno;
+  il resto scorre col dito. Aggiornamenti chiusi a pillola 📣 (testata = interruttore,
+  `risiko_updates_closed` in localStorage), aperti al massimo metà altezza.
+- **Pannelli dentro la cornice mappa** (`OFF_MAP` in `wireMapZoom`, app.js): rail, classifica,
+  cursori d'ordine tengono dito e rotella — non spostano la mappa.
+- **Pergamene** (`showFoundation`): ✕ sempre in cima, il foglio scorre fra i bastoni e si apre dall'inizio.
+- Il bottone "velocità IA" non c'è più: i bot li muove il motore.
 
 ## `GA_MUTATORS` — rete sotto l'osservazione admin
 - Ogni nuovo mutatore di `GameActions` usato dalla plancia va in `GA_MUTATORS` (player-board.js).
