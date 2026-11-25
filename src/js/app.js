@@ -5540,7 +5540,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // ripetere/arretrare — fin dove dovrebbe essere; mai indietro. I regni
         // senza binario (nati per evento) non hanno capitoli.
         const chapters = O.chapterCount(player.name);
-        if (chapters > 0) player.capitolo = Math.max(player.capitolo || 0, Math.min(cyc, chapters));
+        if (chapters > 0) player.capitolo = Math.max(player.capitolo || 0, O.chapterForCycle ? O.chapterForCycle(player.name, cyc) : Math.min(cyc, chapters));
         else if (!player.capitolo) player.capitolo = cyc;
         const a = player.obiettiviCiclo;
         // Rigenera anche quando il capitolo dell'assegnazione salvata non combacia

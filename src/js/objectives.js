@@ -2370,21 +2370,23 @@
         // ------------------------------------------------------------------
         'Regno di Svezia': [
             { ciclo: 3, epoca: '1200-1299', tema: 'La corona del Nord', voci: [
-                { id: 'sv1', tipo: 'espansione', titolo: 'Dal Götaland al settentrione', fisso: true,
-                  tmpl: 'guarnigioni', arg: { soglia: 2 },
-                  n: { avanzare: 6 },
-                  testo: n => `Conquista ${n} territori e difendili con almeno 2 uomini ciascuno.`,
-                  check: n => `province con almeno 2 uomini ≥ ${n}` },
+                // sv1 e sv3 riscritti dall'utente il 2026-11-25 (ritocco anche
+                // sull'assegnazione viva del ciclo III).
+                { id: 'sv1', tipo: 'espansione', titolo: 'Il regno di Svezia', fisso: true,
+                  tmpl: 'province', arg: { ids: ['Svealand', 'Gotaland', 'Scania', 'Norrbotten', 'Gavleborg'] },
+                  n: { avanzare: 1 },
+                  testo: () => 'Conquista tutta la Svezia: Svealand, Götaland, Scania, Norrbotten e Gävleborg.',
+                  check: () => 'Svealand, Gotaland, Scania, Norrbotten e Gavleborg possedute' },
                 { id: 'sv2', tipo: 'crescita', titolo: 'La corona e i contadini', fisso: true,
                   tmpl: 'politica', arg: { lato: 'popolo' },
                   n: { avanzare: 1 },
                   testo: () => 'Conduci una politica pro-popolo per accrescere la produzione di risorse.',
                   check: () => 'politica del regno orientata al popolo (grado ≥ 1)' },
-                { id: 'sv3', tipo: 'economia', titolo: 'Il gran mercato di Stoccolma', fisso: true,
-                  tmpl: 'mercatoProvincia', arg: { id: 'Svealand' },
-                  n: { avanzare: 1 },
-                  testo: () => 'Costruisci il gran mercato di Stoccolma (Svealand).',
-                  check: () => 'un Mercato a Svealand (Stoccolma)' }
+                { id: 'sv3', tipo: 'crescita', titolo: 'La legge del regno', fisso: true,
+                  tmpl: 'sicurezza', arg: {},
+                  n: { avanzare: 3 },
+                  testo: n => `Porta la Sicurezza del regno al livello ${n}.`,
+                  check: n => `Sicurezza ≥ ${n}` }
             ] },
             // Ciclo IV — Magnus Eriksson e il trattato di Nöteborg (1323).
             // Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
@@ -2425,11 +2427,12 @@
                   n: { avanzare: 4 },
                   testo: n => `Possiedi tutte le ${n} province norvegesi, Finnmark compreso.`,
                   check: n => `province norvegesi possedute ≥ ${n}` },
-                { id: 'da3', tipo: 'economia', titolo: 'Il mercato di Oslo', fisso: true,
-                  tmpl: 'mercatoProvincia', arg: { id: 'Eastern_Norway' },
+                // Dal 2026-11-25 (utente): il Mercato vale ovunque, non solo a Oslo.
+                { id: 'da3', tipo: 'economia', titolo: 'Il mercato del regno', fisso: true,
+                  tmpl: 'mercato', arg: {},
                   n: { avanzare: 1 },
-                  testo: () => 'Costruisci il mercato di Oslo (Eastern Norway).',
-                  check: () => 'un Mercato a Eastern Norway (Oslo)' }
+                  testo: () => 'Costruisci un Mercato nel tuo regno.',
+                  check: () => 'possiedi un Mercato' }
             ] },
             // Ciclo IV — Valdemar Atterdag (1340-1375): la pace del regno, la flotta di
             // Visby (1361). Obiettivi FISSI scritti dall’utente (2026-11-22, docs/CICLO4_RICERCA.md).
@@ -2575,6 +2578,19 @@
 
     // Quanti capitoli ha il binario di un regno (0 = regno senza binario).
     function chapterCount(name) { return (BINARI[name] || []).length; }
+
+    // Il capitolo (1-based) che spetta a un ciclo: l'ultimo il cui `ciclo` non
+    // supera quello chiesto. Per i dieci grandi coincide col numero del ciclo
+    // (capitolo i = ciclo i). Per i regni nati per evento NO: la Svezia parte
+    // dal ciclo III col capitolo 1, e il vecchio `min(ciclo, capitoli)` la
+    // spingeva al capitolo del ciclo IV appena ne veniva scritto un secondo,
+    // rigenerandole gli obiettivi a metà ciclo (2026-11-25).
+    function chapterForCycle(name, cyc) {
+        const rail = BINARI[name] || [];
+        let idx = 0;
+        rail.forEach((cap, i) => { if ((cap.ciclo || i + 1) <= cyc) idx = i + 1; });
+        return Math.max(1, idx);
+    }
 
     // La soglia di una voce. Senza `misura` (generatore spento) è l'ancora nuda
     // dell'intensità, cioè il numero scritto a mano sul foglio. Con la misura si
@@ -2828,7 +2844,7 @@
         BINARI, TEMPLATES, SETS, TIERS, INTENSITA, FRENO, CROLLO_PROV, K_TIER,
         LEVA_PER_PUNTO, leva,
         cycleOfTurn, leaderboardCycle, leaderboard, TABELLONE_OGNI, TABELLONE_TURNI,
-        chapter, chapterCount, soglia, ritmoDa, passo, withOverflow,
+        chapter, chapterCount, chapterForCycle, soglia, ritmoDa, passo, withOverflow,
         generate, evaluate
     };
 
