@@ -71,6 +71,7 @@ salvataggi/              partite salvate JSON (git-ignored)
 - **Due pagine, un motore**: `play.html` carica lo stesso `app.js` di `index.html`, distingue con `<body data-mode="player">`. La plancia si aggancia via `Risiko.onRefresh`.
 - **Turno a fasi**: `schiera → costruisci → attacca → sposta` (`GameActions.PHASES`). Solo `game-actions.js` muta lo stato — mai mutare direttamente `PLAYERS` o simili.
 - **Admin vs giocatore**: `Risiko.isAdmin()` controlla chi muove i bot e chi può intervenire. `?local=1` forza modalità locale concedendo anche l'admin.
+- **Registro del turno**: ogni azione riuscita lascia una voce in `player.registro` (ultimi 3 turni: schieramenti, acquisti, attacchi con A/D/probabilità, fronte, menu degli attacchi, consiglio dell'IA per gli umani). A giro finito si archivia per sempre in `games/main/turns/registro-N`. Serve a ricostruire i turni e a **educare i bot** sulle mosse umane → `docs/sync/MULTIPLAYER_SYNC.md`.
 - **Partita in due tempi**: `prepareGame` (prepara, `turnoDi = null`) → `beginMatch` (avvia, sorteggia l'ordine).
 - Per dettagli su ogni sottosistema → vedi la **guida di navigazione** qui sotto.
 

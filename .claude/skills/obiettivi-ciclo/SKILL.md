@@ -124,6 +124,10 @@ nuovo, `chapter()` ripiega sull'ultimo scritto e il regno **riceve gli stessi ob
 di prima**. A ogni ciclo va quindi scritto anche il loro capitolo, accodato al loro
 binario in `objectives.js`. Controlla anche `Events.EVENTS` per i regni che nascono
 proprio a inizio ciclo.
+Ogni capitolo porta il suo `ciclo`, e `Objectives.chapterForCycle` sceglie quello giusto.
+Prima del fix del 2026-11-25 aggiungere un capitolo a metà ciclo spingeva la Svezia
+avanti e le rigenerava gli obiettivi in corso. Dopo un'aggiunta, ricontrolla comunque
+sulla partita viva `obiettiviCiclo` dei regni d'evento.
 
 ## 6. Consegna
 - `docs/CICLO<N>_RICERCA.md` con: esito del ciclo in corso (tabella, probabilità,

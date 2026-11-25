@@ -22,6 +22,105 @@
     const fail = (msg) => ({ ok: false, msg });
     const done = (msg, extra) => Object.assign({ ok: true, msg }, extra || {});
 
+    // ---------- REGISTRO DEL TURNO (regola dell'utente) ----------
+    // Lo stato salva dove stanno le truppe, non COME ci sono arrivate: a turno
+    // chiuso non si sapeva più quante reclute un regno aveva posato, cosa aveva
+    // comprato né con quanti uomini (e che probabilità) aveva attaccato. Qui ogni
+    // azione riuscita lascia una voce compatta sul record del regno, in
+    // `player.registro`: la scrive l'involucro dell'API in fondo al file (una
+    // regola per azione in TURN_LOG), più le poche voci che nascono dentro il
+    // motore (inizio turno, leva, diserzioni, rinforzi posati d'ufficio).
+    // Si tengono gli ultimi LOG_TURNI turni globali: il documento non cresce.
+    const LOG_TURNI = 3;
+    const LOG_MAX = 150;
+    // Firestore rifiuta l'INTERA scrittura se un campo vale `undefined`: la voce
+    // si ripulisce da undefined/null/NaN, anche dentro le mappe annidate.
+    function logClean(o) {
+        if (!o || typeof o !== 'object') return o;
+        // Firestore non accetta array di array: dentro un array vanno solo
+        // valori semplici o mappe.
+        if (Array.isArray(o)) {
+            return o.filter(v => v !== undefined && v !== null && !Array.isArray(v))
+                .map(v => (typeof v === 'object' ? logClean(v) : v));
+        }
+        const out = {};
+        Object.keys(o).forEach(k => {
+            let v = o[k];
+            if (v === undefined || v === null || (typeof v === 'number' && !isFinite(v))) return;
+            if (typeof v === 'object') {
+                v = logClean(v);
+                if (!Object.keys(v).length) return;
+            }
+            out[k] = v;
+        });
+        return out;
+    }
+    function turnLog(player, voce) {
+        if (!player || !voce || typeof player !== 'object') return;
+        const t = R().turn();
+        const v = logClean(Object.assign({ t, f: player.fase || null }, voce));
+        if (!Array.isArray(player.registro)) player.registro = [];
+        player.registro.push(v);
+        player.registro = player.registro.filter(x => x && x.t > t - LOG_TURNI);
+        while (player.registro.length > LOG_MAX) player.registro.shift();
+    }
+
+    // Chi muove il regno: è la chiave per separare le mosse da imparare (umani)
+    // da quelle dell'IA. `bot:<strategia>` per i regni IA.
+    function whoPlays(player) {
+        if (player.bot) return 'bot:' + player.bot;
+        return player.controllo === 'admin' ? 'admin' : 'umano';
+    }
+    // Il FRONTE: le province proprie che confinano via terra con un REGNO (le
+    // neutrali razziano poco e non conquistano), con i propri uomini e il vicino
+    // più armato. Le più esposte prima, al massimo 12.
+    function frontOf(player) {
+        const mine = new Set(E().ownedPaths(player.name).map(p => p.id));
+        const out = [];
+        mine.forEach(id => {
+            let loro = 0, chi = null;
+            (E().landNeighbors(id) || []).forEach(n => {
+                if (mine.has(n)) return;
+                const np = E().path(n);
+                const owner = np ? E().owner(np) : null;
+                if (!owner) return;
+                const t = E().countPiece(np, 'soldato');
+                if (t > loro || !chi) { loro = t; chi = owner; }
+            });
+            if (chi) out.push({ p: id, mie: E().countPiece(E().path(id), 'soldato'), loro, chi });
+        });
+        out.sort((a, b) => (b.loro - b.mie) - (a.loro - a.mie));
+        return out.slice(0, 12);
+    }
+    // Il MENU degli attacchi di terra: da ogni provincia con uomini liberi, ogni
+    // bersaglio con TUTTI i partenti possibili e il pronostico che vedrebbe il
+    // giocatore. Le più probabili prima, al massimo 12.
+    function attackOptions(player) {
+        const out = [];
+        E().ownedPaths(player.name).forEach(p => {
+            const A = spare(p);
+            if (!(A > 0)) return;
+            (attackTargets(player, p.id) || []).forEach(t => {
+                if (t.viaMare) return;          // gli sbarchi hanno il tetto del carico: a parte
+                const g = groupLeaving(p, A);
+                const P = RisikoBattle.winForecast(A, (t.troops || 0) + (t.fort || 0), t.esponente,
+                    g.merc, t.merc, g.cav, t.cav, t.fort, t.terreno).p;
+                out.push({ da: p.id, verso: t.id, dif: t.owner || 'Neutrale', A, D: t.troops,
+                           mura: t.fort, P: Math.round(P * 100), patto: t.patto || null });
+            });
+        });
+        out.sort((a, b) => b.P - a.P);
+        return out.slice(0, 12);
+    }
+    // Il CONSIGLIO dell'IA (js/bot.js, Bot.advice) per un regno NON bot: la
+    // mossa che un bot avrebbe fatto al suo posto. Ai bot non serve: le loro
+    // mosse vere sono già il consiglio.
+    function logAdvice(player, fase) {
+        if (player.bot || !root.Bot || typeof root.Bot.advice !== 'function') return;
+        const c = root.Bot.advice(player, fase);
+        if (c) turnLog(player, Object.assign({ az: 'consiglio', fase }, c));
+    }
+
     // ---------- helper condivisi ----------
 
     function unitsOf(paths) {
@@ -573,9 +672,21 @@
         let nota = '';
         if (PHASES[i] === 'schiera') {
             const forzate = forcePendingBound(player);
-            if (forzate) nota = ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)';
+            if (forzate) {
+                nota = ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)';
+                turnLog(player, { az: 'schiera-vincolate', n: forzate, auto: 'cambio fase' });
+            }
         }
         player.fase = PHASES[i + 1];
+        // REGISTRO DEL TURNO: entrando negli attacchi si fotografa il MENU — ogni
+        // attacco di terra possibile con tutti gli uomini disponibili e la sua
+        // probabilità — così dopo si vede cosa è stato scelto e cosa scartato.
+        if (player.fase === 'attacca') {
+            try {
+                turnLog(player, { az: 'opzioni', chi: whoPlays(player), attacchi: attackOptions(player) });
+                logAdvice(player, 'attacca');
+            } catch (e) { console.warn('Registro del turno (opzioni):', e); }
+        }
         E().refresh();
         E().save();
         return done('Fase ' + (i + 2) + ': ' + PHASE_LABEL[player.fase] + '.' + nota);
@@ -851,6 +962,7 @@
             bound[id] = (bound[id] || 0) + prod.vincolate[id];
         });
         player.schierateTurno = {};
+        const _vincNuove = Object.keys(prod.vincolate || {}).reduce((s, k) => s + (prod.vincolate[k] || 0), 0);
 
         // Le spie rientrate (§9.3) si tolgono dalla lista. La scadenza vale
         // comunque, anche senza questa riga — `Spies.active` la calcola a ogni
@@ -894,6 +1006,22 @@
         player.tassaCiclo.push(player.tassazione || 'normale');
         while (player.popCiclo.length > 20) player.popCiclo.shift();
         while (player.tassaCiclo.length > 20) player.tassaCiclo.shift();
+
+        // REGISTRO DEL TURNO: da dove parte il regno — chi lo gioca, quante
+        // reclute gli arrivano (e quante ne aveva avanzate), quanto incassa, e
+        // il FRONTE che ha davanti mentre decide dove schierare. Per un regno
+        // non-bot anche il CONSIGLIO: dove avrebbe schierato l'IA al suo posto.
+        try {
+            turnLog(player, {
+                az: 'inizio', f: null, chi: whoPlays(player), province: paths.length,
+                libere: prod.reclute, avanzate: player.recluteDaSchierare - prod.reclute,
+                vincolate: _vincNuove, cavalieri: player.cavalieriDaSchierare || 0,
+                entrate: prod.monete, cassa: player.monete, popolarita: pop,
+                soldati: E().ownedPaths(player.name).reduce((s, p) => s + E().countPiece(p, 'soldato'), 0),
+                fronte: frontOf(player)
+            });
+            logAdvice(player, 'schiera');
+        } catch (e) { console.warn('Registro del turno (inizio):', e); }
 
         return done('Turno di ' + player.name, { produzione: prod });
     }
@@ -1000,6 +1128,7 @@
                 leva = OB().leva ? OB().leva(snap) : 0;
                 if (leva > 0) {
                     player.recluteDaSchierare = (player.recluteDaSchierare || 0) + leva;
+                    turnLog(player, { az: 'leva', n: leva, ciclo: chiuso, f: null });
                     if (rec) rec.leva = leva;
                     if (!Array.isArray(player.obiettiviAvvisi)) player.obiettiviAvvisi = [];
                     player.obiettiviAvvisi.push({
@@ -1022,6 +1151,7 @@
                 const bonus = DC().cycleLevy(player.name);
                 if (bonus > 0) {
                     player.recluteDaSchierare = (player.recluteDaSchierare || 0) + bonus;
+                    turnLog(player, { az: 'leva', n: bonus, dottrina: true, ciclo: chiuso, f: null });
                     if (!Array.isArray(player.obiettiviAvvisi)) player.obiettiviAvvisi = [];
                     player.obiettiviAvvisi.push({
                         ciclo: chiuso, leva: bonus, dottrina: true,
@@ -1106,6 +1236,7 @@
         // senza averli posati li si schiera d'ufficio, invece di bloccarlo o di
         // lasciarli evaporare.
         const forzate = player ? forcePendingBound(player) : 0;
+        if (forzate) turnLog(player, { az: 'schiera-vincolate', n: forzate, auto: 'fine turno' });
         // Conquista lasciata a metà: i superstiti restano tutti nella provincia
         // presa (è già la situazione sulla mappa), si chiude solo la pratica.
         if (player) { player.conquista = null; player.capitalePresa = null; expireTemporaries(player); }
@@ -1215,6 +1346,11 @@
         // cambia, e un backup per ogni fine-turno del singolo giocatore sarebbe
         // rumore.
         if (giroFinito && E().backupTurn) E().backupTurn(R().turn());
+        // ...e l'ARCHIVIO PERMANENTE del registro del turno appena chiuso (il
+        // registro sul record tiene solo 3 turni; per educare i bot serve tutto).
+        if (giroFinito && E().archiveLog) {
+            try { E().archiveLog(R().turn() - 1); } catch (e) { console.warn('Archivio registro:', e); }
+        }
         const nota = forzate ? ' (' + forzate + ' rinforzi obbligatori schierati d\'ufficio)' : '';
         const notaN = (neutrali && neutrali.province)
             ? ' Le terre di nessuno salgono a ' + neutrali.target + ' soldati.' : '';
@@ -2300,6 +2436,7 @@
         if (unita === 'cavaliere') E().setCav(best, cav - 1);
         else if (merc > 0) E().setMerc(best, merc - 1);
         E().redrawProvince(best);
+        turnLog(player, { az: 'diserzione', p: best.id, u: unita, f: null });
         return best.id;
     }
 
@@ -6397,6 +6534,7 @@
             i++;
         }
         player.recluteDaSchierare = restanti;
+        if (posate) turnLog(player, { az: 'schiera-auto', modo: mode, n: posate, dove: dove.join(', ') });
         return { posate, dove };
     }
 
@@ -6421,6 +6559,7 @@
         if (!player) return fail('Regno sconosciuto.');
         if (player.id !== R().turnoDi()) return fail('Non è il turno di ' + player.name + '.');
 
+        turnLog(player, { az: 'auto-turno', modo: mode || 'niente' });
         const { posate, dove } = distributeFree(player, mode);
 
         // Salta ogni requirePhase residuo (nessuno lo fa dopo di qui, ma non voglio
@@ -6504,11 +6643,130 @@
         const live = r.players().find(p => p.id === a.id);
         return (live && live !== a && live.name === a.name) ? live : a;
     }
+    // ---------- REGISTRO DEL TURNO: le regole per azione ----------
+    // Ogni voce riceve (argomenti, esito, fotografia di prima, regno) e dice cosa
+    // ricordare. L'involucro qui sotto aggiunge da sé la fase e il `delta` di
+    // monete e scorte (quel che l'azione è costata, o ha reso). Si registra solo
+    // un'azione RIUSCITA: un tentativo rifiutato non ha cambiato niente.
+    const pct = x => (typeof x === 'number' ? Math.round(x * 100) : null);
+    const numOf = x => (x && typeof x === 'object') ? x.n : x;
+    function placedSum(pre, pl, provId) {
+        const a = (pre.placed[provId] || {}), b = ((pl.schierateTurno || {})[provId] || {});
+        return ((a.libere || 0) + (a.vincolate || 0)) - ((b.libere || 0) + (b.vincolate || 0));
+    }
+    function battleLog(az, r) {
+        const b = r.battle || {};
+        const v = {
+            az, da: r.fromId, verso: r.toId, dif: r.difensore,
+            A: r.engaged, mercA: r.mercImpegnati, cavA: r.cavImpegnati,
+            D: r.defTroops, mercD: r.mercDifensore, cavD: r.cavDifensore,
+            mura: r.fort, ter: r.terreno, mare: r.viaMare || null,
+            persiA: r.perditeAttaccante, persiD: r.perditeDifensore, sup: r.superstiti
+        };
+        if (r.intermedio) {
+            v.esito = r.vittoria ? 'primo attacco vinto' : 'primo attacco perso';
+            v.Pdopo = pct(b.P_next);      // pronostico del secondo attacco, tutti i superstiti
+        } else {
+            v.esito = r.conquistata ? 'presa' : 'respinto';
+            // P = il pronostico che il giocatore leggeva (ventura alla media);
+            // Peff = la probabilità del tiro vero, dopo la tenuta della ventura.
+            if (typeof RisikoBattle !== 'undefined' && RisikoBattle.winForecast && r.engaged) {
+                v.P = pct(RisikoBattle.winForecast(r.engaged, (r.defTroops || 0) + (r.fort || 0), b.esponente,
+                    r.mercImpegnati, r.mercDifensore, r.cavImpegnati, r.cavDifensore, r.fort, r.terreno).p);
+            }
+            v.Peff = pct(b.P_A);
+            if (v.Peff === v.P) delete v.Peff;
+        }
+        if (r.bottino) v.bottino = r.bottino;
+        return v;
+    }
+    const TURN_LOG = {
+        deploy:        (a) => ({ az: 'schiera', p: a[1], n: Math.floor(a[2]) }),
+        deployBound:   (a, r, pre, pl) => ({ az: 'schiera-vincolate', p: a[1],
+                                             n: (pre.bound[a[1]] || 0) - ((pl.recluteVincolate || {})[a[1]] || 0) }),
+        deployAllBound:(a, r, pre, pl) => ({ az: 'schiera-vincolate', n: pre.vinc - boundTotal(pl) }),
+        undeploy:      (a, r, pre, pl) => ({ az: 'ritira', p: a[1], n: placedSum(pre, pl, a[1]) }),
+        deployKnight:  (a, r, pre, pl) => ({ az: 'schiera-cavalieri', p: a[1], n: pre.cav - (pl.cavalieriDaSchierare || 0) }),
+        build:         (a) => ({ az: 'costruisci', p: a[1], cosa: a[2] }),
+        buildWelfare:  (a) => ({ az: 'felicita', cosa: a[1] }),
+        buildRoad:     (a) => ({ az: 'strada', p: a[1], p2: a[2] }),
+        recruit:       (a) => ({ az: 'recluta', p: a[1], cosa: a[2] }),
+        destroyMarket: (a) => ({ az: 'demolisci', p: a[1], cosa: 'mercato' }),
+        destroyShip:   (a) => ({ az: 'demolisci', p: a[1], cosa: a[2] }),
+        moveCapital:   (a) => ({ az: 'sposta-capitale', p: a[1] }),
+        upgradeWarehouse: () => ({ az: 'magazzino' }),
+        payUpkeep:     () => ({ az: 'manutenzione' }),
+        tradeWithBank: (a) => ({ az: 'banca', dai: a[1], prendi: a[2], n: a[3] }),
+        sendSpy:       (a) => ({ az: 'spia', p: a[1] }),
+        setTax:        (a) => ({ az: 'tasse', livello: a[1] }),
+        issueDecree:   (a) => ({ az: 'decreto', id: a[1], p: a[2] }),
+        attack:        (a, r) => battleLog('attacca', r),
+        expeditionLand:(a, r) => battleLog('approdo', r),
+        corpsAttack:   (a, r) => {
+            const b = r.battle || {};
+            return { az: 'attacco-corpo', corpo: a[1], da: r.fromId, verso: r.toId, dif: r.difensore,
+                     esito: r.conquistata ? 'presa' : 'respinto', Peff: pct(b.P_A),
+                     D: typeof b.Deff === 'number' ? b.Deff - (b.fort || 0) : null, mura: b.fort };
+        },
+        resolveConquest: (a, r, pre) => ({ az: 'occupa', da: pre.conquista && pre.conquista.fromId,
+                                           verso: pre.conquista && pre.conquista.toId,
+                                           sup: pre.conquista && pre.conquista.superstiti, restano: numOf(a[1]) }),
+        finalMove:     (a) => ({ az: 'sposta', da: a[1], verso: a[2], n: numOf(a[3]),
+                                 cav: (a[3] && typeof a[3] === 'object') ? a[3].cav : null }),
+        launchExpedition: (a) => ({ az: 'salpa', da: a[1], dir: a[2], n: numOf(a[3]) }),
+        sendCorps:     (a) => ({ az: 'corpo', da: a[1], verso: a[2], n: numOf(a[3]) }),
+        recallCorps:   (a) => ({ az: 'richiama-corpo', corpo: a[1] }),
+        sendReinforcements: (a) => ({ az: 'rinforzi', da: a[1], verso: a[2], n: numOf(a[3]) })
+    };
+    function logPre(pl) {
+        return {
+            monete: pl.monete || 0,
+            scorte: Object.assign({}, pl.scorte || {}),
+            vinc: boundTotal(pl),
+            bound: Object.assign({}, pl.recluteVincolate || {}),
+            cav: pl.cavalieriDaSchierare || 0,
+            placed: JSON.parse(JSON.stringify(pl.schierateTurno || {})),
+            conquista: pl.conquista ? Object.assign({}, pl.conquista) : null,
+            f: pl.fase || null
+        };
+    }
+    function logDelta(pre, pl) {
+        const d = {};
+        const dm = (pl.monete || 0) - pre.monete;
+        if (dm) d.monete = dm;
+        Object.keys(Object.assign({}, pre.scorte, pl.scorte || {})).forEach(k => {
+            const x = ((pl.scorte || {})[k] || 0) - (pre.scorte[k] || 0);
+            if (x) d[k] = x;
+        });
+        return Object.keys(d).length ? { delta: d } : {};
+    }
+
     const API = root.GameActions;
     Object.keys(API).forEach(k => {
         const fn = API[k];
         if (typeof fn !== 'function') return;
-        API[k] = function () { return fn.apply(this, Array.prototype.map.call(arguments, liveArg)); };
+        const regola = TURN_LOG[k];
+        API[k] = function () {
+            const args = Array.prototype.map.call(arguments, liveArg);
+            const pl = (regola && args[0] && typeof args[0] === 'object') ? args[0] : null;
+            const pre = pl ? logPre(pl) : null;
+            const res = fn.apply(this, args);
+            // Il registro non deve MAI far fallire un'azione già compiuta.
+            if (pre && res && res.ok) {
+                try {
+                    turnLog(pl, Object.assign({ f: pre.f }, regola(args, res, pre, pl) || {}, logDelta(pre, pl)));
+                } catch (e) { console.warn('Registro del turno:', e); }
+            }
+            return res;
+        };
     });
+    // Lettura del registro (console, admin, strumenti): le voci di un regno,
+    // facoltativamente solo quelle di un turno.
+    API.turnLogOf = function (playerOrId, turno) {
+        const pl = (playerOrId && typeof playerOrId === 'object') ? liveArg(playerOrId)
+            : R().players().find(p => String(p.id) === String(playerOrId) || p.name === playerOrId);
+        const reg = (pl && Array.isArray(pl.registro)) ? pl.registro : [];
+        return turno == null ? reg.slice() : reg.filter(v => v.t === turno);
+    };
 
 })(typeof window !== 'undefined' ? window : globalThis);

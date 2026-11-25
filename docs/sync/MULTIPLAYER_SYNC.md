@@ -20,6 +20,18 @@
 - `liveArg` in coda a ogni funzione esportata di `game-actions.js`: scambia un record non più vivo con quello attuale.
 - Chi muta un regno **fuori** da game-actions.js rilegge il record da `Risiko.players()`.
 
+## Registro del turno (`player.registro`, dal 2026-11-25)
+- Ogni azione **riuscita** lascia una voce compatta sul record del regno: la scrive l'involucro dell'API in coda a `game-actions.js` (regole in `TURN_LOG`), più le voci interne del motore (`inizio`, `leva`, `diserzione`, `schiera-vincolate` d'ufficio, `schiera-auto`, `auto-turno`).
+- Ogni voce: `t` (turno globale), `f` (fase), `az` (azione) + campi propri; `delta` = monete/scorte guadagnate (+) o spese (−) dall'azione.
+- `attacca`/`approdo`: `A` attaccanti (`mercA`, `cavA`), `D` difensori (`mercD`, `cavD`), `mura`, `ter`, `P` = pronostico mostrato (%), `Peff` = probabilità del tiro vero se la ventura l'ha spostata, `esito`, `persiA`/`persiD`, `sup`. Primo dei due attacchi: `esito: 'primo attacco …'` e `Pdopo`.
+- `inizio`: `chi` (`umano` / `admin` / `bot:<strategia>`), `province`, `libere` (nuove), `avanzate`, `vincolate`, `entrate`, `cassa`, `popolarita`, `soldati`, `fronte` = fino a 12 province proprie confinanti con un regno `{p, mie, loro, chi}`, le più esposte prima.
+- `opzioni` (entrando in Attacchi): il menu degli attacchi di terra, fino a 12 `{da, verso, dif, A (tutti i partenti), D, mura, P, patto}`, i più probabili prima. Confrontato con le voci `attacca` dice cosa è stato scelto e cosa scartato.
+- `consiglio` (solo regni NON bot): cosa avrebbe fatto l'IA al posto suo (`Bot.advice` in `bot.js`, strategia del regno o `espansione`). `fase: 'schiera'` → `schiera: [{p, n}]`; `fase: 'attacca'` → `attacco: {da, verso, dif, A, D, P}` + `soglia` della strategia. Non muove niente e non sporca la memoria del turno di un bot.
+- Si tengono gli ultimi 3 turni globali (max 150 voci per regno). Voci ripulite da `undefined` e da array di array (Firestore rifiuta l'intera scrittura).
+- **Archivio permanente**: a giro finito (accanto a `backupTurn`) le voci del turno appena chiuso di tutti i regni vanno in `games/main/turns/registro-N` = `{registroTurno, regni: [{id, name, chi, voci}], savedAt}`. Senza campo `turn` apposta: potatura/elenco/cancellazione dei backup filtrano su `turn` e non lo toccano. Scritto con `set`: un turno rigiocato sostituisce la copia vecchia. In locale (`?local=1`) va in `localStorage['risiko_registro_archivio']`, ultimi 20 turni.
+- Lettura: `GameActions.turnLogOf(idONome, turno?)` in console, `players[i].registro` da `games/main`, oppure via REST `.../documents/games/main/turns/registro-N`.
+- Le azioni fallite non si registrano; i turni giocati prima del 2026-11-25 non hanno registro.
+
 ## Presenza (`presence/{codice}`)
 - Dice quale regno una persona ha aperto (link `?p=`).
 - Regola Firestore: `match /presence/{id}` aperta a tutti.

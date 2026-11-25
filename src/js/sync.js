@@ -517,6 +517,23 @@ const MultiplayerSync = (function () {
           .catch(err => console.error('Errore backup turno:', err));
     }
 
+    // ---- ARCHIVIO DEL REGISTRO DEL TURNO (educare i bot) ----
+    // A giro finito si copia il registro del turno appena chiuso (player.registro,
+    // game-actions.js) in un documento PERMANENTE: games/main/turns/registro-N.
+    // Sta nella sottocollezione dei backup perché le sue regole Firestore ci sono
+    // già, ma NON ha il campo `turn`: potatura, elenco e cancellazione dei backup
+    // filtrano su `turn`, quindi l'archivio non lo toccano mai. Si scrive con
+    // set (non "solo se manca"): un turno rigiocato dopo un ripristino deve
+    // sostituire la sua copia vecchia.
+    function archiveLog(turnId, regni) {
+        if (!isConfigured || !turnsCol || !Array.isArray(regni)) return;
+        const n = (typeof turnId === 'number') ? turnId : (Number(turnId) || 0);
+        turnsCol.doc('registro-' + n).set({
+            registroTurno: n, regni,
+            savedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(err => console.error('Errore archivio registro:', err));
+    }
+
     function pruneBackups(currentTurn) {
         if (!isConfigured || !turnsCol) return;
         const cutoff = ((typeof currentTurn === 'number') ? currentTurn : (Number(currentTurn) || 0)) - BACKUP_KEEP;
@@ -611,6 +628,7 @@ const MultiplayerSync = (function () {
         onReloadSignal: onReloadSignal,
         requestReloadAll: requestReloadAll,
         backupTurn: backupTurn,
+        archiveLog: archiveLog,
         listBackups: listBackups,
         getBackup: getBackup,
         deleteBackupsAfter: deleteBackupsAfter,

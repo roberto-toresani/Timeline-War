@@ -7381,6 +7381,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.backupTurn) return;
                 const snap = buildSnapshot();
                 if (snap) MultiplayerSync.backupTurn(turn, snap);
+            },
+            // ARCHIVIO DEL REGISTRO DEL TURNO: a giro finito game-actions passa il
+            // turno appena chiuso; qui si raccolgono le voci di quel turno di ogni
+            // regno. Online vanno in games/main/turns/registro-N (sync.js); in
+            // locale (?local=1, simulazioni) in localStorage, ultimi 20 turni.
+            archiveLog(turn) {
+                const regni = PLAYERS.map(p => ({
+                    id: p.id, name: p.name,
+                    chi: p.bot ? 'bot:' + p.bot : (p.controllo === 'admin' ? 'admin' : 'umano'),
+                    voci: (Array.isArray(p.registro) ? p.registro : []).filter(v => v && v.t === turn)
+                })).filter(r => r.voci.length);
+                if (!regni.length) return;
+                if (typeof MultiplayerSync !== 'undefined' && MultiplayerSync.isConfigured && MultiplayerSync.archiveLog) {
+                    MultiplayerSync.archiveLog(turn, regni);
+                    return;
+                }
+                try {
+                    const KEY = 'risiko_registro_archivio';
+                    const arch = JSON.parse(localStorage.getItem(KEY) || '{}');
+                    arch[turn] = regni;
+                    Object.keys(arch).map(Number).sort((a, b) => a - b).slice(0, -20).forEach(k => delete arch[k]);
+                    localStorage.setItem(KEY, JSON.stringify(arch));
+                } catch (e) { /* storage pieno o privato: pazienza */ }
             }
         },
 

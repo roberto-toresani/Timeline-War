@@ -8035,9 +8035,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (line) { righe.push(line); regno = true; }
                 return;
             }
+            // Miglioria civica: senza `key` ed `esito` è un avviso che questa
+            // versione non sa leggere — meglio tacere che stampare «undefined».
+            if (!ev || !ev.key || !verbo[ev.esito]) return;
             if (ev.esito === 'crollata') crolli++;
             const nome = GR().welfareLabel(ev.key);
-            let frase = nome + ' ' + (verbo[ev.esito] || ev.esito);
+            let frase = nome + ' ' + verbo[ev.esito];
             if (ev.esito === 'dormiente') frase += ': mancava 1 ' + resLabel(ev.res) +
                 '. Procurala entro la prossima manutenzione o crollerà.';
             else if (ev.esito === 'crollata') frase += ': senza 1 ' + resLabel(ev.res) +

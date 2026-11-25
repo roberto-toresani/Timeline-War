@@ -3241,8 +3241,48 @@
         return players;
     }
 
+    // ---------- IL CONSIGLIO (registro del turno → educare i bot) ----------
+    // Cosa farebbe l'IA al posto di un regno, SENZA muovere niente: lo legge il
+    // registro del turno (game-actions.js) per mettere accanto alla mossa di un
+    // umano quella che avrebbe fatto un bot, così si confrontano gli stili e si
+    // tarano soglie e pesi su come gioca davvero la gente. Per un umano si usa
+    // la strategia del regno se ne ha una, altrimenti l'Equilibrato.
+    // Non deve sporcare il turno di un bot in corso: la memoria del turno
+    // (respinti) si mette da parte e si rimette com'era.
+    function advice(player, fase) {
+        if (!player) return null;
+        const chiave = (player.bot && STRATEGIES[player.bot]) ? player.bot : 'espansione';
+        const salva = turnMemo;
+        try {
+            resetTurnMemo();
+            const s0 = STRATEGIES[chiave];
+            const og = objectiveState(player);
+            const st = popState(player, s0, og);
+            const s = situational(player, s0, st);
+            if (fase === 'schiera') {
+                return { strategia: chiave,
+                         schiera: deployPlan(player, s, st, og).map(x => ({ p: x.id, n: x.n })) };
+            }
+            if (fase === 'attacca') {
+                const b = bestAttack(player, s, st, 0, og);
+                if (!b) return { strategia: chiave, attacco: null };
+                const A = engagedFor(b, s);
+                return { strategia: chiave, soglia: Math.round(s.soglia * 100), attacco: {
+                    da: b.fromId, verso: b.toId, dif: b.target.owner || 'Neutrale',
+                    A, D: b.target.troops, P: Math.round(winProb(A, b.target, b.fromId) * 100)
+                } };
+            }
+            return null;
+        } catch (e) {
+            return null;
+        } finally {
+            turnMemo = salva;
+        }
+    }
+
     const api = {
         STRATEGIES, KEYS,
+        advice,
         isBot, strategyOf, labelOf, assignStrategies,
         run, stop, playTurn,
         // Diagnostica/banco di prova (NON usato dal gioco): il cervello del turno
