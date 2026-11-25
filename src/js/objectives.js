@@ -669,7 +669,7 @@
                   check: () => 'nessuna provincia musulmana fra Al_Rif e Fez' },
                 { id: 'ca4-2', tipo: 'economia', titolo: 'Le Atarazanas di Siviglia', fisso: true,
                   tmpl: 'scorte', arg: { res: 'legno' },
-                  n: { avanzare: 6 },
+                  n: { avanzare: 10 },
                   testo: n => `Rifornisci i cantieri delle galee: conserva ${n} scorte di legno.`,
                   check: n => `scorte di legno ≥ ${n}` },
                 { id: 'ca4-3', tipo: 'crescita', titolo: 'La Hermandad delle città', fisso: true,
@@ -1368,7 +1368,7 @@
             { ciclo: 4, epoca: '1300-1399', tema: 'Le corone di Carlo IV', voci: [
                 { id: 'sr4-1', tipo: 'espansione', titolo: 'Marienburg', fisso: true,
                   tmpl: 'province', arg: { ids: ['West_Prussia', 'East_Prussia'] },
-                  n: { avanzare: 5 },
+                  n: { avanzare: 8 },
                   testo: n => `Prendi la Prussia dell’Ordine teutonico: possiedi Prussia occidentale e orientale con almeno ${n} uomini ciascuna.`,
                   check: n => `West_Prussia e East_Prussia possedute con soldati ≥ ${n}` },
                 { id: 'sr4-2', tipo: 'crescita', titolo: 'Praga, città di Carlo IV', fisso: true,
