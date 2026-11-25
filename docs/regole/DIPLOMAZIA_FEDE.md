@@ -7,6 +7,23 @@
 4. **Vassallaggio**: il vassallo cede risorse, il signore protegge.
 5. **Tregua**: pausa temporanea (N turni), poi scade.
 
+## Con chi si può trattare (contatto)
+Si tratta (araldi, patti, chat privata) solo con i regni con cui si è **in contatto** (`diploKingdomsVisibili` in player-board.js):
+- confinano di terra adesso, o hanno confinato almeno una volta (`regniConosciuti`, aggiornato a fine turno);
+- c'è un patto attivo;
+- un tuo corpo di spedizione li fronteggia;
+- **contatto via mare**: ci hai mandato una nave.
+
+Vedere un regno (nebbia, spia, portata di una nave) **non** basta.
+
+### Contatto via mare (`GameActions.seaContact`)
+- Serve uno scafo **usabile** (Nave o Veliero, non dormiente) in una tua provincia, la cui portata (§9.2) tocchi **una provincia qualsiasi** del regno di destinazione.
+- Si fa dalla scheda **⛵ Contatto via mare** del foglio Diplomazia, che elenca i regni raggiungibili e non ancora conosciuti (`seaContactTargets`). Nessun vincolo di fase: basta il proprio turno.
+- **Una nave per turno** (`player.contattoMareTurno`). La nave **non si consuma**: resta all'ancora.
+- Effetto: i due regni entrano a vicenda in `regniConosciuti`, **per sempre**, come dopo un confine di terra. Il destinatario riceve un avviso (`pattiAvvisi`, tipo `contattoMare`) con la provincia d'approdo.
+- Per scegliere lo scafo e l'approdo si preferisce la Nave al Veliero, e una città o Capitale a una costa qualunque.
+- Lo standing non prende il −6 "confinate senza accordi": i due regni non confinano.
+
 ## Regole patti
 - Patti sono **mutui**: entrambi devono accettare (`expirePacts` / consenso).
 - Rottura unilaterale: penalità standing + `recordGrudge` sul tradito.

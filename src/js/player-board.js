@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'sendCorps', 'recallCorps', 'corpsAttack', 'showFront', 'hideFront',
         'resolveConquest', 'resolveCapital', 'launchExpedition', 'expeditionLand',
         'steerExpedition', 'sendSpy', 'setTax', 'tradeWithBank', 'proposeTrade', 'acceptTrade',
-        'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact',
+        'refuseTrade', 'cancelTrade', 'proposePact', 'acceptPact', 'declinePact', 'breakPact', 'seaContact',
         'grantAttack', 'askReinforcements', 'cancelHelp', 'upgradeWarehouse', 'payUpkeep',
         'proposeRoute', 'acceptRoute', 'declineRoute', 'withdrawRoute', 'cancelRoute', 'setRouteRaid'
     ]);
@@ -6076,7 +6076,7 @@ document.addEventListener('DOMContentLoaded', () => {
         box.innerHTML = '';
         if (!visibili.length) {
             box.innerHTML = '<div class="bp-empty-hint">Nessun regno in vista con cui trattare. ' +
-                'Chi confina con te compare da sé; per gli altri serve una spia.</div>';
+                'Chi confina con te compare da sé; per gli altri manda una nave (Contatto via mare).</div>';
             return;
         }
         const confini = borderMap(player);
@@ -6833,6 +6833,8 @@ document.addEventListener('DOMContentLoaded', () => {
         box.innerHTML = '';
         const myTurn = isPlaying(player);
         box.appendChild(diploProposeCard(player, myTurn));
+        const mare = diploSeaContactCard(player, myTurn);
+        if (mare) box.appendChild(mare);
         box.appendChild(diploActiveCard(player, myTurn));
         box.appendChild(diploHelpCard(player, myTurn));
         box.appendChild(diploInboxCard(player, myTurn));
@@ -6847,7 +6849,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const visibili = diploKingdomsVisibili(player);
         if (!visibili.length) {
             card.insertAdjacentHTML('beforeend',
-                '<div class="bp-empty-hint">Nessun regno in vista con cui trattare. Una spia allarga lo sguardo.</div>');
+                '<div class="bp-empty-hint">Nessun regno con cui trattare. Chi confina con te compare da sé; oltremare serve una nave.</div>');
             return card;
         }
         if (!diploUI.verso || !visibili.some(p => p.id === diploUI.verso)) diploUI.verso = visibili[0].id;
@@ -6899,6 +6901,42 @@ document.addEventListener('DOMContentLoaded', () => {
         const why = myTurn ? (chk.ok ? null : chk.msg) : 'Solo nel tuo turno.';
         card.appendChild(actionButton('Invia l\'araldo', null, why ? shorten(why) : null,
             () => run(GA().proposePact(player, diploUI.verso, diploUI.tipo))));
+        return card;
+    }
+
+    // CONTATTO VIA MARE (§Diplomazia): i regni che non confinano con te ma che
+    // una tua nave raggiunge. Mandarla stabilisce il contatto (una volta per
+    // turno): da lì il regno entra fra quelli con cui trattare. La scheda compare
+    // solo se c'è almeno un regno raggiungibile così.
+    function diploSeaContactCard(player, myTurn) {
+        const ga = GA();
+        if (!ga || !ga.seaContactTargets) return null;
+        const mete = ga.seaContactTargets(player);
+        if (!mete.length) return null;
+        const usato = ga.seaContactUsed && ga.seaContactUsed(player);
+        const card = document.createElement('div');
+        card.className = 'bp-trade-card';
+        card.innerHTML = '<div class="bp-trade-head">⛵ Contatto via mare</div>' +
+            '<div class="bp-trade-cost">Regni che non confinano con te ma che una tua nave raggiunge. ' +
+            'Mandala con un ambasciatore: da quel momento potrete trattare. Una nave per turno; resta all\'ancora.</div>';
+        mete.forEach(m => {
+            const altro = R.players().find(p => p.id === m.id);
+            const item = document.createElement('div');
+            item.className = 'bp-trade-offer';
+            item.innerHTML =
+                '<div class="bp-trade-offer-head"><span class="bp-trade-dot" style="background:' +
+                ((altro && altro.color) || '#888') + '"></span><span class="bp-trade-from"></span></div>' +
+                '<div class="bp-trade-terms"></div>';
+            item.querySelector('.bp-trade-from').textContent = m.name;
+            const lab = id => { const p = R.engine.path(id); return p ? R.provinceLabel(p) : id; };
+            item.querySelector('.bp-trade-terms').textContent =
+                (m.scafo === 'vascello' ? 'Veliero' : 'Nave') + ' da ' + lab(m.da) + ' → ' + lab(m.approdo);
+            const why = !myTurn ? 'Solo nel tuo turno.'
+                : (usato ? 'Hai già mandato una nave in questo turno.' : null);
+            item.appendChild(actionButton('Manda la nave', null, why,
+                () => run(GA().seaContact(player, m.id))));
+            card.appendChild(item);
+        });
         return card;
     }
 
@@ -7165,6 +7203,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? 'Finito il patto con ' + a.conNome + ', il tuo corpo di spedizione (' + (a.uomini || 0) +
                       (a.uomini === 1 ? ' uomo' : ' uomini') + ') è rientrato a ' + provLabel(a.prov) + '.'
                     : 'Finito il patto con ' + a.conNome + ', il tuo corpo di spedizione non aveva dove tornare e si è sciolto.';
+                case 'contattoMare': return 'Una nave di ' + a.conNome + ' è approdata a ' + provLabel(a.prov) +
+                    ' con un ambasciatore: ora i vostri regni sono in contatto e potete trattare.';
                 default: return isRouteNotice(a) ? routeNoticeText(a) : '';
             }
         };
@@ -7687,6 +7727,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'corpoRientrato': text = a.prov
                     ? 'Il corpo di spedizione presso ' + a.conNome + ' è rientrato a ' + provLabel(a.prov) + '.'
                     : 'Il corpo di spedizione presso ' + a.conNome + ' si è sciolto: nessuna provincia dove tornare.'; break;
+                case 'contattoMare': ico = '⛵';
+                    text = 'Una nave di ' + a.conNome + ' è approdata a ' + provLabel(a.prov) + ': ora siete in contatto.'; break;
                 default:
                     if (isRouteNotice(a)) {
                         ico = '🐫'; cat = 'Mercato'; bad = a.tipo === 'rottaRazziata';

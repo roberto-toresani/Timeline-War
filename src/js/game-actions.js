@@ -3896,6 +3896,81 @@
         return done('Proposta di ' + D().LABEL[tipo].toLowerCase() + ' inviata a ' + altro.name + '.', { prov: homeId(player) });
     }
 
+    // ---------- CONTATTO VIA MARE (§Diplomazia, regola dell'utente) ----------
+    // La diplomazia si apre solo con chi si confina (regniConosciuti). Una NAVE
+    // però può portare un ambasciatore oltremare: se un tuo scafo usabile (Nave o
+    // Veliero, non dormiente) raggiunge entro la sua portata una provincia di un
+    // regno con cui non hai ancora contatto, puoi mandarla da lui. I due regni
+    // si conoscono da quel momento, per sempre, come dopo un confine di terra.
+    // Vedere un regno dalla nave NON basta: il contatto è un'azione deliberata,
+    // una per turno; la nave non si consuma e resta all'ancora.
+    function alreadyInContact(player, altro) {
+        if ((player.regniConosciuti || []).some(id => String(id) === String(altro.id))) return true;
+        if (D() && D().pactsWith(player, altro.id).length) return true;
+        return landAdjacentKingdoms(player.name, altro.name);
+    }
+    // Per ogni regno raggiungibile via nave e non ancora conosciuto: da dove
+    // parte la nave, con che scafo, e su quale sua provincia approda (una città o
+    // la Capitale se c'è, altrimenti la prima costa toccata). Solo lettura.
+    function seaContactTargets(player) {
+        const out = [];
+        if (!player || !E().ownedPaths(player.name).length) return out;
+        const altri = R().players().filter(p => p.id !== player.id &&
+            E().ownedPaths(p.name).length && !alreadyInContact(player, p));
+        if (!altri.length) return out;
+        const owner = {};
+        altri.forEach(p => E().ownedPaths(p.name).forEach(pp => { owner[pp.id] = p; }));
+        const found = new Map();
+        E().ownedPaths(player.name).forEach(from => {
+            hullsOf(from).forEach(h => {
+                const r = E().shipRange(h.tipo);
+                if (!(r > 0)) return;
+                E().seaReach(from.id, r).forEach(id => {
+                    const k = owner[id];
+                    if (!k) return;
+                    const pp = E().path(id);
+                    const porto = pp && (E().countPiece(pp, 'citta') > 0 || E().countPiece(pp, 'capitale') > 0);
+                    const prev = found.get(k.id);
+                    // Si preferisce la Nave al Veliero (non si scomoda il più
+                    // prezioso) e un porto-città a una costa qualunque.
+                    const score = (porto ? 2 : 0) + (h.tipo === 'barca' ? 1 : 0);
+                    if (!prev || score > prev.score) {
+                        found.set(k.id, { id: k.id, name: k.name, da: from.id, scafo: h.tipo, approdo: id, score });
+                    }
+                });
+            });
+        });
+        found.forEach(v => { delete v.score; out.push(v); });
+        return out;
+    }
+    function seaContactUsed(player) {
+        return player.contattoMareTurno != null && player.contattoMareTurno === R().turn();
+    }
+    function seaContact(player, toId) {
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
+        const altro = R().players().find(p => String(p.id) === String(toId));
+        if (!altro) return fail('Regno sconosciuto.');
+        if (altro.id === player.id) return fail('Non si manda un ambasciatore a se stessi.');
+        if (!E().ownedPaths(altro.name).length) return fail(altro.name + ' non ha più province.');
+        if (alreadyInContact(player, altro)) return fail('Sei già in contatto con ' + altro.name + ': trattate con gli araldi.');
+        if (seaContactUsed(player)) return fail('Hai già mandato una nave in ambasceria in questo turno.');
+        const t = seaContactTargets(player).find(x => String(x.id) === String(altro.id));
+        if (!t) return fail('Nessuna tua nave raggiunge le coste di ' + altro.name + '.');
+
+        if (!Array.isArray(player.regniConosciuti)) player.regniConosciuti = [];
+        if (!Array.isArray(altro.regniConosciuti)) altro.regniConosciuti = [];
+        if (!player.regniConosciuti.some(id => String(id) === String(altro.id))) player.regniConosciuti.push(altro.id);
+        if (!altro.regniConosciuti.some(id => String(id) === String(player.id))) altro.regniConosciuti.push(player.id);
+        player.contattoMareTurno = R().turn();
+        pushPactNotice(altro, { tipo: 'contattoMare', con: player.id, conNome: player.name, prov: t.approdo });
+
+        E().refresh(); E().save();
+        const nave = t.scafo === 'vascello' ? 'Il Veliero salpato da ' : 'La Nave salpata da ';
+        const approdo = t.scafo === 'vascello' ? ' è approdato a ' : ' è approdata a ';
+        return done(nave + labelOf(t.da) + approdo + labelOf(t.approdo) +
+            ': ora sei in contatto con ' + altro.name + ' e puoi mandargli i tuoi araldi.', { prov: t.da });
+    }
+
     // Accetta: si ricontrolla la validità al momento dell'accordo (nel frattempo
     // può essere nata un'alleanza che copre tutto). Il patto nasce mutuo e il
     // proponente lo scopre con un avviso a inizio turno.
@@ -6389,6 +6464,8 @@
         // alleanze a tempo (chiamata da endTurn come expireTrades).
         proposePact, acceptPact, declinePact, breakPact, grantAttack, expirePacts, pactInbox,
         pactRefusedRecently,
+        // Contatto via mare: una nave porta l'ambasciatore a chi non confina.
+        seaContact, seaContactTargets, seaContactUsed,
         // A cosa serve l'alleanza: chiedere rinforzi (indicando DOVE servono) e
         // marciare in aiuto in fase d'attacco invece di colpire.
         askReinforcements, cancelHelp, sendReinforcements, helpInbox, helpOutbox, expireHelpRequests,
