@@ -73,7 +73,7 @@ accanto al regno come riferimento.
 | Sacro Romano Impero *(avanzare)* | Le corone di Carlo IV | **Marienburg** — conquista Prussia occidentale e orientale e difendile con 8 uomini ciascuna | **Praga, città di Carlo IV** — una Città in Boemia, difesa con 6 uomini | **La Bolla d'Oro** — politica fortemente a favore della nobiltà |
 | Polonia *(avanzare)* | Casimiro il Grande e Krewo | **L'unione di Krewo** — possiedi Vilnius, Minsk e Vitebsk con 6 uomini ciascuna | **Una Polonia di pietra** — costruisci una Fortezza | **Il re dei contadini** — Benessere 4 |
 | Kievan Rus' *(equilibrato)* | Dmitrij Donskoj | **Le steppe del Mar Nero** — conquista Kuban, Stavropol, Calmucchia, Astrachan' e Uralsk; Kuban e Stavropol difese con 3 uomini ciascuna | **Kolomna, la piazza d'armi** — costruisci una Fortezza | **Le schiere di Donskoj** — 15 cavalieri nel tuo esercito |
-| Ungheria *(equilibrato)* | Luigi il Grande | **La pace di Zara** — possiedi Dalmazia, Croazia e Slovenia; la Slovenia difesa con 4 uomini | **La corte di Visegrád** — costruisci una Città | **La peste di Napoli** — 3 migliorie di Sanità sulla Capitale |
+| Ungheria *(equilibrato)* | Luigi il Grande | **La pace di Zara** — possiedi Dalmazia, Croazia, Slovenia e Stiria; la Slovenia difesa con 4 uomini | **La corte di Visegrád** — costruisci una Città | **La peste di Napoli** — 3 migliorie di Sanità sulla Capitale |
 | Bisanzio *(equilibrato)* | I Turchi in Bitinia | **Bursa e Nicea** — 5 province d'Anatolia con almeno 5 uomini ciascuna | **La via Egnatia** — collega alla Capitale 4 tipi di risorsa | **La Peste a Costantinopoli** — 4 migliorie di Sanità sulla Capitale |
 | Abbasidi *(avanzare)* | Il Califfato e le Città Sante | **Il custode delle Città Sante** — conquista l'intera penisola arabica: Hail, Hegiaz, Nejd, Yemen, Oman, Abu Dhabi (basta possederle, nessuna guarnigione minima) | **Le cupole dei Jalayiridi** — fonda 2 nuove Città (3 in tutto) | **Le carovane di Hormuz** — 5 scambi commerciali nel ciclo |
 | Danimarca *(fisso)* | Valdemar Atterdag | **Il richiamo del Danelaw** — conquista una provincia del Regno d'Inghilterra | **La pace di Valdemar** — Sicurezza 5 | **La flotta per Visby** — conserva 5 scorte di legno |
@@ -128,7 +128,7 @@ accanto al regno come riferimento.
 2. **Nuovi SET**:
    - `STRETTO` (Al_Rif, Fez);
    - `STEPPA_NERA` (Kuban, Stavropol, Kalmykia, Astrakhan, Uralsk);
-   - `DALMAZIA_HU` (Dalmatia, Croatia, Slovenia);
+   - `DALMAZIA_HU` (Dalmatia, Croatia, Slovenia, Styria);
    - `ARABIA_INTERA` (Hail, Hedjaz, Nejd, Yemen, Oman, Abu_Dhabi);
    - `REGNO_INGLESE` (BRITISH + Friesland, Holland, Gelre, French_Low_Countries);
    - `FINLANDIA` (Oulu, Ostrobothnia, Kuopio, Uusimaa, West_Karelia).
@@ -143,7 +143,7 @@ accanto al regno come riferimento.
    - `tutti`, per:
      - Svezia P (Norrbotten + 3 FINLANDIA) e T (Mercato + 2 scambi);
      - Rus' P (`regione` STEPPA_NERA 5 + Kuban e Stavropol con 3 uomini);
-     - Ungheria P (`regione` DALMAZIA_HU 3 + Slovenia con 4 uomini).
+     - Ungheria P (`regione` DALMAZIA_HU 4 + Slovenia con 4 uomini).
    - Danimarca T: `scorte` di legno, 5.
 4. **Danimarca e Svezia**: il capitolo IV va aggiunto come secondo capitolo del loro
    binario, che oggi ne ha uno solo e lo ripete.

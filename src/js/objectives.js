@@ -235,7 +235,7 @@
     // Aggiunte per il ciclo IV (obiettivi scritti dall'utente, docs/CICLO4_RICERCA.md).
     const STRETTO = new Set(['Al_Rif', 'Fez']);
     const STEPPA_NERA = new Set(['Kuban', 'Stavropol', 'Kalmykia', 'Astrakhan', 'Uralsk']);
-    const DALMAZIA_HU = new Set(['Dalmatia', 'Croatia', 'Slovenia']);
+    const DALMAZIA_HU = new Set(['Dalmatia', 'Croatia', 'Slovenia', 'Styria']);
     const ARABIA_INTERA = new Set(['Hail', 'Hedjaz', 'Nejd', 'Yemen', 'Oman', 'Abu_Dhabi']);
     const REGNO_INGLESE = new Set([...BRITISH, 'Friesland', 'Holland', 'Gelre', 'French_Low_Countries']);
     const FINLANDIA = new Set(['Oulu', 'Ostrobothnia', 'Kuopio', 'Uusimaa', 'West_Karelia']);
@@ -1900,9 +1900,9 @@
                       capo: { tmpl: 'regione', arg: { set: 'DALMAZIA_HU' } },
                       altri: [{ tmpl: 'provincia', arg: { id: 'Slovenia' }, soglia: 4 }]
                   },
-                  n: { avanzare: 3 },
-                  testo: () => 'Strappa la costa adriatica: possiedi Dalmazia, Croazia e Slovenia, e difendi la Slovenia con almeno 4 uomini.',
-                  check: n => `province fra Dalmatia, Croatia e Slovenia possedute ≥ ${n}, Slovenia con soldati ≥ 4` },
+                  n: { avanzare: 4 },
+                  testo: () => 'Strappa la costa adriatica e la marca di Stiria: possiedi Dalmazia, Croazia, Slovenia e Stiria, e difendi la Slovenia con almeno 4 uomini.',
+                  check: n => `province fra Dalmatia, Croatia, Slovenia e Styria possedute ≥ ${n}, Slovenia con soldati ≥ 4` },
                 { id: 'un4-2', tipo: 'crescita', titolo: 'La corte di Visegrád', fisso: true,
                   tmpl: 'cittaCount', arg: {},
                   n: { avanzare: 1 },
