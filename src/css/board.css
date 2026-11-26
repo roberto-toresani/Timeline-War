@@ -3381,6 +3381,12 @@ svg path.state.spied {
     /* Aggiornamenti aperti da telefono: non oltre metà altezza, il resto è
        mappa. Chiusi sono una pillola (vedi #board-updates.closed). */
     body:not(.mobile-lite) #board-rail { width: 188px; }
+    /* Pannello del turno aperto: copre la mappa, quindi dock (👑 🎯 🕊 …),
+       Aggiornamenti, classifica e il ✝ del Papa (admin) spariscono invece di
+       restargli sopra. */
+    body.right-open:not(.mobile-lite) #board-rail,
+    body.right-open:not(.mobile-lite) #map-leaderboard,
+    body.right-open:not(.mobile-lite) #pope-fab { display: none !important; }
     body:not(.mobile-lite) #board-updates:not(.closed) { flex: 0 1 auto; max-height: 46%; }
     body:not(.mobile-lite) .bu-list { padding-bottom: 8px; }
     body:not(.mobile-lite) .bu-cycle { display: none; }

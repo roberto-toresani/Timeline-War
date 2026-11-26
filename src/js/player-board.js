@@ -252,6 +252,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const hud = $('map-order-hud');
         const altro = !!openSheet || costsOpen || rightOpen() || (!!hud && hud.style.display !== 'none');
         key.classList.toggle('covered', liteQuery.matches && altro);
+        // Da telefono il pannello del turno copre tutta la mappa: dock e
+        // Aggiornamenti gli restavano sopra (richiesta dell'utente). La classe
+        // sul body li fa sparire finché il pannello è aperto (board.css).
+        document.body.classList.toggle('right-open', rightOpen());
     }
 
     // Apre `name`, o lo chiude se era già quello aperto. null chiude e basta.
