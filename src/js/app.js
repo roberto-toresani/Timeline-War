@@ -5054,6 +5054,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (id === 'Western_Norway') return ['Highlands', 'Lowlands'];
         if (id === 'Eastern_Norway') return ['Highlands'];
         if (id === 'Marrakech') return ['West_Sahara'];
+        if (id === 'West_Sahara') return ['Senegal'];
         return [];
     }
 

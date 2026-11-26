@@ -529,7 +529,8 @@
         Highlands: ['Western_Norway', 'Eastern_Norway'],
         Lowlands: ['Western_Norway'],
         Marrakech: ['West_Sahara'],
-        West_Sahara: ['Marrakech']
+        West_Sahara: ['Marrakech', 'Senegal'],
+        Senegal: ['West_Sahara']
     };
 
     // Stessa cosa, memoizzata. `refreshMapDisplay` gira dopo OGNI azione — anche
