@@ -50,7 +50,8 @@ Colpisce tutti i regni. `plagueTier(sanità)`: 0-1 → morti + blocco raccolta; 
 ## `spawnKingdom`
 Crea regno a partita in corso, accodato in fondo all'ordine.
 `endTurn` rilegge ordine VIVO (`ordAfter`) prima di ruotare.
-`soloLibere`: scarta province già occupate; `ripiego` cerca confinanti libere.
+`soloLibere`: scarta province già di un ALTRO regno; `ripiego` cerca confinanti libere.
+Una provincia già del regno che nasce (record riusato, assegnata dall'editor) conta come libera: prende i suoi uomini lì, niente ripiego (bug del 1300: Delhi finiva su Ngari/Awadh/Central_India, il Giappone su Kyushu).
 Non nasce con la Capitale. Nome già esistente → RIUSATO (non clonato).
 `NON_SORTEGGIABILI` in setup.js. `player.nato` → `Popularity.graceBonus`.
 

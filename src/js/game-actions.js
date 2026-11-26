@@ -1766,7 +1766,17 @@
         const s = spec || {};
         if (!R().addKingdom) return null;
 
-        const libera = id => { const p = E().path(id); return !!p && !E().owner(p); };
+        // Libera = di nessuno, oppure GIÀ di questo regno (un record riusato o
+        // province assegnate prima dall'editor): una provincia propria non è
+        // "occupata". Senza, il Sultanato di Delhi che possedeva già Delhi,
+        // Punjab e Rajputana le scartava e finiva col ripiego su Ngari, Awadh e
+        // Central_India (partita del 1300, regola dell'utente).
+        const libera = id => {
+            const p = E().path(id);
+            if (!p) return false;
+            const chi = E().owner(p);
+            return !chi || chi === s.name;
+        };
         const spots = [];
         const presi = new Set();
         const scartate = [];
