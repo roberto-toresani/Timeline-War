@@ -14,11 +14,12 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+# Due job (come il modello ufficiale di GitHub): dal 2026-11-25 il deploy nello
+# STESSO job dell'upload non trovava il pacchetto appena caricato ("Found 0
+# artifact(s)", ritardo dell'API degli artifact). Separati, il deploy parte
+# quando il pacchetto è già visibile.
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,6 +30,14 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: src
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
