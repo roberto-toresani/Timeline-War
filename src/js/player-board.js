@@ -13,6 +13,44 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!R) { console.error('player-board: app.js non ha esposto window.Risiko'); return; }
 
     const $ = id => document.getElementById(id);
+
+    // SPIA DEL SALVATAGGIO ONLINE (bug "turno chiuso di notte, la mattina non
+    // c'è", 2026-11-26): il giocatore deve VEDERE se le sue mosse sono arrivate.
+    // Prima un salvataggio fallito restava in console: chi chiudeva il turno da
+    // telefono lo vedeva passato e andava a dormire, online era ancora suo.
+    (function syncPill() {
+        if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.isConfigured
+            || !MultiplayerSync.onPushStatus) return;
+        const pill = document.createElement('div');
+        pill.id = 'sync-pill';
+        pill.setAttribute('role', 'status');
+        document.body.appendChild(pill);
+        let hideTimer = null;
+        pill.addEventListener('click', () => { if (MultiplayerSync.flushNow) MultiplayerSync.flushNow(); });
+        MultiplayerSync.onPushStatus(st => {
+            clearTimeout(hideTimer);
+            pill.className = 'sync-' + st.state;
+            if (st.state === 'pending' || st.state === 'saving') {
+                pill.textContent = '⏳ Salvataggio online…';
+            } else if (st.state === 'ok') {
+                if (!st.at) { pill.className = ''; return; }     // stato iniziale: niente
+                pill.textContent = '✓ Salvato online';
+                hideTimer = setTimeout(() => { pill.className = ''; }, 2500);
+            } else if (st.state === 'error' && /resource-exhausted/i.test(st.err || '')) {
+                pill.textContent = '⚠ Il server della partita ha finito la quota di oggi: le mosse NON sono salvate online. Avvisa l’admin; riprovo da solo.';
+            } else if (st.state === 'error') {
+                pill.textContent = '⚠ Mosse NON ancora salvate online — tieni aperta la pagina, riprovo da solo (tocca per riprovare ora)';
+            } else {
+                pill.className = '';                              // rifiuto: c'è già l'avviso
+            }
+        });
+        // Da computer il browser chiede conferma prima di chiudere con mosse non
+        // salvate (i telefoni lo ignorano: lì c'è la spia e l'invio immediato).
+        window.addEventListener('beforeunload', e => {
+            if (MultiplayerSync.hasUnsaved && MultiplayerSync.hasUnsaved()) { e.preventDefault(); e.returnValue = ''; }
+        });
+    })();
+
     // Stemma araldico di un regno (js/flags.js), da mettere di fianco al nome.
     // Tollerante: se il modulo non c'è, torna stringa vuota e niente si rompe.
     const flagHTML = (name, color, px) =>

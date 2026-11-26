@@ -1001,6 +1001,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (MultiplayerSync.onPushReject) MultiplayerSync.onPushReject(() => {
                 showPieceNotice('Salvataggio annullato: la partita online è più avanti. Ricarico lo stato aggiornato.');
             });
+            // Un salvataggio fallito per rete/transazione si ritenta ricostruendo lo
+            // stato DAL VIVO (non rispedendo quello vecchio): vedi sync.js.
+            if (MultiplayerSync.setRetryHook) MultiplayerSync.setRetryHook(saveAutoSave);
         } else {
             loadAutoSave();
         }
@@ -4726,7 +4729,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function saveAutoSave() {
         const stateSnapshot = buildSnapshot();
         if (!stateSnapshot) return;
-        localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot));
+        // La copia LOCALE non deve mai fermare quella ONLINE: un telefono con la
+        // memoria del sito piena (o in navigazione privata) lanciava qui
+        // QuotaExceededError e la mossa non partiva per Firestore.
+        try { localStorage.setItem('antigravity_map_save', JSON.stringify(stateSnapshot)); }
+        catch (e) { console.warn('Autosave locale non riuscito (si salva comunque online):', e && e.name); }
         // Mentre l'admin sta preparando un intervento (vedi beginIntervention) le
         // sue modifiche NON devono uscire: restano locali finché non le committa,
         // e verranno applicate al cambio turno sopra lo stato aggiornato.
@@ -4744,7 +4751,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const forPush = Object.assign({}, stateSnapshot, {
                 history: { [curr]: (TURN_HISTORY[curr] || {}) }
             });
-            MultiplayerSync.pushState(forPush, { force: forcePushOnce });
+            // Il PASSAGGIO DI TURNO parte subito, senza i 600 ms di attesa: chi chiude
+            // il turno da telefono e lo blocca un attimo dopo non deve perderlo.
+            MultiplayerSync.pushState(forPush, { force: forcePushOnce, now: hasHandoff });
         }
         forcePushOnce = false;
         // La transizione di fine turno (se c'era) è stata valutata: one-shot consumato,
@@ -7083,6 +7092,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!player || !player.invite || !MultiplayerSync.isConfigured) return;
             MultiplayerSync.authReady.then(() => {
                 if (MultiplayerSync.isAdmin) return;
+                // Un salvataggio fallito lascia traccia sul doc di presenza di
+                // questo giocatore (syncErr): la prossima volta si sa perché.
+                if (MultiplayerSync.setDiagCode) MultiplayerSync.setDiagCode(player.invite);
                 MultiplayerSync.setPresence(player.invite, {
                     invite: player.invite, playerId: player.id, name: player.name
                 });

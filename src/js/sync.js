@@ -95,7 +95,13 @@ const MultiplayerSync = (function () {
     let chatListeners = [];
     let lastChat = [];
     let hasChat = false;
-    const CHAT_KEEP = 300;   // quanti messaggi si leggono/tengono: la coda più recente
+    // QUOTA DI LETTURA (2026-11-26): ogni apertura della plancia (e ogni ripresa
+    // del telefono dopo un po' in secondo piano) rilegge TUTTI i messaggi del
+    // limite: con 300 erano 300 letture a colpo, e le 50.000 letture gratuite al
+    // giorno di Firestore finivano verso sera — da lì ogni salvataggio falliva
+    // con `resource-exhausted` fino alle 9 del mattino. 60 bastano a leggere la
+    // conversazione recente.
+    const CHAT_KEEP = 60;    // quanti messaggi si leggono/tengono: la coda più recente
     // LEASE DEL DRIVER DEI BOT (§multi-tab): quando più sessioni admin sono aperte
     // insieme (l'editor in un tab, la plancia in un altro, il telefono), ognuna
     // faceva girare Bot.run per conto suo e le loro scritture si accavallavano —
@@ -257,7 +263,8 @@ const MultiplayerSync = (function () {
         if (!isConfigured || !presenceCol || !code) return;
         presenceCol.doc(code).set(Object.assign({}, data, {
             at: firebase.firestore.FieldValue.serverTimestamp()
-        })).catch(err => console.error('Errore salvataggio presenza:', err));
+        // merge: non cancella la traccia diagnostica del salvataggio (syncErr).
+        }), { merge: true }).catch(err => console.error('Errore salvataggio presenza:', err));
     }
 
     function onInterventionChange(cb) {
@@ -341,9 +348,58 @@ const MultiplayerSync = (function () {
     // regrediscono il calendario di proposito (partita nuova, ripristino di un
     // turno precedente). Ogni scrittura di gioco normale NON forza, così un tab
     // arretrato non può azzerare la partita.
+    // ---- SALVATAGGIO AFFIDABILE (bug "turno chiuso di notte, la mattina non c'è",
+    // 2026-11-26) ----
+    // Prima: ogni push partiva da solo dopo 600 ms, e se falliva (rete del telefono,
+    // transazione abortita, pagina chiusa subito dopo "Fine turno") l'errore finiva
+    // in console e NESSUNO ritentava: il giocatore vedeva il turno chiuso sul suo
+    // schermo, online restava fermo. Peggio: con la rete lenta due push si
+    // accavallavano, il secondo leggeva il rev del primo prima che `baseRev` lo
+    // registrasse e la guardia lo rifiutava come "partita più avanti" — se il
+    // secondo era la fine turno, la fine turno spariva.
+    // Ora: (1) un push alla volta, l'ultimo stato aspetta in coda; (2) un errore
+    // NON di guardia si ritenta da solo (backoff), ricostruendo lo stato dal vivo
+    // tramite `retryHook` (saveAutoSave di app.js); (3) `flushNow` spedisce subito
+    // (fine turno, pagina in secondo piano); (4) chi vuole sa a che punto è
+    // (onPushStatus: la plancia mostra "salvato" / "NON salvato"); (5) l'errore
+    // lascia traccia nel doc di presenza del giocatore (`syncErr`), così la
+    // prossima volta si sa perché.
+    let pushInFlight = false;
+    let pushQueued = null;          // { stateObj, force } in attesa del push in volo
+    let pendingState = null;        // stato del timer di debounce (per flushNow)
+    let pushFailed = false;         // l'ultimo tentativo è fallito e non è ancora riuscito
+    let retryTimer = null;
+    let retryCount = 0;
+    let retryHook = null;
+    let diagCode = null;            // codice d'invito del giocatore di questa pagina
+    let pushStatus = { state: 'ok', at: 0, err: null };
+    const pushStatusListeners = [];
+    const RETRY_STEPS = [2000, 5000, 10000, 20000, 30000];
+
+    function setPushStatus(state, err) {
+        pushStatus = { state, at: Date.now(), err: err || null };
+        pushStatusListeners.forEach(cb => { try { cb(pushStatus); } catch (e) { /* listener */ } });
+    }
+    function onPushStatus(cb) { pushStatusListeners.push(cb); cb(pushStatus); }
+    function hasUnsaved() { return !!(pushTimer || pushInFlight || pushQueued || pushFailed); }
+    function setRetryHook(fn) { retryHook = (typeof fn === 'function') ? fn : null; }
+    function setDiagCode(code) { diagCode = code || null; }
+    // Traccia diagnostica sul doc di presenza del giocatore (merge: non tocca il
+    // resto). set() semplice, non transazione: Firestore la mette in coda anche
+    // offline e la spedisce appena può.
+    function reportDiag(fields) {
+        if (!isConfigured || !presenceCol || !diagCode) return;
+        try {
+            presenceCol.doc(diagCode).set(Object.assign({}, fields, {
+                syncUa: (typeof navigator !== 'undefined' && navigator.userAgent || '').slice(0, 160)
+            }), { merge: true }).catch(() => {});
+        } catch (e) { /* diagnostica: mai bloccante */ }
+    }
+
     function pushState(stateObj, opts) {
         if (!isConfigured || !docRef) return;
         const force = !!(opts && opts.force);
+        const now = !!(opts && opts.now);
         // Un push FORZATO (reset voluto: partita nuova via startGame, ripristino di
         // un backup) NON passa dal debounce. Restarci 600 ms lo esporrebbe a essere
         // ANNULLATO: la prima mossa di un bot parte subito dopo l'avvio (setTimeout
@@ -351,13 +407,85 @@ const MultiplayerSync = (function () {
         // e il reset non raggiungerebbe mai Firestore — la vecchia partita
         // continuerebbe a tornare via onSnapshot (è il bug "mi rivede la partita
         // vecchia"). Eseguendolo subito, niente lo può più cancellare.
+        // Lo stesso vale per `now` (fine turno): parte subito, senza aspettare.
         clearTimeout(pushTimer);
         pushTimer = null;
-        if (force) { flushState(stateObj, true); return; }
-        pushTimer = setTimeout(() => flushState(stateObj, false), 600);
+        pendingState = null;
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        if (force || now) { flushState(stateObj, force); return; }
+        pendingState = stateObj;
+        setPushStatus('pending');
+        pushTimer = setTimeout(() => {
+            pushTimer = null;
+            const s = pendingState;
+            pendingState = null;
+            if (s) flushState(s, false);
+        }, 600);
+    }
+
+    // Spedisce SUBITO il push in attesa (debounce o ritentativo): la chiama la
+    // pagina quando va in secondo piano o si chiude, perché un telefono bloccato
+    // congela i timer e il push in attesa non partirebbe più.
+    function flushNow() {
+        if (!isConfigured || !docRef) return;
+        if (pushTimer && pendingState) {
+            clearTimeout(pushTimer);
+            pushTimer = null;
+            const s = pendingState;
+            pendingState = null;
+            flushState(s, false);
+            return;
+        }
+        if (pushFailed && !pushInFlight) retryNow();
+    }
+
+    function retryNow() {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        if (!pushFailed || pushInFlight) return;
+        // Lo stato si RICOSTRUISCE dal vivo (saveAutoSave): un tentativo vecchio
+        // non deve riportare indietro mosse fatte nel frattempo.
+        if (retryHook) {
+            try {
+                retryHook();
+                // La pagina non ha più niente da scrivere (non è più lo scrittore
+                // del turno, intervento admin in corso…): niente da ritentare.
+                if (!pushTimer && !pushInFlight) { pushFailed = false; lastFailedState = null; setPushStatus('ok'); }
+                return;
+            } catch (e) { /* ripiego sotto */ }
+        }
+        if (lastFailedState) flushState(lastFailedState, false);
+    }
+    let lastFailedState = null;
+
+    function scheduleRetry() {
+        clearTimeout(retryTimer);
+        const wait = RETRY_STEPS[Math.min(retryCount, RETRY_STEPS.length - 1)];
+        retryCount++;
+        retryTimer = setTimeout(retryNow, wait);
+    }
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        // Rete tornata: si ritenta subito.
+        window.addEventListener('online', () => { if (pushFailed) retryNow(); });
+        // Pagina in secondo piano / chiusa: si spedisce subito quel che resta.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flushNow();
+            else if (pushFailed) retryNow();
+        });
+        window.addEventListener('pagehide', flushNow);
     }
 
     function flushState(stateObj, force) {
+            // Un push alla volta: se uno è in volo, l'ultimo stato aspetta il suo
+            // esito (e prende il suo rev come base). Un reset forzato resta forzato.
+            if (pushInFlight) {
+                pushQueued = { stateObj, force: !!(force || (pushQueued && pushQueued.force)) };
+                return;
+            }
+            pushInFlight = true;
+            setPushStatus('saving');
             firebase.firestore().runTransaction(tx => tx.get(docRef).then(snap => {
                 const remote = snap.exists ? (snap.data() || {}) : {};
                 const remoteRev = (typeof remote.rev === 'number') ? remote.rev : 0;
@@ -399,14 +527,53 @@ const MultiplayerSync = (function () {
                 // Segna che QUESTO rev è nostro: il suo echo via onSnapshot non va
                 // ri-applicato (ci farebbe arretrare — vedi lastPushedRev).
                 if (nextRev > lastPushedRev) lastPushedRev = nextRev;
+                const hadFailed = pushFailed;
+                pushFailed = false;
+                lastFailedState = null;
+                retryCount = 0;
+                if (hadFailed) reportDiag({ syncOkAt: Date.now(), syncRev: nextRev });
+                return 'ok';
             }).catch(err => {
                 if (err && err._guard) {
                     console.warn('pushState RIFIUTATO (' + err._guard + '): lo stato online (turno '
                         + err.remoteTurn + ', rev ' + err.remoteRev + ') è più avanti del nostro (turno '
                         + err.newTurn + ', rev base ' + err.baseRev + '). Scrittura annullata per non azzerare la partita.');
+                    // Rifiuto VOLUTO: non si ritenta (sovrascriverebbe chi è più avanti).
+                    pushFailed = false;
+                    lastFailedState = null;
+                    retryCount = 0;
+                    reportDiag({ syncErr: 'guardia ' + err._guard + ' (online rev ' + err.remoteRev
+                        + ', base ' + err.baseRev + ')', syncErrAt: Date.now() });
                     pushRejectListeners.forEach(cb => cb(err));
-                } else {
-                    console.error('Errore salvataggio stato condiviso:', err);
+                    return 'rejected';
+                }
+                // Errore di RETE / transazione / dati: la mossa NON è online. Si
+                // ritenta da soli finché non passa, e lo si dice al giocatore.
+                console.error('Errore salvataggio stato condiviso:', err);
+                pushFailed = true;
+                lastFailedState = stateObj;
+                const msg = String((err && (err.code || err.message)) || err).slice(0, 300);
+                // Quota giornaliera di Firestore finita: lo si dice chiaro (la
+                // plancia lo mostra), i ritentativi continuano da soli.
+                if (/resource-exhausted/i.test(msg)) console.error('Firestore: QUOTA GIORNALIERA ESAURITA — i salvataggi riprenderanno quando si azzera (9:00 ora italiana).');
+                reportDiag({ syncErr: msg, syncErrAt: Date.now() });
+                return { error: msg };
+            }).then(outcome => {
+                pushInFlight = false;
+                // In coda c'è uno stato più nuovo: parte adesso (sulla base aggiornata).
+                if (pushQueued) {
+                    const q = pushQueued;
+                    pushQueued = null;
+                    flushState(q.stateObj, q.force);
+                    return;
+                }
+                if (outcome === 'ok') setPushStatus(pushTimer ? 'pending' : 'ok');
+                else if (outcome === 'rejected') setPushStatus('rejected');
+                else {
+                    setPushStatus('error', outcome && outcome.error);
+                    // Se nel frattempo è arrivato un nuovo push col debounce, ci
+                    // pensa quello; se no si programma il ritentativo.
+                    if (!pushTimer) scheduleRetry();
                 }
             });
     }
@@ -615,6 +782,13 @@ const MultiplayerSync = (function () {
         sendChat: sendChat,
         clearChat: clearChat,
         pushState: pushState,
+        // Salvataggio affidabile: spedisci subito, stato del salvataggio,
+        // ritentativo dal vivo, codice per la diagnostica (vedi sopra pushState).
+        flushNow: flushNow,
+        hasUnsaved: hasUnsaved,
+        onPushStatus: onPushStatus,
+        setRetryHook: setRetryHook,
+        setDiagCode: setDiagCode,
         patchPlayer: patchPlayer,
         ensureInvite: ensureInvite,
         onPushReject: onPushReject,

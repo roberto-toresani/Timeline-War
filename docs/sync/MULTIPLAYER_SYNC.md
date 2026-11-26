@@ -88,3 +88,11 @@
 ## Modalità locale (`?local=1`, `forceLocal` in sync.js)
 - Usa sempre `?local=1` per le prove — il server locale punta su Firebase di PRODUZIONE.
 - Senza `?local=1`, una `newGame` scrive sul cloud vivo.
+
+## Salvataggio affidabile e quota Firestore (2026-11-26)
+- **Bug "turno chiuso di notte, la mattina non c'è"**: le 50.000 letture gratuite al giorno di Firestore finivano verso sera (log del motore: `resource-exhausted` dalle 20:52). `pushState` è una transazione (legge prima di scrivere) → falliva fino all'azzeramento delle 9:00 italiane; la presenza (set semplice) invece passava. Il giocatore vedeva il turno chiuso, online non c'era.
+- **Consumo principale**: la chat leggeva 300 messaggi a ogni apertura/ripresa della plancia → `CHAT_KEEP = 60`.
+- **sync.js**: un push alla volta (`pushInFlight`/`pushQueued`, niente più rifiuti di guardia contro il proprio push precedente); errori non di guardia ritentati da soli (2→30 s, e su `online`/ritorno in primo piano) ricostruendo lo stato dal vivo con `setRetryHook(saveAutoSave)`; `flushNow` su `visibilitychange`/`pagehide`; fine turno con `{ now: true }` (niente debounce).
+- **Spia sulla plancia** (`#sync-pill`, `onPushStatus`): "✓ Salvato online" / avviso rosso fisso se non salvato (messaggio apposito per la quota).
+- **Diagnostica**: un errore lascia `syncErr`/`syncErrAt`/`syncUa` sul doc `presence/{codice}` del giocatore (merge), `syncOkAt` alla ripresa.
+- `saveAutoSave`: l'autosave in localStorage è in try/catch, non può più bloccare il push online.
