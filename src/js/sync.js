@@ -343,7 +343,13 @@ const MultiplayerSync = (function () {
     // scrive il player dal proprio browser. `data` porta almeno {testo}; di norma
     // anche {regno, colore, id, to}. Senza Firebase (modalità locale) fa l'eco in
     // memoria, così la chat funziona anche offline per le prove.
-    function sendChat(data) {
+    // `docId` (facoltativo): l'identificativo FISSO del messaggio. Lo usano le
+    // battute dei bot, che più pagine possono generare insieme (ogni pagina con
+    // permessi admin si crede quella che muove l'IA: editor, plance aperte col 👁,
+    // telefono, motore in cloud). Con lo stesso id le scritture finiscono sullo
+    // stesso documento e in chat ne resta UNO — bug del 2026-11-26: un messaggio
+    // del Bizantino alla Bulgaria ebbe 12 risposte identiche.
+    function sendChat(data, docId) {
         if (!data || !data.testo) return;
         const msg = Object.assign({}, data, { ts: Date.now() });
         // Il TURNO in cui è stato scritto (regola dell'utente: nei messaggi conta il
@@ -353,12 +359,23 @@ const MultiplayerSync = (function () {
             catch (e) { /* senza turno: la plancia ripiega sulla data */ }
         }
         if (!isConfigured || !chatCol) {
-            lastChat = lastChat.concat(Object.assign({ id: 'local-' + msg.ts }, msg)).slice(-CHAT_KEEP);
+            const id = docId || ('local-' + msg.ts);
+            if (docId && lastChat.some(m => m.id === docId)) return;
+            lastChat = lastChat.concat(Object.assign({ id }, msg)).slice(-CHAT_KEEP);
             hasChat = true;
             chatListeners.forEach(cb => cb(lastChat));
             return;
         }
         msg.at = firebase.firestore.FieldValue.serverTimestamp();
+        if (docId) {
+            // Solo se non c'è ancora: la prima pagina scrive, le altre lasciano stare
+            // (e anche se due arrivassero insieme, scriverebbero lo stesso documento).
+            const ref = chatCol.doc(docId);
+            firebase.firestore().runTransaction(tx => tx.get(ref).then(snap => {
+                if (!snap.exists) tx.set(ref, msg);
+            })).catch(err => console.error('Errore invio chat:', err));
+            return;
+        }
         chatCol.add(msg).catch(err => console.error('Errore invio chat:', err));
     }
 

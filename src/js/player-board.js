@@ -6683,7 +6683,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // così la battuta esce una volta sola, dal browser che davvero comanda l'IA.
     // Invia una battuta per conto di un bot. Con `toName`/`toId` è PRIVATA (torna
     // sul filo del mittente); senza, è pubblica.
-    function botEmit(botPlayer, text, toName, toId) {
+    // `key` = l'identificativo FISSO della battuta: più pagine admin possono
+    // generarla insieme, e con lo stesso id ne arriva in chat una sola (sendChat).
+    function botEmit(botPlayer, text, toName, toId, key) {
         if (!botPlayer || !text) return false;
         if (typeof MultiplayerSync === 'undefined' || !MultiplayerSync.sendChat) return false;
         if (R.isAdmin && !R.isAdmin()) return false;
@@ -6692,7 +6694,7 @@ document.addEventListener('DOMContentLoaded', () => {
             aid: botPlayer.id, bot: true, turno: R.turn()
         };
         if (toName) { msg.to = toName; if (toId != null) msg.toId = toId; }
-        MultiplayerSync.sendChat(msg);
+        MultiplayerSync.sendChat(msg, key ? String(key).replace(/[^A-Za-z0-9_-]/g, '_') : undefined);
         return true;
     }
 
@@ -6705,7 +6707,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const key = botPlayer.id + '@' + R.turnoDi();
         if (botChatTurn === key) return false;    // ha già parlato questo turno
         botChatTurn = key;
-        return botEmit(botPlayer, text);
+        // Una battuta per bot e per turno anche fra pagine diverse: id fisso.
+        return botEmit(botPlayer, text, null, null, 'bot-say-' + botPlayer.id + '-t' + R.turn());
     }
 
     // PROATTIVA: all'inizio del turno di un bot, ogni tanto ne palesa il carattere.
@@ -6881,7 +6884,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const line = botReplyLine(target.doctrine, m);
         if (!line) return;
         // Un attimo di ritardo perché sembri una risposta, non un'eco.
-        setTimeout(() => botEmit(target.player, line), 700 + Math.random() * 1500);
+        setTimeout(() => botEmit(target.player, line, null, null, 'bot-re-' + m.id), 700 + Math.random() * 1500);
     }
 
     // PRIVATA: un umano scrive in privato a un regno-bot (il canale si sblocca come
@@ -6898,7 +6901,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lastBotReplyAt = now;
         const line = botReplyLine(d, m);
         if (!line) return;
-        setTimeout(() => botEmit(target, line, m.regno, m.aid), 700 + Math.random() * 1500);
+        setTimeout(() => botEmit(target, line, m.regno, m.aid, 'bot-re-' + m.id), 700 + Math.random() * 1500);
     }
 
     function renderDiplomacy(player) {
