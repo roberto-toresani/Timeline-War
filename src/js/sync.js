@@ -219,13 +219,16 @@ const MultiplayerSync = (function () {
         // Si leggono solo gli ultimi CHAT_KEEP messaggi (i più recenti): la chat di
         // una partita non deve crescere senza limite nel client. `desc` + limit dà
         // la coda, poi la si rovescia in ordine cronologico per mostrarla.
+        // I messaggi visti si ACCUMULANO in `chatAll` (per id): quando un messaggio
+        // nuovo spinge il più vecchio fuori dalla finestra degli ultimi CHAT_KEEP,
+        // chi lo stava leggendo non se lo vede sparire, e i messaggi caricati con
+        // "Mostra messaggi precedenti" (loadOlderChat) restano in elenco. Una
+        // finestra vuota = chat azzerata (partita nuova): si svuota tutto.
         chatCol.orderBy('ts', 'desc').limit(CHAT_KEEP).onSnapshot(snap => {
-            const arr = [];
-            snap.forEach(d => arr.push(Object.assign({ id: d.id }, d.data())));
-            arr.reverse();
-            lastChat = arr;
-            hasChat = true;
-            chatListeners.forEach(cb => cb(arr));
+            if (snap.empty) { chatAll.clear(); chatOlderDone = true; }
+            snap.forEach(d => chatAll.set(d.id, Object.assign({ id: d.id }, d.data())));
+            if (snap.size < CHAT_KEEP) chatOlderDone = true;
+            emitChat();
         }, err => {
             console.error('Errore lettura chat:', err);
         });
@@ -294,6 +297,41 @@ const MultiplayerSync = (function () {
             });
     }
 
+    // ---- chat: tutto quel che si è visto + lo storico caricato a richiesta ----
+    const chatAll = new Map();
+    let chatOlderDone = false;       // non c'è più niente di più vecchio da caricare
+    let chatOlderLoading = null;
+    function emitChat() {
+        lastChat = Array.from(chatAll.values()).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        hasChat = true;
+        chatListeners.forEach(cb => cb(lastChat));
+    }
+    // STORICO A RICHIESTA (regola dell'utente, 2026-11-26): la chat si apre con
+    // gli ultimi CHAT_KEEP messaggi per risparmiare letture (vedi CHAT_KEEP); i
+    // più vecchi si caricano a blocchi solo quando qualcuno li chiede. Lettura una
+    // tantum (get), non un ascolto: non rilegge nulla alle aperture successive.
+    // Promise<{ added, more }>.
+    function loadOlderChat() {
+        if (!isConfigured || !chatCol || chatOlderDone) return Promise.resolve({ added: 0, more: false });
+        if (chatOlderLoading) return chatOlderLoading;
+        let oldest = Infinity;
+        chatAll.forEach(m => { if (typeof m.ts === 'number' && m.ts < oldest) oldest = m.ts; });
+        let q = chatCol.orderBy('ts', 'desc');
+        if (oldest !== Infinity) q = q.startAfter(oldest);
+        chatOlderLoading = q.limit(CHAT_KEEP).get().then(snap => {
+            let added = 0;
+            snap.forEach(d => { if (!chatAll.has(d.id)) { chatAll.set(d.id, Object.assign({ id: d.id }, d.data())); added++; } });
+            if (snap.size < CHAT_KEEP) chatOlderDone = true;
+            emitChat();
+            return { added, more: !chatOlderDone };
+        }).catch(err => {
+            console.error('Errore lettura messaggi precedenti:', err);
+            return { added: 0, more: !chatOlderDone, error: String((err && (err.code || err.message)) || err) };
+        }).then(r => { chatOlderLoading = null; return r; });
+        return chatOlderLoading;
+    }
+    function chatHasOlder() { return isConfigured && !!chatCol && !chatOlderDone; }
+
     function onChatChange(cb) {
         chatListeners.push(cb);
         // Come lo stato e la presenza: chi si iscrive dopo la prima consegna deve
@@ -308,6 +346,12 @@ const MultiplayerSync = (function () {
     function sendChat(data) {
         if (!data || !data.testo) return;
         const msg = Object.assign({}, data, { ts: Date.now() });
+        // Il TURNO in cui è stato scritto (regola dell'utente: nei messaggi conta il
+        // turno, non l'ora). Vale per tutti i mittenti: plancia, bot, Papa.
+        if (msg.turno == null) {
+            try { const t = window.Risiko && window.Risiko.turn && window.Risiko.turn(); if (typeof t === 'number') msg.turno = t; }
+            catch (e) { /* senza turno: la plancia ripiega sulla data */ }
+        }
         if (!isConfigured || !chatCol) {
             lastChat = lastChat.concat(Object.assign({ id: 'local-' + msg.ts }, msg)).slice(-CHAT_KEEP);
             hasChat = true;
@@ -779,6 +823,8 @@ const MultiplayerSync = (function () {
         onPresenceChange: onPresenceChange,
         setPresence: setPresence,
         onChatChange: onChatChange,
+        loadOlderChat: loadOlderChat,
+        chatHasOlder: chatHasOlder,
         sendChat: sendChat,
         clearChat: clearChat,
         pushState: pushState,

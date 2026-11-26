@@ -96,7 +96,12 @@
         }
     }
 
-    function time(ts) {
+    // Quando: il TURNO del messaggio (regola dell'utente); i messaggi scritti
+    // prima del 2026-11-26 non lo hanno e mostrano giorno e ora.
+    function time(m) {
+        if (!m) return '';
+        if (typeof m.turno === 'number') return 'turno ' + m.turno;
+        const ts = m.ts;
         if (!ts) return '';
         const d = new Date(ts);
         const p = n => String(n).padStart(2, '0');
@@ -276,7 +281,7 @@
         let html = '<button type="button" class="pw-card enc' + (target === ENC ? ' on' : '') + '" data-name="">' +
             '<div class="pw-crow"><span class="pw-dot" style="background:' + COLORE + '"></span>' +
             '<span class="pw-cname">🌍 Encicliche</span>' +
-            '<span class="pw-when">' + (encLast ? time(encLast.ts) : '') + '</span></div>' +
+            '<span class="pw-when">' + (encLast ? time(encLast) : '') + '</span></div>' +
             '<div class="pw-cmeta">A tutti i regni, sul canale pubblico · ' + enc.length + ' inviate</div></button>';
 
         cs.forEach(c => {
@@ -286,7 +291,7 @@
                 '<div class="pw-crow"><span class="pw-dot" style="background:' + esc(c.color || '#888') + '"></span>' +
                 '<span class="pw-cname">' + esc(c.name) + '</span>' +
                 (r && r.unread ? '<span class="pw-badge">' + r.unread + '</span>' : '') +
-                '<span class="pw-when">' + (last ? esc(time(last.ts)) : '') + '</span></div>';
+                '<span class="pw-when">' + (last ? esc(time(last)) : '') + '</span></div>';
             if (r) {
                 html += '<div class="pw-tags">' +
                     '<span class="pw-tag st-' + r.st.cls + '">' + esc(r.st.label) + '</span>' +
@@ -350,7 +355,7 @@
             const mine = m.regno === PAPA;
             return '<div class="pw-msg' + (mine ? ' mine' : '') + '">' +
                 '<div class="pw-mmeta"><span class="pw-dot" style="background:' + esc(m.colore || '#888') + '"></span>' +
-                '<b>' + esc(mine ? '✝ ' + PAPA : (m.regno || '—')) + '</b> ' + esc(time(m.ts)) + '</div>' +
+                '<b>' + esc(mine ? '✝ ' + PAPA : (m.regno || '—')) + '</b> ' + esc(time(m)) + '</div>' +
                 '<div class="pw-bubble">' + esc(m.testo) + '</div></div>';
         }).join('');
         el.log.scrollTop = el.log.scrollHeight;

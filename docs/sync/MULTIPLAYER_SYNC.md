@@ -41,7 +41,9 @@
 
 ## Chat (`chat/{id}`)
 - Regola Firestore: `match /chat/{id}` aperta a tutti.
-- Ultimi `CHAT_KEEP = 300` messaggi (`orderBy('ts','desc').limit(300)` poi rovesciati).
+- Ascolto sugli ultimi `CHAT_KEEP = 60` messaggi (era 300: consumava la quota di letture). I messaggi visti si accumulano in `chatAll` (per id), così non spariscono quando escono dalla finestra.
+- **Storico a richiesta**: bottone "↑ Mostra messaggi precedenti" in cima alla chat della plancia → `MultiplayerSync.loadOlderChat()` (get una tantum, `startAfter` il più vecchio, blocchi da 60); `chatHasOlder()` dice se ce ne sono altri.
+- **Turno sul messaggio**: `sendChat` timbra `turno` (`Risiko.turn()`); plancia e console del Papa mostrano "turno N · anno" invece dell'ora. I messaggi anteriori al 2026-11-26 non hanno `turno`: si mostra il giorno.
 - Si azzera a partita nuova: `GameActions.startGame` → `MultiplayerSync.clearChat()`.
 - Messaggio privato: `{to, toId}` — filtro lato client, non crittografico.
 - **Bot in chat**: `maybeBotReply` (pubblico) / `maybeBotReplyPrivate` (privato). Gate `R.isAdmin()`. Una replica ogni ~4s (`lastBotReplyAt`). Mai rispondere a un altro bot.

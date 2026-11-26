@@ -4112,3 +4112,18 @@ body.mobile-lite #ui-foundation .uf-sheet { max-height: 72dvh; overflow-y: auto;
 #sync-pill.sync-saving { display: block; background: rgba(40, 34, 26, .88); color: #e9dfc8; }
 #sync-pill.sync-ok { display: block; background: #2f5d34; color: #f1f7ee; }
 #sync-pill.sync-error { display: block; background: #8a1f17; color: #fff; font-weight: 600; cursor: pointer; border-radius: 12px; }
+
+/* Chat: storico a richiesta (player-board.js, loadOlderChatMessages). */
+.chat-older {
+    display: block;
+    margin: 2px auto 8px;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: .8rem;
+    color: var(--parchment-muted);
+    background: transparent;
+    border: 1px dashed currentColor;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.chat-older:disabled { opacity: .6; cursor: default; }

@@ -6390,11 +6390,41 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = key.slice(5);
         return R.players().find(p => p.name === name) || null;
     }
-    function chatTime(ts) {
-        if (!ts) return '';
-        const d = new Date(ts);
+    // Quando è stato scritto un messaggio: il TURNO, non l'ora (regola
+    // dell'utente). I messaggi scritti prima del 2026-11-26 non hanno il turno
+    // salvato: per quelli si mostra il giorno.
+    let chatOlderBusy = false;
+    let chatOlderErr = false;     // l'ultimo carico è fallito: il bottone lo dice
+    let chatKeepScroll = null;    // distanza dal fondo da ripristinare dopo il carico
+    function loadOlderChatMessages() {
+        if (chatOlderBusy || typeof MultiplayerSync === 'undefined' || !MultiplayerSync.loadOlderChat) return;
+        const log = $('chat-log');
+        chatOlderBusy = true;
+        const me = currentPlayer();
+        if (me) renderChat(me);
+        MultiplayerSync.loadOlderChat().then(r => {
+            chatOlderBusy = false;
+            chatOlderErr = !!(r && r.error);
+            if (log) chatKeepScroll = log.scrollHeight - log.scrollTop;
+            const cur = currentPlayer();
+            if (cur) renderChat(cur);
+        });
+    }
+    if ($('chat-log')) {
+        $('chat-log').addEventListener('click', (e) => {
+            if (e.target.closest && e.target.closest('.chat-older')) loadOlderChatMessages();
+        });
+    }
+
+    function chatTime(m) {
+        if (m && typeof m.turno === 'number') {
+            const anno = (window.Chronicle && Chronicle.yearOfTurn) ? Chronicle.yearOfTurn(m.turno) : null;
+            return 'turno ' + m.turno + (anno ? ' · ' + anno : '');
+        }
+        if (!m || !m.ts) return '';
+        const d = new Date(m.ts);
         const p = n => String(n).padStart(2, '0');
-        return p(d.getHours()) + ':' + p(d.getMinutes());
+        return p(d.getDate()) + '/' + p(d.getMonth() + 1);
     }
 
     // I canali: Tutti + un filo privato per ogni regno VISIBILE governato da una
@@ -6509,15 +6539,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const log = $('chat-log');
         if (log) {
             const msgs = chatMessages.filter(m => chatVisibleTo(m, me) && chatChannelOf(m, me) === chatChannel);
+            // STORICO A RICHIESTA: si aprono gli ultimi messaggi; i precedenti
+            // si caricano col bottone in cima (sync.js, loadOlderChat). Si resta
+            // sulla posizione di lettura invece di saltare in fondo.
+            const hasOlder = typeof MultiplayerSync !== 'undefined' && MultiplayerSync.chatHasOlder
+                && MultiplayerSync.chatHasOlder();
+            const olderBtn = hasOlder
+                ? '<button type="button" class="chat-older"' + (chatOlderBusy ? ' disabled' : '') + '>'
+                    + (chatOlderBusy ? 'Carico…' : chatOlderErr ? '⚠ Non caricati — tocca per riprovare' : '↑ Mostra messaggi precedenti') + '</button>'
+                : '';
+            const keepPos = chatKeepScroll;
+            chatKeepScroll = null;
             if (!msgs.length) {
-                log.innerHTML = '<div class="chat-empty">' +
+                log.innerHTML = olderBtn + '<div class="chat-empty">' +
                     (chatChannel === 'all'
                         ? 'Ancora nessun messaggio. Rompi il ghiaccio: gli altri regni ti leggono.'
                         : chatChannel === PAPA_CHAN
                             ? 'Il Santo Padre non ti ha ancora scritto. Puoi rivolgergli tu una supplica: la leggerà in privato.'
                             : 'Nessun messaggio privato con questo regno.') + '</div>';
             } else {
-                log.innerHTML = msgs.map(m => {
+                log.innerHTML = olderBtn + msgs.map(m => {
                     const cls = 'chat-msg' + (m.regno === me.name ? ' mine' : '') + (m.bot ? ' bot' : '') +
                         (m.regno === PAPA ? ' papa' : '');
                     const priv = m.to ? '<span class="chat-priv">🔒</span>' : '';
@@ -6525,7 +6566,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         '<div class="chat-meta">' +
                         '<span class="chat-dot" style="background:' + (m.colore || '#888') + '"></span>' +
                         '<span class="chat-who"></span>' + priv +
-                        '<span class="chat-when">' + chatTime(m.ts) + '</span>' +
+                        '<span class="chat-when">' + chatTime(m) + '</span>' +
                         '</div><div class="chat-bubble"></div></div>';
                 }).join('');
                 // testo e nomi via textContent: arrivano dai dati, non si concatenano.
@@ -6535,7 +6576,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (whos[i]) whos[i].textContent = m.regno || '—';
                     if (bubs[i]) bubs[i].textContent = m.testo || '';
                 });
-                log.scrollTop = log.scrollHeight;
+                // Dopo aver caricato i precedenti si resta dove si stava leggendo
+                // (distanza dal fondo invariata); altrimenti in fondo, all'ultimo.
+                log.scrollTop = (keepPos != null) ? Math.max(0, log.scrollHeight - keepPos) : log.scrollHeight;
             }
         }
 
