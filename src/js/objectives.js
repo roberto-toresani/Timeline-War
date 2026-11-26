@@ -2569,8 +2569,12 @@
     }
     // La classifica: punti accumulati (player.puntiPrestigio), a pari punti per
     // nome; a pari punti stesso posto (1, 1, 3…).
+    // Fuori classifica (regola dell'utente, 2026-11-26): i regni d'Asia nati
+    // per evento non gareggiano per il prestigio coi regni d'Europa.
+    const TABELLONE_ESCLUSI = new Set(['Mongoli', 'Sultanato di Delhi', 'Impero Giapponese']);
     function leaderboard(players) {
-        const rows = (players || []).map(p => ({ player: p, punti: p.puntiPrestigio || 0 }))
+        const rows = (players || []).filter(p => !TABELLONE_ESCLUSI.has(p.name))
+            .map(p => ({ player: p, punti: p.puntiPrestigio || 0 }))
             .sort((a, b) => b.punti - a.punti || String(a.player.name).localeCompare(String(b.player.name)));
         rows.forEach((r, i) => { r.posto = (i && rows[i - 1].punti === r.punti) ? rows[i - 1].posto : i + 1; });
         return rows;
