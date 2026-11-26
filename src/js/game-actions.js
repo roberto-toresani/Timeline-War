@@ -2431,6 +2431,45 @@
         });
     }
 
+    // I COSTI DELLA CORONA, per la colonna del turno: le prossime manutenzioni di
+    // un regno qualsiasi (umano o IA), una per voce, in ordine di turno:
+    //   truppe     — Grano dei fanti e Bestiame dei cavalieri, ogni 7 turni;
+    //   strutture  — Capitale, Città, Fortezze, Mercati, navi e strade, ogni 3
+    //                turni, solo da magazzino livello 2;
+    //   migliorie  — le migliorie civiche della Capitale (§6.1), ogni 5 turni,
+    //                1 unità ciascuna, con la stessa esenzione del primo ciclo.
+    // Calcolo sullo stato di adesso: non tocca nulla. `scorte` è quel che c'è
+    // in magazzino ora, per dire subito se un conto resterebbe scoperto.
+    function upkeepForecast(player) {
+        const T = Math.max(1, R().turn() | 0);
+        const pv = upkeepPreview(player);
+        const conti = [{
+            voce: 'truppe', turno: pv.turnoTruppe, risorse: pv.risorseTruppe,
+            fanti: pv.inv.fanti, cavalieri: pv.inv.cavalieri
+        }];
+        if (pv.strutture) {
+            conti.push({ voce: 'strutture', turno: pv.turno, risorse: pv.risorseStrutture,
+                strutture: Object.assign({}, pv.inv.strutture), strade: pv.inv.strade });
+        }
+        const cap = R().getCapitalPathFor(player);
+        const entries = cap ? E().welfare(cap) : [];
+        if (entries.length) {
+            let first = T % 5 === 0 ? T : T + (5 - T % 5);
+            if (first === T && player.welfareMaintTurn === T) first += 5;
+            // Il primo prelievo in cui la miglioria ha già compiuto il ciclo pieno.
+            const dueAt = e => { let M = first; while ((e.turn || 0) > M - 5) M += 5; return M; };
+            const turno = Math.min.apply(null, entries.map(dueAt));
+            const dovute = entries.filter(e => dueAt(e) === turno);
+            const risorse = GR().emptyScorte();
+            dovute.forEach(e => { risorse[GR().welfareInfo(e.key).res] += 1; });
+            conti.push({ voce: 'migliorie', turno, risorse,
+                migliorie: dovute.map(e => ({ key: e.key, dormiente: !!e.dormant })) });
+        }
+        conti.sort((a, b) => a.turno - b.turno);
+        return { turno: T, conti, scorte: Object.assign(GR().emptyScorte(), player.scorte || {}),
+            debito: pv.debito, dormienti: pv.dormienti };
+    }
+
     // DISERZIONE (§Manutenzione, truppe): un uomo se ne va da dove ce ne sono
     // di più, mai sotto il presidio minimo. Fra i fanti partono prima i
     // mercenari: sono i meno legati alla corona.
@@ -3179,8 +3218,9 @@
 
     // ---------- COMMERCI (§7) ----------
     // Il Mercato è l'infrastruttura del commercio: senza, un regno non tratta con
-    // nessuno. Da lì partono due canali diversi, tutti e due dentro la fase
-    // "costruisci":
+    // nessuno. Da lì partono due canali diversi, tutti e due usabili in TUTTO il
+    // proprio turno, in qualunque fase, come la diplomazia (regola dell'utente,
+    // 2026-11-26):
     //   - L'ESTERO (la banca): 2 unità di una risorsa tua → 1 di un altro tipo,
     //     subito. Non c'è nessuno dall'altra parte, quindi non c'è niente da
     //     aspettare.
@@ -3263,7 +3303,7 @@
 
     // Scambio con la banca: 2:1, immediato (GameRules.canBankTrade fa le regole).
     function tradeWithBank(player, dai, prendi, n) {
-        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
         const mercato = marketPath(player);
         if (!mercato) return fail(noMarketMsg(player, 'Senza un Mercato non si commercia con l\'estero: costruiscine uno.'));
 
@@ -3308,7 +3348,7 @@
 
     // Manda una proposta a un altro regno. La merce offerta esce subito (pegno).
     function proposeTrade(player, toId, offro, chiedo) {
-        const turnErr = requirePhase(player, 'costruisci'); if (turnErr) return turnErr;
+        const turnErr = requireTurn(player); if (turnErr) return turnErr;
         const mercato = marketPath(player);
         if (!mercato) return fail(noMarketMsg(player, 'Serve un Mercato per far partire una carovana: costruiscine uno.'));
 
@@ -6613,7 +6653,7 @@
         build, buildWelfare, maintainWelfare, buildRoad, moveCapital, resolveCapital, recruit, attack, attackTargets,
         destroyMarket, destroyShip,
         // MAGAZZINO E MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md)
-        upgradeWarehouse, payUpkeep, upkeepPreview, warehouseCapOf, applyWarehouseCap,
+        upgradeWarehouse, payUpkeep, upkeepPreview, upkeepForecast, warehouseCapOf, applyWarehouseCap,
         maintainKingdom, dormantList, isDormant, hullsOf,
         launchExpedition, expeditionTargets, expeditionLand, steerExpedition, advanceExpeditions,
         EXPED_DIRS, EXPED_DIR_LABEL,

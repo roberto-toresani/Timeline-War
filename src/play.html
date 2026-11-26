@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/tokens.css?v=90">
     <link rel="stylesheet" href="css/style.css?v=103">
-    <link rel="stylesheet" href="css/board.css?v=150">
+    <link rel="stylesheet" href="css/board.css?v=151">
 </head>
 
 <!-- data-mode="player" dice ad app.js di comportarsi da plancia: niente reset del
@@ -316,7 +316,21 @@
                         </div>
                     </details>
 
-                    <!-- ---------- FASE 2d · MAGAZZINO E MANUTENZIONE ----------
+                    <!-- ---------- FASE 2d · COSTI DELLA CORONA ----------
+                         Le prossime manutenzioni del regno (truppe, strutture,
+                         migliorie): quando cadono e quanto chiedono, in rosso
+                         quel che le scorte di adesso non coprono. Sta nel CORPO
+                         della fase costruzioni, non nel cruscotto: il cruscotto
+                         non deve crescere (schiaccerebbe le fasi, vedi #board-right
+                         in board.css). Nasce aperta. Contenuto da renderUpkeepForecast(). -->
+                    <details class="bp-fold" id="fase-conti" open style="display:none;">
+                        <summary>Costi della corona <span class="bp-fold-hint" id="bp-upkeep-hint">le prossime manutenzioni</span></summary>
+                        <div class="bp-fold-body">
+                            <div id="bp-upkeep"></div>
+                        </div>
+                    </details>
+
+                    <!-- ---------- FASE 2e · MAGAZZINO E MANUTENZIONE ----------
                          docs/regole/RISORSE_ECONOMIA.md. Tetto delle scorte,
                          ampliamento, conto della prossima manutenzione, strutture
                          dormienti e «Salda». Si apre da solo quando c'è un
@@ -632,7 +646,7 @@
     <script src="js/audio.js?v=90"></script>
     <script src="js/politics.js?v=2"></script>
     <script src="js/kingdom-stats.js?v=91"></script>
-    <script src="js/game-rules.js?v=136"></script>
+    <script src="js/game-rules.js?v=137"></script>
     <!-- PRIMA di app.js: vedi la nota in index.html. -->
     <script src="js/popularity.js?v=90"></script>
     <script src="js/map-anchors.js?v=90"></script>
@@ -646,9 +660,9 @@
     <script src="js/objectives.js?v=106"></script>
     <script src="js/flags.js?v=3"></script>
     <script src="js/app.js?v=146"></script>
-    <script src="js/game-actions.js?v=143"></script>
+    <script src="js/game-actions.js?v=144"></script>
     <script src="js/bot.js?v=138"></script>
-    <script src="js/player-board.js?v=160"></script>
+    <script src="js/player-board.js?v=161"></script>
     <!-- ✝ Il Papa: la finestra dell'admin, solo senza codice d'invito (js/pope-chat.js). -->
     <script src="js/pope-chat.js?v=4"></script>
 </body>

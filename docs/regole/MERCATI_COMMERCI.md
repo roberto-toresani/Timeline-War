@@ -5,6 +5,12 @@
 - **Incompatibilità**: Mercato e Fortezza non possono coesistere nella stessa provincia.
 - Demolizione Mercato: rimane con 2 uomini + 100 monete rimborso.
 
+## Quando si commercia [REGOLA, utente 2026-11-26]
+- Banca e proposte ai regni si usano in **tutto il proprio turno, in qualunque fase** (schiera, costruisci,
+  attacca, sposta), come la diplomazia e la chat: `tradeWithBank`/`proposeTrade` chiedono solo `requireTurn`,
+  e in plancia `renderTrade` accende i comandi con `isPlaying`. Accettare o rifiutare una carovana resta
+  libero da turno e fase.
+
 ## Banca 2:1 (`bankPlan`)
 - Scambia 2 unità di una risorsa con 1 di qualsiasi altra.
 - Canale sicuro: sempre disponibile con Mercato.

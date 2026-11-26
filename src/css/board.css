@@ -3993,6 +3993,30 @@ body.mobile-lite #ui-foundation .uf-sheet { max-height: 72dvh; overflow-y: auto;
 .bps-wh-up .bp-act { width: 100%; }
 .bps-wh-max { margin-top: 6px; font-size: .85rem; color: var(--parchment-muted); }
 
+/* Costi della corona: le prossime manutenzioni del regno, una riga per voce. */
+.bpu-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 5px;
+    font-size: .85rem;
+    line-height: 1.25;
+}
+.bpu-ico { flex: 0 0 auto; width: 1.2em; text-align: center; }
+.bpu-what { flex: 1 1 auto; min-width: 0; color: var(--parchment-dim); }
+.bpu-what i { display: block; color: var(--parchment-muted); font-style: normal; font-size: .78rem; }
+.bpu-cost {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-variant-numeric: tabular-nums;
+    color: var(--parchment-muted);
+}
+.bpu-res { white-space: nowrap; }
+.bpu-res.short { color: #e07a5f; font-weight: 600; }
+.bpu-none { opacity: .7; }
+
 .bp-wh-line {
     display: flex;
     align-items: baseline;

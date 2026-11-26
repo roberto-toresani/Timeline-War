@@ -1564,11 +1564,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Blocchi che esistono solo in una cartella.
         // I COMMERCI non sono più qui: vivono nel foglio ⚖ Mercato, che si
         // consulta in qualunque momento. Non si nascondono fuori fase — si
-        // spengono da soli, perché renderTrade misura `inPhase(costruisci)` e
-        // disabilita i comandi quando non è il momento.
+        // spengono da soli, perché renderTrade misura `isPlaying` (tutto il
+        // proprio turno, in qualunque fase) e disabilita i comandi fuori turno.
         $('fase-schiera').style.display = view === 'schiera' ? '' : 'none';
         $('fase-spie').style.display = view === 'costruisci' ? '' : 'none';
         if ($('fase-magazzino')) $('fase-magazzino').style.display = view === 'costruisci' ? '' : 'none';
+        if ($('fase-conti')) $('fase-conti').style.display = view === 'costruisci' ? '' : 'none';
         $('fase-sposta').style.display = view === 'sposta' ? '' : 'none';
 
         const next = $('bp-next-phase');
@@ -2197,6 +2198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
         renderStoreNote(player, cap);
         renderTreasuryUpgrade(player);
+        renderUpkeepForecast(player);
 
         const mod = pop ? GR().popEffectOf(pop.totale).risorse : 0;
         const modEl = $('bp-pop-mod');
@@ -2241,6 +2243,67 @@ document.addEventListener('DOMContentLoaded', () => {
         if (st.pietraStrade > 0) parts.push('strade dissestate (' + st.pietraStrade + ' Pietra)');
         el.style.display = parts.length ? '' : 'none';
         el.innerHTML = parts.length ? '🏚 ' + parts.join(' · ') : '';
+    }
+
+    // COSTI DELLA CORONA (richiesta dei giocatori): nella fase Costruisci, cartella
+    // #fase-conti, le prossime manutenzioni del regno — quando cadono e quanto
+    // chiedono. Un gettone è in rosso se le scorte di ADESSO non bastano.
+    // Non nel cruscotto: farlo crescere schiaccia le fasi (vedi #board-right).
+    const UPKEEP_VOCE = {
+        truppe:    { ico: '⚔', label: 'Truppe' },
+        strutture: { ico: '🏰', label: 'Strutture' },
+        migliorie: { ico: '🎭', label: 'Migliorie' }
+    };
+    function renderUpkeepForecast(player) {
+        const box = $('bp-upkeep');
+        if (!box) return;
+        const ga = GA();
+        if (!ga || !ga.upkeepForecast || !R.turn || !R.turn()) { box.innerHTML = ''; return; }
+        const fc = ga.upkeepForecast(player);
+        const T = fc.turno;
+        const resName = k => (GR().RES_LABEL && GR().RES_LABEL[k]) || k;
+        const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        // Conti dello stesso turno pescano dalle stesse scorte: si scalano in fila.
+        const resta = Object.assign({}, fc.scorte);
+        const righe = fc.conti.map(c => {
+            const v = UPKEEP_VOCE[c.voce];
+            const fra = c.turno - T;
+            const quando = fra <= 0 ? 'questo turno' : 'turno ' + c.turno + ' · ' + (fra === 1 ? 'il prossimo' : 'fra ' + fra + ' turni');
+            const voci = GR().RES.filter(k => c.risorse[k] > 0);
+            let scoperto = false;
+            const gettoni = voci.map(k => {
+                const n = c.risorse[k];
+                const manca = n > (resta[k] || 0);
+                resta[k] = Math.max(0, (resta[k] || 0) - n);
+                if (manca) scoperto = true;
+                return '<span class="bpu-res' + (manca ? ' short' : '') + '">' + n + ' ' + esc(resName(k)) + '</span>';
+            }).join('');
+            let title = v.label + ', ' + quando + '.';
+            if (c.voce === 'truppe') {
+                title += ' ' + c.fanti + ' fanti (1 Grano ogni ' + GR().UPKEEP_MEN_PER + '), ' +
+                    c.cavalieri + ' cavalieri (1 Bestiame ogni ' + GR().UPKEEP_KNIGHTS_PER + '). ' +
+                    'Se non paghi diserta un uomo a turno, i mercenari per primi.';
+            } else if (c.voce === 'strutture') {
+                title += ' Capitale e Fortezze 1 Pietra, Città 1 Argilla, Mercati e navi 1 Legno, 1 Pietra ogni ' +
+                    GR().UPKEEP_ROADS_PER + ' strade (' + c.strade + '). Chi non paga va dormiente 💤.';
+            } else if (c.voce === 'migliorie') {
+                title += ' ' + c.migliorie.map(m => GR().welfareLabel(m.key) + (m.dormiente ? ' (dormiente: crolla se non paga)' : '')).join(', ') +
+                    '. 1 unità ciascuna.';
+            }
+            if (scoperto) title += ' Con le scorte di adesso non basta.';
+            return '<div class="bpu-line' + (scoperto ? ' short' : '') + '" title="' + esc(title) + '">' +
+                '<span class="bpu-ico">' + v.ico + '</span>' +
+                '<span class="bpu-what">' + v.label + ' <i>' + quando + '</i></span>' +
+                '<span class="bpu-cost">' + (gettoni || '<span class="bpu-none">niente</span>') + '</span></div>';
+        });
+        box.innerHTML = righe.join('');
+        const hint = $('bp-upkeep-hint');
+        if (hint) {
+            const primo = fc.conti[0];
+            const scoperti = box.querySelectorAll('.bpu-line.short').length;
+            hint.textContent = (primo ? 'il primo: ' + (primo.turno === T ? 'questo turno' : 'turno ' + primo.turno) : '') +
+                (scoperti ? ' · ' + scoperti + ' scopert' + (scoperti === 1 ? 'o' : 'i') : '');
+        }
     }
 
     // Il pulsante «Amplia magazzino» SOTTO le scorte del cruscotto (regola
@@ -4128,7 +4191,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------- commerci (§7) ----------
-    // Tre cose in una sezione, tutte dentro la fase costruzioni: lo scambio con
+    // Tre cose in una sezione, usabili in tutto il proprio turno: lo scambio con
     // l'estero (banca 2:1), l'invio di proposte agli altri regni e le carovane
     // arrivate. Le regole e le mutazioni stanno in game-rules/game-actions: qui
     // si disegna e si raccolgono i clic.
@@ -4478,7 +4541,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tradeUI.chiedoT) tradeUI.chiedoT = tradeUI.prendi;
 
         box.innerHTML = '';
-        const myTurn = inPhase(player, 'costruisci');
+        // Il Mercato si usa in TUTTO il proprio turno, in qualunque fase, come la
+        // diplomazia e la chat (regola dell'utente, 2026-11-26).
+        const myTurn = isPlaying(player);
 
         box.appendChild(bankTradeCard(player, myTurn));
         box.appendChild(proposeCard(player, myTurn));
@@ -4822,7 +4887,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ' (ne hai ' + (player.scorte[tradeUI.dai] || 0) + ')';
         card.appendChild(note);
 
-        const why = myTurn ? (check.ok ? null : check.msg) : 'Solo nel tuo turno, in fase costruzioni.';
+        const why = myTurn ? (check.ok ? null : check.msg) : 'Solo nel tuo turno.';
         card.appendChild(actionButton('Scambia', null, why ? shorten(why) : null,
             () => {
                 const res = GA().tradeWithBank(player, tradeUI.dai, tradeUI.prendi, tradeUI.n);
@@ -4893,7 +4958,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const offChk = GR().checkGoods({ tipo: tradeUI.offroT, n: tradeUI.offroN });
         const chiChk = GR().checkGoods({ tipo: tradeUI.chiedoT, n: tradeUI.chiedoN });
         let why = null;
-        if (!myTurn) why = 'Solo nel tuo turno, in fase costruzioni.';
+        if (!myTurn) why = 'Solo nel tuo turno.';
         else if (aperte >= GR().TRADE_MAX_PENDING) why = 'Hai già ' + aperte + ' proposte aperte.';
         else if (!offChk.ok) why = offChk.msg;
         else if (!chiChk.ok) why = chiChk.msg;

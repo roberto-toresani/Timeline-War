@@ -31,6 +31,13 @@
 
 ## Colonna del turno (destra)
 - In alto: cruscotto `#bp-status` (una riga sola: oro, province+rinforzi, fede, scorte). Non scorre mai.
+  - **Il cruscotto non deve crescere**: ogni riga in più schiaccia le fasi sotto (il bug "non scorre più
+    in basso", sistemato rendendo `#board-right` scorribile per intero). Le cose nuove vanno nel corpo
+    della fase pertinente, non qui.
+- **Costi della corona** (fase Costruisci, cartella aperta `#fase-conti` → `#bp-upkeep`, `renderUpkeepForecast`):
+  una riga per voce (truppe ogni 7, strutture ogni 3 da magazzino lvl 2, migliorie §6.1 ogni 5), col turno e
+  le risorse chieste; gettone in rosso se le scorte di adesso non bastano (conti in fila scalati dalle stesse
+  scorte). Dati da `GameActions.upkeepForecast(player)`, valido per ogni regno (umano o IA).
 - Poi: 4 cartelle delle fasi `#bp-phases` con una riga di spiegazione.
 - Poi: `#bp-body` (solo la cartella aperta).
 - In fondo: bottone di avanzamento (fisso).
@@ -52,7 +59,7 @@
 ## Fogli
 - **👑 Corona**: Popolarità + obiettivi (sinistra, `#board-left` / `.bp-crown`), regno in numeri + regni in gioco + registro IA (destra).
 - **🕊 Diplomazia**: standing per scheda-regno + pannello araldi a destra.
-- **⚖ Mercato**: commerci + banca.
+- **⚖ Mercato**: commerci + banca. Comandi accesi in tutto il proprio turno, in qualunque fase (come 🕊).
 
 ## Confini sulla mappa
 - `Risiko.markBorders` su layer `#border-marks` (separato da `#order-marks`).
