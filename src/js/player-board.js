@@ -2307,15 +2307,17 @@ document.addEventListener('DOMContentLoaded', () => {
             ' (50 monete ogni ' + GR().OVERFLOW_LOT + ')',
             (ov.monete ? '+' + ov.monete + ' monete' : '') + (ov.perse ? (ov.monete ? ', ' : '') + ov.perse + ' perse' : ''), true);
 
-        const quando = pv.turno === R.turn() ? 'questo turno' : 'turno ' + pv.turno;
-        line('🧾', 'Prossima manutenzione (' + quando + ')', billTxt(pv.risorse));
-        if (!pv.strutture) {
+        const quando = t => t === R.turn() ? 'questo turno' : 'turno ' + t;
+        line('🧾', 'Truppe, ogni ' + GR().TROOP_UPKEEP_EVERY + ' turni (' + quando(pv.turnoTruppe) + ')', billTxt(pv.risorseTruppe));
+        if (pv.strutture) {
+            line('🧾', 'Strutture, ogni ' + GR().UPKEEP_EVERY + ' turni (' + quando(pv.turno) + ')', billTxt(pv.risorseStrutture));
+        } else {
             const note = document.createElement('div');
             note.className = 'bp-wh-note';
-            note.textContent = 'Al livello 1 pagano solo le truppe (1 Grano ogni ' + GR().UPKEEP_MEN_PER +
-                ' fanti, 1 Bestiame ogni ' + GR().UPKEEP_KNIGHTS_PER + ' cavalieri). Ampliando il magazzino ' +
-                'anche le strutture pagano: Capitale e Fortezze 1 Pietra, Città 1 Argilla, Mercati e navi 1 Legno, ' +
-                '1 Pietra ogni ' + GR().UPKEEP_ROADS_PER + ' strade.';
+            note.textContent = 'Al livello 1 pagano solo le truppe, ogni ' + GR().TROOP_UPKEEP_EVERY + ' turni (1 Grano ogni ' +
+                GR().UPKEEP_MEN_PER + ' fanti, 1 Bestiame ogni ' + GR().UPKEEP_KNIGHTS_PER + ' cavalieri). Ampliando il magazzino ' +
+                'anche le strutture pagano, ogni ' + GR().UPKEEP_EVERY + ' turni: Capitale e Fortezze 1 Pietra, Città 1 Argilla, ' +
+                'Mercati e navi 1 Legno, 1 Pietra ogni ' + GR().UPKEEP_ROADS_PER + ' strade.';
             box.appendChild(note);
         }
 
@@ -2347,7 +2349,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             text: 'Il tetto sale a ' + GR().warehouseCap(lvl + 1) + ' per tipo.\n' +
                                 'Da qui in poi anche le strutture pagano la manutenzione ogni ' + GR().UPKEEP_EVERY +
                                 ' turni: con quello che hai oggi sarebbero ' +
-                                billTxt(GR().upkeepBill(lvl + 1, pv.inv).risorse) + '.',
+                                billTxt((() => {
+                                    const b = GR().upkeepBill(lvl + 1, pv.inv);
+                                    const r = Object.assign({}, b.risorse);
+                                    r.grano -= b.truppe.grano; r.bestiame -= b.truppe.bestiame;
+                                    return r;
+                                })()) + '.',
                             ok: 'Amplia', tone: 'calm'
                         }, go);
                     } else go();
@@ -2362,7 +2369,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (acts.childNodes.length) box.appendChild(acts);
 
         const hint = $('bp-warehouse-hint');
-        if (hint) hint.textContent = 'livello ' + lvl + ' · tetto ' + cap + ' · conto al ' + quando;
+        if (hint) hint.textContent = 'livello ' + lvl + ' · tetto ' + cap + ' · conto al ' +
+            quando(pv.strutture ? Math.min(pv.turno, pv.turnoTruppe) : pv.turnoTruppe);
         // Si apre da solo quando c'è un problema da risolvere.
         if ((aperto || ov.totale) && !fold.dataset.autoOpened) { fold.open = true; fold.dataset.autoOpened = '1'; }
         if (!aperto && !ov.totale) delete fold.dataset.autoOpened;
@@ -8118,8 +8126,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 : regno ? 'Manutenzione del regno' : 'Manutenzione della Capitale',
             testo: righe.join('\n\n'),
             nota: regno
-                ? 'Truppe e (da magazzino livello 2) strutture pagano ogni ' + GR().UPKEEP_EVERY +
-                  ' turni; l\'eccedenza oltre il tetto del magazzino si vende a fine turno.'
+                ? 'Le truppe pagano ogni ' + GR().TROOP_UPKEEP_EVERY + ' turni, le strutture (da magazzino livello 2) ogni ' +
+                  GR().UPKEEP_EVERY + ' turni; l\'eccedenza oltre il tetto del magazzino si vende a fine turno.'
                 : 'Le migliorie civiche reclamano un contributo ogni 5 turni (§6.1).'
         });
     }

@@ -36,7 +36,7 @@ Isole: solo via nave (`seaLinksOf`). `pesteBlocco` blocca raccolta per 1 turno.
 | Peste Nera | turni 35–39 |
 | Magazzino tetto per tipo (liv. 1/2/3) | 10 / 20 / 40 — +1000 monete a livello |
 | Eccedenza a fine turno | 50 monete ogni 3 (su tutti i tipi), resto perso |
-| Manutenzione | ogni 3 turni: truppe sempre (1 Grano/15 fanti, 1 Bestiame/5 cav.), strutture da liv. 2 → `RISORSE_ECONOMIA.md` |
+| Manutenzione | truppe ogni 7 turni, sempre (1 Grano/15 fanti, 1 Bestiame/5 cav.); strutture ogni 3 turni, da liv. 2 → `RISORSE_ECONOMIA.md` |
 
 ## Corpi di spedizione (v1 solo umani)
 `B.corpiSpedizione = [{ id, prov, alleato, soldati, cav, merc }]` — struttura parallela su B, mai in `data-pieces`.

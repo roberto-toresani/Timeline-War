@@ -77,12 +77,12 @@ Limita quante risorse di **ogni tipo** puoi stoccare (tetto per singolo tipo, no
 - Al raggiungimento del tetto del livello: o si **upgrada** il magazzino, o l'eccedenza viene **venduta automaticamente** a **50 monete ogni 3 risorse** eccedenti, **arrotondando per difetto** (le monete). Il resto sotto le 3 unità trabocca e va perso: oltre il tetto non si accumula nulla.
 - **Nessun tier "infinito"**: il livello 3 resta finito (40) apposta, così anche i regni ricchi di monete non possono comprarsi fuori dal limite.
 - **Scudo dei nuovi regni**: a **lvl 1 la manutenzione delle STRUTTURE è spenta**. Il **primo upgrade (lvl 1→2)** la accende. Un regno troppo piccolo per reggere i costi resta a lvl 1, cap 10, nessun costo di struttura. (La manutenzione delle TRUPPE è sempre attiva — vedi sotto.)
-- Interazione voluta con la Manutenzione: il tetto del Grano stringe le grandi armate (~1 Grano ogni 15 uomini ogni 3 turni) → spinge verso il magazzino alto.
+- Interazione voluta con la Manutenzione: il tetto del Grano stringe le grandi armate (~1 Grano ogni 15 uomini ogni 7 turni) → spinge verso il magazzino alto.
 
-## Manutenzione (ogni 3 turni) — IMPLEMENTATO (2026-11-20)
-Ogni **3 turni** il regno paga il mantenimento. È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci. Due blocchi, con regole di attivazione diverse.
+## Manutenzione (strutture ogni 3 turni, truppe ogni 7) — IMPLEMENTATO (2026-11-20)
+Il regno paga il mantenimento in due blocchi, con **cadenze** e regole di attivazione diverse: **strutture ogni 3 turni** globali (3, 6, 9…), **truppe ogni 7 turni** globali (7, 14, 21…; regola dell'utente 2026-11-26). È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci.
 
-### Strutture — gated dallo scudo (attive solo da magazzino lvl 2+)
+### Strutture — ogni 3 turni, gated dallo scudo (attive solo da magazzino lvl 2+)
 | Voce | Costo ogni 3 turni |
 |---|---|
 | Strade | 1 Pietra ogni 5 strade |
@@ -93,8 +93,8 @@ Ogni **3 turni** il regno paga il mantenimento. È il **sink strutturale** che f
 
 Mancato pagamento → icona **"zzz"** sull'edificio: resta **dormiente/offline** finché non si paga.
 
-### Truppe — SEMPRE attive (fuori dallo scudo)
-| Voce | Costo ogni 3 turni |
+### Truppe — ogni 7 turni, SEMPRE attive (fuori dallo scudo)
+| Voce | Costo ogni 7 turni |
 |---|---|
 | Uomini (fanti) | 1 Grano ogni 15 |
 | Cavalieri | 1 Bestiame ogni 5 |
@@ -115,7 +115,7 @@ Scelte prese in implementazione **[PROPOSTA, da confermare]** — il design non 
 - **Quando si vende l'eccedenza**: a **fine turno** di chi gioca (`endTurn`), non alla raccolta: il giocatore ha il turno intero per spendere, scambiare o ampliare.
 - **Come si conta l'eccedenza**: sommata su **tutti i tipi** (es. +2 Pietra e +2 Legno = 4 → 50 monete, 1 persa).
 - **Ampliamento**: azione della fase Costruisci (`upgradeWarehouse`), 1000 monete per livello. Il passaggio 1→2 chiede conferma e mostra il conto delle strutture che si accende.
-- **Quando si paga**: turni globali multipli di 3, in `beginTurn` **dopo la raccolta**. Ordine di pagamento: truppe, poi Capitale → Città → Fortezze → Mercati → Velieri → Navi, strade per ultime.
+- **Quando si paga**: in `beginTurn` **dopo la raccolta** — strutture nei turni globali multipli di 3 (`UPKEEP_EVERY`, segnato in `manutenzione.turno`), truppe nei multipli di 7 (`TROOP_UPKEEP_EVERY`, segnato in `manutenzione.turnoTruppe`). Ordine di pagamento quando cadono insieme (21, 42…): truppe, poi Capitale → Città → Fortezze → Mercati → Velieri → Navi, strade per ultime.
 - **Struttura dormiente (💤) = resta in piedi ma non rende**: Capitale/Città niente tasse e niente +1 recluta (la Capitale dormiente tiene comunque in vita raccolta e Popolarità, se no non si potrebbe più pagare); Fortezza niente +5 (le mura difendono ancora); Mercato niente banca, carovane né rotte (la rotta risulta interrotta); Nave/Veliero non salpa, non sbarca e non collega isole.
 - **Riattivazione**: al conto successivo se le scorte bastano, o subito con **«Salda la manutenzione»** (fase Costruisci, 1 unità per struttura).
 - **Strade non pagate**: non vanno dormienti (spezzerebbero la rete e il raccolto con cui pagare): restano **dissestate** — niente strade nuove finché non si versa la Pietra.

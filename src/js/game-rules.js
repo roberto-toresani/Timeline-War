@@ -462,10 +462,11 @@
     }
 
     // ---------- MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md §Manutenzione) ----------
-    // Ogni 3 turni GLOBALI il regno paga il mantenimento. Due blocchi:
-    //   STRUTTURE — solo da magazzino livello 2 (lo "scudo" dei regni nuovi:
-    //     a livello 1 la manutenzione delle strutture è spenta);
-    //   TRUPPE    — sempre, a ogni livello: è il freno anti-valanga delle grandi armate.
+    // Il regno paga il mantenimento in due blocchi, con cadenze diverse:
+    //   STRUTTURE — ogni 3 turni GLOBALI, solo da magazzino livello 2 (lo "scudo"
+    //     dei regni nuovi: a livello 1 la manutenzione delle strutture è spenta);
+    //   TRUPPE    — ogni 7 turni GLOBALI, sempre, a ogni livello: è il freno
+    //     anti-valanga delle grandi armate.
     // Chi non paga una struttura la trova DORMIENTE (💤): resta in piedi ma non
     // rende. Chi non paga le truppe perde un disertore a turno finché non salda.
     const UPKEEP_EVERY = 3;
@@ -486,11 +487,19 @@
     const UPKEEP_KNIGHTS_PER = 5;   // 1 Bestiame ogni 5 cavalieri
     const STRUCT_UPKEEP_LEVEL = 2;  // da questo livello di magazzino le strutture pagano
 
-    function isUpkeepTurn(turn) { return (turn | 0) > 0 && (turn | 0) % UPKEEP_EVERY === 0; }
-    function nextUpkeepTurn(turn) {
+    // Le TRUPPE (Grano dei fanti, Bestiame dei cavalieri) hanno una cadenza
+    // loro, più lenta delle strutture: ogni 7 turni globali (regola dell'utente).
+    const TROOP_UPKEEP_EVERY = 7;
+
+    function isMultipleTurn(turn, every) { return (turn | 0) > 0 && (turn | 0) % every === 0; }
+    function nextMultipleTurn(turn, every) {
         const t = Math.max(1, turn | 0);
-        return isUpkeepTurn(t) ? t : t + (UPKEEP_EVERY - (t % UPKEEP_EVERY));
+        return isMultipleTurn(t, every) ? t : t + (every - (t % every));
     }
+    function isUpkeepTurn(turn) { return isMultipleTurn(turn, UPKEEP_EVERY); }
+    function nextUpkeepTurn(turn) { return nextMultipleTurn(turn, UPKEEP_EVERY); }
+    function isTroopUpkeepTurn(turn) { return isMultipleTurn(turn, TROOP_UPKEEP_EVERY); }
+    function nextTroopUpkeepTurn(turn) { return nextMultipleTurn(turn, TROOP_UPKEEP_EVERY); }
     function structuresPayUpkeep(level) { return (level || 1) >= STRUCT_UPKEEP_LEVEL; }
     function roadUpkeep(nStrade) { return Math.floor(Math.max(0, nStrade || 0) / UPKEEP_ROADS_PER); }
     function troopUpkeep(fanti, cavalieri) {
@@ -991,6 +1000,7 @@
         warehouseLevel, warehouseCap, warehouseUpgradeCost, overflowOf,
         UPKEEP_EVERY, UPKEEP_STRUCT, UPKEEP_ORDER, UPKEEP_ROADS_PER, UPKEEP_MEN_PER, UPKEEP_KNIGHTS_PER,
         STRUCT_UPKEEP_LEVEL, isUpkeepTurn, nextUpkeepTurn, structuresPayUpkeep, roadUpkeep,
+        TROOP_UPKEEP_EVERY, isTroopUpkeepTurn, nextTroopUpkeepTurn,
         troopUpkeep, upkeepBill,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
         connected, turnProduction, popEffectOf, defenceBonus, plagueTier,

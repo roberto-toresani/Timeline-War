@@ -977,7 +977,7 @@
         // Una Felicità andata dormiente o crollata (o rimediata) cambia il piano
         // della Festa già ORA, non al turno dopo.
         if (maintainWelfare(player)) refreshFesta(player, false);
-        // MANUTENZIONE DEL REGNO (§Manutenzione): ogni 3 turni il conto di
+        // MANUTENZIONE DEL REGNO (§Manutenzione): ogni 3 turni (strutture) e 7 (truppe) il conto di
         // truppe e (da magazzino liv. 2) strutture; ogni turno i debiti aperti
         // si saldano da sé o costano un disertore.
         maintainKingdom(player);
@@ -2410,12 +2410,23 @@
         const inv = upkeepInventory(player);
         const lvl = GR().warehouseLevel(player);
         const bill = GR().upkeepBill(lvl, inv);
-        // Se il conto di questo turno è già stato pagato (succede a inizio
-        // turno), il prossimo è fra UPKEEP_EVERY turni.
-        let turno = GR().nextUpkeepTurn(R().turn());
-        if (turno === R().turn() && upkeepState(player).turno === turno) turno += GR().UPKEEP_EVERY;
+        // Due conti con cadenze diverse: strutture ogni UPKEEP_EVERY turni,
+        // truppe ogni TROOP_UPKEEP_EVERY. Se il conto di questo turno è già
+        // stato pagato (succede a inizio turno), il prossimo è al giro dopo.
+        const T = R().turn();
+        const st = upkeepState(player);
+        let turno = GR().nextUpkeepTurn(T);
+        if (turno === T && st.turno === turno) turno += GR().UPKEEP_EVERY;
+        let turnoTruppe = GR().nextTroopUpkeepTurn(T);
+        if (turnoTruppe === T && st.turnoTruppe === turnoTruppe) turnoTruppe += GR().TROOP_UPKEEP_EVERY;
+        const risorseTruppe = GR().emptyScorte();
+        risorseTruppe.grano = bill.truppe.grano;
+        risorseTruppe.bestiame = bill.truppe.bestiame;
+        const risorseStrutture = Object.assign({}, bill.risorse);
+        risorseStrutture.grano -= bill.truppe.grano;
+        risorseStrutture.bestiame -= bill.truppe.bestiame;
         return Object.assign({}, bill, {
-            livello: lvl, turno, inv,
+            livello: lvl, turno, turnoTruppe, risorseStrutture, risorseTruppe, inv,
             debito: Object.assign({}, upkeepState(player)), dormienti: dormantList(player).slice()
         });
     }
@@ -2442,8 +2453,9 @@
 
     // LA MANUTENZIONE di inizio turno. Gira per TUTTI in beginTurn, dopo la
     // raccolta (si paga anche con quel che si è appena raccolto).
-    //  · Turno di manutenzione (multiplo di 3): si presenta il conto. Truppe
-    //    sempre; strutture e strade solo da magazzino livello 2. Il debito delle
+    //  · Turno di manutenzione: si presenta il conto. Truppe ogni 7 turni
+    //    (multipli di 7), a ogni livello; strutture e strade ogni 3 (multipli
+    //    di 3), solo da magazzino livello 2. Il debito delle
     //    truppe NON si accumula: il conto riparte da quel che devi adesso (il
     //    vecchio l'hai già pagato in disertori).
     //  · Ogni turno: se c'è un debito di truppe o strade si prova a saldarlo
@@ -2463,15 +2475,28 @@
         const eventi = [];
         let periodo = false;
 
-        if (GR().isUpkeepTurn(T) && st.turno !== T) {
+        // Due cadenze: le truppe ogni TROOP_UPKEEP_EVERY turni (7), le
+        // strutture ogni UPKEEP_EVERY (3). Quando cadono insieme (21, 42…)
+        // le truppe pagano per prime, come sempre.
+        const contoTruppe = GR().isTroopUpkeepTurn(T) && st.turnoTruppe !== T;
+        const contoStrutture = GR().isUpkeepTurn(T) && st.turno !== T;
+        if (contoTruppe || contoStrutture) {
             periodo = true;
-            st.turno = T;
             const inv = upkeepInventory(player);
             const lvl = GR().warehouseLevel(player);
             const bill = GR().upkeepBill(lvl, inv);
-            st.grano = bill.truppe.grano - take('grano', bill.truppe.grano);
-            st.bestiame = bill.truppe.bestiame - take('bestiame', bill.truppe.bestiame);
-            if (bill.strutture) {
+            if (contoTruppe) {
+                st.turnoTruppe = T;
+                st.grano = bill.truppe.grano - take('grano', bill.truppe.grano);
+                st.bestiame = bill.truppe.bestiame - take('bestiame', bill.truppe.bestiame);
+            } else {
+                if (st.grano > 0) st.grano -= take('grano', st.grano);
+                if (st.bestiame > 0) st.bestiame -= take('bestiame', st.bestiame);
+            }
+            if (!contoStrutture) {
+                if (st.pietraStrade > 0) st.pietraStrade -= take('pietra', st.pietraStrade);
+            } else if (bill.strutture) {
+                st.turno = T;
                 // Le dormienti di prima, per riconoscere chi si riattiva e da quando dorme.
                 const vecchie = {};
                 dormantList(player).forEach(d => {
@@ -2496,6 +2521,7 @@
                 st.pietraStrade = bill.strade - take('pietra', bill.strade);
                 if (st.pietraStrade > 0) eventi.push({ kind: 'strade', manca: st.pietraStrade });
             } else {
+                st.turno = T;
                 st.pietraStrade = 0;
                 player.dormienti = [];
             }
@@ -2528,7 +2554,8 @@
 
         const pagato = GR().RES.some(k => versato[k] > 0);
         if (periodo || pagato) {
-            eventi.unshift({ kind: 'conto', periodo, versato, prossimo: T + GR().UPKEEP_EVERY });
+            eventi.unshift({ kind: 'conto', periodo, versato,
+                prossimo: Math.min(GR().nextUpkeepTurn(T + 1), GR().nextTroopUpkeepTurn(T + 1)) });
         }
         // Senza problemi (solo il conto pagato) l'avviso resta nel giornale e
         // non apre la pergamena.

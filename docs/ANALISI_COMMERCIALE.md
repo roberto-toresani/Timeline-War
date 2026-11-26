@@ -98,7 +98,7 @@ Costi fissi: Apple 99 $/anno, Google 25 $ una tantum, commissione store 15% sott
 
 ## Fatto dopo l'analisi
 - 2026-11-20 — Magazzino (tetto per tipo, livelli 1–3, vendita automatica dell'eccedenza) e
-  Manutenzione ogni 3 turni (strutture da lvl 2, truppe sempre). Regole e scelte da confermare in
+  Manutenzione: strutture ogni 3 turni (da lvl 2), truppe ogni 7 (sempre). Regole e scelte da confermare in
   `docs/regole/RISORSE_ECONOMIA.md`. Provato in locale (motore, plancia, mappa, 2 simulazioni
   bot da 16 turni senza errori). **Da tarare**: senza province di Grano i regni perdono ~6 uomini
   a testa in 16 turni; nessun bot amplia il magazzino prima del turno 16 (monete scarse).
