@@ -101,6 +101,8 @@ Mancato pagamento → icona **"zzz"** sull'edificio: resta **dormiente/offline**
 
 È il freno **anti-snowball**: non si schiva restando a lvl 1, e su un regno piccolo (pochi uomini) pesa pochissimo. Mancato pagamento → **diserzione** di **1 fante e/o 1 cavaliere a turno**, per ogni turno scoperto.
 
+**Chi diserta [REGOLA, utente 2026-11-26]**: fra i fanti **disertano per primi i mercenari**. L'uomo parte dalla provincia che ha più uomini di quel tipo (più fanti per il Grano, più cavalieri per il Bestiame), mai sotto il presidio minimo (`desert` in `game-actions.js`).
+
 - Da ritarare: Pietra/Legno/Argilla drenano poco un impero molto ricco; il morso vero è il **Grano** sulle grandi armate. Alzare i coefficienti se serve più pressione.
 
 ## Magazzino e manutenzione — come è implementato (2026-11-20)
@@ -119,7 +121,7 @@ Scelte prese in implementazione **[PROPOSTA, da confermare]** — il design non 
 - **Struttura dormiente (💤) = resta in piedi ma non rende**: Capitale/Città niente tasse e niente +1 recluta (la Capitale dormiente tiene comunque in vita raccolta e Popolarità, se no non si potrebbe più pagare); Fortezza niente +5 (le mura difendono ancora); Mercato niente banca, carovane né rotte (la rotta risulta interrotta); Nave/Veliero non salpa, non sbarca e non collega isole.
 - **Riattivazione**: al conto successivo se le scorte bastano, o subito con **«Salda la manutenzione»** (fase Costruisci, 1 unità per struttura).
 - **Strade non pagate**: non vanno dormienti (spezzerebbero la rete e il raccolto con cui pagare): restano **dissestate** — niente strade nuove finché non si versa la Pietra.
-- **Debito delle truppe non si accumula**: a ogni conto riparte da quanto si deve adesso (il vecchio è già stato pagato in disertori). E **segue le bocche da sfamare**: se l'esercito scende sotto la soglia (14 fanti non chiedono Grano), il debito scende con lui e la diserzione si ferma. Ogni turno il debito aperto si salda da sé se le scorte lo permettono; se no diserta **1 fante** (Grano) e/o **1 cavaliere** (Bestiame), dalla provincia che ne ha di più, mai sotto il presidio minimo, i mercenari per primi.
+- **Debito delle truppe non si accumula**: a ogni conto riparte da quanto si deve adesso (il vecchio è già stato pagato in disertori). E **segue le bocche da sfamare**: se l'esercito scende sotto la soglia (14 fanti non chiedono Grano), il debito scende con lui e la diserzione si ferma. Ogni turno il debito aperto si salda da sé se le scorte lo permettono; se no diserta **1 fante** (Grano) e/o **1 cavaliere** (Bestiame), con la regola «Chi diserta» qui sopra (mercenari per primi).
 - **Conteggi per difetto**: 14 fanti = 0 Grano, 4 cavalieri = 0 Bestiame, 4 strade = 0 Pietra. I corpi di spedizione contano come truppe del mittente.
 - **Bot**: saldano la manutenzione prima di costruire e ampliano il magazzino quando una scorta è a 2 dal tetto e la cassa regge 1000 monete oltre la riserva.
 - **Partita già in corso**: i regni partono al livello 1; l'eccedenza oltre 10 si vende alla prima chiusura di turno.
