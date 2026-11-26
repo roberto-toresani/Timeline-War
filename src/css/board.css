@@ -955,18 +955,28 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
    si scorra per cercare un'azione: la cartella aperta è già lì.
    ============================================================ */
 
+/* (richiesta dell'utente, 2026-11-26) Il pannello SCORRE PER INTERO. Col
+   magazzino e la manutenzione il cruscotto è cresciuto, e col vecchio schema
+   (pannello `overflow: hidden`, scorre solo #bp-body) il corpo delle fasi
+   restava schiacciato a pochi pixel e inagibile. Ora il corpo prende l'altezza
+   del suo contenuto e, se non ci sta, scorre il pannello; quando c'è posto si
+   allunga fino in fondo come prima. Il bottone di avanzamento resta incollato
+   al fondo (sticky), sempre a portata. */
 #board-right {
     display: flex;
     flex-direction: column;
-    overflow: hidden;          /* scorre #bp-body, non il pannello */
-    padding: 14px 0 14px;
-}
-
-#bp-body {
-    flex: 1 1 auto;
-    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 0 0;
+}
+
+#bp-status,
+#bp-phases { flex: 0 0 auto; }
+
+#bp-body {
+    flex: 1 0 auto;
     padding: 14px 18px 18px;
     border-top: 1px solid var(--gold-edge);
     margin-top: -1px;          /* la linguetta aperta si salda al corpo */
@@ -975,8 +985,18 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
 #board-right .bp-next {
     flex: 0 0 auto;
     width: auto;
-    margin: 12px 18px 0;
+    position: sticky;
+    bottom: 14px;              /* = margine sotto: fermo dove sta a fine corsa */
+    z-index: 2;
+    margin: 12px 18px 14px;
+    /* fascia di fondo pieno attorno al bottone: il testo che scorre sotto non
+       ci traspare */
+    box-shadow: 0 14px 0 0 var(--bg-panel-solid), 0 -10px 0 2px var(--bg-panel-solid);
 }
+/* le varianti "trasparenti" su fondo pieno: stesso aspetto, ma coprono */
+#board-right .bp-next.end,
+#board-right .bp-next:disabled { background: var(--bg-panel-solid); }
+#board-right .bp-next.end:hover:not(:disabled) { background: var(--gold-edge); }
 
 /* ---------- cruscotto sempre visibile ----------
    Oro, esercito, fede di stato e scorte: i numeri con cui si decide ogni
@@ -1369,9 +1389,12 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
    Chi sbircia una cartella che non è la fase corrente trova i comandi spenti
    e il perché scritto in .bp-peek-note. */
 
+/* minmax(0, 1fr) e non 1fr: con 1fr la colonna non scende sotto la parola più
+   lunga («SCHIERAMENTO») e le quattro linguette sforavano il pannello, con
+   Spostamento tagliata fuori. Le parole lunghe vanno a capo con la sillaba. */
 .bp-phases {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
     padding: 0 18px;
     flex: 0 0 auto;
@@ -1407,12 +1430,17 @@ body.spectating #map-wrapper { box-shadow: inset 0 0 0 2px var(--gold-edge); }
     color: var(--bg-panel-solid);
 }
 
+.bp-phase-chip { min-width: 0; }
 .bp-phase-chip .t {
-    font-size: .78rem;
-    letter-spacing: .04em;
+    max-width: 100%;
+    font-size: .72rem;
+    letter-spacing: .02em;
     text-align: center;
     color: var(--parchment-muted);
     line-height: 1.2;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+    overflow-wrap: anywhere;   /* rete di sicurezza se manca il dizionario */
 }
 
 .bp-phase-chip.done { opacity: .8; border-color: var(--ok); }
