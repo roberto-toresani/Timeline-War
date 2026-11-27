@@ -1506,9 +1506,11 @@
     }
 
     // Dove posare un decreto che chiede una provincia. Il criterio è "quella
-    // che costa meno": un feudo o una corvée vanno su una risorsa NON collegata
-    // (che non rendeva comunque, §4), un'affrancatura su una collegata con
-    // uomini da cedere, una franchigia sulla Città che non è la Capitale.
+    // che costa meno": una corvée su un doppione di risorsa già raccolta
+    // altrove, un'affrancatura su una collegata con uomini da cedere, una
+    // franchigia sulla Città che non è la Capitale. Il FEUDO cede la provincia
+    // per sempre: il bot lo concede solo su una terra senza risorsa, senza
+    // Città e senza difese — se non ce n'è, il feudo non si fa.
     function policyProvince(player, d) {
         const mie = E().ownedPaths(player.name);
         const collegate = GA().connectedOf(player);
@@ -1522,6 +1524,15 @@
 
         mie.forEach(path => {
             if (occupate.has(path.id)) return;
+            if (d.cede) {
+                if (E().countPiece(path, 'capitale') > 0 || E().countPiece(path, 'citta') > 0) return;
+                if (R().resourceKeyOf(path)) return;
+                if (d.prov.minUomini && E().countPiece(path, 'soldato') < d.prov.minUomini) return;
+                if (GR().defenceBonus(GA().unitsOf([path])) > 0) return;   // niente Fortezze
+                // Meno uomini ci lascia, meno costa: 5 al barone, non 12.
+                cand.push({ id: path.id, costo: E().countPiece(path, 'soldato') });
+                return;
+            }
             // Il motore rifiuta un decreto su una provincia fuori dalla rete (§4):
             // non avrebbe effetto. Nelle simulazioni metà dei decreti del bot
             // finiva così, su un feudo scollegato scelto apposta perché "costa

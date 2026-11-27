@@ -2008,7 +2008,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // (buildTile/costChips): acceso = si può fare adesso, gettone rosso = quel
     // che manca. Chi chiede una provincia la sceglie da una TENDINA (regola
     // dell'utente), ristretta ai soli collegati per i decreti che toccano il
-    // raccolto (corvée, feudo, affranca — campo `collegata` del decreto).
+    // raccolto (corvée, affranca — campo `collegata` del decreto).
     function polDecreesHtml(player, verso, connectedSet) {
         const P = POL();
         const titolo = verso < 0 ? 'Decreti verso la nobiltà' : 'Decreti verso il popolo';
@@ -2033,6 +2033,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (d.prov.tipo === 'risorsa' && !R.resourceKeyOf(path)) return false;
             if (d.prov.tipo === 'citta' && !haCitta) return false;
             if (d.prov.soldati && spareOf(path) < d.prov.soldati) return false;
+            if (d.prov.minUomini && R.countPiece(path, 'soldato') < d.prov.minUomini) return false;
             if (d.prov.collegata && connectedSet && !connectedSet.has(path.id)) return false;
             return true;
         }).map(path => ({ id: path.id, label: R.provinceLabel(path) }));
@@ -2057,7 +2058,9 @@ document.addEventListener('DOMContentLoaded', () => {
             elenco = polEligibleProvinces(player, d, connectedSet);
             if (can && !elenco.length) {
                 can = false;
-                nota = d.prov.collegata ? 'Nessuna provincia adatta e collegata.' : 'Nessuna provincia adatta.';
+                nota = d.prov.collegata ? 'Nessuna provincia adatta e collegata.'
+                    : d.prov.minUomini ? 'Nessuna provincia con ' + d.prov.minUomini + ' uomini schierati.'
+                    : 'Nessuna provincia adatta.';
             }
         }
 
@@ -2074,6 +2077,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (d.prov && d.prov.soldati) {
             chips.push('<span class="bt-cost"><span class="bt-glyph">⚔</span><b>' +
                 d.prov.soldati + '</b></span>');
+        }
+        // Il feudo si paga con la provincia stessa: lo dice il gettone.
+        if (d.cede) {
+            chips.push('<span class="bt-cost short" title="La provincia torna terra di nessuno, per sempre">' +
+                '<span class="bt-glyph">🏳</span><b>1 provincia</b></span>');
         }
         if (!chips.length) chips.push('<span class="bt-cost"><b>nessun costo</b></span>');
 
@@ -2118,6 +2126,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const dopo = P.grade(P.clamp((player.politica || 0) + d.verso));
         const path = provId && R.engine.path(provId);
         const dove = path ? ' in ' + R.provinceLabel(path) : '';
+
+        // Il feudo non si torna indietro: la conferma lo dice con il nome della
+        // provincia e quanti uomini se ne vanno con lei.
+        if (d.cede && path) {
+            const n = R.countPiece(path, 'soldato');
+            R.confirm({
+                title: d.nome,
+                text: d.testo + '\n\nLa corona passa a ' + dopo.label + '.\n' +
+                    R.provinceLabel(path) + ' torna terra di nessuno, per sempre: i suoi ' + n +
+                    ' uomini restano col barone. Per riaverla dovrai conquistarla.',
+                ok: 'Concedi il feudo',
+                tone: 'danger'
+            }, () => run(GA().issueDecree(player, id, provId)));
+            return;
+        }
 
         R.confirm({
             title: d.nome,

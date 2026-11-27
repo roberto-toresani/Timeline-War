@@ -248,11 +248,15 @@
     //             noCapitale   — la Capitale non si può usare
     //             noCitta      — la provincia non deve avere una Città
     //             soldati      — quanti uomini se ne vanno (oltre al presidio §5)
+    //             minUomini    — quanti uomini devono STARE nella provincia
+    //                            (cavalieri compresi), senza che se ne vadano
     //             collegata    — la provincia deve essere COLLEGATA alla rete (§4).
     //                            Vale per i decreti che toccano il RACCOLTO (corvée,
-    //                            feudo, affranca): su una scollegata non raccoglieresti
+    //                            affranca): su una scollegata non raccoglieresti
     //                            comunque, quindi fermarla o potenziarla non farebbe
     //                            nulla — la tendina in plancia la esclude.
+    //   cede:   la provincia TORNA NEUTRALE per sempre (feudo): niente durata,
+    //           il prezzo è la provincia stessa
     //   durata: null (effetto immediato) | 'ciclo' | un numero di turni
     const DECREES = [
         // ---- verso la NOBILTÀ ----
@@ -282,12 +286,20 @@
             durata: 'ciclo'
         },
         {
+            // Il re LASCIA ANDARE una provincia (regola dell'utente, 2026-11-27):
+            // il barone che la tiene si fa signore di sé, e la nobiltà applaude
+            // perché ognuno spera di essere il prossimo. Non tocca il raccolto:
+            // il prezzo è la provincia stessa, ceduta per sempre (torna terra di
+            // nessuno e si riprende solo con le armi, come ogni neutrale). Gli
+            // uomini che ci stanno — almeno 5, cavalieri compresi — restano col
+            // barone e ne diventano il presidio.
             id: 'feudo', verso: -1, ico: '🏰', nome: 'Concedi un feudo',
-            testo: 'Una provincia passa sotto un barone: la sua rendita è sua, non tua.',
+            testo: 'Un barone si fa signore di sé: la corona lascia andare la sua terra, e i signori applaudono.',
             costo: {},
-            prov: { tipo: 'risorsa', noCapitale: true, noCitta: true, collegata: true },
-            effetto: 'Per tutto il ciclo quella provincia non consegna la sua risorsa.',
-            durata: 'ciclo'
+            prov: { tipo: 'qualunque', noCapitale: true, minUomini: 5 },
+            cede: true,
+            effetto: 'La provincia torna terra di nessuno, per sempre: i suoi uomini restano col barone.',
+            durata: null
         },
 
         // ---- verso il POPOLO ----
@@ -374,6 +386,9 @@
             if (!a || !a.prov) return;
             if (a.dal != null && turno < a.dal) return;       // non ancora in vigore (franchigia: parte dal turno dopo)
             if (a.fino != null && turno > a.fino) return;     // scaduto
+            // 'feudo' resta solo per le voci delle partite di prima del
+            // 2026-11-27 (quando il feudo fermava il raccolto per il ciclo):
+            // si spengono da sé a fine ciclo. Il feudo di oggi non lascia voci.
             if (a.id === 'feudo' || a.id === 'corvee') out.bloccate[a.prov] = true;
             else if (a.id === 'affranca') out.extra[a.prov] = (out.extra[a.prov] || 0) + 1;
             else if (a.id === 'franchigia') out.esenti[a.prov] = true;
@@ -382,7 +397,7 @@
     }
 
     // Fino a quando dura un decreto emanato al turno `turno`. 'ciclo' = l'ultimo
-    // turno del ciclo in corso (un feudo concesso al turno 3 dura fino al 10),
+    // turno del ciclo in corso (una corvée imposta al turno 3 dura fino al 10),
     // un numero = tanti turni dal suo inizio. `dal` è il turno in cui l'effetto
     // ENTRA in vigore (la franchigia parte dal turno dopo l'emanazione): così
     // "3 turni" valgono 3 raccolte piene, non 2 mangiate dal turno d'emanazione.

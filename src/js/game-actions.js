@@ -3128,7 +3128,13 @@
             if (d.prov.soldati && spare(path) < d.prov.soldati) {
                 return fail('Servono ' + d.prov.soldati + ' uomini oltre al presidio (§5) in ' + nome + '.');
             }
-            // I decreti che toccano il raccolto (corvée, feudo, affranca) valgono
+            // Il feudo chiede una provincia TENUTA: almeno N uomini schierati,
+            // cavalieri compresi (sono già dentro il conto dei soldati).
+            if (d.prov.minUomini && E().countPiece(path, 'soldato') < d.prov.minUomini) {
+                return fail('Servono almeno ' + d.prov.minUomini + ' uomini schierati in ' + nome +
+                    ' (cavalieri compresi).');
+            }
+            // I decreti che toccano il raccolto (corvée, affranca) valgono
             // solo su una provincia COLLEGATA alla rete (§4): su una scollegata non
             // si raccoglie comunque, quindi fermarla o potenziarla non farebbe nulla.
             if (d.prov.collegata && !connectedOf(player).has(provId)) {
@@ -3176,6 +3182,11 @@
                     id: d.id, prov: provId, dal: dal, fino: P.expiryOf(d, turno, dal)
                 });
             }
+            if (d.cede) {
+                const uomini = cedeToNoOne(player, path);
+                dettagli.push(R().provinceLabel(path) + ' torna terra di nessuno per sempre, con ' +
+                    uomini + (uomini === 1 ? ' uomo' : ' uomini'));
+            }
             E().redrawProvince(path);
         }
 
@@ -3195,6 +3206,31 @@
         return done('📜 ' + d.nome + ': la corona passa a ' + P.grade(player.politica).label + '.' +
             (dettagli.length ? ' ' + dettagli.join(', ') + '.' : ''),
             { prov: provId || (cap ? cap.id : null), politica: player.politica, decreto: d.id });
+    }
+
+    // IL FEUDO CONCESSO: la provincia torna terra di nessuno, per sempre. È la
+    // regola di sempre quando una provincia perde il padrone (eventRelease,
+    // neutralRaids): le costruzioni restano, la ventura e le navi se ne vanno
+    // con chi le pagava, il vincolo di fede si scioglie, le strade si potano.
+    // Gli uomini invece RESTANO: sono del barone, e ne diventano il presidio —
+    // i cavalieri scendono a fanti di guarnigione (le terre di nessuno non
+    // hanno cavalleria). Niente vendetta né rancore: nessuno l'ha strappata.
+    // La Capitale non arriva mai qui (noCapitale). Ritorna gli uomini rimasti.
+    function cedeToNoOne(player, path) {
+        E().setOwner(path, null);
+        E().setMerc(path, 0);
+        E().setCav(path, 0);
+        if (E().ships(path).length) E().setShips(path, []);
+        E().setArmyColor(path, null);
+        E().setReligionLock(path, false);
+        if (player.temporanei) delete player.temporanei[path.id];
+        // Le reclute posate qui in questo turno restano col barone: non si
+        // ritirano più, e i rinforzi obbligatori ancora in coda si perdono.
+        delete placedPool(player)[path.id];
+        delete boundPool(player)[path.id];
+        pruneRoadsTouching(path.id);
+        pruneDeadRoutes();   // un Mercato di capolinea ceduto scioglie la sua rotta
+        return E().countPiece(path, 'soldato');
     }
 
     // Schiera N cavalieri del serbatoio della nobiltà (il privilegio del grado

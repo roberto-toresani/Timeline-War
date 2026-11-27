@@ -25,6 +25,8 @@ Asse **nobiltà ↔ popolo**: ogni scelta sposta l'ago.
 - Popolo: costo reclute ridotto (apposta), produzione maggiore, meno toleranza militare.
 `player.politica` = valore corrente dell'asse; impatta `popularityFactors`.
 
+**Decreti** (`Politics.DECREES`, mutati da `issueDecree`). *Concedi un feudo* (→ nobiltà, dal 2026-11-27): su qualunque provincia propria **non Capitale** con **almeno 5 uomini schierati** (cavalieri compresi), Città incluse. La provincia **torna terra di nessuno per sempre** (`cedeToNoOne`): gli uomini restano col barone come presidio (cavalieri → fanti), ventura e navi spariscono, costruzioni restano, strade potate. Non tocca il raccolto e non lascia voci in `decretiAttivi`; si riprende solo conquistandola. Il bot lo concede solo su terre senza risorsa, Città né Fortezza, preferendo quella con meno uomini.
+
 ## Festa / Malcontento §6.1
 `joyTier(felicita)`: legge le **migliorie di Felicità sulla Capitale (0-5)** — non produzione/popolarità — e piega i costi del turno, **dentro il prezzo** (`costFor`), mai come rimborso: un acquisto non può far crescere il tesoro.
 - **0-1 Malcontento**: +100 monete sulle costruzioni in monete, +1 su **1 risorsa sorteggiata a turno** (`festaMalusRes`) per quelle senza monete (turno con Pietra → Strada = 2 Pietre).
