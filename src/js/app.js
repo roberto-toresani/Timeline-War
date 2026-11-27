@@ -2799,6 +2799,33 @@ document.addEventListener('DOMContentLoaded', () => {
             if (vb.y + vb.h > base.y + base.h) vb.y = base.y + base.h - vb.h;
         }
 
+        // Frazioni della larghezza della mappa coperte dai pannelli fissi della
+        // plancia, misurate ora (cambiano col ridimensionamento e quando la
+        // classifica si chiude). Un pannello nella metà sinistra copre da sinistra,
+        // uno nella metà destra da destra. Nell'editor non esistono: zero.
+        const OVERLAY_IDS = ['board-rail', 'map-leaderboard', 'map-border-key'];
+        function overlayInsets() {
+            const wr = wrapper.getBoundingClientRect();
+            const out = { left: 0, right: 0 };
+            if (!wr.width) return out;
+            OVERLAY_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const cs = getComputedStyle(el);
+                if (cs.display === 'none' || cs.visibility === 'hidden') return;
+                const b = el.getBoundingClientRect();
+                if (!b.width || !b.height || b.right <= wr.left || b.left >= wr.right) return;
+                if ((b.left + b.right) / 2 < wr.left + wr.width / 2) {
+                    out.left = Math.max(out.left, (b.right - wr.left) / wr.width);
+                } else {
+                    out.right = Math.max(out.right, (wr.right - b.left) / wr.width);
+                }
+            });
+            out.left = Math.min(0.4, out.left);
+            out.right = Math.min(0.4, out.right);
+            return out;
+        }
+
         // Inquadra un gruppo di province nella fascia centrale libera dai pannelli.
         // Usato dalla plancia per aprire il gioco gia' sul regno del giocatore.
         function fitToProvinces(ids) {
@@ -2822,14 +2849,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const bx = minX - rawW * pad, by = minY - rawH * pad;
             const bw = rawW * (1 + 2 * pad), bh = rawH * (1 + 2 * pad);
 
-            const usable = Math.max(0.2, 1 - insets.left - insets.right);
+            // I pannelli che galleggiano SOPRA la mappa della plancia (la colonna
+            // dei pulsanti a sinistra, la classifica e la legenda dei confini a
+            // destra) coprono una fascia: senza contarli, le province di un regno
+            // orientale finivano sotto la classifica (Rus', «Vedi sulla mappa»,
+            // 2026-11-27). Si prende il massimo fra il margine dichiarato e quello
+            // misurato adesso.
+            const ov = overlayInsets();
+            const left = Math.max(insets.left, ov.left), right = Math.max(insets.right, ov.right);
+            const usable = Math.max(0.2, 1 - left - right);
             const frameAR = (wrapper.clientWidth || 1) / (wrapper.clientHeight || 1);
             let w = bw / usable;
             let h = w / frameAR;
             if (h < bh) { h = bh; w = h * frameAR; }        // regno alto e stretto
 
             // Centra il regno dentro la sola fascia visibile.
-            const bandLeft = w * insets.left;
+            const bandLeft = w * left;
             vb = {
                 x: bx - bandLeft - (w * usable - bw) / 2,
                 y: by + bh / 2 - h / 2,
