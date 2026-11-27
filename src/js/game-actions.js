@@ -3208,19 +3208,27 @@
             { prov: provId || (cap ? cap.id : null), politica: player.politica, decreto: d.id });
     }
 
-    // IL FEUDO CONCESSO: la provincia torna terra di nessuno, per sempre. È la
-    // regola di sempre quando una provincia perde il padrone (eventRelease,
-    // neutralRaids): le costruzioni restano, la ventura e le navi se ne vanno
-    // con chi le pagava, il vincolo di fede si scioglie, le strade si potano.
-    // Gli uomini invece RESTANO: sono del barone, e ne diventano il presidio —
-    // i cavalieri scendono a fanti di guarnigione (le terre di nessuno non
-    // hanno cavalleria). Niente vendetta né rancore: nessuno l'ha strappata.
+    // IL FEUDO CONCESSO: la provincia torna terra di nessuno, per sempre
+    // (regola dell'utente, 2026-11-27). Gli UOMINI restano: sono del barone, e
+    // ne diventano il presidio — i mercenari passano a fanti normali (nessuno
+    // paga più il contratto, restano a servire), i CAVALIERI restano cavalieri.
+    // Tutto il resto si DISTRUGGE: Città, Fortezza, Mercato, Strada, Generale,
+    // navi, migliorie civiche — il barone non eredita l'opera della corona.
+    // Il vincolo di fede si scioglie, strade e rotte che la toccano si potano.
+    // Niente vendetta né rancore: nessuno l'ha strappata.
     // La Capitale non arriva mai qui (noCapitale). Ritorna gli uomini rimasti.
     function cedeToNoOne(player, path) {
         E().setOwner(path, null);
         E().setMerc(path, 0);
-        E().setCav(path, 0);
+        E().pieces(path).forEach(pc => {
+            if (pc.type !== 'soldato' && pc.count > 0) E().addPiece(path, pc.type, -pc.count);
+        });
         if (E().ships(path).length) E().setShips(path, []);
+        if (E().welfare(path).length) E().setWelfare(path, []);
+        if (Array.isArray(player.dormienti)) {
+            player.dormienti = player.dormienti.filter(d => !d || d.prov !== path.id);
+        }
+        if (player.generaliMossi) delete player.generaliMossi[path.id];
         E().setArmyColor(path, null);
         E().setReligionLock(path, false);
         if (player.temporanei) delete player.temporanei[path.id];

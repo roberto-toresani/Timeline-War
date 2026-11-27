@@ -2135,7 +2135,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 title: d.nome,
                 text: d.testo + '\n\nLa corona passa a ' + dopo.label + '.\n' +
                     R.provinceLabel(path) + ' torna terra di nessuno, per sempre: i suoi ' + n +
-                    ' uomini restano col barone. Per riaverla dovrai conquistarla.',
+                    ' uomini restano col barone (i mercenari come fanti, i cavalieri come cavalieri).\n' +
+                    'Tutto il resto si distrugge: costruzioni, navi, Generale. Per riaverla dovrai conquistarla.',
                 ok: 'Concedi il feudo',
                 tone: 'danger'
             }, () => run(GA().issueDecree(player, id, provId)));

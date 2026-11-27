@@ -292,13 +292,15 @@
             // il prezzo è la provincia stessa, ceduta per sempre (torna terra di
             // nessuno e si riprende solo con le armi, come ogni neutrale). Gli
             // uomini che ci stanno — almeno 5, cavalieri compresi — restano col
-            // barone e ne diventano il presidio.
+            // barone e ne diventano il presidio (mercenari → fanti, cavalieri
+            // restano); tutto il resto (costruzioni, navi, Generale) si distrugge.
             id: 'feudo', verso: -1, ico: '🏰', nome: 'Concedi un feudo',
             testo: 'Un barone si fa signore di sé: la corona lascia andare la sua terra, e i signori applaudono.',
             costo: {},
             prov: { tipo: 'qualunque', noCapitale: true, minUomini: 5 },
             cede: true,
-            effetto: 'La provincia torna terra di nessuno, per sempre: i suoi uomini restano col barone.',
+            effetto: 'La provincia torna terra di nessuno, per sempre: i suoi uomini restano col barone, ' +
+                'costruzioni e navi si distruggono.',
             durata: null
         },
 

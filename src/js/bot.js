@@ -1525,7 +1525,8 @@
         mie.forEach(path => {
             if (occupate.has(path.id)) return;
             if (d.cede) {
-                if (E().countPiece(path, 'capitale') > 0 || E().countPiece(path, 'citta') > 0) return;
+                // Tutto quel che c'è sopra si distrugge: niente Città, Mercato, Generale.
+                if (['capitale', 'citta', 'mercato', 'generale'].some(t => E().countPiece(path, t) > 0)) return;
                 if (R().resourceKeyOf(path)) return;
                 if (d.prov.minUomini && E().countPiece(path, 'soldato') < d.prov.minUomini) return;
                 if (GR().defenceBonus(GA().unitsOf([path])) > 0) return;   // niente Fortezze
