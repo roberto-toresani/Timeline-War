@@ -3433,7 +3433,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Riapplicare gli editti vecchi non fa danni (applyDecree è idempotente).
             pendingId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
             MultiplayerSync.setIntervention({ id: pendingId, diff: pendingDiff, base: pendingBaseTurnoDi })
-                .then(ok => { if (!ok) showPieceNotice('⚠ Editto NON inviato al server: riprova.'); });
+                .then(ok => { if (!ok) showPieceNotice('⚠ Editto NON inviato al server: ' + retryHint()); });
         }
         saveAutoSave();          // in locale il pacchetto vive nello stato salvato
         updateInterventionUI();
@@ -3479,7 +3479,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (MultiplayerSync.isConfigured && MultiplayerSync.setIntervention) {
             pendingId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
             MultiplayerSync.setIntervention({ id: pendingId, diff: pendingDiff, base: pendingBaseTurnoDi })
-                .then(ok => { if (!ok) showPieceNotice('⚠ Intervento NON inviato al server: riprova.'); });
+                .then(ok => { if (!ok) showPieceNotice('⚠ Intervento NON inviato al server: ' + retryHint()); });
         }
         applyCloudState(live);   // ripristina lo schermo sulla partita in corso
         saveAutoSave();          // PERSISTE il diff (localStorage + Firestore): un
@@ -3790,7 +3790,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 inviteUrlLive(p).then(url => {
                     if (!url) {
                         if (w) w.close();
-                        showPieceNotice('Link di ' + p.name + ' NON salvato online: riprova.');
+                        showPieceNotice('Link di ' + p.name + ' NON salvato online: ' + retryHint());
                         return;
                     }
                     if (w) w.location.href = url; else window.location.href = url;
@@ -3800,7 +3800,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.querySelector('.invite-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 inviteUrlLive(p).then(url => {
-                    if (!url) { showPieceNotice('Link di ' + p.name + ' NON salvato online: riprova.'); return; }
+                    if (!url) { showPieceNotice('Link di ' + p.name + ' NON salvato online: ' + retryHint()); return; }
                     const done = () => showPieceNotice('Link di ' + p.name + ' copiato.');
                     if (navigator.clipboard && navigator.clipboard.writeText) {
                         navigator.clipboard.writeText(url).then(done, () => window.prompt('Link d\'invito:', url));
@@ -4680,10 +4680,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // non lo è (gioca un altro). Il ritocco mirato li scrive comunque, senza
     // sovrascrivere la mossa in corso (MultiplayerSync.patchPlayer). Non durante un
     // intervento: lì i ritocchi aspettano il commit come tutto il resto.
+    // Coda del messaggio quando una scrittura di regia fallisce: con la quota di
+    // Firestore finita "riprova" è un invito a sbattere contro il muro, quindi si
+    // dice cosa succede e quando passa (reset delle 9:00 ora italiana).
+    function retryHint() {
+        if (MultiplayerSync.quotaExhausted && MultiplayerSync.quotaExhausted()) {
+            return 'la quota giornaliera di Firestore è esaurita, riprova dopo le 9:00.';
+        }
+        return 'riprova.';
+    }
+
     function patchPlayerOnline(p, fields, label) {
         if (!MultiplayerSync.isConfigured || adminIntervening) return;
         MultiplayerSync.patchPlayer(p.id, fields).then(ok => {
-            showPieceNotice(label + (ok ? ': salvata online.' : ': NON salvata online, riprova.'));
+            showPieceNotice(label + (ok ? ': salvata online.' : ': NON salvata online: ' + retryHint()));
         });
     }
 

@@ -275,6 +275,17 @@ const MultiplayerSync = (function () {
         if (hasIntervention) cb(lastIntervention);
     }
 
+    // ULTIMO ERRORE di una scrittura di regia (ritocco di un regno, codice
+    // d'invito, intervento/editto): la ragione per cui ha risposto false/null,
+    // così l'editor può dire PERCHÉ invece di un "riprova" muto. Il caso tipico è
+    // la quota giornaliera di Firestore finita (`resource-exhausted`): riprovare
+    // subito non serve, si sblocca al reset delle 9:00 italiane.
+    let lastWriteErr = null;
+    function noteWriteErr(err) {
+        lastWriteErr = String((err && (err.code || err.message)) || err || '').slice(0, 300);
+    }
+    function quotaExhausted() { return /resource-exhausted|quota/i.test(lastWriteErr || ''); }
+
     // data = { id, diff, base } oppure null (= nessun intervento in attesa).
     function setIntervention(data) {
         if (!isConfigured || !presenceCol) return Promise.resolve(false);
@@ -282,6 +293,7 @@ const MultiplayerSync = (function () {
         const op = data ? ref.set(JSON.parse(JSON.stringify(data))) : ref.delete();
         return op.then(() => true).catch(err => {
             console.error('Errore salvataggio intervento:', err);
+            noteWriteErr(err);
             return false;
         });
     }
@@ -664,7 +676,7 @@ const MultiplayerSync = (function () {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             return true;
-        })).catch(err => { console.error('patchPlayer:', err); return false; });
+        })).catch(err => { console.error('patchPlayer:', err); noteWriteErr(err); return false; });
     }
 
     // CODICE D'INVITO sul documento VIVO (bug del Portogallo, 2026-10-18): il 🔗
@@ -692,7 +704,7 @@ const MultiplayerSync = (function () {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             return code;
-        })).catch(err => { console.error('ensureInvite:', err); return null; });
+        })).catch(err => { console.error('ensureInvite:', err); noteWriteErr(err); return null; });
     }
 
     function onPushReject(cb) { pushRejectListeners.push(cb); }
@@ -853,6 +865,9 @@ const MultiplayerSync = (function () {
         setRetryHook: setRetryHook,
         setDiagCode: setDiagCode,
         patchPlayer: patchPlayer,
+        // Perché l'ultima scrittura di regia è fallita (vedi noteWriteErr).
+        lastWriteError: function () { return lastWriteErr; },
+        quotaExhausted: quotaExhausted,
         ensureInvite: ensureInvite,
         onPushReject: onPushReject,
         // Rev dell'ultima scrittura riuscita di questa sessione: app.js scarta gli
