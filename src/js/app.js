@@ -1016,6 +1016,79 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.getElementById('palette')) initPalette();
     }
 
+    // ONLINE ORA? La plancia del giocatore rinnova il suo doc di presenza ogni
+    // PRESENCE_BEAT_MS finché la scheda è in primo piano, e scrive online:false
+    // quando la lascia (scheda nascosta / chiusa). Se quell'ultimo segnale non parte
+    // (telefono in standby, rete persa) il badge si spegne da sé dopo
+    // PRESENCE_STALE_MS senza battiti. 5 minuti apposta: ogni battito è una lettura
+    // per OGNI client in ascolto su `presence` (quota Firestore).
+    var PRESENCE_BEAT_MS = 5 * 60 * 1000;
+    var PRESENCE_STALE_MS = 7 * 60 * 1000;
+    var presenceSelf = null;       // il regno che QUESTA plancia segna (solo giocatori)
+    var presenceOnline = null;     // ultimo stato scritto: evita doppioni hide/pagehide
+    var presenceLastWrite = 0;
+    var presenceBeatOn = false;
+
+    function presenceAtMs(rec) {
+        if (!rec || !rec.at) return 0;
+        if (typeof rec.at.toMillis === 'function') return rec.at.toMillis();
+        if (typeof rec.at.seconds === 'number') return rec.at.seconds * 1000;
+        return 0;
+    }
+    function presenceIsOnline(rec) {
+        const at = presenceAtMs(rec);
+        return !!rec && rec.online !== false && at > 0 && (Date.now() - at) < PRESENCE_STALE_MS;
+    }
+    function presenceAgo(ms) {
+        const min = Math.max(0, Math.round((Date.now() - ms) / 60000));
+        if (min < 1) return 'ora';
+        if (min < 60) return min + ' min fa';
+        const h = Math.round(min / 60);
+        if (h < 48) return h + ' h fa';
+        return Math.round(h / 24) + ' g fa';
+    }
+    // Testo e tono del badge di un regno preso: 🟢 sulla plancia adesso, ⚪ da
+    // quanto manca. Un doc vecchio (senza `online`, scritto prima del battito)
+    // vale come "visto" all'ora dell'apertura.
+    function presenceBadge(rec) {
+        const at = presenceAtMs(rec);
+        if (presenceIsOnline(rec)) return { cls: 'is-online', text: '🟢 Online ora sulla plancia' };
+        return { cls: 'is-away', text: '👤 Preso dal giocatore · ' + (at ? 'visto ' + presenceAgo(at) : 'mai visto online') };
+    }
+    // Ridipinge in place i badge della palette (il "visto N min fa" invecchia
+    // anche senza snapshot nuovi): niente initPalette, non si perde un campo
+    // e-mail mentre lo si scrive.
+    function refreshPresenceBadges() {
+        document.querySelectorAll('#palette .player-claim[data-invite]').forEach(el => {
+            const b = presenceBadge(presenceMap[el.dataset.invite]);
+            el.classList.toggle('is-online', b.cls === 'is-online');
+            el.classList.toggle('is-away', b.cls === 'is-away');
+            el.textContent = b.text;
+        });
+    }
+
+    function beatPresence(online, force) {
+        if (!presenceSelf) return;
+        const now = Date.now();
+        // Tornare sulla scheda già segnata online da poco non riscrive (quota).
+        if (!force && online === presenceOnline && online && now - presenceLastWrite < 60000) return;
+        if (!force && online === presenceOnline && !online) return;
+        presenceOnline = online;
+        presenceLastWrite = now;
+        MultiplayerSync.setPresence(presenceSelf.invite, Object.assign({}, presenceSelf, { online }));
+    }
+    function startPresenceBeat() {
+        if (presenceBeatOn) return;
+        presenceBeatOn = true;
+        setInterval(() => {
+            if (document.visibilityState === 'visible') beatPresence(true, true);
+        }, PRESENCE_BEAT_MS);
+        document.addEventListener('visibilitychange', () => {
+            beatPresence(document.visibilityState === 'visible', false);
+        });
+        window.addEventListener('pagehide', () => beatPresence(false, false));
+    }
+
     // Geometria della mappa (bordo delle province, ancoraggi di terra e di mare):
     // vive in js/map-anchors.js, che non sa nulla del gioco ed è verificabile da
     // solo. Qui restano solo gli alias, per non riscrivere mezzo file.
@@ -3684,8 +3757,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // c'è una strategia, lo gioca l'IA a prescindere. Senza presenza e con
         // bot=null resta il default "lo gioca l'admin".
         const claimed = p.invite && presenceMap[p.invite];
+        const claimInfo = claimed ? presenceBadge(claimed) : null;
         const claimBadge = (claimed && !p.bot)
-            ? '<div class="player-claim" title="Un giocatore ha aperto il link di questo regno: lo gioca lui, non l\'admin">👤 Preso dal giocatore</div>'
+            ? '<div class="player-claim ' + claimInfo.cls + '" data-invite="' + String(p.invite).replace(/"/g, '&quot;') +
+              '" title="Un giocatore ha aperto il link di questo regno: lo gioca lui, non l\'admin. 🟢 = ha la plancia aperta in primo piano adesso (aggiornato ogni 5 min)">' +
+              claimInfo.text + '</div>'
             : '';
 
         const flag = (typeof Flags !== 'undefined') ? Flags.markup(p.name, p.color, { px: 32 }) : p.name[0];
@@ -4065,6 +4141,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initPalette();
+    // Solo l'editor ha la palette: il "visto N min fa" e lo spegnersi del 🟢 dopo
+    // 7 minuti senza battiti si ricalcolano ogni minuto, senza letture Firestore.
+    if (document.getElementById('palette')) setInterval(refreshPresenceBadges, 60000);
     initResourcePalette();
     initPiecePalette();
     const addPlayerBtn = document.getElementById('add-player-btn');
@@ -7141,9 +7220,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Un salvataggio fallito lascia traccia sul doc di presenza di
                 // questo giocatore (syncErr): la prossima volta si sa perché.
                 if (MultiplayerSync.setDiagCode) MultiplayerSync.setDiagCode(player.invite);
-                MultiplayerSync.setPresence(player.invite, {
-                    invite: player.invite, playerId: player.id, name: player.name
-                });
+                presenceSelf = { invite: player.invite, playerId: player.id, name: player.name };
+                // Aperta la plancia: online subito (anche se in background, la
+                // prima visita conta), poi il battito tiene vivo il segnale.
+                beatPresence(document.visibilityState === 'visible', true);
+                startPresenceBeat();
             });
         },
 

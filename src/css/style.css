@@ -1257,6 +1257,13 @@ svg.map-interacting #map-group path.state { shape-rendering: optimizeSpeed !impo
     background: rgba(60, 160, 70, 0.35);
     border: 1px solid rgba(90, 200, 100, 0.6);
 }
+/* Preso ma non sulla plancia adesso: pillola spenta, con "visto N fa". */
+.player-claim.is-away {
+    font-weight: normal;
+    color: #e4dccb;
+    background: rgba(140, 130, 110, 0.25);
+    border-color: rgba(170, 160, 140, 0.5);
+}
 
 /* Tooltip */
 .map-tooltip {
