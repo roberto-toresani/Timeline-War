@@ -52,7 +52,7 @@ Colpisce tutti i regni, ogni turno; nessuno è immune. `plagueTier(sanità)` →
 | 3 | 1 | 2 | 2 nelle top 3 | libero |
 | 4 | 1 | 1 | 1 nelle top 3 | libero |
 | 5 | 1 | 1 | 1 nella più popolosa | libero |
-`eventDecimate`: presidio minimo rispettato, mercenari cadono per primi.
+`eventDecimate`: presidio minimo rispettato. **Chi muore** (`GameRules.plagueVictims`, regola dell'utente 2026-11-27): soldati **a caso** (i mercenari non cadono per primi); **cavalieri** immuni dove i fanti sono almeno il **triplo** (giudicato prima del contagio), altrove ogni morto ha il **30%** di essere un cavaliere; il **Generale** non è mai colpito.
 `pesteBlocco` su `player`: consumato in `beginTurn` del giro dopo.
 
 ## `spawnKingdom`

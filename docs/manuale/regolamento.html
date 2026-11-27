@@ -54,7 +54,7 @@
 <li><b>Schiera</b> — piazzi le reclute (vedi §5).</li>
 <li><b>Costruisci</b> — edifici, navi, strade, mercenari, spie.</li>
 <li><b>Attacca</b> — quante volte vuoi: clicca una tua provincia, le mete si accendono (retino), clicca il bersaglio e scegli quanti uomini.</li>
-<li><b>Sposta</b> — <b>un solo</b> spostamento fra due tue province confinanti (o via nave verso una tua costa).</li>
+<li><b>Sposta</b> — nei cicli I–II <b>un solo</b> spostamento fra due tue province confinanti (o via nave verso una tua costa). Dal ciclo III: <b>3 spostamenti</b> verso confinanti (max 5 uomini l'uno) <b>oppure 1 a catena</b> verso una tua provincia lontana, senza limite. Il <b>Generale</b> toglie il limite di 5 a chi parte con lui e può muoversi <b>2 volte di fila</b>.</li>
 </ol>
 <p>Poi <b>Fine turno</b>. Quando tutti hanno giocato si chiude il <b>giro</b> e passa un decennio.</p>
 </section>
@@ -69,9 +69,10 @@
 <h2>5. Soldati e reclute</h2>
 <ul>
 <li><b>Reclute libere</b> = province ÷ 3 (per difetto) ± Popolarità. Vanno dove vuoi; se non le usi restano per il turno dopo.</li>
-<li><b>Reclute obbligatorie</b>: Capitale +1, Città +1, Fortezza +5 — nascono e restano lì (un pop-up le schiera tutte in un clic).</li>
+<li><b>Reclute obbligatorie</b>: Capitale +1, Città +1, Fortezza +1 lì e +1 in ogni tua provincia confinante — nascono e restano lì (un pop-up le schiera tutte in un clic).</li>
 <li><b>Presidio minimo:</b> una provincia non resta mai vuota, almeno <b>1 soldato</b> rimane sempre. Attacchi e spostamenti usano solo gli uomini in più.</li>
-<li><b>Mercenari</b> (150 monete): permanenti ma “di ventura”: in battaglia valgono ~0,85 e il loro rendimento oscilla.</li>
+<li><b>Mercenari</b> (100 monete): permanenti ma “di ventura”: in battaglia valgono come un soldato, ma il loro rendimento oscilla. Sono i primi a cadere e i primi a disertare.</li>
+<li><b>Cavalieri</b> (dal ciclo II, 50 monete + 1 Bestiame): all'attacco valgono 1,4 fanti in campo aperto, 0,8 fra monti e paludi, 0,75 contro una Città e 0,65 contro una Fortezza; in difesa valgono 1.</li>
 </ul>
 </section>
 
@@ -90,14 +91,14 @@
 <table>
 <tr><th>Cosa</th><th>Costo</th><th>Effetto</th></tr>
 <tr><td><b>Capitale</b></td><td>500 m</td><td>Una sola; difesa +1, tasse, +1 recluta. Spostabile (500 m) su una tua Città</td></tr>
-<tr><td><b>Città</b></td><td>1000 m, 3 Pi, 2 Ar, 2 Be</td><td>Difesa +1, paga tasse, +1 recluta</td></tr>
-<tr><td><b>Fortezza</b></td><td>2000 m, 6 Pi, 4 Le, 4 Ar, 2 Be, 2 Gr</td><td>Difesa +3, +5 reclute/turno</td></tr>
-<tr><td><b>Mercato</b></td><td>800 m, 4 sold.</td><td>Apre i commerci</td></tr>
+<tr><td><b>Città</b></td><td>800 m, 3 Pi, 2 Ar, 2 Be</td><td>Difesa +1, paga tasse, +1 recluta</td></tr>
+<tr><td><b>Fortezza</b></td><td>1500 m, 6 Pi, 4 Le, 4 Ar, 2 Be, 2 Gr</td><td>Difesa +2; ogni turno +1 recluta lì e +1 in ogni tua provincia confinante</td></tr>
+<tr><td><b>Mercato</b></td><td>600 m, 3 sold.</td><td>Apre i commerci</td></tr>
 <tr><td><b>Nave</b></td><td>3 Le, 1 sold.</td><td>Su costa; porta 8 uomini, portata breve</td></tr>
-<tr><td><b>Veliero</b></td><td>4000 m, 10 Le, 2 Ar, 4 Be, 4 Gr</td><td>Porta 15; rotte oceaniche</td></tr>
-<tr><td><b>Generale</b></td><td>500 m, 3 Be, 3 Gr, 1 Ar</td><td>Vale 2 soldati; in Capitale +1 Sicurezza</td></tr>
-<tr><td><b>Guarnigione</b></td><td>2 Be, 2 Gr, 1 Ar</td><td>+2 soldati</td></tr>
-<tr><td><b>Spia</b></td><td>300 m</td><td>Vede una zona lontana per 3 turni</td></tr>
+<tr><td><b>Veliero</b></td><td>1800 m, 10 Le, 2 Ar, 4 Be, 4 Gr</td><td>Su costa; porta 15; portata 170 negli oceani, 120 nei mari</td></tr>
+<tr><td><b>Generale</b></td><td>200 m, 3 Be, 3 Gr, 1 Ar</td><td>Vale 2 soldati in difesa della sua provincia; in Capitale +1 Sicurezza; negli spostamenti niente limite di uomini e 2 mosse di fila; immune alla peste</td></tr>
+<tr><td><b>Guarnigione</b></td><td>1 Be, 1 Gr, 1 Ar</td><td>+2 soldati</td></tr>
+<tr><td><b>Spia</b></td><td>200 m</td><td>Vede una zona lontana per 3 turni</td></tr>
 </table>
 <p>Capitale, Città e Fortezza si escludono a vicenda; il Mercato non sta dove c'è un insediamento. <b>Migliorie</b> sulla Capitale (3 di una risorsa ciascuna): <b>Sanità</b> e <b>Felicità</b>, fino a 5 per tipo.</p>
 </section>
@@ -119,7 +120,7 @@
 
 <section>
 <h2>9. La battaglia</h2>
-<p>Probabilità dell'attaccante: <b>A<sup>k</sup> / (A<sup>k</sup> + D<sup>k</sup>)</b>, con A = uomini mandati, D = difensori + mura (Città/Capitale +1, Fortezza +3). Il cursore d'ordine ti mostra la percentuale prima di confermare.</p>
+<p>Probabilità dell'attaccante: <b>A<sup>k</sup> / (A<sup>k</sup> + D<sup>k</sup>)</b>, con A = uomini mandati, D = difensori + mura (Città/Capitale +1, Fortezza +2). Il cursore d'ordine ti mostra la percentuale prima di confermare.</p>
 <ul>
 <li><b>Terreno</b> (⛰ sulla mappa): in <b>pianura</b> conta molto il numero (k=2,6); fra <b>monti, foreste, paludi</b> meno (k=1,4). Es.: 3 contro 1 = 95% in pianura, 82% in montagna.</li>
 <li>Vinci: la provincia è tua, con <b>edifici intatti</b>; scegli quanti superstiti restano dentro e quanti tornano indietro.</li>

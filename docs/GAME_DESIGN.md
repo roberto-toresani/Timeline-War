@@ -222,24 +222,41 @@ contiene una **Capitale o Città** del giocatore sono "collegate".
 ### 5.1 Rendita a inizio turno
 `reclute = ⌊(#province controllate) ÷ 3⌋` **[REGOLA]**
 `+ 1 per ogni Città` **[REGOLA]**
-`+ 5 per ogni Fortezza` (oppure 1 Generale, a scelta) **[REGOLA]**
+`+ 1 per ogni Fortezza nella sua provincia, e + 1 in ogni tua provincia che le confina via terra`
+**[REGOLA, utente 2026-11-27]** (due Fortezze vicine sommano; prima era +5 nella sola provincia)
 `+ modificatore Popolarità` (−2…+2, §8) **[REGOLA]**
 `+ eventuali Mercenari e Guarnigioni (permanenti, §5.3) reclutati` **[REGOLA]**
 → Le reclute permanenti compaiono nella **Capitale** **[PROPOSTA]**.
 
-### 5.2 Movimento **[PROPOSTA]**
-- Un giocatore può spostare truppe tra province **proprie e collegate** (rete di §4).
-- Portata base: **1 provincia adiacente** per unità, per turno.
-- **Generale** in una provincia: "facilita i movimenti interni" → consente movimento libero
-  (qualsiasi distanza) all'interno della propria rete collegata, per le truppe che partono
-  con lui.
-- **Nave / Veliero**: portata di mare e sbarchi hanno regole proprie — vedi **§9.2**. Il
-  movimento globale illimitato del Vascello è **superato**: nessuna nave attraversa un oceano
-  in un turno.
+### 5.2 Movimento (fase Sposta) **[REGOLA]**
+- **Cicli I–II**: **1 spostamento** per turno, verso una tua provincia confinante (o via nave).
+- **Dal ciclo III** (turno 21) si sceglie fra:
+  - **Tipo A** — fino a **3 spostamenti**, ognuno verso una provincia **confinante** (o via nave),
+    **massimo 5 uomini** ciascuno;
+  - **Tipo B** — **1 spostamento a catena** verso una tua provincia **non confinante**,
+    collegata via terra attraverso il tuo territorio, **senza limite di uomini**. Esclude gli A.
+- **Banner di conferma**: un Tipo A dice quanti spostamenti restano («Ne hai altri 2»), un Tipo B
+  dice «Non hai altri spostamenti».
+- **Generale** **[REGOLA, utente 2026-11-27]**: se uno spostamento Tipo A porta con sé il
+  Generale della provincia di partenza, **non ha il tetto di 5 uomini** (restano il presidio
+  minimo e il carico delle navi). Il Generale può farlo **2 volte di fila** nello stesso turno
+  (A→B, poi B→C): ognuna conta fra i 3 spostamenti del turno. Non viaggia a catena (Tipo B), non
+  va in rinforzo a un alleato e non entra in una provincia che ha già un Generale.
+- **Nave / Veliero**: portata di mare e sbarchi hanno regole proprie — vedi **§9.2**. Nessuna
+  nave attraversa un oceano in un turno.
 
 ### 5.3 Valori delle unità speciali
-- **Generale** = vale 2 soldati **[REGOLA]**, e conta per la Popolarità se nella Capitale.
-- **Mercenario** = 1 soldato **permanente** ma **di ventura** (100 monete) **[REGOLA]**.
+- **Generale** = vale 2 soldati **in difesa** della sua provincia **[REGOLA]** (non subisce
+  perdite, §9), e conta per la Popolarità se nella Capitale. Si muove con le truppe (§5.2). La **peste non lo colpisce**. Se la sua provincia cade in mano
+  nemica, il Generale cade con lei (non passa al vincitore).
+- **Mercenario** = 1 soldato **permanente** ma **di ventura** (100 monete) **[REGOLA]**: in
+  battaglia vale **come un soldato**, ma l'esito con loro schierati resta incerto (§9.0). Sono
+  i **primi a disertare** se la manutenzione delle truppe non è pagata e i **primi a cadere**
+  in battaglia, negli attacchi come negli sbarchi.
+- **Cavaliere** (dal ciclo II, 50 monete + 1 Bestiame) **[REGOLA, utente 2026-11-27]**: in
+  **attacco** vale **1,4** fanti in campo aperto e **0,8** in terreno chiuso; all'assalto delle
+  mura **0,75** contro Città/Capitale e **0,65** contro una Fortezza (mura e terreno chiuso
+  insieme: vale il peggiore). In **difesa** vale **1**, come un fante.
 - **Guarnigione** = 2 soldati di rinforzo **permanenti** (truppe normali) **[REGOLA]**.
 
 #### La ventura **[REGOLA]**
@@ -312,13 +329,13 @@ dove indicato.
 | Elemento | Costo | Effetto |
 |---|---|---|
 | **Strada** | 1 Pietra + 1 soldato | Collega due province controllate adiacenti. |
-| **Nave** | 2 Legno + 2 soldati | Solo su provincia **costiera**. Portata di mare **12**, carico **8** soldati (§9.2). |
+| **Nave** | 3 Legno + 1 soldato | Solo su provincia **costiera**. Portata di mare **12**, carico **8** soldati (§9.2). |
 | **Capitale** | 500 monete (0 soldati) | I regni **non partono** con una Capitale: la prima si costruisce al turno 1. **Conta come una Città a tutti gli effetti** (difesa **+1**, paga le tasse, +1 soldato/turno, hub di collegamento) e in più: obbligatoria per la raccolta, attiva la Popolarità, **1 sola per regno**, dà **1 strada gratuita**. **Spostabile** su una provincia propria per altre **500 monete** (la vecchia sede → Città). Conquistando una Capitale nemica: se non ne hai una è tua; se ne hai già una scegli se promuoverla (la vecchia → Città) o lasciarla Città. |
 | **Città** | 3 Pietra + 2 Argilla + 2 Bestiame + 800 monete | Capitale secondaria (collegamento locale). Difesa **+1**. Alla costruzione: **+1 Pietra** (una tantum). Ogni turno: **+1 soldato** e **monete da tassazione** (§7). |
-| **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 1500 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+3**. Ogni turno: +5 soldati **oppure** +1 Generale. |
-| **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 1800 monete | Solo su provincia **costiera**. Portata di mare **170**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
+| **Fortezza** | 6 Pietra + 4 Legno + 4 Argilla + 2 Bestiame + 2 Grano + 1500 monete | Struttura **militare a parte**: **non costruibile** dove c'è già una Capitale/Città. Difesa **+2**. Ogni turno: **+1 soldato** nella sua provincia e **+1 in ogni tua provincia confinante** (§5.1). |
+| **Veliero** (Vascello) | 10 Legno + 2 Argilla + 4 Bestiame + 4 Grano + 1800 monete | Solo su provincia **costiera**. Portata **170 negli oceani** (Atlantico, Pacifico, Indiano, Etiopico) e **120 nei mari**, carico **15** soldati, navigazione a rotta oltre la portata (§9.2). |
 | **Mercato** | 3 soldati + 600 monete | Apre i commerci: scambio con l'estero **2:1** e trattative fra regni. |
-| **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 200 monete | Vale 2 soldati, facilita i movimenti interni (§5.2). |
+| **Generale** | 3 Bestiame + 3 Grano + 1 Argilla + 200 monete | Vale 2 soldati in difesa della sua provincia. Negli spostamenti porta quanti uomini vuoi e può muoversi 2 volte di fila (§5.2). Immune alla peste. |
 | **Mercenario** | 100 monete | +1 soldato **permanente**, ma di ventura: in battaglia vale meno di un suddito e rende un numero incerto (§5.3, §9). |
 | **Guarnigione** | 1 Bestiame + 1 Grano + 1 Argilla | +2 soldati di rinforzo permanenti (truppe normali). |
 | **Spia** | 200 monete | Perlustra per **3 turni** una provincia lontana e le sue limitrofe: se ne vedono i **proprietari**, non le truppe (§9.3). |
@@ -389,6 +406,12 @@ cadono ogni decennio e se il raccolto delle province colpite salta il turno dopo
 | 3 | 1 | 2 | 2 nelle top 3 | libero |
 | 4 | 1 | 1 | 1 nelle top 3 | libero |
 | 5 | 1 | 1 | 1 nella più popolosa | libero |
+
+**Chi muore di peste [REGOLA, utente 2026-11-27]** (`GameRules.plagueVictims`): la peste colpisce
+soldati **a caso** — i mercenari non cadono per primi come in battaglia. I **cavalieri** non vengono
+colpiti nelle province dove i fanti sono **almeno il triplo** dei cavalieri (si guarda la provincia
+prima del contagio); altrove — fanti meno del triplo, pari o cavalieri in maggioranza — ogni morto
+ha il **30%** di probabilità di essere un cavaliere. Il **Generale** non è mai colpito.
 
 **Perché costruire Felicità: la Festa (e il suo rovescio, il Malcontento).** Permanente, non
 un evento a calendario: `GameRules.joyTier` legge le stesse 0-5 migliorie di Felicità e piega
@@ -530,9 +553,12 @@ Sbarchi, spedizioni, editti, crociate e razzie non si fermano: fanno i due attac
 **portata di mare** di una propria Nave/Veliero (§9.2) — che a tutti gli effetti la rende limitrofa.
 
 **Valori:**
-- `A` = truppe attaccanti **impegnate** (l'attaccante **sceglie quante**; un Generale conta 2).
-- `D` = **tutte** le truppe del difensore (difende sempre con tutto il disponibile).
-- `Deff = D + bonus struttura` — bonus: **Città/Capitale +1**, **Fortezza +3** (esclusive → al più
+- `A` = truppe attaccanti **impegnate** (l'attaccante **sceglie quante**). Il Generale non attacca.
+- `D` = **tutte** le truppe del difensore (difende sempre con tutto il disponibile), **+2 se nella
+  provincia c'è un Generale** **[REGOLA, utente 2026-11-27]**: quei 2 contano come uomini veri
+  (probabilità, morti inflitti, limite di conquista) ma non cadono — il Generale muore solo se la
+  provincia viene presa (`GameRules.generalDefence`, parametro `genD` di `battle.js`).
+- `Deff = D + bonus struttura` — bonus: **Città/Capitale +1**, **Fortezza +2** (esclusive → al più
   uno). Le **mura difendono anche a guarnigione vuota** (D=0). Neutra senza truppe né strutture:
   `Deff = 0` → l'attaccante vince.
 - `k` = **esponente del terreno** della provincia **attaccata** (vedi sotto).
@@ -541,20 +567,20 @@ Sbarchi, spedizioni, editti, crociate e razzie non si fermano: fanno i due attac
 `A_eff` e `Deff_eff` sono le truppe **efficaci** dopo la ventura (§9.0; senza mercenari valgono
 `A` e `Deff` e la formula è quella di sempre).
 Esempi (D=5, terreno neutro k=2, nessun mercenario): A5 → 50% · A8 → 72% · A10 → 80%;
-**Città (+1)** pareggio a **A6**; **Fortezza (+3)** pareggio a **A8** (A10 → 61%).
+**Città (+1)** pareggio a **A6**; **Fortezza (+2)** pareggio a **A7** (A10 → 67%).
 
 ### 9.0 Ventura: quanto valgono i mercenari in battaglia **[REGOLA]**
 
-Un mercenario è pagato, non giurato. Vale **meno di un suddito in linea**, e — soprattutto —
-**quanto valga si sa solo sul campo**. Sono due effetti distinti, e la separazione è il punto:
-il primo è piccolo e certo, il secondo è il prezzo vero.
+Un mercenario è pagato, non giurato. In media **vale come un suddito** (regola dell'utente
+2026-11-27, prima 0,85), ma **quanto valga davvero si sa solo sul campo**: il suo prezzo non è
+la forza, è l'incertezza.
 
 | | | |
 |---|---|---|
-| **valore** | `ρ` medio **0,85** | un mercenario conta 0,85 soldati: sposta la **media** |
+| **valore** | `ρ` medio **1** | un mercenario conta 1 soldato in media |
 | **tenuta** | `ρ` scarta di **±0,25** | quanto rende davvero: apre la **banda** |
 
-`ρ = 0,85 + 0,25·z`, `z ~ U(−1,1)` → resa fra **0,60 e 1,10**. Il tiro è **uno per
+`ρ = 1 + 0,25·z`, `z ~ U(−1,1)` → resa fra **0,75 e 1,25**. Il tiro è **uno per
 schieramento**, non uno per uomo: tiene il contingente o si sfilaccia, non il singolo.
 
 `A_eff = (A − mA) + mA·ρ_A` e altrettanto per il difensore (`mD` sottratti da `Deff`; le mura
@@ -569,17 +595,17 @@ extra — esattamente come le mura.
 | mercenari fra i 12 | P_A media | banda reale |
 |---|---|---|
 | 0 | 69% | 69% (certa) |
-| 6 (metà) | 66% | 59–71% |
-| 12 (tutti) | 62% | 45–73% |
+| 6 (metà) | 69% | 63–74% |
+| 12 (tutti) | 68% | 56–78% |
 
-La media scende di 7 punti, l'incertezza si apre di 28. Un'armata di ventura non è **più
-debole**: è **meno sicura**, ed è esattamente questo che si compra con 150 monete.
+La media resta quasi ferma, l'incertezza si apre di 22 punti. Un'armata di ventura non è **più
+debole**: è **meno sicura**, ed è esattamente questo che si compra con 100 monete.
 
 **Il pronostico resta onesto.** Con dei mercenari in campo la plancia non può promettere un
 numero: mostra la **media** (`RisikoBattle.winForecast`) e dice la **banda**. La stessa
 funzione la chiama l'IA — se divergessero, il gioco mentirebbe a uno dei due.
 
-Manopole in `src/js/battle.js`: `MERC_VALUE` (0,85) e `MERC_SPREAD` (0,25). Sono lì e in
+Manopole in `src/js/battle.js`: `MERC_VALUE` (1) e `MERC_SPREAD` (0,25). Sono lì e in
 nessun altro posto.
 
 ### 9.1 Terreno **[REGOLA]**
@@ -647,8 +673,8 @@ poco a chi vince e polverizza chi perde**. Ogni media porta un tiro casuale `z ~
   decimale è la probabilità di un morto in più, così la media resta quella del conto e i
   piccoli numeri non si schiacciano sempre sullo stesso intero (regola dell'utente).
 - **Attaccante vince** → difensore azzerato, entrano `A−C`. **[REGOLA] Le costruzioni NON
-  vengono rase**: Capitale/Città/Fortezza/Mercato/Generale/navi restano sulla provincia e
-  cambiano semplicemente proprietario (e colore).
+  vengono rase**: Capitale/Città/Fortezza/Mercato/navi restano sulla provincia e
+  cambiano semplicemente proprietario (e colore). Il **Generale** no: cade con la provincia.
 - **[REGOLA] Difensore regge → l'attaccante RIPIEGA, non è più annientato.** In una disfatta
   di **terra** l'attaccante perde una **frazione**, tanto più grande quanto più la battaglia era
   pari, della stessa base del vincitore (non più di quanti il difensore ne possa abbattere):
@@ -716,19 +742,27 @@ Unità di misura: la mappa è **1200×575**, 1 unità ≈ **33 km**. Riferimento
 | | portata | carico | dove |
 |---|---|---|---|
 | **Nave** | **12** | **8** soldati | solo provincia costiera |
-| **Veliero** | **170** | **15** soldati | solo provincia costiera |
+| **Veliero** | **170** oceani · **120** mari | **15** soldati | solo provincia costiera |
+
+**Oceani e mari [REGOLA, utente 2026-11-27].** Sono **oceani** l'Atlantico (Mare del Nord
+compreso), il Pacifico, l'Indiano e l'Etiopico; sono **mari** i bacini chiusi di
+`INNER_SEAS` in `js/sea-routes.js` — Mediterraneo e Mar Nero, Baltico, Mar Arabico con Mar Rosso
+e Golfo Persico, Caspio. Il Veliero fa **170** in oceano e **120** nei mari: ogni tratto di mare
+gli costa 170/120 della portata, quindi una rotta mista paga ciascun tratto per quel che è. La
+Nave va al contrario (12 in oceano, 18 nei mari): è nata per le acque chiuse.
 
 **Tutto ciò che sta dentro la portata è provincia limitrofa a tutti gli effetti**: si vede sulla
 mappa e si attacca subito, senza passaggi intermedi né turni di avvicinamento. Oltre la portata
 c'è il buio.
 
-Quanto apre una portata (province raggiungibili, **misurate** sulla mappa vera):
+Quanto apre una portata (province raggiungibili, **misurate** sulla mappa vera il 2026-11-27,
+con la regola oceani/mari):
 
-| nave ancorata a | Nave (12) | Veliero (170) |
+| nave ancorata a | Nave (12) | Veliero (170/120) |
 |---|---|---|
-| Barcellona | 6 | 133 |
-| Sicilia | 13 | 123 |
-| Normandia | 7 | 107 |
+| Catalogna (Barcellona) | 10 | 105 |
+| Sicilia | 14 | 91 |
+| Normandia | 8 | 85 |
 
 Esempi di Nave (12), come li calcola `js/sea-routes.js`: Normandia → West Country, Home
 Counties, East Anglia, Fiandre, **Olanda**; Sicilia → Calabria, Tunisia, Campania, Puglia,
@@ -737,7 +771,8 @@ Sardegna, Abruzzo, Lazio. È la traversata di uno stretto o di un mare breve, ma
 **Rotte lunghe (solo Veliero).** Oltre la portata il giocatore indica una **rotta** — uno degli 8
 punti cardinali — e ogni turno il veliero avanza di una portata piena, scoprendo quel che gli
 entra nel raggio; può fermarsi appena avvista una terra nuova. Turni di navigazione da
-Barcellona, **misurati**:
+Barcellona, **misurati prima della regola oceani/mari** (nei mari ora si va più corti: in un
+turno da Barcellona non si arriva più a Gerusalemme né all'Islanda — da rimisurare):
 
 | turni | mete |
 |---|---|
@@ -944,8 +979,8 @@ il vero bilanciamento. → *in discussione.*
 
 **Confermate [REGOLA]:**
 - Combattimento **probabilistico** `P_A = A^k/(A^k+Deff^k)`, `k` dal terreno, con attrito anti-valanga (§9,
-  `battle.js`), bonus difensivi **Città/Capitale +1, Fortezza +3** (in `Deff = D + bonus`).
-- **Mercenari permanenti ma di ventura** (150 monete): valgono 0,85 soldati in media, con uno
+  `battle.js`), bonus difensivi **Città/Capitale +1, Fortezza +2** (in `Deff = D + bonus`).
+- **Mercenari permanenti ma di ventura** (100 monete): valgono 1 soldato in media, con uno
   scarto di ±0,25 tirato a ogni battaglia (§9.0). Si tracciano per provincia, partono in quota
   proporzionale e cadono per primi (§5.3).
 - Vittoria: **soglia di prestigio** (proposta 30) **oppure** eliminazione degli altri; si

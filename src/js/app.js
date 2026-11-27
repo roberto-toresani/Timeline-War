@@ -1615,7 +1615,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Quanti dei soldati di una provincia sono CAVALIERI: data-cav="2". Stessa
     // scelta dei mercenari: il cavaliere è un soldato dappertutto (presidio,
     // spostamenti, costi in soldati) e si distingue solo nel tiro di battaglia
-    // (RisikoBattle: vale 1,45 contro i fanti, meno sotto le mura). Vive sul PATH
+    // (RisikoBattle: vale 1,4 all'attacco in campo aperto, meno fra i monti e sotto le mura). Vive sul PATH
     // perché le truppe sono di chi possiede la provincia.
     // INVARIANTE: mercenari + cavalieri <= soldati. Un uomo è o di ventura o a
     // cavallo, mai tutte e due: la impone `setCav`, e `changePiece` la riapplica

@@ -178,10 +178,10 @@
     // credendo di essere in pianura, né conta su mercenari come su sudditi.
     // `fromId` serve a sapere quanti dei partenti sono di ventura: senza, il bot
     // comprerebbe mercenari fidandosi di un pronostico che li ignora.
-    // I CAVALIERI entrano nello stesso conto: quelli del difensore valgono 1,45,
+    // I CAVALIERI entrano nello stesso conto: quelli del difensore valgono 1,
     // i propri valgono quel che concedono le mura del bersaglio (RisikoBattle).
     function winProbMerc(A, t, mercA, cavA) {
-        return RisikoBattle.winForecast(A, (t.troops || 0) + (t.fort || 0), t.esponente,
+        return RisikoBattle.winForecast(A, (t.troops || 0) + (t.fort || 0) + (t.gen || 0), t.esponente,
             mercA || 0, t.merc || 0, cavA || 0, t.cav || 0, t.fort || 0, t.terreno).p;
     }
     function winProb(A, t, fromId) {
@@ -1269,7 +1269,7 @@
                 if (altro && D() && D().grantsNonAggression(player, altro)) return;
                 if (altro && DOC().isFriend(doc, t.owner)) return;
                 const p100 = RisikoBattle.winForecast(exp.carico,
-                    (t.troops || 0) + (t.fort || 0), t.esponente, exp.merc || 0, t.merc || 0,
+                    (t.troops || 0) + (t.fort || 0) + (t.gen || 0), t.esponente, exp.merc || 0, t.merc || 0,
                     exp.cav || 0, t.cav || 0, t.fort || 0, t.terreno).p;
                 if (p100 < s.soglia) return;
                 const punti = p100 + (altro ? 0 : 0.3);
@@ -2114,15 +2114,15 @@
     }
 
     // ---------- FASE 2 · cavalieri ----------
-    // Un cavaliere costa poco in oro (50) ma una bestia (1 Bestiame), e vale 1,45
-    // fanti in campo aperto e in difesa: è il modo migliore di trasformare il
+    // Un cavaliere costa poco in oro (50) ma una bestia (1 Bestiame), e vale 1,4
+    // fanti all'attacco in campo aperto (in difesa 1): è il modo migliore di trasformare il
     // Bestiame in eccesso in forza. Due freni, perché il Bestiame serve anche ad
     // altro: (1) non si tocca quello che chiedono le costruzioni in programma
     // (Città, Fortezza, Generale…) né quello che un obiettivo vuole in magazzino;
     // (2) non si tocca l'oro della prossima costruzione (coinReserve), come per i
     // mercenari. DOVE: sulla provincia da cui partirà il prossimo attacco, se è
     // in campo aperto e senza mura (lì il cavaliere rende); altrimenti sul
-    // confine più minacciato, dove in difesa vale sempre 1,45.
+    // confine più minacciato, dove in difesa vale 1, come un fante.
     function knightReserveBeast(player, s, og) {
         let riserva = 0;
         (s.build || []).forEach(type => {
@@ -2152,7 +2152,7 @@
         if (b && !b.target.viaMare && knightsFor(b.fromId, 1, b.target) === undefined) {
             return { provId: b.fromId, n: Math.min(n, roomAt(b.fromId)) };
         }
-        // Altrimenti il confine più scoperto o minacciato (difesa: 1,45 sempre).
+        // Altrimenti il confine più scoperto o minacciato (in difesa vale 1, come un fante).
         let dove = null, peggio = -1;
         survey(player).forEach(p => {
             const minaccia = (p.scoperta || 0) * 2 + (p.minaccia || 0);

@@ -103,7 +103,7 @@
             (attackTargets(player, p.id) || []).forEach(t => {
                 if (t.viaMare) return;          // gli sbarchi hanno il tetto del carico: a parte
                 const g = groupLeaving(p, A);
-                const P = RisikoBattle.winForecast(A, (t.troops || 0) + (t.fort || 0), t.esponente,
+                const P = RisikoBattle.winForecast(A, (t.troops || 0) + (t.fort || 0) + (t.gen || 0), t.esponente,
                     g.merc, t.merc, g.cav, t.cav, t.fort, t.terreno).p;
                 out.push({ da: p.id, verso: t.id, dif: t.owner || 'Neutrale', A, D: t.troops,
                            mura: t.fort, P: Math.round(P * 100), patto: t.patto || null });
@@ -143,7 +143,9 @@
         return E().ownedPaths(player.name).map(p => ({
             id: p.id,
             resource: R().resourceKeyOf(p) || null,
-            pieces: E().pieces(p)
+            pieces: E().pieces(p),
+            // confinanti via terra: la Fortezza rinforza anche quelle (KingdomStats.fortressYield)
+            vicini: E().landNeighbors(p.id)
         }));
     }
 
@@ -515,7 +517,7 @@
             // difende, e pesa anche qui (§5.3).
             const mercDif = E().merc(tp);
             const res = RisikoBattle.resolveFullBattle(attaccanti, difTruppe, fort, null, terrainExp(tp),
-                0, mercDif, 0, E().cav(tp), terrainOf(tp));
+                0, mercDif, 0, E().cav(tp), terrainOf(tp), GR().generalDefence(unitsOf([tp])));
             if (!res) return;
 
             // Gli attaccanti lasciano comunque la provincia neutrale (resta il
@@ -742,6 +744,7 @@
             pl.fase = PHASES[0];
             pl.spostamentiRimasti = 1;
             pl.tipoSpostamento = null;
+            pl.generaliMossi = {};
             pl.conquista = null;
             // Partita nuova: nessun turno globale ancora aperto (idempotenza di
             // beginTurn). Senza, un beginStamp di una partita vecchia potrebbe
@@ -977,7 +980,7 @@
         // Una Felicità andata dormiente o crollata (o rimediata) cambia il piano
         // della Festa già ORA, non al turno dopo.
         if (maintainWelfare(player)) refreshFesta(player, false);
-        // MANUTENZIONE DEL REGNO (§Manutenzione): ogni 3 turni (strutture) e 7 (truppe) il conto di
+        // MANUTENZIONE DEL REGNO (§Manutenzione): ogni 4 turni (strutture) e 7 (truppe) il conto di
         // truppe e (da magazzino liv. 2) strutture; ogni turno i debiti aperti
         // si saldano da sé o costano un disertore.
         maintainKingdom(player);
@@ -993,6 +996,9 @@
         const _cicloSp = Math.floor((turnoGlobale - 1) / 10);
         player.spostamentiRimasti = _cicloSp >= 2 ? 3 : 1;
         player.tipoSpostamento = null;
+        // Il GENERALE (regola dell'utente): fino a 2 spostamenti di fila per
+        // turno. { idProvinciaDoveSta: quanti ne ha già fatti }.
+        player.generaliMossi = {};
         player.conquista = null;
         player.capitalePresa = null;
 
@@ -1526,7 +1532,7 @@
         const difensore = E().owner(to) || 'Neutrale';
         const mercDif = E().merc(to);
         const res = RisikoBattle.resolveFullBattle(mossi, defTroops, fort, null, terrainExp(to), mercMossi, mercDif,
-            cavMossi, E().cav(to), terrainOf(to));
+            cavMossi, E().cav(to), terrainOf(to), GR().generalDefence(unitsOf([to])));
         if (!res) return null;
         const arrivati = res.attackerWins ? survivorsOf(oste, res.losses) : null;
         const conversione = applyBattleOutcome(regno, to, res, defTroops, arrivati);
@@ -1667,7 +1673,14 @@
             const disp = GR().spendableTroops(E().countPiece(path, 'soldato'));
             const persi = Math.min(want, disp);
             if (persi <= 0) return;
-            loseFromPath(path, persi);   // i mercenari cadono per primi (§5.3)
+            // La peste colpisce A CASO (regola dell'utente): niente mercenari per
+            // primi come in battaglia; i cavalieri si salvano dove i fanti sono il
+            // triplo (GameRules.plagueVictims). Il Generale non è un soldato.
+            const g = { n: E().countPiece(path, 'soldato'), merc: E().merc(path), cav: E().cav(path) };
+            const v = GR().plagueVictims(g, persi);
+            E().addPiece(path, 'soldato', -persi);
+            E().setMerc(path, g.merc - v.merc);
+            E().setCav(path, g.cav - v.cav);
             E().redrawProvince(path);
             colpiti.push({ prov: path.id, label: R().provinceLabel(path), persi,
                 capitale: tipo === 'capitale', tipo });
@@ -2853,7 +2866,7 @@
 
     // Reclutamento (§5.3). Tre unità, tutte permanenti:
     //   Cavaliere   — 1 soldato a cavallo: entra in `data-cav` e in battaglia vale
-    //                 1,45 fanti (meno all'assalto delle mura, RisikoBattle).
+    //                 1,4 fanti all'attacco in campo aperto (meno fra i monti e contro le mura, RisikoBattle).
     //   Guarnigione — 2 soldati di rinforzo, truppe normali che restano.
     //   Mercenario  — 1 soldato che RESTA per sempre, ma è di ventura: entra in
     //                 `data-merc` e da lì pesa su ogni battaglia della provincia
@@ -2884,7 +2897,7 @@
         // Il Mercenario entra in `data-merc` (ventura, §9); la Guarnigione è
         // rinforzo puro — soldati normali che restano, niente da segnare.
         if (type === 'mercenario') E().addMerc(path, n);
-        // Il Cavaliere entra in `data-cav`: un soldato che in battaglia vale 1,45.
+        // Il Cavaliere entra in `data-cav`: un soldato che all'attacco vale 1,4 (in difesa 1).
         if (type === 'cavaliere') E().addCav(path, n);
 
         E().redrawProvince(path);
@@ -2897,8 +2910,8 @@
         if (type === 'cavaliere') {
             const cav = E().cav(path);
             return done('+1 cavaliere in ' + R().provinceLabel(path) + ' (' + cav +
-                ' in tutto): in battaglia vale 1,45 fanti, ' +
-                'ma all\'assalto delle mura rende meno di un fante, e in terreno chiuso un quarto in meno. In attacco e negli spostamenti scegli quanti fanti e quanti cavalieri muovere.',
+                ' in tutto): all\'attacco in campo aperto vale 1,4 fanti, in terreno chiuso 0,8, ' +
+                'contro le mura meno di un fante; in difesa vale 1. In attacco e negli spostamenti scegli quanti fanti e quanti cavalieri muovere.',
                 { prov: provId });
         }
         // Il mercenario si paga due volte: una in monete, una in affidabilità. La
@@ -2906,8 +2919,8 @@
         // scopre il conto solo quando perde una battaglia che dava per vinta.
         const merc = E().merc(path), truppe = E().countPiece(path, 'soldato');
         return done('+1 mercenario in ' + R().provinceLabel(path) + ': resta per sempre, ma qui ' +
-            merc + ' truppe su ' + truppe + ' sono ormai di ventura — in battaglia rendono meno, ' +
-            'e quanto meno si scopre sul campo.', { prov: provId });
+            merc + ' truppe su ' + truppe + ' sono ormai di ventura — in battaglia valgono un soldato, ' +
+            'ma quanto rendano davvero si scopre sul campo.', { prov: provId });
     }
 
     // ---------- SPIE (§9.3) ----------
@@ -4570,8 +4583,10 @@
             // bersaglio come il terreno, così plancia e bot pronosticano con lo
             // stesso numero che userà la battaglia.
             merc: E().merc(p),
-            cav: E().cav(p),   // cavalieri del difensore: valgono 1,45 in difesa
+            cav: E().cav(p),   // cavalieri del difensore: valgono 1 in difesa
             fort: GR().defenceBonus(unitsOf([p])),
+            // Il Generale del difensore: 2 uomini in più nel conto (GameRules.generalDefence).
+            gen: GR().generalDefence(unitsOf([p])),
             terreno: terrainOf(p),
             esponente: terrainExp(p),
             // Come ci si arriva: via terra o con uno sbarco (§9.2). Chi sbarca
@@ -4815,6 +4830,10 @@
             E().setMerc(to, Math.max(0, inGroup.merc || 0));
             // Idem per la cavalleria: restano solo i cavalieri arrivati vivi.
             E().setCav(to, Math.max(0, inGroup.cav || 0));
+            // Il GENERALE del vinto cade con la sua provincia: ora che si muove
+            // con le truppe è un comandante, non un edificio da ereditare.
+            const genVinto = E().countPiece(to, 'generale');
+            if (genVinto > 0) E().addPiece(to, 'generale', -genVinto);
             E().setArmyColor(to, winner.color);
             pruneRoadsTouching(to.id);
             const conv = convertOnConquest(winner, to, fedeVincitore);
@@ -4956,7 +4975,7 @@
         const terreno = terrainOf(to);
         // VENTURA (§5.3): parte la quota proporzionale della provincia, e il
         // difensore mette in campo la sua. Si contano PRIMA di muovere i soldati.
-        // CAVALIERI: partono per primi; quelli del difensore valgono 1,45 in casa.
+        // CAVALIERI: partono per primi; quelli del difensore valgono 1 in casa.
         const gruppo = groupLeaving(from, engaged, ordA.cav);
         const mercImp = gruppo.merc, cavImp = gruppo.cav;
         const mercDif = E().merc(to) + corpMerc, cavDif = E().cav(to) + corpCav;
@@ -4967,7 +4986,7 @@
         const combatti = intermedio ? RisikoBattle.firstCharge
             : viaMare ? RisikoBattle.resolveFullBattle : RisikoBattle.resolveBattle;
         const res = combatti(engaged, defTroops, fort, rng, terrainExp(to),
-            mercImp, mercDif, cavImp, cavDif, terreno);
+            mercImp, mercDif, cavImp, cavDif, terreno, GR().generalDefence(unitsOf([to])));
         if (!res) return fail('Nessuna battaglia possibile.');
 
         // IL PATTO si scioglie QUI, non prima: solo ora l'attacco è certo (tutto
@@ -5267,6 +5286,7 @@
                 merc: E().merc(p),
                 cav: E().cav(p),
                 fort: GR().defenceBonus(unitsOf([p])),
+                gen: GR().generalDefence(unitsOf([p])),
                 terreno: terrainOf(p),
                 esponente: terrainExp(p),
                 mia
@@ -5329,7 +5349,7 @@
         const mercDif = E().merc(to);
         const cavDif = E().cav(to);
         const res = RisikoBattle.resolveFullBattle(carico, defTroops, fort, rng, terrainExp(to), mercImp, mercDif,
-            cavImp, cavDif, terreno);
+            cavImp, cavDif, terreno, GR().generalDefence(unitsOf([to])));
         if (!res) return fail('Nessuna battaglia possibile.');
         const arrivati = res.attackerWins ? survivorsOf(bordo, res.losses) : null;
         const mercArrivati = arrivati ? arrivati.merc : 0;
@@ -5681,7 +5701,25 @@
             .sort((a, b) => a.label.localeCompare(b.label));
     }
 
-    function finalMove(player, fromId, toId, n, scafoVoluto) {
+    // IL GENERALE NEGLI SPOSTAMENTI (regola dell'utente 2026-11-27): uno
+    // spostamento Tipo A (confinante o in nave) che porta con sé il Generale non
+    // ha il tetto di 5 uomini — partono quanti ne vuoi, entro presidio e carico
+    // delle navi. Il Generale può farlo DUE volte di fila nello stesso turno
+    // (A→B, poi B→C), e ognuna conta fra i 3 spostamenti del turno. Non viaggia
+    // a catena (Tipo B) né va in rinforzo a un alleato. Quanti ne ha fatti si
+    // legge dalla provincia dove sta adesso: `player.generaliMossi[id]`.
+    const GENERAL_MOVES = 2;
+    function generalMovesDone(player, provId) {
+        return ((player && player.generaliMossi) || {})[provId] || 0;
+    }
+    // Il Generale che sta in `provId` può ancora muoversi in questo turno?
+    function generalCanMove(player, provId) {
+        const p = E().path(provId);
+        if (!p || E().owner(p) !== player.name || !(E().countPiece(p, 'generale') > 0)) return false;
+        return generalMovesDone(player, provId) < GENERAL_MOVES;
+    }
+
+    function finalMove(player, fromId, toId, n, scafoVoluto, conGenerale) {
         const turnErr = requirePhase(player, 'sposta'); if (turnErr) return turnErr;
         if (!player.spostamentiRimasti || player.spostamentiRimasti <= 0)
             return fail('Hai già usato tutti gli spostamenti di questo turno.');
@@ -5691,6 +5729,17 @@
         if (!from || !to) return fail('Provincia sconosciuta.');
         if (E().owner(from) !== player.name) return fail('Lo spostamento parte da una tua provincia.');
         if (fromId === toId) return fail('Partenza e arrivo sono la stessa provincia.');
+        conGenerale = !!conGenerale;
+        if (conGenerale) {
+            if (!(E().countPiece(from, 'generale') > 0))
+                return fail('In ' + R().provinceLabel(from) + ' non c\'è un Generale.');
+            if (generalMovesDone(player, fromId) >= GENERAL_MOVES)
+                return fail('Il Generale ha già fatto i suoi ' + GENERAL_MOVES + ' spostamenti di questo turno.');
+            if (E().owner(to) !== player.name)
+                return fail('Il Generale si sposta solo fra le tue province.');
+            if (E().countPiece(to, 'generale') > 0)
+                return fail('In ' + R().provinceLabel(to) + ' c\'è già un Generale.');
+        }
 
         // La meta è una PROPRIA provincia, oppure — col privilegio 'rinforzi'
         // (§Diplomazia) — un ALLEATO a cui inviare rinforzi (i soldati diventano
@@ -5715,14 +5764,18 @@
         // di portarsi dietro lo scafo); senza, si prende il meno capiente che
         // basti (non si sciupa un Veliero dove arriva una Nave).
         // Tipo B (catena BFS): non adiacente, stesso territorio, nessun limite di uomini.
-        const _viaCatena = _cicloPrevisto && !scafoVoluto && toMine && !E().areLandAdjacent(fromId, toId)
+        // Il Generale non viaggia a catena: con lui lo spostamento è sempre Tipo A.
+        const _viaCatena = !conGenerale && _cicloPrevisto && !scafoVoluto && toMine && !E().areLandAdjacent(fromId, toId)
             && ownReachable(player, fromId).has(toId);
-        // Tipo A: adiacente di terra o via nave; massimo 5 uomini dal ciclo III.
+        // Tipo A: adiacente di terra o via nave; massimo 5 uomini dal ciclo III,
+        // senza tetto se parte anche il Generale.
         if (!_viaCatena) {
             if (player.tipoSpostamento === 'B')
                 return fail('Hai già usato lo spostamento a catena (Tipo B) questo turno.');
-            if (_cicloPrevisto && n > 5)
-                return fail('Gli spostamenti Tipo A dal ciclo III portano al massimo 5 uomini.');
+            // troopOrder: con dei cavalieri scelti `n` arriva come {n, cav}, e
+            // un oggetto confrontato con 5 lasciava passare tutto.
+            if (_cicloPrevisto && troopOrder(n).n > 5 && !conGenerale)
+                return fail('Gli spostamenti Tipo A dal ciclo III portano al massimo 5 uomini (senza limite se parte anche il Generale).');
         } else {
             if (player.tipoSpostamento === 'A')
                 return fail('Hai già usato uno spostamento singolo (Tipo A) questo turno; non puoi usare la catena.');
@@ -5803,6 +5856,16 @@
                 E().addShip(to, flotta.tipo, 0);
             }
         }
+        // Il Generale segue gli uomini, e si porta dietro il conto dei suoi passi.
+        let _passiGen = 0;
+        if (conGenerale) {
+            _passiGen = generalMovesDone(player, fromId) + 1;
+            E().addPiece(from, 'generale', -1);
+            E().addPiece(to, 'generale', 1);
+            if (!player.generaliMossi) player.generaliMossi = {};
+            delete player.generaliMossi[fromId];
+            player.generaliMossi[toId] = _passiGen;
+        }
         E().redrawProvince(from);
         E().redrawProvince(to);
         if (_viaCatena) {
@@ -5822,8 +5885,12 @@
               (viaMare ? (flotta && flotta.num > 1 ? ' Le navi rientrano a ' : ' La nave rientra a ') +
                   R().provinceLabel(from) + '.' : '')
             : n + (n === 1 ? ' soldato spostato' : ' soldati spostati') +
+              (conGenerale ? ' col Generale' : '') +
               (viaMare ? (flotta && flotta.num > 1 ? ' con ' + flotta.num + ' navi' : ' via nave') : '') +
-              ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.';
+              ' da ' + R().provinceLabel(from) + ' a ' + R().provinceLabel(to) + '.' +
+              (conGenerale ? (_passiGen < GENERAL_MOVES && _rimasti > 0
+                  ? ' Il Generale può fare ancora uno spostamento da ' + R().provinceLabel(to) + '.'
+                  : ' Il Generale ha finito i suoi spostamenti.') : '');
         const _spostMsg = _viaCatena
             ? ' Uno spostamento a lungo raggio: puoi chiudere il turno.'
             : _rimasti > 0
@@ -6266,7 +6333,7 @@
         const difensore = E().owner(to) || 'Neutrale';
 
         const res = RisikoBattle.resolveFullBattle(engaged, defTroops, fort, rng, terrainExp(to),
-            mercImp, mercDif, cavImp, cavDif, terreno);
+            mercImp, mercDif, cavImp, cavDif, terreno, GR().generalDefence(unitsOf([to])));
         if (!res) return fail('Nessuna battaglia possibile.');
 
         // Tradimento senza consenso: rompe il patto. Col consenso si consuma il
@@ -6470,7 +6537,7 @@
                 const mercDif = E().merc(to);
                 const cavDif = E().cav(to);
                 const res = RisikoBattle.resolveFullBattle(mossi, defTroops, fort, null, terrainExp(to),
-                    mercMossi, mercDif, cavMossi, cavDif, terrainOf(to));
+                    mercMossi, mercDif, cavMossi, cavDif, terrainOf(to), GR().generalDefence(unitsOf([to])));
                 if (!res) return fail('Nessuna battaglia possibile.');
                 const arrivati = res.attackerWins
                     ? survivorsOf({ n: mossi, merc: mercMossi, cav: cavMossi }, res.losses) : null;
@@ -6737,7 +6804,8 @@
         // marciare in aiuto in fase d'attacco invece di colpire.
         askReinforcements, cancelHelp, sendReinforcements, helpInbox, helpOutbox, expireHelpRequests,
         conquestPending, resolveConquest,
-        moveTargets, moveOrigins, finalMove, ownAdjacent, garrisonNeutrals, neutralRaids,
+        moveTargets, moveOrigins, finalMove, generalCanMove, generalMovesDone, GENERAL_MOVES,
+        ownAdjacent, garrisonNeutrals, neutralRaids,
         sendCorps, recallCorps, corpsOn, isFrontier, corpsAttack, corpsAttackTargets,
         showFront, hideFront, frontEnemies, frontsShownTo, canSendCorpsTo,
         PHASES, PHASE_LABEL, PHASE_HINT, phaseOf, phaseIndex, nextPhase,
@@ -6799,7 +6867,7 @@
             // P = il pronostico che il giocatore leggeva (ventura alla media);
             // Peff = la probabilità del tiro vero, dopo la tenuta della ventura.
             if (typeof RisikoBattle !== 'undefined' && RisikoBattle.winForecast && r.engaged) {
-                v.P = pct(RisikoBattle.winForecast(r.engaged, (r.defTroops || 0) + (r.fort || 0), b.esponente,
+                v.P = pct(RisikoBattle.winForecast(r.engaged, (r.defTroops || 0) + (r.fort || 0) + (b.genD || 0), b.esponente,
                     r.mercImpegnati, r.mercDifensore, r.cavImpegnati, r.cavDifensore, r.fort, r.terreno).p);
             }
             v.Peff = pct(b.P_A);
@@ -6840,7 +6908,8 @@
                                            verso: pre.conquista && pre.conquista.toId,
                                            sup: pre.conquista && pre.conquista.superstiti, restano: numOf(a[1]) }),
         finalMove:     (a) => ({ az: 'sposta', da: a[1], verso: a[2], n: numOf(a[3]),
-                                 cav: (a[3] && typeof a[3] === 'object') ? a[3].cav : null }),
+                                 cav: (a[3] && typeof a[3] === 'object') ? a[3].cav : null,
+                                 generale: !!a[5] }),
         launchExpedition: (a) => ({ az: 'salpa', da: a[1], dir: a[2], n: numOf(a[3]) }),
         sendCorps:     (a) => ({ az: 'corpo', da: a[1], verso: a[2], n: numOf(a[3]) }),
         recallCorps:   (a) => ({ az: 'richiama-corpo', corpo: a[1] }),

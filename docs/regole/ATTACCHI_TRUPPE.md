@@ -25,6 +25,10 @@
 
 ## Spostamento finale (`moveArmed`)
 - Solo nella fase `sposta`: trascina truppe da A a B adiacente o via nave.
+- Dal ciclo III: **3 Tipo A** (confinante o nave, max 5 uomini) **oppure 1 Tipo B** a catena (non confinante, senza limite). Il banner di conferma dice «Ne hai altri N» (A) o «Non hai altri spostamenti» (B).
+- **Generale** (`finalMove(..., conGenerale)`): con lui un Tipo A non ha il tetto di 5; può fare **2 spostamenti di fila** (conto in `player.generaliMossi`, azzerato a inizio turno), ognuno fra i 3 del turno. Mai a catena, mai verso un alleato o dove c'è già un Generale.
+- Conquista: il Generale della provincia presa cade con lei (non passa al vincitore).
+- In difesa il Generale vale **+2 uomini** (`GameRules.generalDefence` → ultimo argomento `genD` di `resolveBattle`/`firstCharge`/`resolveFullBattle`; nei pronostici `t.gen` si somma ai difensori). Contano in probabilità, morti inflitti e limite di conquista; non subiscono perdite.
 - Via nave: richiede scafo con capienza, provincia costiera di partenza e arrivo.
 - `reachCached` obbligatorio nei cicli di render per le portate.
 

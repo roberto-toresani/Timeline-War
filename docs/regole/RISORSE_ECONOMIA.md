@@ -20,7 +20,8 @@ L'**Oro** NON è una risorsa di `RES`: sono le **monete** (`monete`), canale a p
 
 ## Mercenari
 - `data-merc` sul path: mercenari presenti nella provincia.
-- `MERC_VALUE`: forza in combattimento; `MERC_SPREAD`: spread prezzo.
+- `MERC_VALUE` = **1** (vale come un soldato, regola dell'utente 2026-11-27); `MERC_SPREAD` = 0,25: l'esito con loro schierati resta incerto.
+- Primi a **disertare** (manutenzione truppe non pagata) e primi a **cadere** in battaglia, attacchi e sbarchi. La **peste** invece li colpisce a caso, come gli altri fanti.
 - `mercLeaving`: mercenari abbandonano se non pagati.
 - `addMerc(path, qty)`: aggiunge mercenari; `mercenaryPlan` decide quando comprarli.
 - I bot comprano mercenari solo per chiudere un attacco (`mercenaryPlan + coinReserve`).
@@ -29,7 +30,8 @@ L'**Oro** NON è una risorsa di `RES`: sono le **monete** (`monete`), canale a p
 - Sbloccati al **turno 11** (ciclo II, anno 1100) — `UNLOCK_TURN = { cavaliere: 11 }`.
 - **Costo: 50 monete + 1 Bestiame** (`COSTS.cavaliere`): il prezzo vero è la bestia, non l'oro.
 - `data-cav` sul path: conteggio cavalieri.
-- Valore in battaglia **1,45** fanti; all'assalto delle mura **0,9** (Città/Capitale) / **0,7** (Fortezza); difesa 1,45; in terreno chiuso ogni valore −¼.
+- Valore in **attacco**: **1,4** fanti in campo aperto, **0,8** in terreno chiuso; all'assalto delle mura **0,75** (Città/Capitale) / **0,65** (Fortezza); mura + terreno chiuso → il peggiore. In **difesa** vale **1** (regola dell'utente 2026-11-27, `KNIGHT_*` in `battle.js`).
+- Peste: immuni dove i fanti sono almeno il triplo; altrove ogni morto ha il 30% di essere un cavaliere (`GameRules.plagueVictims`).
 - `squadRowsHtml`: riga separata nel cursore d'ordine quando ci sono cavalieri.
 - I cavalieri contribuiscono al presidio (`spendableTroops` li include).
 
@@ -54,8 +56,10 @@ Reclutare e costruire sono già sink ricorrenti: oltre alle monete spendono riso
 
 ## Bonus costruzioni e territorio
 - Strada: collega province adiacenti per la raccolta e la portata truppe.
-- Fortezza: bonus difesa in battaglia (`k` del terreno aumentato).
-- Porto: amplia le rotte marittime, obbligatorio per le Navi di porto.
+- Fortezza: difesa **+2** in battaglia (`GameRules.FORT_BONUS`); ogni turno **+1 soldato** nella sua provincia e **+1 in ogni tua provincia confinante** (`KingdomStats.fortressYield`).
+- Generale: vale 2 soldati in difesa della sua provincia (`GameRules.generalDefence`, non cade in battaglia); negli spostamenti porta quanti uomini vuoi e fa 2 spostamenti di fila (→ `GAME_DESIGN.md §5.2`); immune alla peste.
+- Veliero: portata **170 negli oceani, 120 nei mari** (`VESSEL_SEA_COST` in `sea-routes.js`).
+- Il **Porto non esiste**: le navi si costruiscono su qualsiasi provincia costiera.
 - Costruzioni gratuite: strada dalla fondazione della Capitale (non dall'avvio partita).
 
 ## Malus principali
@@ -79,11 +83,11 @@ Limita quante risorse di **ogni tipo** puoi stoccare (tetto per singolo tipo, no
 - **Scudo dei nuovi regni**: a **lvl 1 la manutenzione delle STRUTTURE è spenta**. Il **primo upgrade (lvl 1→2)** la accende. Un regno troppo piccolo per reggere i costi resta a lvl 1, cap 10, nessun costo di struttura. (La manutenzione delle TRUPPE è sempre attiva — vedi sotto.)
 - Interazione voluta con la Manutenzione: il tetto del Grano stringe le grandi armate (~1 Grano ogni 15 uomini ogni 7 turni) → spinge verso il magazzino alto.
 
-## Manutenzione (strutture ogni 3 turni, truppe ogni 7) — IMPLEMENTATO (2026-11-20)
-Il regno paga il mantenimento in due blocchi, con **cadenze** e regole di attivazione diverse: **strutture ogni 3 turni** globali (3, 6, 9…), **truppe ogni 7 turni** globali (7, 14, 21…; regola dell'utente 2026-11-26). È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci.
+## Manutenzione (strutture ogni 4 turni, truppe ogni 7) — IMPLEMENTATO (2026-11-20)
+Il regno paga il mantenimento in due blocchi, con **cadenze** e regole di attivazione diverse: **strutture ogni 4 turni** globali (4, 8, 12…; regola dell'utente 2026-11-27, prima ogni 3), **truppe ogni 7 turni** globali (7, 14, 21…; regola dell'utente 2026-11-26). È il **sink strutturale** che frena gli imperi grandi: più possiedi, più bruci.
 
-### Strutture — ogni 3 turni, gated dallo scudo (attive solo da magazzino lvl 2+)
-| Voce | Costo ogni 3 turni |
+### Strutture — ogni 4 turni, gated dallo scudo (attive solo da magazzino lvl 2+)
+| Voce | Costo ogni 4 turni |
 |---|---|
 | Strade | 1 Pietra ogni 5 strade |
 | Capitale / Fortezza | 1 Pietra ciascuna |
@@ -117,8 +121,8 @@ Scelte prese in implementazione **[PROPOSTA, da confermare]** — il design non 
 - **Quando si vende l'eccedenza**: a **fine turno** di chi gioca (`endTurn`), non alla raccolta: il giocatore ha il turno intero per spendere, scambiare o ampliare.
 - **Come si conta l'eccedenza**: sommata su **tutti i tipi** (es. +2 Pietra e +2 Legno = 4 → 50 monete, 1 persa).
 - **Ampliamento**: azione della fase Costruisci (`upgradeWarehouse`), 1000 monete per livello. Il passaggio 1→2 chiede conferma e mostra il conto delle strutture che si accende.
-- **Quando si paga**: in `beginTurn` **dopo la raccolta** — strutture nei turni globali multipli di 3 (`UPKEEP_EVERY`, segnato in `manutenzione.turno`), truppe nei multipli di 7 (`TROOP_UPKEEP_EVERY`, segnato in `manutenzione.turnoTruppe`). Ordine di pagamento quando cadono insieme (21, 42…): truppe, poi Capitale → Città → Fortezze → Mercati → Velieri → Navi, strade per ultime.
-- **Struttura dormiente (💤) = resta in piedi ma non rende**: Capitale/Città niente tasse e niente +1 recluta (la Capitale dormiente tiene comunque in vita raccolta e Popolarità, se no non si potrebbe più pagare); Fortezza niente +5 (le mura difendono ancora); Mercato niente banca, carovane né rotte (la rotta risulta interrotta); Nave/Veliero non salpa, non sbarca e non collega isole.
+- **Quando si paga**: in `beginTurn` **dopo la raccolta** — strutture nei turni globali multipli di 4 (`UPKEEP_EVERY`, segnato in `manutenzione.turno`), truppe nei multipli di 7 (`TROOP_UPKEEP_EVERY`, segnato in `manutenzione.turnoTruppe`). Ordine di pagamento quando cadono insieme (28, 56…): truppe, poi Capitale → Città → Fortezze → Mercati → Velieri → Navi, strade per ultime.
+- **Struttura dormiente (💤) = resta in piedi ma non rende**: Capitale/Città niente tasse e niente +1 recluta (la Capitale dormiente tiene comunque in vita raccolta e Popolarità, se no non si potrebbe più pagare); Fortezza niente rinforzi (le mura difendono ancora); Mercato niente banca, carovane né rotte (la rotta risulta interrotta); Nave/Veliero non salpa, non sbarca e non collega isole.
 - **Riattivazione**: al conto successivo se le scorte bastano, o subito con **«Salda la manutenzione»** (fase Costruisci, 1 unità per struttura).
 - **Strade non pagate**: non vanno dormienti (spezzerebbero la rete e il raccolto con cui pagare): restano **dissestate** — niente strade nuove finché non si versa la Pietra.
 - **Debito delle truppe non si accumula**: a ogni conto riparte da quanto si deve adesso (il vecchio è già stato pagato in disertori). E **segue le bocche da sfamare**: se l'esercito scende sotto la soglia (14 fanti non chiedono Grano), il debito scende con lui e la diserzione si ferma. Ogni turno il debito aperto si salda da sé se le scorte lo permettono; se no diserta **1 fante** (Grano) e/o **1 cavaliere** (Bestiame), con la regola «Chi diserta» qui sopra (mercenari per primi).

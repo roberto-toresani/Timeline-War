@@ -45,13 +45,13 @@
         barca:       'Collega o espande verso province marittime e isole. Solo su costa.',
         capitale:    'La prima costa 500 monete e nessun uomo. Una sola per regno (spostabile per 500). Attiva raccolta e Popolarità, difesa +1, paga le tasse, +1 soldato/turno, dà una strada gratuita.',
         citta:       'Capitale secondaria: difesa +1, paga le tasse, +1 soldato/turno. Alla costruzione dà +1 Pietra.',
-        fortezza:    'Difesa +3. Ogni turno +5 soldati. Non dove c\'è già Capitale o Città.',
-        vascello:    'Movimento globale, senza limiti geografici. Solo su costa.',
+        fortezza:    'Difesa +2. Ogni turno +1 soldato nella sua provincia e +1 in ogni tua provincia confinante. Non dove c\'è già Capitale o Città.',
+        vascello:    'Solo su costa. Portata 170 negli oceani, 120 nei mari; porta 15 uomini.',
         mercato:     'Apre i commerci: scambio con l\'estero al rapporto 2:1 e trattative con gli altri regni.',
-        generale:    'Vale 2 soldati. Nella Capitale dà +1 alla Sicurezza.',
+        generale:    'In difesa della sua provincia vale 2 soldati (non cade in battaglia: muore solo se la provincia viene presa). Nella Capitale dà +1 alla Sicurezza. Negli spostamenti porta con sé quanti uomini vuoi (niente tetto di 5) e può muoversi 2 volte di fila nello stesso turno. La peste non lo colpisce.',
         mercenario:  '+1 soldato che resta per sempre, ma è di ventura: in battaglia vale meno di un suddito e quanto renda si sa solo sul campo (§9).',
         guarnigione: '+2 soldati di rinforzo: restano per sempre, sono truppe normali.',
-        cavaliere:   'Dal ciclo II (turno 11, anno 1100). +1 cavaliere che resta per sempre: in battaglia vale 1,45 fanti, ma all\'assalto delle mura rende meno di un fante (0,9 contro Città e Capitale, 0,7 contro una Fortezza). In difesa vale 1,45. In terreno chiuso (monti, foreste, paludi) ogni suo valore scende di un quarto. È un reparto a sé: in attacco, conquista e spostamento scegli quanti fanti e quanti cavalieri muovere.',
+        cavaliere:   'Dal ciclo II (turno 11, anno 1100). +1 cavaliere che resta per sempre: in attacco vale 1,4 fanti in campo aperto e 0,8 in terreno chiuso (monti, foreste, paludi); all\'assalto delle mura rende meno di un fante (0,75 contro Città e Capitale, 0,65 contro una Fortezza). In difesa vale 1, come un fante. È un reparto a sé: in attacco, conquista e spostamento scegli quanti fanti e quanti cavalieri muovere.',
         spia:        'Perlustra un territorio lontano: per 3 turni vedi di chi sono quella provincia e le sue limitrofe — le bandiere, non le guarnigioni (§9.3).'
     };
 
@@ -463,13 +463,13 @@
 
     // ---------- MANUTENZIONE (docs/regole/RISORSE_ECONOMIA.md §Manutenzione) ----------
     // Il regno paga il mantenimento in due blocchi, con cadenze diverse:
-    //   STRUTTURE — ogni 3 turni GLOBALI, solo da magazzino livello 2 (lo "scudo"
+    //   STRUTTURE — ogni 4 turni GLOBALI, solo da magazzino livello 2 (lo "scudo"
     //     dei regni nuovi: a livello 1 la manutenzione delle strutture è spenta);
     //   TRUPPE    — ogni 7 turni GLOBALI, sempre, a ogni livello: è il freno
     //     anti-valanga delle grandi armate.
     // Chi non paga una struttura la trova DORMIENTE (💤): resta in piedi ma non
     // rende. Chi non paga le truppe perde un disertore a turno finché non salda.
-    const UPKEEP_EVERY = 3;
+    const UPKEEP_EVERY = 4;   // regola dell'utente 2026-11-27 (prima 3)
     const UPKEEP_STRUCT = {
         capitale: { pietra: 1 },
         citta:    { argilla: 1 },
@@ -797,8 +797,18 @@
     }
 
     // Bonus difensivo della provincia in battaglia (§9): esclusivi, vince il maggiore.
+    // Fortezza +2 (regola dell'utente 2026-11-27, prima +3), Città/Capitale +1.
+    // battle.js riconosce la Fortezza da `fort >= FORT_BONUS` (valore del cavaliere).
+    const FORT_BONUS = 2;
+    // Il GENERALE vale 2 uomini in DIFESA della sua provincia (regola dell'utente
+    // 2026-11-27). Non sono mura: fanno morti e contano nel limite di conquista,
+    // ma non cadono (RisikoBattle, parametro `genD`). Uno per provincia.
+    const GENERAL_VALUE = 2;
+    function generalDefence(units) {
+        return units && units.generale > 0 ? GENERAL_VALUE : 0;
+    }
     function defenceBonus(units) {
-        if (units.fortezza > 0) return 3;
+        if (units.fortezza > 0) return FORT_BONUS;
         if (units.capitale > 0 || units.citta > 0) return 1;
         return 0;
     }
@@ -825,6 +835,38 @@
     function plagueTier(sanita) {
         const s = Math.max(0, Math.min(5, Math.floor(sanita || 0)));
         return PLAGUE_TIERS[s];
+    }
+
+    // CHI MUORE DI PESTE (regola dell'utente 2026-11-27): la peste non sceglie,
+    // colpisce soldati A CASO — i mercenari non cadono per primi come in
+    // battaglia, sono fanti come gli altri. I CAVALIERI fanno eccezione: dove i
+    // fanti sono almeno il TRIPLO dei cavalieri la peste non li tocca; altrimenti
+    // (fanti meno del triplo, pari, o cavalieri in maggioranza) ogni morto ha il
+    // 30% di probabilità di essere un cavaliere. Il Generale non è un soldato:
+    // la peste non lo colpisce mai. Il triplo si giudica UNA volta, sulla
+    // provincia com'è prima del contagio; poi si tira un morto alla volta.
+    // g = {n, merc, cav} della provincia → { merc, cav } caduti fra i `lost`.
+    const PLAGUE_KNIGHT_SAFE_RATIO = 3;
+    const PLAGUE_KNIGHT_CHANCE = 0.3;
+    function plagueVictims(g, lost, rng) {
+        rng = rng || Math.random;
+        let n = Math.max(0, Math.floor((g && g.n) || 0));
+        let cav = Math.max(0, Math.min(Math.floor((g && g.cav) || 0), n));
+        let merc = Math.max(0, Math.min(Math.floor((g && g.merc) || 0), n - cav));
+        lost = Math.max(0, Math.min(Math.floor(lost || 0), n));
+        const out = { merc: 0, cav: 0 };
+        const salvi = cav > 0 && (n - cav) >= PLAGUE_KNIGHT_SAFE_RATIO * cav;
+        for (let i = 0; i < lost; i++) {
+            const fanti = n - cav;
+            let cavaliere;
+            if (!cav || salvi) cavaliere = false;
+            else if (!fanti) cavaliere = true;
+            else cavaliere = rng() < PLAGUE_KNIGHT_CHANCE;
+            if (cavaliere) { cav--; out.cav++; }
+            else if (merc > 0 && rng() < merc / fanti) { merc--; out.merc++; }
+            n--;
+        }
+        return out;
     }
 
     // Costruzioni "grandi" che ricevono lo SCONTO in monete del tier 5 (§6.1). La
@@ -1004,7 +1046,7 @@
         TROOP_UPKEEP_EVERY, isTroopUpkeepTurn, nextTroopUpkeepTurn,
         troopUpkeep, upkeepBill,
         emptyScorte, formatCost, canAfford, missingText, spendableTroops,
-        connected, turnProduction, popEffectOf, defenceBonus, plagueTier,
+        connected, turnProduction, popEffectOf, defenceBonus, FORT_BONUS, GENERAL_VALUE, generalDefence, plagueTier, plagueVictims,
         joyTier, discountedCost, costFor
     };
 

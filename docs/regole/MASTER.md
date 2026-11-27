@@ -29,14 +29,20 @@ Isole: solo via nave (`seaLinksOf`). `pesteBlocco` blocca raccolta per 1 turno.
 | `CROCIATA_MINIMO` / `CROCIATA_FORZA` | 6 / 10 |
 | `ORDER_MAX_MARKS` | 24 |
 | `CHAT_KEEP` | 300 |
-| `SeaRoutes.RANGE` Nave / Veliero | 12 / 170 |
+| `SeaRoutes.RANGE` Nave / Veliero | 12 (18 nei mari) / 170 (120 nei mari) |
+| Bonus mura Città / Fortezza | +1 / +2 (`FORT_BONUS`) |
+| Generale in difesa | +2 uomini che non cadono (`GENERAL_VALUE`, `genD` in `battle.js`) |
+| Reclute Fortezza | +1 lì, +1 per ogni tua confinante |
+| Cavaliere (attacco aperto / chiuso / vs Città / vs Fortezza / difesa) | 1,4 / 0,8 / 0,75 / 0,65 / 1 |
+| `MERC_VALUE` / `MERC_SPREAD` | 1 / 0,25 |
+| Spostamenti (dal ciclo III) | 3 Tipo A (max 5 uomini) oppure 1 Tipo B a catena; col Generale niente tetto, 2 di fila |
 | `INNER_COST` Nave mari interni | 12–18 |
 | `KNIGHT_VALUE` / `MERC_VALUE` | vedi RISORSE_ECONOMIA |
 | Turno mongoli / grande passo | 21 / 36 |
 | Peste Nera | turni 35–40 |
 | Magazzino tetto per tipo (liv. 1/2/3) | 10 / 20 / 40 — +1000 monete a livello |
 | Eccedenza a fine turno | 50 monete ogni 3 (su tutti i tipi), resto perso |
-| Manutenzione | truppe ogni 7 turni, sempre (1 Grano/15 fanti, 1 Bestiame/5 cav.); strutture ogni 3 turni, da liv. 2 → `RISORSE_ECONOMIA.md` |
+| Manutenzione | truppe ogni 7 turni, sempre (1 Grano/15 fanti, 1 Bestiame/5 cav.); strutture ogni 4 turni, da liv. 2 → `RISORSE_ECONOMIA.md` |
 
 ## Corpi di spedizione (v1 solo umani)
 `B.corpiSpedizione = [{ id, prov, alleato, soldati, cav, merc }]` — struttura parallela su B, mai in `data-pieces`.

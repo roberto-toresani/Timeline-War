@@ -76,8 +76,8 @@
         return { total: payingCities * rate, cities: payingCities, rate };
     }
 
-    // Reclute a inizio turno (§5.1). La Fortezza vale 5 soldati (in alternativa 1
-    // Generale, a scelta: qui contiamo i 5 soldati).
+    // Reclute a inizio turno (§5.1). La Fortezza dà +1 lì e +1 in ogni tua
+    // provincia confinante (fortressYield).
     // La CAPITALE conta come Città anche qui: §6 dice che "conta come una Città a
     // tutti gli effetti ... +1 soldato/turno". Il §5.1 nomina solo le Città, ma è
     // un'abbreviazione — confermato dall'utente.
@@ -88,10 +88,32 @@
     //    Popolarità. Il giocatore le distribuisce come vuole fra le sue province,
     //    e finché è il suo turno può anche ritirarle e rimetterle altrove.
     //  - VINCOLATE: quelle prodotte da un edificio (Capitale +1, Città +1,
-    //    Fortezza +5). Nascono nella provincia dell'edificio e lì devono restare.
+    //    Fortezza +1 lì e +1 per confinante). Nascono nella provincia indicata e lì devono restare.
     // Il modificatore di Popolarità morde solo il mucchio libero (che non scende
     // sotto zero): non può cancellare la guarnigione di una Fortezza.
-    function reinforcements(provinceCount, units, popularity, grado, baseRisorse) {
+    // FORTEZZA (regola dell'utente 2026-11-27, prima +5 nella sua provincia):
+    // ogni turno +1 soldato nella provincia della Fortezza e +1 in OGNI provincia
+    // del regno che le confina via terra. Due Fortezze vicine sommano. Serve lo
+    // snapshot con `vicini` (id dei confinanti via terra); senza, conta solo la
+    // provincia della Fortezza. Ritorna { total, perProvincia: {id: n} }.
+    function fortressYield(provinces) {
+        const list = provinces || [];
+        const mine = new Set(list.map(p => p.id));
+        const perProvincia = {};
+        let total = 0;
+        const add = (id, n) => { perProvincia[id] = (perProvincia[id] || 0) + n; total += n; };
+        list.forEach(p => {
+            const forts = countUnits([p]).fortezza;
+            if (!forts) return;
+            add(p.id, forts);
+            (p.vicini || []).forEach(v => { if (v !== p.id && mine.has(v)) add(v, forts); });
+        });
+        return { total, perProvincia };
+    }
+
+    // `fortYield` (facoltativo) = reclute delle Fortezze già contate con
+    // fortressYield; omesso, 1 per Fortezza (senza conoscere i confinanti).
+    function reinforcements(provinceCount, units, popularity, grado, baseRisorse, fortYield) {
         const cities = units.citta + units.capitale;
         const fromProvinces = Math.floor(provinceCount / 3);
 
@@ -112,7 +134,7 @@
             };
         }
         const fromCities = cities;
-        const fromForts = units.fortezza * 5;
+        const fromForts = (fortYield != null) ? fortYield : units.fortezza;
         // Il traboccamento guarda i DUE canali, quindi serve anche il raccolto
         // di base: chi lo conosce (turnProduction) lo passa.
         const base = { militare: fromProvinces, produzione: baseRisorse || 0 };
@@ -129,7 +151,7 @@
         }
         breakdown.push(
             { label: cities + ' città (Capitale inclusa)', value: fromCities, vincolata: true },
-            { label: units.fortezza + (units.fortezza === 1 ? ' fortezza' : ' fortezze'), value: fromForts, vincolata: true }
+            { label: units.fortezza + (units.fortezza === 1 ? ' fortezza' : ' fortezze') + ' (+1 lì e +1 per tua confinante)', value: fromForts, vincolata: true }
         );
         const libere = Math.max(0, fromProvinces + fromPop);
         const vincolate = fromCities + fromForts;
@@ -141,11 +163,12 @@
     // Ritorna in più `perProvincia = { idProvincia: n }`.
     function reinforcementPlan(provinces, popularity, grado, baseRisorse) {
         const list = provinces || [];
-        const plan = reinforcements(list.length, countUnits(list), popularity, grado, baseRisorse);
+        const fy = fortressYield(list);
+        const plan = reinforcements(list.length, countUnits(list), popularity, grado, baseRisorse, fy.total);
         const perProvincia = {};
         list.forEach(p => {
             const u = countUnits([p]);
-            const n = u.capitale + u.citta + u.fortezza * 5;
+            const n = u.capitale + u.citta + (fy.perProvincia[p.id] || 0);
             if (n > 0) perProvincia[p.id] = n;
         });
         return Object.assign({}, plan, { perProvincia });
@@ -173,7 +196,7 @@
 
     const api = {
         TAX_INCOME, POP_EFFECT,
-        roundRule, popEffect, countUnits, income, reinforcements, reinforcementPlan,
+        roundRule, popEffect, countUnits, income, fortressYield, reinforcements, reinforcementPlan,
         resourceYield, resourceVariety
     };
 

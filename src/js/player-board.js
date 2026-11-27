@@ -141,6 +141,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let moveVessel = null;
     let moveVesselProv = null;
     let moveVesselAuto = true;
+    // Lo spostamento porta con sé il Generale della partenza? (regola
+    // dell'utente: niente tetto di 5 uomini, 2 spostamenti di fila). Si spegne
+    // da solo quando cambia la partenza (moveChoices).
+    let moveGeneral = false;
 
     // Stato dei moduli di commercio (§7): si tiene qui perché render() ricostruisce
     // l'HTML a ogni azione (anche dei bot) e i menù a tendina perderebbero la scelta.
@@ -2470,7 +2474,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderArmy(owned, units, pop, capitalPath, connectedSet) {
         setText('bp-prov-owned', owned.length);
         setText('bp-prov-connected', connectedSet.size);
-        const r = KingdomStats.reinforcements(owned.length, units, pop ? pop.totale : null);
+        // Fortezze: +1 lì e +1 in ogni tua confinante — servono i confinanti.
+        const fy = KingdomStats.fortressYield(owned.map(p => ({
+            id: p.id, pieces: R.piecesOf(p), vicini: R.engine.landNeighbors(p.id)
+        })));
+        const r = KingdomStats.reinforcements(owned.length, units, pop ? pop.totale : null, 0, 0, fy.total);
         // Nel cruscotto lo spazio è una riga sola: il nome della Capitale basta,
         // "Capitale:" davanti lo mangerebbe tutto (le capitali hanno nomi lunghi).
         // La guardia debole (≤5, §8) si segna qui con ⚠: prima stava nella
@@ -2688,8 +2696,8 @@ document.addEventListener('DOMContentLoaded', () => {
             (merc ? ' · ' + merc + '⚑' : '');
         troopsEl.title = fogged ? 'Territorio in nebbia'
             : (soldati + ' soldati' +
-               (cav ? ', di cui ' + cav + (cav === 1 ? ' cavaliere' : ' cavalieri') + ' (valgono 1,45 fanti, meno all\'assalto delle mura)' : '') +
-               (merc ? (cav ? ' e ' : ', di cui ') + merc + ' di ventura (rendono meno in battaglia)' : '') +
+               (cav ? ', di cui ' + cav + (cav === 1 ? ' cavaliere' : ' cavalieri') + ' (all\'attacco 1,4 fanti in campo aperto, meno fra i monti e contro le mura; in difesa 1)' : '') +
+               (merc ? (cav ? ' e ' : ', di cui ') + merc + ' di ventura (valgono un soldato, ma l\'esito è incerto)' : '') +
                (altro.length ? ' · ' + altro.join(', ') : ''));
         troopsEl.classList.toggle('extra', !fogged && (altro.length > 0 || merc > 0 || cav > 0));
 
@@ -3136,7 +3144,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // mappa e l'elenco devono accendere le stesse province.
     function moveChoices(player, path) {
         const all = GA().moveTargets(player, path.id);
-        if (moveVesselProv !== path.id) { moveVessel = null; moveVesselAuto = true; moveVesselProv = path.id; }
+        if (moveVesselProv !== path.id) { moveVessel = null; moveVesselAuto = true; moveVesselProv = path.id; moveGeneral = false; }
+        if (moveGeneral && !GA().generalCanMove(player, path.id)) moveGeneral = false;
         const flotta = [];
         R.engine.ships(path).forEach(h => { if (flotta.indexOf(h.tipo) < 0) flotta.push(h.tipo); });
         if (moveVessel && flotta.indexOf(moveVessel) < 0) moveVessel = null;
@@ -3148,13 +3157,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 moveVessel = utili.sort((a, b) => R.engine.shipCapacity(b) - R.engine.shipCapacity(a))[0];
             }
         }
+        // Col Generale: solo mete proprie, senza un altro Generale, e mai a catena.
+        const okGen = t => !moveGeneral ||
+            (!t.alleato && !t.viaCatena && !(R.countPiece(R.engine.path(t.id), 'generale') > 0));
         if (moveVessel) {
             const cap = R.engine.shipCapacity(moveVessel);
             return all.filter(t => t.scafi.indexOf(moveVessel) >= 0)
-                .map(t => Object.assign({}, t, { viaMare: true, scafo: moveVessel, carico: cap }));
+                .map(t => Object.assign({}, t, { viaMare: true, viaCatena: false, scafo: moveVessel, carico: cap }))
+                .filter(okGen);
         }
         return all.filter(t => t.viaTerra || t.viaCatena)
-            .map(t => Object.assign({}, t, { viaMare: false, scafo: null, carico: null }));
+            .map(t => Object.assign({}, t, { viaMare: false, scafo: null, carico: null }))
+            .filter(okGen);
     }
 
     // COMANDO DEL CORPO DI SPEDIZIONE (§Diplomazia): cliccando sulla mappa la
@@ -3512,7 +3526,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             }, () => run(GA().expeditionLand(player, exp.id, t.id)))));
                         return;
                     }
-                    const f = RisikoBattle.winForecast(exp.carico, (t.troops || 0) + (t.fort || 0),
+                    const f = RisikoBattle.winForecast(exp.carico, (t.troops || 0) + (t.fort || 0) + (t.gen || 0),
                         t.esponente, mercA, t.merc || 0, exp.cav || 0, t.cav || 0, t.fort || 0, t.terreno);
                     const p = Math.round(100 * f.p), banda = Math.round(100 * f.banda);
                     const bonus = t.fort ? ' +' + t.fort : '';
@@ -3632,7 +3646,8 @@ document.addEventListener('DOMContentLoaded', () => {
             text: squadText(n, f.cavA, ' truppa imbarcata', ' truppe') +
                 (occulto
                     ? ' contro difese ignote'
-                    : ' contro ' + t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori')) +
+                    : ' contro ' + t.troops + (t.fort ? ' difensori (+' + t.fort + ' dalle strutture)' : ' difensori') +
+                      (t.gen ? ' e un Generale, che vale ' + t.gen + ' uomini' : '')) +
                 ' · probabilità di conquista ' + (f.banda ? 'intorno al ' : '') + f.p + '%.' +
                 testoCariche + testoVentura + nota + (chargeNote(t, n) && !t.decisivo ? '' : testoSbarco) + testoPatto,
             ok: tradisce ? '⚔ Tradisci' : t.viaMare ? '⚓ Sbarca' : '⚔ Carica',
@@ -3681,15 +3696,24 @@ document.addEventListener('DOMContentLoaded', () => {
             ? (n === 1 ? ' Da adesso quel soldato è di ' : ' Da adesso quei soldati sono di ') +
               (t.owner || 'chi governa lì') + ': un rinforzo si dona, non si presta.'
             : '';
+        // Il Generale parte solo verso una tua provincia, mai a catena.
+        const conGen = moveGeneral && !t.alleato && !t.viaCatena && GA().generalCanMove(player, path.id);
+        const testoGen = conGen ? ' Parte anche il Generale: nessun tetto di uomini.' : '';
+        // QUANTI SPOSTAMENTI RESTANO (regola dell'utente): coerente col tipo.
+        // Tipo B (a catena, fra province non confinanti) chiude il movimento del
+        // turno; Tipo A ne lascia gli altri.
+        const dopo = t.viaCatena ? 0 : Math.max(0, (player.spostamentiRimasti || 1) - 1);
+        const testoResto = dopo > 0
+            ? ' Ne hai altri ' + dopo + '.'
+            : ' Non hai altri spostamenti.';
         R.confirm({
             title: (t.alleato ? 'Mandare rinforzi a ' : navale ? 'Rinforzare via nave ' : 'Spostare a ') +
                 t.label + '?',
             text: squadText(n, cav, ' soldato', ' soldati') + (n === 1 ? ' lascia ' : ' lasciano ') + R.provinceLabel(path) +
                 (navale ? (n === 1 ? ' e s\'imbarca' : ' e s\'imbarcano') : '') +
-                ' per ' + t.label + '.' + testoAlleato + testoNave +
-                ' È l\'unico spostamento del turno: dopo non se ne fanno altri.',
+                ' per ' + t.label + '.' + testoGen + testoAlleato + testoNave + testoResto,
             ok: navale ? '⚓ Imbarca' : t.alleato ? '🛡 Invia' : '➜ Sposta'
-        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, troopArg(n, cav), navale ? t.scafo : undefined)); });
+        }, () => { if (prima) prima(); run(GA().finalMove(player, path.id, t.id, troopArg(n, cav), navale ? t.scafo : undefined, conGen)); });
     }
 
     // INVIARE UN CORPO DI SPEDIZIONE (§Diplomazia): come un rinforzo, ma le truppe
@@ -3736,7 +3760,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!a) return { p: 0, min: 0, max: 0, banda: 0, mercA: 0, mercD: 0, cavA: 0, cavD: 0 };
         const mercA = from ? GA().mercEngagedWith(from.id, a, cav) : 0;
         const cavA = from ? GA().cavEngaged(from.id, a, cav) : 0;
-        const f = RisikoBattle.winForecast(a, (target.troops || 0) + (target.fort || 0),
+        const f = RisikoBattle.winForecast(a, (target.troops || 0) + (target.fort || 0) + (target.gen || 0),
             target.esponente, mercA, target.merc || 0, cavA, target.cav || 0, target.fort || 0,
             target.terreno);
         return {
@@ -3786,12 +3810,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (f.cavA) {
             const kv = f.kvA || RisikoBattle.KNIGHT_VALUE;
             parti.push(f.cavA + (f.cavA === 1 ? ' tuo cavaliere vale ' : ' tuoi cavalieri valgono ') + v(kv) +
-                (kv < 1 ? ' fanti l\'uno: contro le mura la carica non sfonda' : ' fanti l\'uno'));
+                (kv < 1
+                    ? (chiuso && kv >= (RisikoBattle.KNIGHT_TERRAIN.chiuso || 0.8)
+                        ? ' fanti l\'uno: fra monti e paludi la carica non c\'è'
+                        : ' fanti l\'uno: contro le mura la carica non sfonda')
+                    : ' fanti l\'uno'));
         }
         if (f.cavD) parti.push(f.cavD + (f.cavD === 1 ? ' cavaliere' : ' cavalieri') + ' a difesa (' +
-            v(f.kvD || RisikoBattle.KNIGHT_VALUE) + ' l\'uno)');
-        return '🐎 ' + parti.join(' · ') + '.' +
-            (chiuso ? ' Terreno chiuso: la cavalleria rende un quarto in meno.' : '');
+            v(f.kvD || RisikoBattle.KNIGHT_DEFENCE || 1) + ' l\'uno, come un fante)');
+        return '🐎 ' + parti.join(' · ') + '.';
     }
 
     // Etichetta del terreno di un bersaglio: '⛰ chiuso' / '≈ aperto'.
@@ -4147,12 +4174,41 @@ document.addEventListener('DOMContentLoaded', () => {
             box.appendChild(row);
         }
 
+        // ---- IL GENERALE (regola dell'utente) ----
+        // Se nella partenza c'è un Generale che può ancora muoversi, si sceglie
+        // qui se parte anche lui: con lui niente tetto di 5 uomini, e potrà
+        // rifare un secondo spostamento di fila dalla provincia d'arrivo.
+        if (R.countPiece(path, 'generale') > 0) {
+            const fatti = GA().generalMovesDone(player, path.id);
+            const maxG = GA().GENERAL_MOVES || 2;
+            const puo = GA().generalCanMove(player, path.id);
+            const grow = document.createElement('div');
+            grow.className = 'bp-vessels';
+            const gb = document.createElement('button');
+            gb.type = 'button';
+            gb.className = 'bp-vessel' + (moveGeneral ? ' on' : '');
+            gb.disabled = !puo;
+            gb.innerHTML = '<span class="bv-name">🎖 ' + (moveGeneral ? 'Col Generale' : 'Porta il Generale') + '</span>' +
+                '<span class="bv-sub">' + (puo
+                    ? 'quanti uomini vuoi, senza tetto · ' + (maxG - fatti) + ' di ' + maxG + ' spostamenti di fila'
+                    : 'ha già fatto i suoi ' + maxG + ' spostamenti') + '</span>';
+            gb.addEventListener('click', () => {
+                if (!puo) return;
+                moveGeneral = !moveGeneral;
+                closeOrder();
+                render();
+            });
+            grow.appendChild(gb);
+            box.appendChild(grow);
+        }
+
         // Cambiare partenza dev'essere un gesto, non un rompicapo: sulla mappa
         // basta ricliccare la provincia di partenza, ma quella è una scorciatoia
         // che nessuno indovina — qui c'è scritta.
         box.appendChild(actionButton('↩ Cambia partenza', 'scegli un\'altra provincia', null, () => {
             moveArmed = false;
             moveVessel = null;
+            moveGeneral = false;
             closeOrder();
             render();
         }));
@@ -7547,7 +7603,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------- schieramento automatico dei rinforzi obbligatori ----------
     // (richiesta dell'utente) I rinforzi OBBLIGATORI (Capitale +1, Città +1,
-    // Fortezza +5) hanno una destinazione sola: non c'è niente da decidere, e
+    // Fortezza +1 lì e +1 per confinante) hanno una destinazione sola: non c'è niente da decidere, e
     // nemmeno da confermare. A inizio turno si posano TUTTI da soli, senza
     // pop-up né avviso: il giocatore se li ritrova già al loro posto. Una
     // volta per turno.
