@@ -376,11 +376,19 @@ via banca** per quelli che non produci — quindi conviene costruire ampio **sol
 di risorse** (è la stessa logica con cui l'IA sceglie, `welfarePlan` in `bot.js`).
 
 **Perché costruire Sanità: la Peste Nera.** L'indice Sanità non alza solo il Benessere — è
-anche l'unica difesa contro l'evento storico della peste (turno 35-39, `js/events.js`):
+anche l'unica difesa contro l'evento storico della peste (turni 35-40 inclusi, `js/events.js`):
 `GameRules.plagueTier` legge le stesse 0-5 migliorie sulla Capitale e decide quanti uomini
-cadono ogni decennio (Capitale e/o provincia più popolosa) e se il raccolto di chi muore
-salta quel turno. Sotto le 2 migliorie l'epidemia è pesante, a 3 resta un colpo solo senza
-fermare il raccolto, a 4-5 il regno non perde nessuno.
+cadono ogni decennio e se il raccolto delle province colpite salta il turno dopo. Le
+"province più popolose" si contano escludendo Capitale e Città. Nessuno è immune:
+
+| Sanità | Capitale | ogni Città | province più popolose (no Capitale/Città) | raccolto |
+|---|---|---|---|---|
+| 0 | 3 | 2 | 2 in **tutte** | bloccato |
+| 1 | 3 | — | 2 nelle top 3 | bloccato |
+| 2 | 2 | 2 | 2 nelle top 3 | bloccato |
+| 3 | 1 | 2 | 2 nelle top 3 | libero |
+| 4 | 1 | 1 | 1 nelle top 3 | libero |
+| 5 | 1 | 1 | 1 nella più popolosa | libero |
 
 **Perché costruire Felicità: la Festa (e il suo rovescio, il Malcontento).** Permanente, non
 un evento a calendario: `GameRules.joyTier` legge le stesse 0-5 migliorie di Felicità e piega

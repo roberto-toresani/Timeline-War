@@ -4,7 +4,7 @@
 - `beginTurn`: raccoglie risorse e monete per il regno che inizia il turno.
 - Risorse connesse: solo province raggiungibili dalla Capitale (`connectedOf`).
 - Isole: solo se collegate via nave (`seaLinksOf`).
-- `pesteBlocco`: blocca la raccolta per il turno successivo alla Peste (turni 35-39).
+- `pesteBlocco`: blocca la raccolta per il turno successivo alla Peste (turni 35-40, Sanità 0-2).
 - `beginStamp`: idempotente — produzione fatta una volta sola per turno globale.
 
 ## Tipi di risorsa

@@ -1905,7 +1905,7 @@
                   n: { avanzare: 1 },
                   testo: () => 'Costruisci una Città nel tuo regno.',
                   check: n => `Città ≥ ${n}` },
-                { id: 'un4-3', tipo: 'crescita', titolo: 'La peste di Napoli', fisso: true,
+                { id: 'un4-3', tipo: 'crescita', titolo: 'La peste di Zagabria', fisso: true,
                   tmpl: 'sanita', arg: {},
                   n: { avanzare: 3 },
                   testo: n => `Costruisci ${n} migliorie di Sanità sulla Capitale: la Peste non fermerà più il raccolto.`,

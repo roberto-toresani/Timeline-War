@@ -42,8 +42,16 @@ Province: Tabriz, Urmia, Erzurum, Diyarbakir (6 uomini). Marcia → Terra Santa 
 - **Impero del Mali** (creato dall'admin, nessun evento): Equilibrato; `custodia` contro i Mori a sud della sua frontiera settentrionale.
 - **Norvegia+Svezia**: 10 uomini, Danimarca vietata, meta condivisa Finlandia.
 
-## Peste Nera (turni 35-39)
-Colpisce tutti i regni. `plagueTier(sanità)`: 0-1 → morti + blocco raccolta; 4-5 → immune.
+## Peste Nera (turni 35-40 inclusi)
+Colpisce tutti i regni, ogni turno; nessuno è immune. `plagueTier(sanità)` → uomini persi:
+| Sanità | Capitale | ogni Città | province più popolose (no Capitale/Città) | raccolto |
+|---|---|---|---|---|
+| 0 | 3 | 2 | 2 in **tutte** | bloccato |
+| 1 | 3 | — | 2 nelle top 3 | bloccato |
+| 2 | 2 | 2 | 2 nelle top 3 | bloccato |
+| 3 | 1 | 2 | 2 nelle top 3 | libero |
+| 4 | 1 | 1 | 1 nelle top 3 | libero |
+| 5 | 1 | 1 | 1 nella più popolosa | libero |
 `eventDecimate`: presidio minimo rispettato, mercenari cadono per primi.
 `pesteBlocco` su `player`: consumato in `beginTurn` del giro dopo.
 

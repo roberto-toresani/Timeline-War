@@ -163,7 +163,7 @@
     // conquista né un premio: è un peso uguale per tutti, e l'unica leva che il
     // giocatore ha per alleggerirlo è costruire ospedali — prima che bussi, o
     // mentre imperversa (dura abbastanza per poterci ancora rimediare).
-    const PESTE = { turno: 35, fino: 39 };
+    const PESTE = { turno: 35, fino: 40 };   // 35-40 inclusi (regola dell'utente)
 
     // LA PESTE — un giro: per ogni regno ANCORA IN GIOCO (ha province) legge le
     // migliorie di Sanità sulla sua Capitale e applica il piano che ne esce
@@ -184,10 +184,27 @@
             if (!piano) return;
             const esito = ctx.decimate(regno.name, piano);
             if (!esito || !esito.colpiti.length) return;
-            const dettagli = esito.colpiti
-                .map(c => (c.capitale ? 'la Capitale' : c.label) +
-                    ' (' + c.persi + (c.persi === 1 ? ' uomo' : ' uomini') + ')')
-                .join(' e ');
+            // Fino a 4 colpi si nominano uno per uno; oltre (Sanità 0 = tutte le
+            // province) si contano per gruppo, o la pergamena diventa un elenco.
+            const uomini = n => n + (n === 1 ? ' uomo' : ' uomini');
+            const c = esito.colpiti;
+            let dettagli;
+            if (c.length <= 4) {
+                dettagli = c.map(x => (x.capitale ? 'la Capitale' : x.label) + ' (' + uomini(x.persi) + ')')
+                    .join(', ').replace(/, ([^,]*)$/, ' e $1');
+            } else {
+                const parti = [];
+                const gruppo = (tipo, uno, tanti) => {
+                    const g = c.filter(x => x.tipo === tipo);
+                    if (!g.length) return;
+                    const tot = g.reduce((s, x) => s + x.persi, 0);
+                    parti.push((g.length === 1 ? uno : g.length + ' ' + tanti) + ' (' + uomini(tot) + ')');
+                };
+                gruppo('capitale', 'la Capitale', 'capitali');
+                gruppo('citta', '1 città', 'città');
+                gruppo('provincia', '1 provincia', 'province');
+                dettagli = parti.join(', ').replace(/, ([^,]*)$/, ' e $1');
+            }
             const bloccaTxt = piano.bloccaRaccolta
                 ? ' Le loro risorse non si raccolgono questo turno.' : '';
             ctx.notify(regno.name, {
@@ -195,7 +212,7 @@
                 titolo: esordio ? 'La Morte Nera' : 'La peste continua',
                 testo: (esordio ? 'La peste nera dilaga nel regno: cadono ' : 'La peste continua a mietere: cadono ')
                     + dettagli + '.' + bloccaTxt,
-                nota: 'Più migliorie di Sanità sulla Capitale, meno vittime — 4 bastano a fermarla.'
+                nota: 'Più migliorie di Sanità sulla Capitale, meno vittime — da 3 in su il raccolto non si ferma.'
             });
         });
     }

@@ -33,7 +33,7 @@ Isole: solo via nave (`seaLinksOf`). `pesteBlocco` blocca raccolta per 1 turno.
 | `INNER_COST` Nave mari interni | 12–18 |
 | `KNIGHT_VALUE` / `MERC_VALUE` | vedi RISORSE_ECONOMIA |
 | Turno mongoli / grande passo | 21 / 36 |
-| Peste Nera | turni 35–39 |
+| Peste Nera | turni 35–40 |
 | Magazzino tetto per tipo (liv. 1/2/3) | 10 / 20 / 40 — +1000 monete a livello |
 | Eccedenza a fine turno | 50 monete ogni 3 (su tutti i tipi), resto perso |
 | Manutenzione | truppe ogni 7 turni, sempre (1 Grano/15 fanti, 1 Bestiame/5 cav.); strutture ogni 3 turni, da liv. 2 → `RISORSE_ECONOMIA.md` |

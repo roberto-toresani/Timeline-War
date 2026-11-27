@@ -36,7 +36,7 @@ Asse **nobiltà ↔ popolo**: ogni scelta sposta l'ago.
 
 Lo sconto di risorsa non tocca mai i costi a un solo tipo (Strada, Nave, migliorie §6.1). `beginTurn` sorteggia i tipi scontati una volta a turno → `player.festaRisorse` / `festaMalus` / `festaBonusGrandi` (via `refreshFesta(player, true)`). Il piano si aggiorna **subito**, dentro il turno, quando cambiano le Felicità attive (costruzione/riattivazione, manutenzione, trasloco della Capitale): `refreshFesta(player, false)` tiene i sorteggi già fatti e aggiunge solo i tipi nuovi. `payConstruction` paga e basta (il costo è già piegato da `costFor`).
 
-## Impatto Peste Nera (turni 35-39)
-`plagueTier`: 0-1 → morti in Capitale e provincia più popolosa, blocco raccolta.
-`pesteBlocco` su `player`: blocca `beginTurn` della produzione per 1 turno.
-Sanità alta (4-5) → immune alla Peste.
+## Impatto Peste Nera (turni 35-40)
+`plagueTier`: morti in Capitale, Città e province più popolose; tabella in `EVENTI.md`.
+`pesteBlocco` su `player` (Sanità 0-2): blocca `beginTurn` della produzione per 1 turno.
+Nessuna Sanità rende immuni: a 5 cadono comunque 1 uomo in Capitale, 1 per Città, 1 nella più popolosa.

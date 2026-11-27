@@ -805,21 +805,22 @@
 
     // PESTE (evento storico, js/events.js): quanto costa un'epidemia dipende da
     // quante migliorie di SANITÀ (§6.1) il regno ha sulla Capitale — 0..5, la
-    // stessa lettura di popularityFactors. Più ospedali, meno vittime: sotto le 2
-    // migliorie muore gente anche in Capitale e le risorse di chi cade non si
-    // raccolgono quel turno; con 2 migliorie la Capitale è già al riparo; con 3
-    // resta un solo caduto, senza fermare il raccolto; con 4-5 il regno non
-    // perde nessuno. `escludeCapitale` dice se la "provincia più popolosa" va
-    // cercata FUORI dalla Capitale (che allora ha già il suo colpo a parte) o su
-    // tutto il regno insieme (tier 3: un colpo solo, dove capita). `null` = al
-    // riparo, l'evento non tocca nessuno.
+    // stessa lettura di popularityFactors. Nessun regno è immune: più ospedali,
+    // meno vittime (regola dell'utente, 2026-11-27). Ogni turno di peste:
+    //   capitale  uomini che cadono nella Capitale
+    //   citta     uomini che cadono in OGNI Città del regno (Capitale esclusa)
+    //   altre     uomini che cadono in ciascuna delle `top` province più
+    //             popolose — contate FUORI da Capitale e Città; `top: Infinity`
+    //             = tutte le province del regno
+    //   bloccaRaccolta  le province colpite non si raccolgono al turno dopo
+    // Il presidio minimo (§5) resta: le perdite non svuotano mai una provincia.
     const PLAGUE_TIERS = [
-        { capitale: 1, popolosa: 2, escludeCapitale: true, bloccaRaccolta: true },  // 0 migliorie
-        { capitale: 1, popolosa: 1, escludeCapitale: true, bloccaRaccolta: true },  // 1 miglioria
-        { capitale: 0, popolosa: 1, escludeCapitale: true, bloccaRaccolta: true },  // 2 migliorie
-        { capitale: 0, popolosa: 1, escludeCapitale: false, bloccaRaccolta: false }, // 3 migliorie
-        null,  // 4 migliorie: al riparo
-        null   // 5 migliorie: al riparo
+        { capitale: 3, citta: 2, altre: 2, top: Infinity, bloccaRaccolta: true },  // 0: tutte le province
+        { capitale: 3, citta: 0, altre: 2, top: 3, bloccaRaccolta: true },         // 1 miglioria
+        { capitale: 2, citta: 2, altre: 2, top: 3, bloccaRaccolta: true },         // 2 migliorie
+        { capitale: 1, citta: 2, altre: 2, top: 3, bloccaRaccolta: false },        // 3 migliorie
+        { capitale: 1, citta: 1, altre: 1, top: 3, bloccaRaccolta: false },        // 4 migliorie
+        { capitale: 1, citta: 1, altre: 1, top: 1, bloccaRaccolta: false }         // 5 migliorie
     ];
     function plagueTier(sanita) {
         const s = Math.max(0, Math.min(5, Math.floor(sanita || 0)));

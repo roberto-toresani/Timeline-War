@@ -1644,14 +1644,14 @@
     // PESTE (e ogni altro evento che falcidia un regno) — applica il PIANO
     // dell'evento (oggi GameRules.plagueTier, letto dal numero di migliorie di
     // Sanità sulla Capitale): `piano.capitale` uomini cadono in Capitale,
-    // `piano.popolosa` nella provincia con più soldati — esclusa la Capitale se
-    // `piano.escludeCapitale` (altrimenti la ricerca è su TUTTO il regno, ed è
-    // lecito che la più popolosa SIA la Capitale). Il presidio minimo (§5) vale
+    // `piano.citta` in ogni Città, `piano.altre` in ciascuna delle `piano.top`
+    // province con più soldati fra quelle che non sono né Capitale né Città
+    // (`top: Infinity` = tutte). Il presidio minimo (§5) vale
     // anche qui: le perdite non svuotano mai una provincia. Cadono per primi i
     // mercenari (§5.3), come in battaglia. Se `piano.bloccaRaccolta`, le
     // province colpite finiscono in `player.pesteBlocco`, letto e svuotato da
     // `beginTurn` alla prossima produzione di questo regno. Ritorna
-    // { regno, colpiti:[{prov,label,persi,capitale}] } o null se non è morto
+    // { regno, colpiti:[{prov,label,persi,capitale,tipo}] } o null se non è morto
     // nessuno davvero (province già al presidio minimo).
     function eventDecimate(regnoName, piano) {
         const p = piano || {};
@@ -1662,25 +1662,32 @@
         const capital = R().getCapitalPathFor(regno);
         const colpiti = [];
 
-        function strike(path, want, isCapital) {
+        function strike(path, want, tipo) {
             if (!path || want <= 0) return;
             const disp = GR().spendableTroops(E().countPiece(path, 'soldato'));
             const persi = Math.min(want, disp);
             if (persi <= 0) return;
             loseFromPath(path, persi);   // i mercenari cadono per primi (§5.3)
             E().redrawProvince(path);
-            colpiti.push({ prov: path.id, label: R().provinceLabel(path), persi, capitale: !!isCapital });
+            colpiti.push({ prov: path.id, label: R().provinceLabel(path), persi,
+                capitale: tipo === 'capitale', tipo });
         }
 
-        if (p.capitale > 0) strike(capital, p.capitale, true);
+        // Capitale → Città (ogni provincia con un seggio, Capitale esclusa) →
+        // le `top` province più popolose fra le restanti (né Capitale né Città).
+        const isCap = pp => !!(capital && pp.id === capital.id);
+        const isCitta = pp => !isCap(pp) &&
+            (E().countPiece(pp, 'citta') > 0 || E().countPiece(pp, 'capitale') > 0);
 
-        const pool = owned.filter(pp => !(p.escludeCapitale && capital && pp.id === capital.id));
-        let target = null, best = -1;
-        pool.forEach(pp => {
-            const n = E().countPiece(pp, 'soldato');
-            if (n > best) { best = n; target = pp; }
-        });
-        if (p.popolosa > 0) strike(target, p.popolosa, !!(capital && target && target.id === capital.id));
+        if (p.capitale > 0) strike(capital, p.capitale, 'capitale');
+        if (p.citta > 0) owned.filter(isCitta).forEach(pp => strike(pp, p.citta, 'citta'));
+        if (p.altre > 0 && p.top > 0) {
+            owned.filter(pp => !isCap(pp) && !isCitta(pp))
+                .map(pp => ({ pp, n: E().countPiece(pp, 'soldato') }))
+                .sort((a, b) => b.n - a.n)
+                .slice(0, p.top)
+                .forEach(x => strike(x.pp, p.altre, 'provincia'));
+        }
 
         if (!colpiti.length) return null;
         if (p.bloccaRaccolta) {
